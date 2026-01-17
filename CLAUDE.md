@@ -15,7 +15,7 @@ go build -o trustable-app main.go
 air
 ```
 
-The server runs on port 8080.
+The server runs on port 8910.
 
 ## Architecture
 
@@ -30,3 +30,4 @@ Each page is a separate applications, using tailwind and vanilla javascript for 
 - Otherwise, files are served from the embedded filesystem compiled into the binary (production mode)
 
 The `//go:embed web` directive embeds the entire `web/` directory into the binary at compile time.
+

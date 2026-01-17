@@ -1,4 +1,6 @@
-This file describes the backend api
+This file describes the backend api for repos.
+
+Put the code in the file `repo.go`
 
 # POST /api/repo
 `{
@@ -20,9 +22,9 @@ Performs the checks:
 
 Return a descriptive error if it fails.
 
-Tries to create the user with <name> and  <password> (8 alphanumeric characters) and store it in ~/.ops/<name>..password. Then create an user with:
+Tries to create the user with <name> and  <password> (8 alphanumeric characters) and store it in ~/.ops/<name>.password. Then create an user with:
 
-`ops admin adduser <name> <name>@n7s.co <password>`
+`ops admin adduser <name> <name>@n7s.co <password> --all`
 
 Return error if fails.
 
@@ -46,7 +48,7 @@ a `workspace/<name>/.env.<name>` with
 ```
 OPS_USER=<name>
 OPS_PASSWORD=<password>
-OPS_APIHOST=<apihost>
+OPS_APIHOST=https://<apihost>
 ```
 
 Finally, if there is a `workspace/<name>/package.json`
@@ -70,7 +72,7 @@ Delete the user with `ops admin delete <name>`
 
 Remove the folder  `workspace/<name>`
 
-Remove the password from ~/ops/<name>.password
+Remove the password from ~/.ops/<name>.password
 
 # GET /api/repo
 
@@ -84,16 +86,14 @@ git@github.com:nuvolaris/trustable-workspace
 use as <repo> nuvolaris/trustable-workspace
 
 If there is the file  workspace/<name>/.env.<name>,
-read it and set the <apihost> to the valule of `OPS_ARPIHOST=`
-otherwise <apihost> is empty
+read it and set the <apihost> to the value of `OPS_APIHOST=`,
+removing the prefix `https`, otherwise <apihost> is empty
 
-reuturn an array of
+return an array of
 
 `{
   "name: <name>
   "repo": <repo>
   "apihost" <apihost>
 }`
-
-
 

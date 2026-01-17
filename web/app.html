@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Application</title>
     <script src="tailwind.js"></script>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 h-screen flex flex-col">
     <!-- Top Bar (5% height) -->
@@ -14,16 +21,17 @@
             <span id="appName" class="font-semibold text-gray-800">Loading...</span>
         </div>
         <div class="ml-auto">
-            <a href="index.html"
+            <button onclick="goBack()"
                class="px-4 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors">
                 Back
-            </a>
+            </button>
         </div>
     </header>
 
-    <!-- Main Body (95% height) -->
-    <main class="flex-1 flex items-center justify-center">
-        <p class="text-gray-500 text-lg">application here</p>
+    <!-- Main Body (95% height) with two iframes -->
+    <main class="flex-1 flex" style="height: 95vh;">
+        <iframe id="leftFrame" class="w-1/2 h-full border-r-2 border-gray-400 bg-white" src="about:blank"></iframe>
+        <iframe id="rightFrame" class="w-1/2 h-full bg-white" src="about:blank"></iframe>
     </main>
 
     <script>
@@ -36,17 +44,51 @@
             return null;
         }
 
-        function loadApp() {
-            const appName = getCookie('currentApp');
+        function clearAppCookies() {
+            document.cookie = 'LEFT=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            document.cookie = 'RIGHT=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
+            document.cookie = 'NAME=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        }
 
-            if (!appName) {
-                document.getElementById('appName').textContent = 'No Application Selected';
+        async function goBack() {
+            try {
+                await fetch('/api/launch', {
+                    method: 'DELETE'
+                });
+            } catch (error) {
+                console.error('Failed to stop application:', error);
+            }
+
+            clearAppCookies();
+            window.location.href = 'index.html';
+        }
+
+        function loadApp() {
+            const appName = getCookie('NAME');
+            const leftPort = getCookie('LEFT');
+            const rightPort = getCookie('RIGHT');
+
+            console.log('Cookies:', { appName, leftPort, rightPort });
+
+            if (!appName || !leftPort || !rightPort) {
+                console.log('Missing cookies, redirecting to index.html');
                 window.location.href = 'index.html';
                 return;
             }
 
             document.getElementById('appName').textContent = appName;
             document.title = appName + ' - Trustable';
+
+            // Get current host (without port)
+            const currentHost = window.location.hostname;
+
+            // Set iframe sources
+            const leftUrl = `${window.location.protocol}//${currentHost}:${leftPort}`;
+            const rightUrl = `${window.location.protocol}//${currentHost}:${rightPort}`;
+            console.log('Loading iframes:', { leftUrl, rightUrl });
+
+            document.getElementById('leftFrame').src = leftUrl;
+            document.getElementById('rightFrame').src = rightUrl;
         }
 
         loadApp();
