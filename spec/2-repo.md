@@ -42,7 +42,7 @@ OPS_PASSWORD=<password>
 OPS_APIHOST=http://miniops.me
 ```
 
-If <apihost> exists and it si defined create
+If <apihost> exists and it is defined create
 a `workspace/<name>/.env.<name>` with
 
 ```

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["opencode.md"],
+  "enabled_providers": [
+    "ollama"
+  ],
+  "model": "ollama/qwen3-trustable:30b",
+  "small_model": "ollama/llama3.2:3b",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://ollama:11434/v1"
+      },
+      "models": {
+        "qwen3-trustable:30b": {
+          "name": "qwen3-trustable:30b",
+          "reasoning": false,
+        },
+        "llama3.2:3b": {
+          "name":  "llama3.2:3b",
+          "reasoning": false,
+        }
+      }
+    }
+  }
+}

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Application</title>
+    <title>Trustable App</title>
     <script src="tailwind.js"></script>
     <style>
         html, body {
@@ -13,85 +13,180 @@
         }
     </style>
 </head>
-<body class="bg-gray-100 h-screen flex flex-col">
-    <!-- Top Bar (5% height) -->
-    <header class="h-[5vh] min-h-[40px] bg-white shadow-sm flex items-center px-4">
+<body class="bg-gray-100 h-full flex flex-col">
+    <!-- Top Bar (10% height) -->
+    <div class="h-[10%] bg-white shadow-md flex items-center justify-between px-4">
         <div class="flex items-center gap-3">
-            <img src="trustable-logo.svg" alt="Trustable Logo" class="h-6 w-6">
-            <span id="appName" class="font-semibold text-gray-800">Loading...</span>
+            <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[90%]">
+            <h1 id="appName" class="text-xl font-bold text-gray-800"></h1>
         </div>
-        <div class="ml-auto">
+        <div class="flex items-center gap-3">
+            <button id="publishBtn" onclick="showPublishModal()"
+                class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
+                Publish
+            </button>
             <button onclick="goBack()"
-               class="px-4 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors">
+                class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
                 Back
             </button>
         </div>
-    </header>
+    </div>
 
-    <!-- Main Body (95% height) with two iframes -->
-    <main class="flex-1 flex" style="height: 95vh;">
-        <iframe id="leftFrame" class="w-1/2 h-full border-r-2 border-gray-400 bg-white" src="about:blank"></iframe>
-        <iframe id="rightFrame" class="w-1/2 h-full bg-white" src="about:blank"></iframe>
-    </main>
+    <!-- Body with two iframes (90% height) -->
+    <div class="h-[90%] flex">
+        <iframe id="leftFrame" class="w-1/2 h-full border-r border-gray-300"></iframe>
+        <iframe id="rightFrame" class="w-1/2 h-full"></iframe>
+    </div>
+
+    <!-- Publish Confirmation Modal -->
+    <div id="publishModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="publishSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 id="publishTitle" class="text-lg font-semibold mb-2">Publish Application</h3>
+            <p id="publishMessage" class="text-gray-600 mb-4">Are you sure you want to publish to <span id="publishApiHost" class="font-semibold"></span>?</p>
+            <div id="publishConfirmButtons" class="flex gap-3">
+                <button onclick="hidePublishModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmPublish()"
+                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Publish
+                </button>
+            </div>
+            <div id="publishResult" class="hidden">
+                <p id="publishResultText" class="mb-4"></p>
+                <button onclick="hidePublishModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
 
     <script>
+        // Read cookies
         function getCookie(name) {
             const value = `; ${document.cookie}`;
             const parts = value.split(`; ${name}=`);
-            if (parts.length === 2) {
-                return decodeURIComponent(parts.pop().split(';').shift());
-            }
+            if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
             return null;
         }
 
-        function clearAppCookies() {
-            document.cookie = 'LEFT=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
-            document.cookie = 'RIGHT=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
-            document.cookie = 'NAME=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        const leftPort = getCookie('LEFT');
+        const rightPort = getCookie('RIGHT');
+        const appName = getCookie('NAME');
+        const directory = getCookie('DIRECTORY');
+        const apiHost = getCookie('APIHOST');
+
+        // Set app name in title bar
+        document.getElementById('appName').textContent = appName || 'Unknown App';
+        document.title = `Trustable - ${appName || 'App'}`;
+
+        // Configure iframes with current site and ports
+        const currentHost = window.location.hostname;
+        if (leftPort) {
+            const leftUrl = `${window.location.protocol}//${currentHost}:${leftPort}`;
+            document.getElementById('leftFrame').src = directory ? `${leftUrl}?directory=${directory}` : leftUrl;
+        }
+        if (rightPort) {
+            document.getElementById('rightFrame').src = `${window.location.protocol}//${currentHost}:${rightPort}`;
+        }
+
+        // Disable publish button if APIHOST is not defined
+        const publishBtn = document.getElementById('publishBtn');
+        if (!apiHost) {
+            publishBtn.disabled = true;
+            publishBtn.title = 'No API Host configured';
+        }
+
+        // Set the API host in the modal
+        document.getElementById('publishApiHost').textContent = apiHost || '';
+
+        function showPublishModal() {
+            document.getElementById('publishSpinner').classList.add('hidden');
+            document.getElementById('publishTitle').textContent = 'Publish Application';
+            document.getElementById('publishMessage').classList.remove('hidden');
+            document.getElementById('publishConfirmButtons').classList.remove('hidden');
+            document.getElementById('publishResult').classList.add('hidden');
+            document.getElementById('publishModal').classList.remove('hidden');
+            document.getElementById('publishModal').classList.add('flex');
+        }
+
+        function hidePublishModal() {
+            document.getElementById('publishModal').classList.add('hidden');
+            document.getElementById('publishModal').classList.remove('flex');
+        }
+
+        async function confirmPublish() {
+            // Show loading state
+            document.getElementById('publishSpinner').classList.remove('hidden');
+            document.getElementById('publishMessage').classList.add('hidden');
+            document.getElementById('publishConfirmButtons').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/publish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: appName })
+                });
+
+                const data = await response.json();
+                document.getElementById('publishSpinner').classList.add('hidden');
+
+                if (response.ok && !data.error) {
+                    document.getElementById('publishResultText').textContent = data.message || data.output || 'Published successfully';
+                    document.getElementById('publishResultText').className = 'mb-4 text-green-600';
+                } else {
+                    document.getElementById('publishResultText').textContent = data.error || data.message || 'Publish failed';
+                    document.getElementById('publishResultText').className = 'mb-4 text-red-600';
+                }
+                document.getElementById('publishResult').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('publishSpinner').classList.add('hidden');
+                document.getElementById('publishResultText').textContent = error.message;
+                document.getElementById('publishResultText').className = 'mb-4 text-red-600';
+                document.getElementById('publishResult').classList.remove('hidden');
+            }
         }
 
         async function goBack() {
             try {
-                await fetch('/api/launch', {
-                    method: 'DELETE'
+                await fetch('/api/app', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
                 });
             } catch (error) {
-                console.error('Failed to stop application:', error);
+                console.error('Failed to stop app:', error);
             }
-
-            clearAppCookies();
             window.location.href = 'index.html';
         }
 
-        function loadApp() {
-            const appName = getCookie('NAME');
-            const leftPort = getCookie('LEFT');
-            const rightPort = getCookie('RIGHT');
-
-            console.log('Cookies:', { appName, leftPort, rightPort });
-
-            if (!appName || !leftPort || !rightPort) {
-                console.log('Missing cookies, redirecting to index.html');
-                window.location.href = 'index.html';
-                return;
+        // Close modal on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Only close if result is showing (has Continue button)
+                if (!document.getElementById('publishResult').classList.contains('hidden')) {
+                    hidePublishModal();
+                }
             }
+        });
 
-            document.getElementById('appName').textContent = appName;
-            document.title = appName + ' - Trustable';
-
-            // Get current host (without port)
-            const currentHost = window.location.hostname;
-
-            // Set iframe sources
-            const leftUrl = `${window.location.protocol}//${currentHost}:${leftPort}`;
-            const rightUrl = `${window.location.protocol}//${currentHost}:${rightPort}`;
-            console.log('Loading iframes:', { leftUrl, rightUrl });
-
-            document.getElementById('leftFrame').src = leftUrl;
-            document.getElementById('rightFrame').src = rightUrl;
-        }
-
-        loadApp();
+        // Close modal on backdrop click
+        document.getElementById('publishModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                // Only close if result is showing or confirm buttons are visible
+                if (!document.getElementById('publishResult').classList.contains('hidden') ||
+                    !document.getElementById('publishConfirmButtons').classList.contains('hidden')) {
+                    hidePublishModal();
+                }
+            }
+        });
     </script>
 </body>
 </html>

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -173,6 +174,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Terminate leftover processes
 	terminateLeftoverProcesses()
 
+	// Copy opencode.json and opencode.md to workspace folder (overwriting existing files)
+	for _, filename := range []string{"opencode.json", "opencode.md"} {
+		srcPath := filename
+		dstPath := filepath.Join(workspacePath, filename)
+		if data, err := os.ReadFile(srcPath); err == nil {
+			if err := os.WriteFile(dstPath, data, 0644); err != nil {
+				log.Printf("Warning: failed to copy %s: %s", filename, err)
+			}
+		} else {
+			log.Printf("Warning: %s not found: %s", filename, err)
+		}
+	}
+
 	// Run ops ide login
 	log.Printf("Running ops ide login for %s...", app)
 	loginCmd := exec.Command("ops", "ide", "login")
@@ -204,6 +218,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Dir = workspacePath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
+	// Set environment variables to disable Claude Code features
+	opencodeCmd.Env = append(os.Environ(),
+		"OPENCODE_DISABLE_CLAUDE_CODE=1",
+		"OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1",
+		"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1",
+	)
 	// Set process group so we can kill all child processes
 	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -298,10 +318,21 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
+	// Calculate URL-encoded absolute path of the app folder
+	absPath, err := filepath.Abs(workspacePath)
+	if err != nil {
+		killPgid(pgid)
+		removePgidFile()
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
+		return
+	}
+	encodedPath := url.PathEscape(absPath)
+
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
-	json.NewEncoder(w).Encode(map[string]int{
-		"left":  leftPort,
-		"right": rightPort,
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"left":      leftPort,
+		"right":     rightPort,
+		"directory": encodedPath,
 	})
 }
 

@@ -96,6 +96,37 @@
         </div>
     </div>
 
+    <!-- Reset Confirmation Modal -->
+    <div id="resetModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="resetSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-yellow-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 id="resetTitle" class="text-lg font-semibold mb-2">Reset Application</h3>
+            <p id="resetMessage" class="text-gray-600 mb-4">Are you sure you want to reset "<span id="resetAppName"></span>"?</p>
+            <div id="resetConfirmButtons" class="flex gap-3">
+                <button onclick="hideResetModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmReset()"
+                    class="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors">
+                    Reset
+                </button>
+            </div>
+            <div id="resetResult" class="hidden">
+                <p id="resetResultText" class="mb-4"></p>
+                <button onclick="hideResetModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Launching Modal -->
     <div id="launchModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
@@ -119,6 +150,7 @@
 
     <script>
         let appToDelete = null;
+        let appsData = [];
 
         function showAddModal() {
             document.getElementById('addModal').classList.remove('hidden');
@@ -145,10 +177,67 @@
             appToDelete = null;
         }
 
+        let appToReset = null;
+
+        function showResetModal(name) {
+            appToReset = name;
+            document.getElementById('resetAppName').textContent = name;
+            document.getElementById('resetSpinner').classList.add('hidden');
+            document.getElementById('resetMessage').classList.remove('hidden');
+            document.getElementById('resetConfirmButtons').classList.remove('hidden');
+            document.getElementById('resetResult').classList.add('hidden');
+            document.getElementById('resetModal').classList.remove('hidden');
+            document.getElementById('resetModal').classList.add('flex');
+        }
+
+        function hideResetModal() {
+            document.getElementById('resetModal').classList.add('hidden');
+            document.getElementById('resetModal').classList.remove('flex');
+            appToReset = null;
+        }
+
+        async function confirmReset() {
+            if (!appToReset) return;
+
+            // Show loading state
+            document.getElementById('resetSpinner').classList.remove('hidden');
+            document.getElementById('resetMessage').classList.add('hidden');
+            document.getElementById('resetConfirmButtons').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/git', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: appToReset,
+                        cmd: 'reset --force'
+                    })
+                });
+
+                const data = await response.json();
+                document.getElementById('resetSpinner').classList.add('hidden');
+
+                if (response.ok && !data.error) {
+                    document.getElementById('resetResultText').textContent = data.output || 'Reset completed successfully';
+                    document.getElementById('resetResultText').className = 'mb-4 text-green-600';
+                } else {
+                    document.getElementById('resetResultText').textContent = data.error || data.output || 'Reset failed';
+                    document.getElementById('resetResultText').className = 'mb-4 text-red-600';
+                }
+                document.getElementById('resetResult').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('resetSpinner').classList.add('hidden');
+                document.getElementById('resetResultText').textContent = error.message;
+                document.getElementById('resetResultText').className = 'mb-4 text-red-600';
+                document.getElementById('resetResult').classList.remove('hidden');
+            }
+        }
+
         async function loadApps() {
             try {
                 const response = await fetch('/api/repo');
                 const apps = await response.json();
+                appsData = apps || [];
                 renderApps(apps);
             } catch (error) {
                 console.error('Failed to load apps:', error);
@@ -175,6 +264,10 @@
                         <button onclick="launchApp('${escapeAttr(app.name)}')"
                             class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors">
                             Launch
+                        </button>
+                        <button onclick="showResetModal('${escapeAttr(app.name)}')"
+                            class="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
+                            Reset
                         </button>
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
                             class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors">
@@ -281,10 +374,17 @@
                     return;
                 }
 
-                // Save ports and name in cookies
+                // Save ports, name, and directory in cookies
                 document.cookie = `LEFT=${data.left};path=/`;
                 document.cookie = `RIGHT=${data.right};path=/`;
                 document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
+                document.cookie = `DIRECTORY=${data.directory};path=/`;
+
+                // Save apihost cookie if not empty
+                const app = appsData.find(a => a.name === name);
+                if (app && app.apihost) {
+                    document.cookie = `APIHOST=${encodeURIComponent(app.apihost)};path=/`;
+                }
 
                 window.location.href = 'app.html';
             } catch (error) {
@@ -297,6 +397,10 @@
             if (e.key === 'Escape') {
                 hideAddModal();
                 hideDeleteModal();
+                // Only close reset modal if result is showing (has Continue button)
+                if (!document.getElementById('resetResult').classList.contains('hidden')) {
+                    hideResetModal();
+                }
                 // Only close launch modal if error is showing (has Continue button)
                 if (!document.getElementById('launchError').classList.contains('hidden')) {
                     hideLaunchModal();
@@ -310,6 +414,12 @@
         });
         document.getElementById('deleteModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hideDeleteModal();
+        });
+        document.getElementById('resetModal').addEventListener('click', (e) => {
+            // Only close reset modal on backdrop click if result is showing
+            if (e.target === e.currentTarget && !document.getElementById('resetResult').classList.contains('hidden')) {
+                hideResetModal();
+            }
         });
         document.getElementById('launchModal').addEventListener('click', (e) => {
             // Only close launch modal on backdrop click if error is showing

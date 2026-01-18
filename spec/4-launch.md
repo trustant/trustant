@@ -17,10 +17,20 @@ invoke `DELETE /api/lanuch` to ensure the group is terminated
 If it is stll there, forcefully terminate the process group
 pointed by that file.
 
+## url encoded absolute path of the folder of the app
+
+Calculate the  <url-encoded-absolute-path-of-app>
+
+## configuration files
+
+Copy the files `opencode.json` and `opencode.md` in the folder `workspace/<name>`, overwriting exiting files.
+
+
 ## login
 
 Change to `workspace/<app>` folder
 and execute `ops ide login`
+
 
 If it terminates with 0 continue otherwise return error
 
@@ -46,6 +56,12 @@ Start opencode as
 opencode serve --port 4096 --hostname 0.0.0.0 --log-level DEBUG --print-logs
 ```
 
+settning the variables
+
+OPENCODE_DISABLE_CLAUDE_CODE=1
+OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1 #
+OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
+
 with out and err in stdout and stderr and get its process group.
 
 Ensure it does not terminate within .5 seconds
@@ -65,7 +81,8 @@ When ok, return
 
 `{
   "left" : <opencode-port>,
-  "right": <opsdeve-port>
+  "right": <opsdeve-port>,
+  "directory": <url-encoded-absolute-path-of-project>
 }`
 
 # DELETE /api/app

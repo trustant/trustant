@@ -24,6 +24,8 @@ func main() {
 	http.HandleFunc("/api/repo", handleRepo)
 	http.HandleFunc("/api/launch/", handleLaunch)
 	http.HandleFunc("/api/launch", handleLaunch)
+	http.HandleFunc("/api/git", handleGit)
+	http.HandleFunc("/api/publish", handlePublish)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {
