@@ -1,2 +1,4 @@
 workspace/
 tmp/
+.env.production
+

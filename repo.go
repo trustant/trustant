@@ -300,20 +300,48 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create .env file with default apihost
-	envContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=http://miniops.me\n", req.Name, req.Password)
+	// Create .env file with default apihost and required environment variables
+	envContent := fmt.Sprintf(`OPS_USER=%s
+OPS_PASSWORD=%s
+OPS_APIHOST=http://miniops.me
+OLLAMA_HOST=ollama
+OLLAMA_PROTO=http
+OLLAMA_TOKEN=dummy
+OPENAI_BASE_URL=http://ollama:11434/v1
+OPENAI_API_KEY=dummy
+OLLAMA_MODEL=gpt-oss:20b
+VITE_STREAM=http://stream.miniops.me
+`, req.Name, req.Password)
 	envPath := filepath.Join(workspacePath, ".env")
 	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
 		log.Printf("Warning: failed to create .env file: %s", err)
 	}
 
-	// Create .env.<name> file if apihost is provided
+	// Create .env.<name> file if apihost is provided and append .env.production content
 	if req.APIHost != "" {
 		envNameContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=https://%s\n", req.Name, req.Password, req.APIHost)
+
+		// Read .env.production from current directory and append it
+		if prodEnvData, err := os.ReadFile(".env.production"); err == nil {
+			envNameContent += string(prodEnvData)
+		} else {
+			log.Printf("Warning: failed to read .env.production: %s", err)
+		}
+
 		envNamePath := filepath.Join(workspacePath, ".env."+req.Name)
 		if err := os.WriteFile(envNamePath, []byte(envNameContent), 0600); err != nil {
 			log.Printf("Warning: failed to create .env.%s file: %s", req.Name, err)
 		}
+	}
+
+	// Copy .env.production to workspace/<name>/.env.production
+	if prodEnvData, err := os.ReadFile(".env.production"); err == nil {
+		destProdPath := filepath.Join(workspacePath, ".env.production")
+		if err := os.WriteFile(destProdPath, prodEnvData, 0600); err != nil {
+			log.Printf("Warning: failed to copy .env.production: %s", err)
+		}
+	} else {
+		log.Printf("Warning: failed to read .env.production for copying: %s", err)
 	}
 
 	// Run npm install if package.json exists

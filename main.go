@@ -12,12 +12,17 @@ import (
 var embeddedWeb embed.FS
 
 func main() {
+	// Run preflight checks
+	if err := runPreflight(); err != nil {
+		log.Fatalf("Preflight checks failed: %s", err)
+	}
+
 	// Ensure workspace directory exists
 	if err := os.MkdirAll("workspace", 0755); err != nil {
 		log.Printf("Warning: failed to create workspace directory: %s", err)
 	}
 
-	// Terminate any leftover processes from previous run
+	// Terminate any leftover processes from previous run (kept for backward compatibility)
 	terminateLeftoverProcesses()
 
 	// API routes

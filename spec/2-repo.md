@@ -40,6 +40,13 @@ Then creates a  `workspace/<name>/.env`  with
 OPS_USER=<name>
 OPS_PASSWORD=<password>
 OPS_APIHOST=http://miniops.me
+OLLAMA_HOST=ollama:11434
+OLLAMA_PROTO=http
+OLLAMA_TOKEN=dummy
+OPENAI_BASE_URL=http://ollama:11434/v1
+OPENAI_API_KEY=dummy
+OPENAI_MODEL=gpt-oss:20b
+VITE_STREAM=http://stream.miniops.me
 ```
 
 If <apihost> exists and it is defined create
@@ -50,6 +57,10 @@ OPS_USER=<name>
 OPS_PASSWORD=<password>
 OPS_APIHOST=https://<apihost>
 ```
+
+and append the content of the file `.env.production` in currrent directory.
+
+Copy the file .env.production in current `workspace/<name>/.env.production`
 
 Finally, if there is a `workspace/<name>/package.json`
 execute:
@@ -68,7 +79,7 @@ Return success
 
 Check if there is the folder `workspace/<name>`
 
-Delete the user with `ops admin delete <name>`
+Delete the user with `ops admin deleteuser <name>`
 
 Remove the folder  `workspace/<name>`
 

@@ -25,6 +25,10 @@
                 class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
                 Publish
             </button>
+            <button onclick="closeApp()"
+                class="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors">
+                Close
+            </button>
             <button onclick="goBack()"
                 class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
                 Back
@@ -152,6 +156,42 @@
                 document.getElementById('publishResultText').textContent = error.message;
                 document.getElementById('publishResultText').className = 'mb-4 text-red-600';
                 document.getElementById('publishResult').classList.remove('hidden');
+            }
+        }
+
+        async function closeApp() {
+            try {
+                // 1. Get the left iframe
+                const iframe = document.getElementById('leftFrame');
+
+                // 2. Access the iframe document (only works if same-origin)
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+
+                // 3. Click the menu button (the three dots "...")
+                const menuButton = iframeDoc.querySelector('.group\\/project button');
+                if (menuButton) {
+                    menuButton.click();
+
+                    // 4. Wait for the menu to open, then click "Close"
+                    setTimeout(() => {
+                        const closeItem = Array.from(iframeDoc.querySelectorAll('[role="menuitem"]'))
+                            .find(el => el.textContent.includes('Close'));
+
+                        if (closeItem) {
+                            closeItem.click();
+                        } else {
+                            console.error('Close menu item not found');
+                        }
+                    }, 100);
+                } else {
+                    console.error('Menu button not found');
+                }
+            } catch (error) {
+                console.error('Failed to close app:', error);
+                // If there's a cross-origin error, inform the user
+                if (error.name === 'SecurityError') {
+                    alert('Cannot access iframe content due to cross-origin restrictions');
+                }
             }
         }
 
