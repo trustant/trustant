@@ -27,6 +27,7 @@ func main() {
 
 	// API routes
 	http.HandleFunc("/api/repo", handleRepo)
+	http.HandleFunc("/api/upload", handleUpload)
 	http.HandleFunc("/api/launch/", handleLaunch)
 	http.HandleFunc("/api/launch", handleLaunch)
 	http.HandleFunc("/api/git", handleGit)

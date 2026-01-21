@@ -429,3 +429,84 @@ func handleRepo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
+
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse multipart form (max 32MB)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "Failed to parse multipart form", http.StatusInternalServerError)
+		return
+	}
+
+	// Get the name field
+	name := r.FormValue("name")
+	if name == "" {
+		http.Error(w, "Name field is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate name format to prevent path traversal
+	if !namePattern.MatchString(name) {
+		http.Error(w, "Invalid name format", http.StatusBadRequest)
+		return
+	}
+
+	// Check if workspace folder exists
+	workspacePath := filepath.Join("workspace", name)
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		http.Error(w, "Application not found", http.StatusNotFound)
+		return
+	}
+
+	// Get the file from the form
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "File field is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Extract filename and remove any path components
+	filename := filepath.Base(header.Filename)
+	if filename == "" || filename == "." || filename == ".." {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	// Create upload directory if necessary
+	uploadDir := filepath.Join(workspacePath, "upload")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "Failed to create upload directory", http.StatusInternalServerError)
+		return
+	}
+
+	// Create the destination file
+	destPath := filepath.Join(uploadDir, filename)
+	destFile, err := os.Create(destPath)
+	if err != nil {
+		http.Error(w, "Failed to create destination file", http.StatusInternalServerError)
+		return
+	}
+	defer destFile.Close()
+
+	// Copy the uploaded file to the destination
+	if _, err := io.Copy(destFile, file); err != nil {
+		http.Error(w, "Failed to save uploaded file", http.StatusInternalServerError)
+		return
+	}
+
+	// Return the absolute path of the uploaded file
+	absPath, err := filepath.Abs(destPath)
+	if err != nil {
+		http.Error(w, "Failed to get absolute path", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(absPath))
+}

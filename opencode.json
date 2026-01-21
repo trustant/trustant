@@ -13,13 +13,17 @@
         "baseURL": "http://localhost:11434/v1"
       },
       "models": {
-        "qwen3-trustable:30b": {
-          "name": "qwen3-trustable:30b",
+        "trustable-qwen3-coder:30b": {
+          "name": "trustable-qwen3-coder:30b",
           "reasoning": false
         },
-        "llama3.2:3b": {
-          "name":  "llama3.2:3b",
+        "trustable-llama3.2:3b": {
+          "name":  "trustable-llama3.2:3b",
           "reasoning": false
+        },
+        "trustable-gpt-oss:20b": {
+          "name":  "trustable-gpt-oss:20b",
+          "reasoning": true
         }
       }
     }

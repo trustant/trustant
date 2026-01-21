@@ -25,10 +25,11 @@
                 class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
                 Publish
             </button>
-            <button onclick="closeApp()"
-                class="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors">
-                Close
+            <button onclick="triggerUpload()"
+                class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                Upload
             </button>
+            <input type="file" id="fileInput" class="hidden" onchange="handleFileUpload(event)">
             <button onclick="goBack()"
                 class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
                 Back
@@ -68,6 +69,47 @@
                 <button onclick="hidePublishModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="uploadSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-green-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-gray-600">Uploading...</p>
+            </div>
+            <div id="uploadResult" class="hidden">
+                <h3 class="text-lg font-semibold mb-2">File Uploaded</h3>
+                <p class="text-gray-600 mb-2">File path:</p>
+                <div class="flex items-center gap-2 mb-4">
+                    <input type="text" id="uploadedFilePath" readonly
+                        class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono">
+                    <button onclick="copyFilePath()"
+                        class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                        title="Copy to clipboard">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                    </button>
+                </div>
+                <p id="copyFeedback" class="text-green-600 text-sm mb-2 hidden">Copied to clipboard!</p>
+                <button onclick="hideUploadModal()"
+                    class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                    Close
+                </button>
+            </div>
+            <div id="uploadError" class="hidden">
+                <h3 class="text-lg font-semibold mb-2 text-red-600">Upload Failed</h3>
+                <p id="uploadErrorText" class="text-red-600 mb-4"></p>
+                <button onclick="hideUploadModal()"
+                    class="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                    Close
                 </button>
             </div>
         </div>
@@ -159,42 +201,6 @@
             }
         }
 
-        async function closeApp() {
-            try {
-                // 1. Get the left iframe
-                const iframe = document.getElementById('leftFrame');
-
-                // 2. Access the iframe document (only works if same-origin)
-                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-
-                // 3. Click the menu button (the three dots "...")
-                const menuButton = iframeDoc.querySelector('.group\\/project button');
-                if (menuButton) {
-                    menuButton.click();
-
-                    // 4. Wait for the menu to open, then click "Close"
-                    setTimeout(() => {
-                        const closeItem = Array.from(iframeDoc.querySelectorAll('[role="menuitem"]'))
-                            .find(el => el.textContent.includes('Close'));
-
-                        if (closeItem) {
-                            closeItem.click();
-                        } else {
-                            console.error('Close menu item not found');
-                        }
-                    }, 100);
-                } else {
-                    console.error('Menu button not found');
-                }
-            } catch (error) {
-                console.error('Failed to close app:', error);
-                // If there's a cross-origin error, inform the user
-                if (error.name === 'SecurityError') {
-                    alert('Cannot access iframe content due to cross-origin restrictions');
-                }
-            }
-        }
-
         async function goBack() {
             try {
                 await fetch('/api/app', {
@@ -207,12 +213,93 @@
             window.location.href = 'index.html';
         }
 
+        // Upload functions
+        function triggerUpload() {
+            document.getElementById('fileInput').click();
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Reset the file input so the same file can be uploaded again
+            event.target.value = '';
+
+            // Show modal with spinner
+            showUploadModal();
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('name', appName);
+
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const filePath = await response.text();
+                    document.getElementById('uploadSpinner').classList.add('hidden');
+                    document.getElementById('uploadedFilePath').value = filePath;
+                    document.getElementById('uploadResult').classList.remove('hidden');
+                } else {
+                    const errorText = await response.text();
+                    document.getElementById('uploadSpinner').classList.add('hidden');
+                    document.getElementById('uploadErrorText').textContent = errorText || 'Upload failed';
+                    document.getElementById('uploadError').classList.remove('hidden');
+                }
+            } catch (error) {
+                document.getElementById('uploadSpinner').classList.add('hidden');
+                document.getElementById('uploadErrorText').textContent = error.message;
+                document.getElementById('uploadError').classList.remove('hidden');
+            }
+        }
+
+        function showUploadModal() {
+            document.getElementById('uploadSpinner').classList.remove('hidden');
+            document.getElementById('uploadResult').classList.add('hidden');
+            document.getElementById('uploadError').classList.add('hidden');
+            document.getElementById('copyFeedback').classList.add('hidden');
+            document.getElementById('uploadModal').classList.remove('hidden');
+            document.getElementById('uploadModal').classList.add('flex');
+        }
+
+        function hideUploadModal() {
+            document.getElementById('uploadModal').classList.add('hidden');
+            document.getElementById('uploadModal').classList.remove('flex');
+        }
+
+        async function copyFilePath() {
+            const filePath = document.getElementById('uploadedFilePath').value;
+            try {
+                await navigator.clipboard.writeText(filePath);
+                document.getElementById('copyFeedback').classList.remove('hidden');
+                setTimeout(() => {
+                    document.getElementById('copyFeedback').classList.add('hidden');
+                }, 2000);
+            } catch (error) {
+                // Fallback for older browsers
+                document.getElementById('uploadedFilePath').select();
+                document.execCommand('copy');
+                document.getElementById('copyFeedback').classList.remove('hidden');
+                setTimeout(() => {
+                    document.getElementById('copyFeedback').classList.add('hidden');
+                }, 2000);
+            }
+        }
+
         // Close modal on escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                // Only close if result is showing (has Continue button)
+                // Only close publish modal if result is showing (has Continue button)
                 if (!document.getElementById('publishResult').classList.contains('hidden')) {
                     hidePublishModal();
+                }
+                // Close upload modal if result or error is showing
+                if (!document.getElementById('uploadResult').classList.contains('hidden') ||
+                    !document.getElementById('uploadError').classList.contains('hidden')) {
+                    hideUploadModal();
                 }
             }
         });
@@ -224,6 +311,16 @@
                 if (!document.getElementById('publishResult').classList.contains('hidden') ||
                     !document.getElementById('publishConfirmButtons').classList.contains('hidden')) {
                     hidePublishModal();
+                }
+            }
+        });
+
+        document.getElementById('uploadModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                // Only close if result or error is showing (not during upload)
+                if (!document.getElementById('uploadResult').classList.contains('hidden') ||
+                    !document.getElementById('uploadError').classList.contains('hidden')) {
+                    hideUploadModal();
                 }
             }
         });

@@ -108,3 +108,15 @@ return an array of
   "apihost" <apihost>
 }`
 
+
+# POST /api/upload
+
+- accepting a multipart form-data with a file field `file` and a text field `name`
+@- this commnd should accept an attached file 
+- extact the <filename> from the file field and remove any path
+- save it in workspace/<name>/upload/<filename>
+- create the upload folder if necessary,
+- overwrite exiting files with the same name
+- return the complete absolute path of the uloaded file 200
+- or 500 if any errpor
+
