@@ -218,12 +218,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Dir = workspacePath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
-	// Set environment variables to disable Claude Code features
-	opencodeCmd.Env = append(os.Environ(),
-		"OPENCODE_DISABLE_CLAUDE_CODE=1",
-		"OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1",
-		"OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1",
-	)
 	// Set process group so we can kill all child processes
 	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

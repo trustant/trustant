@@ -10,5 +10,5 @@ and the models listed as keys in provider.ollama.models
 3. for each model execute a simple non streamin request "hello" 
 4. wait up to 60 seconds,
 5. if you do not receive an answer  restart the container ollama executing
-`docker exec restart ollama`
+`docker restart ollama`
 6. retry once from step 1, othewise wait until you get Ollama is running, otherwise terminate with an error

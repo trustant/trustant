@@ -10,16 +10,16 @@
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
       "options": {
-        "baseURL": "http://ollama:11434/v1"
+        "baseURL": "http://localhost:11434/v1"
       },
       "models": {
         "qwen3-trustable:30b": {
           "name": "qwen3-trustable:30b",
-          "reasoning": false,
+          "reasoning": false
         },
         "llama3.2:3b": {
           "name":  "llama3.2:3b",
-          "reasoning": false,
+          "reasoning": false
         }
       }
     }

@@ -56,12 +56,6 @@ Start opencode as
 opencode serve --port 4096 --hostname 0.0.0.0 --log-level DEBUG --print-logs
 ```
 
-settning the variables
-
-OPENCODE_DISABLE_CLAUDE_CODE=1
-OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1 #
-OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
-
 with out and err in stdout and stderr and get its process group.
 
 Ensure it does not terminate within .5 seconds
