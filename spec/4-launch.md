@@ -1,10 +1,10 @@
 This file describes the api for launching.
 Put the code in the file `launch.go`
 
-# GET /api/launch/<app>
+# GET /api/launch/<name>
 
 When invoking this api it should check the folder
-workspace/<app> exists, if not and return
+workspace/<name> exists, if not and return
 
 ```
 { "error": <error> }
@@ -14,6 +14,7 @@ workspace/<app> exists, if not and return
 
 Then, check if exists a `workspace/pgid` file
 invoke `DELETE /api/lanuch` to ensure the group is terminated
+
 If it is stll there, forcefully terminate the process group
 pointed by that file.
 
@@ -25,12 +26,37 @@ Calculate the  <url-encoded-absolute-path-of-app>
 
 Copy the files `opencode.json` and `opencode.md` in the folder `workspace/<name>`, overwriting exiting files.
 
+## create the .env
+
+Retrieve the <password> with
+
+```
+ops util kubeget whiskuser/<name> .spec.password
+```
+
+Calulate the <streamer> looking at the `Host` header,
+expects it to be `<protocol>://tru.<domain>[:<port>]/<path>`
+and calculate the <streamer> as `<protocol>://stream.<domain>`
+
+Then creates a  `workspace/<name>/.env`  with
+
+```
+OPS_USER=<name>
+OPS_PASSWORD=<password>
+OPS_APIHOST=http://miniops.me
+OLLAMA_HOST=ollama:11434
+OLLAMA_PROTO=http
+OLLAMA_TOKEN=dummy
+OPENAI_BASE_URL=http://ollama:11434/v1
+OPENAI_API_KEY=dummy
+OPENAI_MODEL=gpt-oss:20b
+VITE_STREAM=http://stream.miniops.me
+```
 
 ## login
 
 Change to `workspace/<app>` folder
 and execute `ops ide login`
-
 
 If it terminates with 0 continue otherwise return error
 
@@ -84,3 +110,7 @@ When ok, return
 Terminate forcefully the process group you started
 and written in `workspace/pgid`
 Delete the file `workspace/pgid`.
+
+
+
+

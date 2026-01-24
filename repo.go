@@ -202,6 +202,17 @@ func parseEnvAPIHost(envContent string) string {
 	return ""
 }
 
+// calculateStreamerURL adds "stream." to the domain of the apihost URL
+// Example: nuvolaris.org -> http://stream.nuvolaris.org
+func calculateStreamerURL(apihost string) string {
+	// Remove any protocol prefix if present
+	host := strings.TrimPrefix(apihost, "https://")
+	host = strings.TrimPrefix(host, "http://")
+
+	// Add stream. prefix to the host
+	return fmt.Sprintf("http://stream.%s", host)
+}
+
 func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string `json:"name"`
@@ -269,21 +280,28 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store password
-	passwordFile := filepath.Join(opsDir, req.Name+".password")
-	if err := os.WriteFile(passwordFile, []byte(req.Password), 0600); err != nil {
-		http.Error(w, "Failed to store password", http.StatusInternalServerError)
-		return
+	// Try to retrieve existing password with ops util kubeget
+	localPassword := req.Password
+	kubegetCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+req.Name, ".spec.password")
+	if output, err := kubegetCmd.Output(); err == nil {
+		// User exists, use the retrieved password
+		localPassword = strings.TrimSpace(string(output))
+		log.Printf("User %s exists, using existing password", req.Name)
+	} else {
+		// User doesn't exist, create the user
+		email := req.Name + "@n7s.co"
+		addUserCmd := exec.Command("ops", "admin", "adduser", req.Name, email, localPassword, "--all")
+		if output, err := addUserCmd.CombinedOutput(); err != nil {
+			log.Printf("Failed to add user: %s, output: %s", err, string(output))
+			http.Error(w, fmt.Sprintf("Failed to create user: %s", string(output)), http.StatusInternalServerError)
+			return
+		}
 	}
 
-	// Create user with ops admin adduser
-	email := req.Name + "@n7s.co"
-	addUserCmd := exec.Command("ops", "admin", "adduser", req.Name, email, req.Password, "--all")
-	if output, err := addUserCmd.CombinedOutput(); err != nil {
-		// Clean up password file
-		os.Remove(passwordFile)
-		log.Printf("Failed to add user: %s, output: %s", err, string(output))
-		http.Error(w, fmt.Sprintf("Failed to create user: %s", string(output)), http.StatusInternalServerError)
+	// Store password
+	passwordFile := filepath.Join(opsDir, req.Name+".password")
+	if err := os.WriteFile(passwordFile, []byte(localPassword), 0600); err != nil {
+		http.Error(w, "Failed to store password", http.StatusInternalServerError)
 		return
 	}
 
@@ -292,7 +310,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
 		// Clean up: delete user and password file
-		deleteUserCmd := exec.Command("ops", "admin", "delete", req.Name)
+		deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
 		deleteUserCmd.Run()
 		os.Remove(passwordFile)
 		log.Printf("Failed to clone repo: %s, output: %s", err, string(output))
@@ -311,37 +329,37 @@ OPENAI_BASE_URL=http://ollama:11434/v1
 OPENAI_API_KEY=dummy
 OLLAMA_MODEL=gpt-oss:20b
 VITE_STREAM=http://stream.miniops.me
-`, req.Name, req.Password)
+`, req.Name, localPassword)
 	envPath := filepath.Join(workspacePath, ".env")
 	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
 		log.Printf("Warning: failed to create .env file: %s", err)
 	}
 
-	// Create .env.<name> file if apihost is provided and append .env.production content
+	// Create .env.<name> file if apihost is provided
 	if req.APIHost != "" {
-		envNameContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=https://%s\n", req.Name, req.Password, req.APIHost)
+		envNameContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=https://%s\n", req.Name, localPassword, req.APIHost)
 
-		// Read .env.production from current directory and append it
-		if prodEnvData, err := os.ReadFile(".env.production"); err == nil {
-			envNameContent += string(prodEnvData)
+		// Read .env from current directory and append it
+		if envData, err := os.ReadFile(".env"); err == nil {
+			envNameContent += string(envData)
 		} else {
-			log.Printf("Warning: failed to read .env.production: %s", err)
+			log.Printf("Warning: failed to read .env: %s", err)
 		}
 
 		envNamePath := filepath.Join(workspacePath, ".env."+req.Name)
 		if err := os.WriteFile(envNamePath, []byte(envNameContent), 0600); err != nil {
 			log.Printf("Warning: failed to create .env.%s file: %s", req.Name, err)
 		}
-	}
 
-	// Copy .env.production to workspace/<name>/.env.production
-	if prodEnvData, err := os.ReadFile(".env.production"); err == nil {
+		// Calculate <streamer> by adding "stream." to the domain of apihost
+		streamer := calculateStreamerURL(req.APIHost)
+
+		// Create .env.production with VITE_STREAM
+		prodEnvContent := fmt.Sprintf("VITE_STREAM=%s\n", streamer)
 		destProdPath := filepath.Join(workspacePath, ".env.production")
-		if err := os.WriteFile(destProdPath, prodEnvData, 0600); err != nil {
-			log.Printf("Warning: failed to copy .env.production: %s", err)
+		if err := os.WriteFile(destProdPath, []byte(prodEnvContent), 0600); err != nil {
+			log.Printf("Warning: failed to create .env.production: %s", err)
 		}
-	} else {
-		log.Printf("Warning: failed to read .env.production for copying: %s", err)
 	}
 
 	// Run npm install if package.json exists
@@ -393,8 +411,8 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete user with ops admin delete
-	deleteUserCmd := exec.Command("ops", "admin", "delete", req.Name)
+	// Delete user with ops admin deleteuser
+	deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
 	if output, err := deleteUserCmd.CombinedOutput(); err != nil {
 		log.Printf("Warning: failed to delete user: %s, output: %s", err, string(output))
 		// Continue anyway to clean up the workspace

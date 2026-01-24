@@ -14,4 +14,4 @@ ops ai
 n lts
 g i 1.25.6
 go install github.com/air-verse/air@latest
-test -e .env.production || echo "Please create a .env.production file based on .env.production.dist and fill in the required environment variables."
+test -e .env || echo "Please create a .env.production file based on .env.dist and fill in the required environment variables."

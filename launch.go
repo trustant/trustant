@@ -23,6 +23,38 @@ const (
 	defaultDevPort = 8080
 )
 
+// calculateStreamerFromHost calculates the streamer URL from the Host header
+// Expects Host to be tru.<domain>[:<port>] and calculates streamer as <protocol>://stream.<domain>
+func calculateStreamerFromHost(r *http.Request) string {
+	host := r.Host
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	// Also check X-Forwarded-Proto header for reverse proxy setups
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+
+	// Remove port if present
+	hostWithoutPort := host
+	if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+		// Check if this is not part of IPv6 address
+		if bracketIdx := strings.LastIndex(host, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
+			hostWithoutPort = host[:colonIdx]
+		}
+	}
+
+	// Replace "tru." prefix with "stream."
+	if strings.HasPrefix(hostWithoutPort, "tru.") {
+		domain := strings.TrimPrefix(hostWithoutPort, "tru.")
+		return fmt.Sprintf("%s://stream.%s", scheme, domain)
+	}
+
+	// Fallback: just prepend stream. to the domain
+	return fmt.Sprintf("%s://stream.%s", scheme, hostWithoutPort)
+}
+
 // detectVitePort scans vite.config.js or vite.config.ts for a port configuration
 // Returns the detected port or 8080 as default
 func detectVitePort(workspacePath string) int {
@@ -173,6 +205,40 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	// Terminate leftover processes
 	terminateLeftoverProcesses()
+
+	// Retrieve password using ops util kubeget
+	log.Printf("Retrieving password for %s...", app)
+	passwordCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+app, ".spec.password")
+	passwordOutput, err := passwordCmd.Output()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to retrieve password: %s", err)})
+		return
+	}
+	password := strings.TrimSpace(string(passwordOutput))
+
+	// Calculate streamer URL from Host header
+	// Expects Host to be <protocol>://tru.<domain>[:<port>]/<path>
+	// Calculate streamer as <protocol>://stream.<domain>
+	streamer := calculateStreamerFromHost(r)
+
+	// Create .env file in workspace/<app>
+	envContent := fmt.Sprintf(`OPS_USER=%s
+OPS_PASSWORD=%s
+OPS_APIHOST=http://miniops.me
+OLLAMA_HOST=ollama:11434
+OLLAMA_PROTO=http
+OLLAMA_TOKEN=dummy
+OPENAI_BASE_URL=http://ollama:11434/v1
+OPENAI_API_KEY=dummy
+OPENAI_MODEL=gpt-oss:20b
+VITE_STREAM=%s
+`, app, password, streamer)
+	envPath := filepath.Join(workspacePath, ".env")
+	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create .env file: %s", err)})
+		return
+	}
+	log.Printf("Created .env file for %s with streamer %s", app, streamer)
 
 	// Copy opencode.json and opencode.md to workspace folder (overwriting existing files)
 	for _, filename := range []string{"opencode.json", "opencode.md"} {

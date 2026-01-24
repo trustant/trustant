@@ -49,7 +49,9 @@ func main() {
 	}
 
 	log.Println("Starting server on :8910")
-	if err := http.ListenAndServe(":8910", nil); err != nil {
+	// Wrap with hostname verification middleware (implements spec points 7 & 8)
+	handler := hostnameMiddleware(http.DefaultServeMux)
+	if err := http.ListenAndServe(":8910", handler); err != nil {
 		log.Fatal(err)
 	}
 }

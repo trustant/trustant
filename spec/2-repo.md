@@ -12,7 +12,7 @@ Put the code in the file `repo.go`
 
 where <apihost> is optional
 
-Performs the checks:
+## Performs the checks:
 
 - `<name>` is alphanumericic, starts with a letter and is 6-20 letter log
 - `<repo>` is in format `<user>/<path>`
@@ -22,9 +22,23 @@ Performs the checks:
 
 Return a descriptive error if it fails.
 
-Tries to create the user with <name> and  <password> (8 alphanumeric characters) and store it in ~/.ops/<name>.password. Then create an user with:
+## Create or retrieve the password
 
-`ops admin adduser <name> <name>@n7s.co <password> --all`
+Verify if the user exists
+trying to retrieve the password with:
+
+```
+ops util kubeget whiskuser/<name> .spec.password
+```
+
+If it is not an error, the user exists then use the returned value as `<local-password>`; save the password in ~/.ops/<name>.password
+
+If it is an error:
+- use <password> as <local-password>
+- store it in ~/.ops/<name>.password. 
+- create the user with 
+
+`ops admin adduser <name> <name>@n7s.co <local-password> --all`
 
 Return error if fails.
 
@@ -33,21 +47,6 @@ Then tries to clone the repo with:
 `git clone git@github.com:<repo> workspace/<name>`
 
 Return error if fails.
-
-Then creates a  `workspace/<name>/.env`  with
-
-```
-OPS_USER=<name>
-OPS_PASSWORD=<password>
-OPS_APIHOST=http://miniops.me
-OLLAMA_HOST=ollama:11434
-OLLAMA_PROTO=http
-OLLAMA_TOKEN=dummy
-OPENAI_BASE_URL=http://ollama:11434/v1
-OPENAI_API_KEY=dummy
-OPENAI_MODEL=gpt-oss:20b
-VITE_STREAM=http://stream.miniops.me
-```
 
 If <apihost> exists and it is defined create
 a `workspace/<name>/.env.<name>` with
@@ -58,9 +57,17 @@ OPS_PASSWORD=<password>
 OPS_APIHOST=https://<apihost>
 ```
 
-and append the content of the file `.env.production` in currrent directory.
+and append the content of the file `.env` in current directory.
 
-Copy the file .env.production in current `workspace/<name>/.env.production`
+Calculate the <streamer> modifying the <apihost> adding the host `stream` to the domain of the url. 
+
+Example: if <apihost> is `http://nuvolaris.org` then `<stream>` should be `http://stream.nuvolaris.org`
+
+Create a file  workspace/<name>/.env.production with 
+
+```
+VITE_STREAM=<streamer>
+```
 
 Finally, if there is a `workspace/<name>/package.json`
 execute:
