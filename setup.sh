@@ -1,6 +1,6 @@
 
 sudo apt-get install python3-virtualenv -y
-sudo touch /.dockerenv
+sudo touch /.bestiaenv
 
 curl -sL n7s.co/get-ops | bash
 curl -L https://bit.ly/n-install | bash
