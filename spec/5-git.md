@@ -9,7 +9,7 @@ Put the code in the file `git.go`
  }'
 
 
-Change to the folder `workspace/<name>`
+Change to the folder `<workspacedir>/workspace/<name>`
 and execute the command `git <command>`
 return the output
 

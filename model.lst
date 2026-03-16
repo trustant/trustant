@@ -1,0 +1,9 @@
+nomic-embed-text-v2-moe:latest 512
+qwen3:1.7b  40K
+qwen3-coder:480b-cloud 256K
+qwen3-coder-next:cloud 256k
+qwen3.5:cloud 256K
+minimax-m2.5:cloud 198K
+kimi-k2.5:cloud 256K
+glm-4.7:cloud 198K
+devstral-2:123b-cloud 256K

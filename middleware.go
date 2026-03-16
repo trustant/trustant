@@ -36,32 +36,37 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			protocol = fwdProto
 		}
 
-		// Point 7: If the hostname is an IP address, redirect to tru.<ip>.nip.io format
+		// If hostname is "localhost", treat it as 127.0.0.1
+		if hostname == "localhost" {
+			hostname = "127.0.0.1"
+		}
+
+		// Point 7: If the hostname is an IP address, redirect to trustable.<ip>.nip.io format
 		if ipPattern.MatchString(hostname) {
 			var redirectURL string
 			if port != "" {
-				redirectURL = fmt.Sprintf("%s://tru.%s.nip.io:%s%s", protocol, hostname, port, r.URL.RequestURI())
+				redirectURL = fmt.Sprintf("%s://trustable.%s.nip.io:%s%s", protocol, hostname, port, r.URL.RequestURI())
 			} else {
-				redirectURL = fmt.Sprintf("%s://tru.%s.nip.io%s", protocol, hostname, r.URL.RequestURI())
+				redirectURL = fmt.Sprintf("%s://trustable.%s.nip.io%s", protocol, hostname, r.URL.RequestURI())
 			}
 			log.Printf("Redirecting IP-based URL to: %s", redirectURL)
 			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 			return
 		}
 
-		// Point 8: Verify hostname starts with "tru."
-		if !strings.HasPrefix(hostname, "tru.") {
+		// Point 8: Verify hostname starts with "trustable."
+		if !strings.HasPrefix(hostname, "trustable.") {
 			// Get local hostname for error message
 			localHostname := getLocalHostname()
 			var suggestedURL string
 			if port != "" {
-				suggestedURL = fmt.Sprintf("%s://tru.%s.nip.io:%s", protocol, localHostname, port)
+				suggestedURL = fmt.Sprintf("%s://trustable.%s.nip.io:%s", protocol, localHostname, port)
 			} else {
-				suggestedURL = fmt.Sprintf("%s://tru.%s.nip.io", protocol, localHostname)
+				suggestedURL = fmt.Sprintf("%s://trustable.%s.nip.io", protocol, localHostname)
 			}
 
 			errorMsg := fmt.Sprintf("Invalid hostname. Please use %s", suggestedURL)
-			log.Printf("Hostname verification failed: %s (expected tru.* prefix)", hostname)
+			log.Printf("Hostname verification failed: %s (expected trustable.* prefix)", hostname)
 
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusBadRequest)

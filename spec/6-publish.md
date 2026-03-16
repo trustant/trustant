@@ -8,7 +8,7 @@ Put the code in the file `publish.go`
  }'
 
 
-Change to the folder `workspace/<name>`
+Change to the folder `<workspacedir>/workspace/<name>`
 Check if there is an `.env.<name>`
 If not return an error as "not available for publishing``
 

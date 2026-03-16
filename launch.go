@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -18,13 +20,17 @@ import (
 )
 
 const (
-	pgidFile       = "workspace/pgid"
 	opencodePort   = 4096
 	defaultDevPort = 8080
 )
 
+// getPgidFile returns the path to the pgid file inside WorkspaceDir
+func getPgidFile() string {
+	return filepath.Join(WorkspaceDir, "pgid")
+}
+
 // calculateStreamerFromHost calculates the streamer URL from the Host header
-// Expects Host to be tru.<domain>[:<port>] and calculates streamer as <protocol>://stream.<domain>
+// Expects Host to be trustable.<domain>[:<port>] and calculates streamer as <protocol>://stream.<domain>
 func calculateStreamerFromHost(r *http.Request) string {
 	host := r.Host
 	scheme := "http"
@@ -45,9 +51,9 @@ func calculateStreamerFromHost(r *http.Request) string {
 		}
 	}
 
-	// Replace "tru." prefix with "stream."
-	if strings.HasPrefix(hostWithoutPort, "tru.") {
-		domain := strings.TrimPrefix(hostWithoutPort, "tru.")
+	// Replace "trustable." prefix with "stream."
+	if strings.HasPrefix(hostWithoutPort, "trustable.") {
+		domain := strings.TrimPrefix(hostWithoutPort, "trustable.")
 		return fmt.Sprintf("%s://stream.%s", scheme, domain)
 	}
 
@@ -118,7 +124,7 @@ func waitForPort(port int, timeout time.Duration) error {
 
 // readPgid reads the process group ID from the pgid file
 func readPgid() (int, error) {
-	data, err := os.ReadFile(pgidFile)
+	data, err := os.ReadFile(getPgidFile())
 	if err != nil {
 		return 0, err
 	}
@@ -127,12 +133,12 @@ func readPgid() (int, error) {
 
 // writePgid writes the process group ID to the pgid file
 func writePgid(pgid int) error {
-	return os.WriteFile(pgidFile, []byte(strconv.Itoa(pgid)), 0644)
+	return os.WriteFile(getPgidFile(), []byte(strconv.Itoa(pgid)), 0644)
 }
 
 // removePgidFile removes the pgid file
 func removePgidFile() {
-	os.Remove(pgidFile)
+	os.Remove(getPgidFile())
 }
 
 // killPgid forcefully terminates a process group by its pgid
@@ -197,9 +203,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	// Check if workspace folder exists
-	workspacePath := filepath.Join("workspace", app)
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", app)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("App folder not found: workspace/%s", app)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("App folder not found: %s/workspace/%s", WorkspaceDir, app)})
 		return
 	}
 
@@ -217,7 +223,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	password := strings.TrimSpace(string(passwordOutput))
 
 	// Calculate streamer URL from Host header
-	// Expects Host to be <protocol>://tru.<domain>[:<port>]/<path>
+	// Expects Host to be <protocol>://trustable.<domain>[:<port>]/<path>
 	// Calculate streamer as <protocol>://stream.<domain>
 	streamer := calculateStreamerFromHost(r)
 
@@ -291,6 +297,8 @@ VITE_STREAM=%s
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start opencode: %s", err)})
 		return
 	}
+
+	log.Printf("Started opencode in directory: %s", workspacePath)
 
 	// Get the process group ID
 	pgid, err := syscall.Getpgid(opencodeCmd.Process.Pid)
@@ -386,13 +394,40 @@ VITE_STREAM=%s
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
 		return
 	}
-	encodedPath := url.PathEscape(absPath)
+	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
+	encPath := url.PathEscape(absPath)
+
+	// Log the opencode session URLs
+	domain := r.Host
+	if colonIdx := strings.LastIndex(domain, ":"); colonIdx != -1 {
+		if bracketIdx := strings.LastIndex(domain, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
+			domain = domain[:colonIdx]
+		}
+	}
+
+	// POST to opencode session endpoint to initialize the session
+	sessionURL := fmt.Sprintf("http://%s:%d/session/", domain, leftPort)
+	sessionReq, err := http.NewRequest("POST", sessionURL, nil)
+	if err != nil {
+		log.Printf("Warning: failed to create session request: %s", err)
+	} else {
+		sessionReq.Header.Set("X-Opencode-Directory", absPath)
+		resp, err := http.DefaultClient.Do(sessionReq)
+		if err != nil {
+			log.Printf("Warning: POST %s failed: %s", sessionURL, err)
+		} else {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			log.Printf("POST %s -> %d: %s", sessionURL, resp.StatusCode, string(body))
+		}
+	}
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"left":      leftPort,
-		"right":     rightPort,
-		"directory": encodedPath,
+		"left":   leftPort,
+		"right":  rightPort,
+		"b64dir": b64Path,
+		"encdir": encPath,
 	})
 }
 

@@ -41,7 +41,7 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check workspace folder exists
-	workspacePath := filepath.Join("workspace", req.Name)
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		http.Error(w, "Workspace not found", http.StatusNotFound)
 		return

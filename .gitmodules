@@ -1,0 +1,3 @@
+[submodule "olaris-trustable"]
+	path = olaris-trustable
+	url = git@github.com:trustable-ai/olaris-trustable

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 //go:embed web
@@ -18,7 +19,8 @@ func main() {
 	}
 
 	// Ensure workspace directory exists
-	if err := os.MkdirAll("workspace", 0755); err != nil {
+	wsPath := filepath.Join(WorkspaceDir, "workspace")
+	if err := os.MkdirAll(wsPath, 0755); err != nil {
 		log.Printf("Warning: failed to create workspace directory: %s", err)
 	}
 
@@ -32,6 +34,7 @@ func main() {
 	http.HandleFunc("/api/launch", handleLaunch)
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/publish", handlePublish)
+	http.HandleFunc("/api/sshkey", handleSSHKey)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {

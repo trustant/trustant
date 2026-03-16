@@ -82,7 +82,7 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 	apps := []Application{}
 
 	// List folders in workspace
-	entries, err := os.ReadDir("workspace")
+	entries, err := os.ReadDir(filepath.Join(WorkspaceDir, "workspace"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			w.Header().Set("Content-Type", "application/json")
@@ -99,7 +99,7 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 		}
 
 		name := entry.Name()
-		gitConfigPath := filepath.Join("workspace", name, ".git", "config")
+		gitConfigPath := filepath.Join(WorkspaceDir, "workspace", name, ".git", "config")
 
 		// Check if .git exists
 		if _, err := os.Stat(gitConfigPath); os.IsNotExist(err) {
@@ -120,7 +120,7 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 
 		// Read apihost from .env.<name> if it exists
 		var apihost string
-		envNamePath := filepath.Join("workspace", name, ".env."+name)
+		envNamePath := filepath.Join(WorkspaceDir, "workspace", name, ".env."+name)
 		if envData, err := os.ReadFile(envNamePath); err == nil {
 			apihost = parseEnvAPIHost(string(envData))
 		}
@@ -243,22 +243,16 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user already exists
-	existingUsers, err := getExistingUsers()
-	if err != nil {
-		log.Printf("Warning: could not list existing users: %v", err)
-		// Continue anyway - the adduser command will fail if user exists
-	} else if existingUsers[req.Name] {
-		http.Error(w, "User already exists", http.StatusConflict)
-		return
-	}
-
 	// Check if workspace folder already exists
-	workspacePath := filepath.Join("workspace", req.Name)
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 	if _, err := os.Stat(workspacePath); err == nil {
 		http.Error(w, "Workspace folder already exists", http.StatusConflict)
 		return
 	}
+
+	// Normalize apihost: strip protocol prefix if present
+	req.APIHost = strings.TrimPrefix(req.APIHost, "https://")
+	req.APIHost = strings.TrimPrefix(req.APIHost, "http://")
 
 	// Validate apihost if provided
 	if req.APIHost != "" {
@@ -282,10 +276,12 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 
 	// Try to retrieve existing password with ops util kubeget
 	localPassword := req.Password
+	userExisted := false
 	kubegetCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+req.Name, ".spec.password")
 	if output, err := kubegetCmd.Output(); err == nil {
 		// User exists, use the retrieved password
 		localPassword = strings.TrimSpace(string(output))
+		userExisted = true
 		log.Printf("User %s exists, using existing password", req.Name)
 	} else {
 		// User doesn't exist, create the user
@@ -305,9 +301,13 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clone the repo
+	// Clone the repo using the trustable SSH key
 	repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
+	homeDir2, _ := os.UserHomeDir()
+	sshKeyPath := filepath.Join(homeDir2, ".ssh", "id_trustable")
+	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
 	cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
+	cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
 		// Clean up: delete user and password file
 		deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
@@ -373,15 +373,18 @@ VITE_STREAM=http://stream.miniops.me
 		}
 	}
 
-	// Return the created application
-	app := Application{
-		Name:    req.Name,
-		Repo:    req.Repo,
-		APIHost: req.APIHost,
+	// Return the created application with optional warning
+	result := map[string]interface{}{
+		"name":    req.Name,
+		"repo":    req.Repo,
+		"apihost": req.APIHost,
+	}
+	if userExisted {
+		result["warning"] = "The provided password was ignored because the user already existed. The existing local password was reused."
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(app)
+	json.NewEncoder(w).Encode(result)
 }
 
 func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +408,7 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if workspace folder exists
-	workspacePath := filepath.Join("workspace", req.Name)
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		http.Error(w, "Application not found", http.StatusNotFound)
 		return
@@ -474,7 +477,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if workspace folder exists
-	workspacePath := filepath.Join("workspace", name)
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", name)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		http.Error(w, "Application not found", http.StatusNotFound)
 		return
