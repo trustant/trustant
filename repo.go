@@ -14,6 +14,63 @@ import (
 	"time"
 )
 
+// Version and expiry info parsed from version.txt
+var (
+	appVersion string
+	expiryDate time.Time
+)
+
+// parseVersion parses the embedded version.txt content
+func parseVersion(content string) {
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Version:") {
+			appVersion = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
+		} else if strings.HasPrefix(line, "Expiry:") {
+			dateStr := strings.TrimSpace(strings.TrimPrefix(line, "Expiry:"))
+			t, err := time.Parse("2006/01/02", dateStr)
+			if err != nil {
+				log.Printf("Warning: failed to parse expiry date %q: %v", dateStr, err)
+			} else {
+				expiryDate = t
+			}
+		}
+	}
+	log.Printf("Version: %s, Expiry: %s", appVersion, expiryDate.Format("2006/01/02"))
+}
+
+// isExpired checks if the current date is past the expiration date
+func isExpired() bool {
+	if expiryDate.IsZero() {
+		return false
+	}
+	return time.Now().After(expiryDate)
+}
+
+// handleVersion handles GET /api/version
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if isExpired() {
+		json.NewEncoder(w).Encode(map[string]interface{}{"expired": true})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{
+		"version": fmt.Sprintf("Trustable %s", appVersion),
+		"expire":  expiryDate.Format("2006/01/02"),
+	})
+}
+
+// expiredGuard returns true (and writes expired JSON response) if the app is expired
+func expiredGuard(w http.ResponseWriter) bool {
+	if isExpired() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"expired": true})
+		return true
+	}
+	return false
+}
+
 // Application represents a repo/application entry
 type Application struct {
 	Name    string `json:"name"`
@@ -439,6 +496,9 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRepo(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		handleGetRepo(w, r)
@@ -452,6 +512,9 @@ func handleRepo(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

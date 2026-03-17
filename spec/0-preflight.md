@@ -98,15 +98,21 @@ if not found, generate an ssh key in format ED25519 in ~/.ssh/id_trustable and h
 
 the application itself is a web server serving pages or proxying ports according the host name
 
-requires you always access the application with a full fqdn like trustable.<domain>
+requires you always access the application with a full fqdn like trustable.<domain>[:<port>]
 
-- if you detect localhost  redirect to trustable.127.0.0.1.nip.io,
-- if you detect an <ip> redirect to trustable.<ip>.nip.io
+- if you detect localhost  redirect to trustable.127.0.0.1.nip.io:<port>,
+- if you detect an <ip> redirect to trustable.<ip>.nip.io:<port>
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
 - if <host> is 'trustable', serve the folder `web`
 - if <host> is 'opencode', proxy pass to port 4096
 - if <host> is 'vite',  proxy pass to port 5173
 
+
+Invoke an api /info in all the pages at the start that retuns the message if not expired:
+
+`{"info": "Trustable v<version> expiring <date>"}
+
+if the api returns expired just show in every "a centered message: "This version expired, please download an updated version"
 
 

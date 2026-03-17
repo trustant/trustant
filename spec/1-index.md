@@ -1,8 +1,16 @@
 This file describes the home page frontend, put the code in file `index.html`
 
+# check the version
+
+Invoke the version api at the end of the page
+
+ if it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
+
 # Home Page
 
-The home page shows centered the Trustable logo (`trusable-logo.svg`) and the text Trustable in large font
+The home page shows centered the Trustable logo (`trusable-logo.svg`) and the text returned by the version api in large font.
+
+Show also in smaller font ad the end of the page "Expiration date: <date>"
 
 It will list the applications, using the backend api.
 

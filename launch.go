@@ -453,6 +453,9 @@ func handleLaunchDelete(w http.ResponseWriter, r *http.Request) {
 
 // handleLaunch routes launch API requests
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
 	// Extract app name from URL path /api/launch/<app>
 	app := strings.TrimPrefix(r.URL.Path, "/api/launch/")
 	app = strings.TrimPrefix(app, "/api/launch")

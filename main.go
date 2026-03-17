@@ -12,6 +12,9 @@ import (
 //go:embed web
 var embeddedWeb embed.FS
 
+//go:embed version.txt
+var versionTxt string
+
 func main() {
 	// Run preflight checks
 	if err := runPreflight(); err != nil {
@@ -27,7 +30,11 @@ func main() {
 	// Terminate any leftover processes from previous run (kept for backward compatibility)
 	terminateLeftoverProcesses()
 
+	// Parse version info
+	parseVersion(versionTxt)
+
 	// API routes
+	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/repo", handleRepo)
 	http.HandleFunc("/api/upload", handleUpload)
 	http.HandleFunc("/api/launch/", handleLaunch)

@@ -11,7 +11,7 @@
         <!-- Centered Logo and Title -->
         <div class="flex flex-col items-center mb-8">
             <img src="trustable-logo.svg" alt="Trustable Logo" class="w-26 h-26">
-            <h1 class="text-2xl font-bold text-gray-800 mt-4">Trustable</h1>
+            <h1 id="versionText" class="text-2xl font-bold text-gray-800 mt-4">Trustable</h1>
         </div>
 
         <!-- Applications List -->
@@ -27,6 +27,7 @@
                 <p class="text-gray-500 text-center py-4">Loading...</p>
             </div>
         </div>
+        <p id="expireText" class="text-sm text-gray-500 text-center mt-2"></p>
     </div>
 
     <!-- Add Application Modal -->
@@ -606,6 +607,26 @@
 
         document.getElementById('addAppForm').addEventListener('submit', addApp);
         loadApps();
+
+        // Check version and expiry
+        (async function() {
+            try {
+                const resp = await fetch('/api/version');
+                const data = await resp.json();
+                if (data.expired) {
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please get an updated version. For info email: info@nuvolaris.io</p></div>';
+                    return;
+                }
+                if (data.version) {
+                    document.getElementById('versionText').textContent = data.version;
+                }
+                if (data.expire) {
+                    document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
+                }
+            } catch (e) {
+                console.error('Failed to check version:', e);
+            }
+        })();
     </script>
 </body>
 </html>

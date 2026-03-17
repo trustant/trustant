@@ -10,6 +10,9 @@ import (
 )
 
 func handleGit(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

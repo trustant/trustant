@@ -3,6 +3,21 @@ This file describes the backend api for repos (repo.go)
 
 Put the code in the file `repo.go`
 
+# GET /api/version
+
+Manage version and Expiration.
+
+Embed the file version.txt
+Parse the values Version and Expiry
+
+Check if the current date is past the expiration date
+If the expiration date is overdue,
+all the api call will return `{"expired": true}
+
+otherwise returns
+
+`{"version": "Trustable v<version>", "expire": "<date>" }`
+
 # POST /api/repo
 `{
   "name: <name>

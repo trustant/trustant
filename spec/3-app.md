@@ -1,16 +1,20 @@
 This file describe the code for the application page, put the code in `app.html`
 
+# check the version
+
+Invoke the version api at the end of the page and if it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
+
 # Application
 
 This page shows the current application
-reading it the cookie LEFT, RIGHT, B64DIR, URLDIR and NAME
+reading it the cookie LEFT, RIGHT, URLDIR and NAME
 
 It shows a full page, with a top bar with 10% high.
 
 In the bar there is
 
 - the trustable logo 90% height
-- the application name
+- the text returned by the api version
 - the button (aligned to right) to go back
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
