@@ -1,19 +1,9 @@
 #!/bin/bash
+export HOME=/home/node
 
 #setup sshd
 mkdir -p /run/sshd
 ssh-keygen -A
-
-# update ops
-export HOME=/home
-export OPS_HOME=/home
-ops -update
-
-# setup user workspace
-if test -z "$USERID"
-then USERID=1000
-fi
-/usr/sbin/useradd -u "$USERID" -d $HOME -o -U -s /bin/bash devel
 
 # add ssh key
 if test -n "$SSHKEY"
@@ -27,20 +17,16 @@ then
     chmod 700 $HOME/.ssh
 fi
 
-touch ~/.bashrc
-echo ARCH="$(dpkg --print-architecture)" >>~/.bashrc
-echo 'export PATH="$HOME/.local/bin:$HOME:$HOME/.ops/linux-$ARCH/bin:$PATH"' >>~/.bashrc
+echo OPENCODE_MODEL="${OPENCODE_MODEL:-qwen3-coder:480b-cloud}" >>$HOME/.env
+echo OPENCODE_SMALL_MODEL="${OPENCODE_SMALL_MODEL:-qwen3:1.7b}" >>$HOME/.env
 
-if [ -n "$OPS_PASSWORD" ] && [ -n "$OPS_USER" ] && [ -n "$OPS_APIHOST" ]
+chown -R node:node $HOME/.ssh $HOME/.env
+
+if [ -n "$USERID" ] && [ "$USERID" != "1000"]
 then
-    cd $HOME
-    echo -e "OPS_USER=$OPS_USER\nOPS_PASSWORD=$OPS_PASSWORD\nOPS_APIHOST=$OPS_APIHOST\n" >.env
-    ops ide login
+    /usr/sbin/usermod -u $USERID node
+    chown -Rf "$USERID" "$HOME"
 fi
-
-# fix permissions
-chmod 0755 $HOME
-chown -Rf "$USERID" /home
 
 # start supervisor
 supervisord -c /etc/supervisord.ini

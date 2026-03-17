@@ -1,4 +1,5 @@
 FROM node:24
+ARG TARGETARCH
 
 # Install basic development tools
 RUN \
@@ -12,11 +13,10 @@ RUN \
 RUN \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
     locale-gen en_US.UTF-8 && \
-    update-locale ANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
+    update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-RUN echo 'node ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
-
-COPY trustable-$TARGETARCH /usr/bin/trustable
+RUN \
+    echo 'node ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
 ENV HOME=/home/node
 ENV OPS_BRANCH=bestia
@@ -25,20 +25,27 @@ ENV OPS_REPO=https://github.com/nuvolaris/bestia
 USER node
 RUN \
     echo "OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\
-    echo "OPS_REPO=$OPS_REPO" >>$HOME/.bashrc
+    echo "OPS_REPO=$OPS_REPO" >>$HOME/.bashrc ;\
     curl -sL https://raw.githubusercontent.com/apache/openserverless-cli/refs/heads/main/install.sh | bash ;\
     source ~/.bashrc ; ops -t ;\
-    echo 'PATH="$HOME/.ops/linux-$(dpkg --print-architecture)/bin:$PATH"' >>$HOME/.bashrc
+    echo 'export PATH="$HOME/.ops/linux-$(dpkg --print-architecture)/bin:$PATH"' >>$HOME/.bashrc
 
 RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
-    echo 'PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
+    echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
+
+RUN \
+    echo WORKSPACE_DIR=$HOME/workspace >$HOME/.env ;\
+    echo OPENAI_BASE_URL=http://ollama:11434/v1 >>$HOME/.env ;\
+    echo OPENAI_API_KEY=dummy >>$HOME/.env ;\
+    echo OLLAMA_ENDPOINT=http://ollama:11434 >>$HOME/.env
 
 RUN mkdir /home/node/workspace
-WORKDIR /home/node/workspace
 
 USER root
-ADD supervisord.ini /etc/supervisord.ini
 ADD start.sh /usr/local/bin/start.sh
+
 ENTRYPOINT ["tini", "--"]
+COPY trustable-$TARGETARCH /usr/local/bin/trustable
+ADD supervisord.ini /etc/supervisord.ini
 CMD ["/usr/local/bin/start.sh"]
