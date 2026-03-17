@@ -15,11 +15,11 @@ In the bar there is
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
-Get the URLDIR from the coooke then show the iframe:
+Get the URLDIR from the coookie then show the iframe:
 
 They will show:
-- to the left: `<current-site>:<left-port>/session/?directory=<URLDIR>`
-- to the right `<current-site>:<right-port>`
+- to the left: `<LEFT>/session/?directory=<URLDIR>`
+- to the right `<RIGHT>`
 
 Write in console.log the values of the cookies B64DIR and URLDIR
 
@@ -27,7 +27,6 @@ Write in console.log the values of the cookies B64DIR and URLDIR
 Clicking on the button back will
 - remove the cookie B64DIR
 - invoke the DELETE /api/launch to stop running subprocess
-
 
 # Publish
 

@@ -94,7 +94,19 @@ Model name is the model id, split in "-" and ":", capitalized.
 
 if not found, generate an ssh key in format ED25519 in ~/.ssh/id_trustable and his public key ~/.ssh/id_trustable.pub
 
-# ensure the trustable domain in the url
+# web server
 
-require you always access the application with a full fqdn like trustable.<domain>; if you detect a plain hostname like localhost or a plain ip, redirect to trustable.<ip>.nip.io, using 127.0.0.1 for localhost
+the application itself is a web server serving pages or proxying ports according the host name
+
+requires you always access the application with a full fqdn like trustable.<domain>
+
+- if you detect localhost  redirect to trustable.127.0.0.1.nip.io,
+- if you detect an <ip> redirect to trustable.<ip>.nip.io
+
+- if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
+- if <host> is 'trustable', serve the folder `web`
+- if <host> is 'opencode', proxy pass to port 4096
+- if <host> is 'vite',  proxy pass to port 5173
+
+
 

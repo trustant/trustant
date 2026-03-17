@@ -30,7 +30,8 @@ with a button "Create" and "Cancel"
 
 show also a message:
 
-"to pull private repositories and write them back you need to add our ssh public key to your github account." and a button "Show key". If you click a button a popup showing the ~/.ssh/id_trustable.pub will be shown, with a button to copy on clipboard and a button to close the popup.
+"To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account." and a button "Show key".
+If you click a button a popup showing the ~/.ssh/id_trustable.pub will be shown, with a button to copy on clipboard and a button to close the popup.
 
 If you cancel, go back
 
@@ -40,14 +41,19 @@ Show a waiting modal until the api call completes. Once completed the modal shou
 
 # Edit application
 
+Calculate LEFT and RIGHT url from the location.
+Expect a domain in format `<protocol>://trustable.<domain>[:<port>]`,
+show an error if it is not in this format. Let:
+- LEFT is `<protocol>://opencode.<domain>:<port>`
+- RIGHT is `<protocol>://vite.<domain>:<port>`
+
 You can click the button `edit` to open an app
 - show a launching dialog with the message `Launching `<name`
 - invoke GET /api/launch/<name> to start it with a visual indicator you are waiting
 - if there is an error, show the error and a button "continue"
 - if it is ok, save in cookies:
-    - the LEFT and RIGHT ports
+    - the LEFT and RIGHT urls
     - the NAME in a cookie
-    - the B64DIR in a cookie
     - tue URLDIR in a cookie
     - if the apihost is not empty add a cookie APIHOST with the value
 - navigate to the page app.html

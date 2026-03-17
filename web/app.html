@@ -131,32 +131,28 @@
             return new TextDecoder().decode(bytes);
         }
 
-        const leftPort = getCookie('LEFT');
-        const rightPort = getCookie('RIGHT');
+        const leftURL = getCookie('LEFT');
+        const rightURL = getCookie('RIGHT');
         const appName = getCookie('NAME');
-        const b64directory = getCookie('B64DIR');
         const urlDirectory = getCookie('URLDIR');
         const apiHost = getCookie('APIHOST');
 
-        console.log('B64DIR:', b64directory);
         console.log('URLDIR:', urlDirectory);
 
         // Set app name in title bar
         document.getElementById('appName').textContent = appName || 'Unknown App';
         document.title = `Trustable - ${appName || 'App'}`;
 
-        // Configure iframes with current site and ports
-        const currentHost = window.location.hostname;
-        if (leftPort) {
-            const leftBase = `${window.location.protocol}//${currentHost}:${leftPort}`;
+        // Configure iframes with LEFT and RIGHT URLs
+        if (leftURL) {
             if (urlDirectory) {
-                document.getElementById('leftFrame').src = `${leftBase}/session/?directory=${urlDirectory}`;
+                document.getElementById('leftFrame').src = `${leftURL}/session/?directory=${urlDirectory}`;
             } else {
-                document.getElementById('leftFrame').src = `${leftBase}/`;
+                document.getElementById('leftFrame').src = `${leftURL}/`;
             }
         }
-        if (rightPort) {
-            document.getElementById('rightFrame').src = `${window.location.protocol}//${currentHost}:${rightPort}`;
+        if (rightURL) {
+            document.getElementById('rightFrame').src = rightURL;
         }
 
         // Disable publish button if APIHOST is not defined
