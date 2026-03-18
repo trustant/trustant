@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trustable - Configuration</title>
+    <script src="tailwind.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+    <div class="w-full max-w-2xl">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center gap-3">
+                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-12 h-12">
+                <h1 class="text-2xl font-bold text-gray-800">Configuration</h1>
+            </div>
+            <a href="index.html" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">Back</a>
+        </div>
+
+        <!-- Ollama Models -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold">Ollama Models</h2>
+                <button onclick="showAddModelModal()"
+                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    Add Model
+                </button>
+            </div>
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b">
+                        <th class="text-left py-2 px-2">Model</th>
+                        <th class="text-left py-2 px-2">Context Size</th>
+                        <th class="text-right py-2 px-2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="modelTableBody">
+                    <tr><td colspan="3" class="text-center py-4 text-gray-500">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- OpenCode Models -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">OpenCode Models</h2>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Default Model</label>
+                    <input type="text" id="opencodeDefault"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Small Model</label>
+                    <input type="text" id="opencodeSmall"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3">
+            <button onclick="saveAndConfigure()"
+                class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                Save &amp; Configure
+            </button>
+            <button onclick="saveConfig()"
+                class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                Save Only
+            </button>
+        </div>
+    </div>
+
+    <!-- Add Model Modal -->
+    <div id="addModelModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-semibold mb-4">Add Model</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+                    <input type="text" id="newModelName" placeholder="e.g. qwen3-coder:480b-cloud"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Context Size</label>
+                    <input type="text" id="newModelContext" placeholder="e.g. 256K"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+            </div>
+            <div class="flex gap-3 mt-4">
+                <button onclick="hideAddModelModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="addModel()"
+                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Add
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Modal -->
+    <div id="progressModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="progressSpinner" class="mb-4">
+                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold mb-2">Configuring</h3>
+            <p class="text-sm text-gray-500 mb-3">Pulling models and generating configuration...</p>
+            <div id="progressMessages" class="text-left text-sm font-mono bg-gray-50 rounded p-3 max-h-48 overflow-y-auto mb-4"></div>
+            <div id="progressDone" class="hidden">
+                <button onclick="hideProgressModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let config = { ollama: {}, opencode: { default: '', small: '' } };
+
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/configuration');
+                config = await resp.json();
+                renderModels();
+                document.getElementById('opencodeDefault').value = config.opencode?.default || '';
+                document.getElementById('opencodeSmall').value = config.opencode?.small || '';
+            } catch (e) {
+                console.error('Failed to load config:', e);
+            }
+        }
+
+        function renderModels() {
+            const tbody = document.getElementById('modelTableBody');
+            const models = config.ollama || {};
+            const keys = Object.keys(models);
+            if (keys.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No models configured</td></tr>';
+                return;
+            }
+            tbody.innerHTML = keys.map(name => `
+                <tr class="border-b">
+                    <td class="py-2 px-2 font-mono text-xs">${escapeHtml(name)}</td>
+                    <td class="py-2 px-2">${escapeHtml(models[name])}</td>
+                    <td class="py-2 px-2 text-right">
+                        <button onclick="removeModel('${escapeAttr(name)}')"
+                            class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">
+                            Remove
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        function showAddModelModal() {
+            document.getElementById('newModelName').value = '';
+            document.getElementById('newModelContext').value = '';
+            document.getElementById('addModelModal').classList.remove('hidden');
+            document.getElementById('addModelModal').classList.add('flex');
+            document.getElementById('newModelName').focus();
+        }
+
+        function hideAddModelModal() {
+            document.getElementById('addModelModal').classList.add('hidden');
+            document.getElementById('addModelModal').classList.remove('flex');
+        }
+
+        function addModel() {
+            const name = document.getElementById('newModelName').value.trim();
+            const ctx = document.getElementById('newModelContext').value.trim();
+            if (!name || !ctx) {
+                alert('Both model name and context size are required');
+                return;
+            }
+            if (!config.ollama) config.ollama = {};
+            config.ollama[name] = ctx;
+            renderModels();
+            hideAddModelModal();
+        }
+
+        function removeModel(name) {
+            if (config.ollama) {
+                delete config.ollama[name];
+                renderModels();
+            }
+        }
+
+        function buildConfig() {
+            return {
+                ollama: config.ollama || {},
+                opencode: {
+                    default: document.getElementById('opencodeDefault').value.trim(),
+                    small: document.getElementById('opencodeSmall').value.trim()
+                }
+            };
+        }
+
+        async function saveConfig() {
+            const cfg = buildConfig();
+            try {
+                const resp = await fetch('/api/configuration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cfg)
+                });
+                if (resp.ok) {
+                    alert('Configuration saved');
+                } else {
+                    const text = await resp.text();
+                    alert('Failed to save: ' + text);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function saveAndConfigure() {
+            const cfg = buildConfig();
+            // Save first
+            try {
+                const resp = await fetch('/api/configuration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cfg)
+                });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    alert('Failed to save: ' + text);
+                    return;
+                }
+            } catch (e) {
+                alert('Error saving: ' + e.message);
+                return;
+            }
+
+            // Then run configure with streaming
+            showProgressModal();
+            const msgEl = document.getElementById('progressMessages');
+            try {
+                const resp = await fetch('/api/configure');
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        if (line.trim()) {
+                            const div = document.createElement('div');
+                            if (line.startsWith('ERROR:')) {
+                                div.className = 'text-red-600';
+                            } else if (line.startsWith('OK:')) {
+                                div.className = 'text-green-600';
+                            } else {
+                                div.className = 'text-gray-700';
+                            }
+                            div.textContent = line;
+                            msgEl.appendChild(div);
+                            msgEl.scrollTop = msgEl.scrollHeight;
+                        }
+                    }
+                }
+                if (buffer.trim()) {
+                    const div = document.createElement('div');
+                    div.textContent = buffer;
+                    msgEl.appendChild(div);
+                }
+                document.cookie = 'CONFIGURED=1;path=/;max-age=31536000';
+            } catch (e) {
+                const div = document.createElement('div');
+                div.className = 'text-red-600';
+                div.textContent = 'Error: ' + e.message;
+                msgEl.appendChild(div);
+            }
+            document.getElementById('progressSpinner').classList.add('hidden');
+            document.getElementById('progressDone').classList.remove('hidden');
+        }
+
+        function showProgressModal() {
+            document.getElementById('progressMessages').innerHTML = '';
+            document.getElementById('progressSpinner').classList.remove('hidden');
+            document.getElementById('progressDone').classList.add('hidden');
+            document.getElementById('progressModal').classList.remove('hidden');
+            document.getElementById('progressModal').classList.add('flex');
+        }
+
+        function hideProgressModal() {
+            document.getElementById('progressModal').classList.add('hidden');
+            document.getElementById('progressModal').classList.remove('flex');
+        }
+
+        // Close modals on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideAddModelModal();
+                if (!document.getElementById('progressDone').classList.contains('hidden')) {
+                    hideProgressModal();
+                }
+            }
+        });
+
+        document.getElementById('addModelModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideAddModelModal();
+        });
+        document.getElementById('progressModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('progressDone').classList.contains('hidden')) {
+                hideProgressModal();
+            }
+        });
+
+        // Check version
+        (async function() {
+            try {
+                const resp = await fetch('/api/version');
+                const data = await resp.json();
+                if (data.expired) {
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please get an updated version. For info email: info@nuvolaris.io</p></div>';
+                    return;
+                }
+            } catch (e) {
+                console.error('Failed to check version:', e);
+            }
+            loadConfig();
+        })();
+    </script>
+</body>
+</html>

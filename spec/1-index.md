@@ -27,6 +27,7 @@ The Local link points to to `http://<name>.miniops.me`,
 The public link points to the `<protocol>://<name>.<domain>` of the configured public apihost of the appl;iations
 
 You can
+- configure
 - add applications
 - remove applications
 - reset applications

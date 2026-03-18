@@ -18,10 +18,16 @@
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-xl font-semibold">Applications</h2>
-                <button onclick="showAddModal()"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                    Add App
-                </button>
+                <div class="flex gap-2">
+                    <a href="configure.html"
+                        class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        Configure
+                    </a>
+                    <button onclick="showAddModal()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                        Add App
+                    </button>
+                </div>
             </div>
             <div id="appList" class="space-y-3">
                 <p class="text-gray-500 text-center py-4">Loading...</p>
