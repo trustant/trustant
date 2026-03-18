@@ -42,6 +42,8 @@ func main() {
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/publish", handlePublish)
 	http.HandleFunc("/api/sshkey", handleSSHKey)
+	http.HandleFunc("/api/configure", handleConfigure)
+	http.HandleFunc("/api/configuration", handleConfiguration)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {

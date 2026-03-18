@@ -178,6 +178,27 @@
         </div>
     </div>
 
+    <!-- Configuring Modal -->
+    <div id="configModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="configSpinner" class="mb-4">
+                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold mb-2">Configuring</h3>
+            <p class="text-sm text-gray-500 mb-3">Pulling models and generating configuration...</p>
+            <div id="configMessages" class="text-left text-sm font-mono bg-gray-50 rounded p-3 max-h-48 overflow-y-auto mb-4"></div>
+            <div id="configDone" class="hidden">
+                <button onclick="hideConfigModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Launching Modal -->
     <div id="launchModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
@@ -576,6 +597,9 @@
                 if (!document.getElementById('creatingResult').classList.contains('hidden')) {
                     hideCreatingModal();
                 }
+                if (!document.getElementById('configDone').classList.contains('hidden')) {
+                    hideConfigModal();
+                }
             }
         });
 
@@ -604,11 +628,82 @@
                 hideCreatingModal();
             }
         });
+        document.getElementById('configModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('configDone').classList.contains('hidden')) {
+                hideConfigModal();
+            }
+        });
 
         document.getElementById('addAppForm').addEventListener('submit', addApp);
         loadApps();
 
-        // Check version and expiry
+        function getCookie(name) {
+            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return match ? match[2] : null;
+        }
+
+        function showConfigModal() {
+            document.getElementById('configMessages').innerHTML = '';
+            document.getElementById('configSpinner').classList.remove('hidden');
+            document.getElementById('configDone').classList.add('hidden');
+            document.getElementById('configModal').classList.remove('hidden');
+            document.getElementById('configModal').classList.add('flex');
+        }
+
+        function hideConfigModal() {
+            document.getElementById('configModal').classList.add('hidden');
+            document.getElementById('configModal').classList.remove('flex');
+        }
+
+        async function runConfiguration() {
+            showConfigModal();
+            const msgEl = document.getElementById('configMessages');
+            try {
+                const resp = await fetch('/api/configure');
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        if (line.trim()) {
+                            const div = document.createElement('div');
+                            if (line.startsWith('ERROR:')) {
+                                div.className = 'text-red-600';
+                            } else if (line.startsWith('OK:')) {
+                                div.className = 'text-green-600';
+                            } else {
+                                div.className = 'text-gray-700';
+                            }
+                            div.textContent = line;
+                            msgEl.appendChild(div);
+                            msgEl.scrollTop = msgEl.scrollHeight;
+                        }
+                    }
+                }
+                // Process remaining buffer
+                if (buffer.trim()) {
+                    const div = document.createElement('div');
+                    div.textContent = buffer;
+                    msgEl.appendChild(div);
+                }
+                // Set configured cookie
+                document.cookie = 'CONFIGURED=1;path=/;max-age=31536000';
+            } catch (e) {
+                const div = document.createElement('div');
+                div.className = 'text-red-600';
+                div.textContent = 'Error: ' + e.message;
+                msgEl.appendChild(div);
+            }
+            document.getElementById('configSpinner').classList.add('hidden');
+            document.getElementById('configDone').classList.remove('hidden');
+        }
+
+        // Check version and expiry, then run configuration if needed
         (async function() {
             try {
                 const resp = await fetch('/api/version');
@@ -622,6 +717,12 @@
                 }
                 if (data.expire) {
                     document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
+                }
+
+                // Run configuration if not yet configured
+                const configured = getCookie('CONFIGURED');
+                if (!configured || configured === '0') {
+                    runConfiguration();
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);

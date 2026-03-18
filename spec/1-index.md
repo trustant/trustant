@@ -1,10 +1,17 @@
 This file describes the home page frontend, put the code in file `index.html`
 
-# check the version
+# Version
+When the page load invoke the version api
 
-Invoke the version api at the end of the page
+if it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
 
- if it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
+# Configuration
+
+The first time also invoke the configuration api
+expecy a steramed answer and show the messages with a modal while it is configuring
+
+once configured set a cookie CONFIGURED=1
+repeat the configuration only if the cookie is no more present or has value 0
 
 # Home Page
 

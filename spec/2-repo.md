@@ -18,6 +18,80 @@ otherwise returns
 
 `{"version": "Trustable v<version>", "expire": "<date>" }`
 
+
+# GET /api/configure
+
+## pull the models
+
+## prepare opencode config
+
+- Using information in <WorkspaceDir>/trustable.json and in the .env create the opencode config in
+
+`~/.config/opencode/opencode.json` following the structure:
+
+```
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["opencode.md"],
+  "enabled_providers": [
+    "ollama"
+  ],
+  "model": <OpencodeModel>,
+  "small_model": <OpencodeSmallModel>,
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": <OpenAIBaseUrl>
+        "apiKey": <OpenAIApiKey>
+      },
+      "models": {
+         <models with capabilities>
+      }
+    }
+  }
+}
+```
+
+To get the capabilites of a model use the OllamaEndPoint, list the models then show their capabilities.
+
+To get the context size for a model look in trustable.json -  <value>K mean  <value> * 1024.
+
+Model name is the model id, split in "-" and ":", capitalized, with numbers with extensions in parenthesis
+
+Example: qwen3-coder:480b-cloud => Quen3 Coder (48OB) Cloud
+
+Template:
+
+```
+"<model>": {
+  "name": <model-name>,
+  "tool_call": >true if you find tools in capabilities
+  "reasoning": true if you find thinking>
+  "temperature": true,
+  "limit": {
+    "context": <context size for model>
+    "output": 32768
+  },
+  "options": {
+    "maxTokens": 8192
+  },
+  "variants": {
+    "fast": {
+      "options": { "maxTokens": 2048 }
+    },
+    "deep": {
+      "options": { "maxTokens": 16000 }
+    },
+    "disabled_variant": {
+      "disabled": true
+    }
+  }
+}
+```
+
+
+
 # POST /api/repo
 `{
   "name: <name>
