@@ -47,6 +47,7 @@ func loadEnv() error {
 		val = os.ExpandEnv(val)
 		// Set in the process environment so subsequent expansions work
 		os.Setenv(key, val)
+		log.Printf("  env: %s=%s", key, val)
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to read .env: %w", err)

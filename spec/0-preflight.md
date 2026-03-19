@@ -5,7 +5,14 @@ This file describes the prefligth.go module with the checks to execute
 # Setup Env
 When starting, before anything else:
 
-- Read the .env  in current dir and the provided execution environment then set variables expanding them (for nested varaibels) for:
+- Read the .env  in current dir and set the variables
+
+show in the log the variables set
+
+propagate the env to all the subcommands invoked
+
+use the provided environment to set internal variables
+expanding them also using environment variables for:
 
 WorkspaceDir
 OpenAIBaseUrl

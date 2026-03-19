@@ -1,4 +1,5 @@
 image/trustable-*
+image/trustable.json
 workspace/
 tmp/
 .env

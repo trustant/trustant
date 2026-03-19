@@ -1,5 +1,11 @@
 #!/bin/bash
 export HOME=/home/node
+export PATH="$HOME/.local/bin:$PATH"
+set -a
+source $HOME/.env
+set +a
+
+ops -update
 
 #setup sshd
 mkdir -p /run/sshd
@@ -17,8 +23,9 @@ then
     chmod 700 $HOME/.ssh
 fi
 
-echo OPENCODE_MODEL="${OPENCODE_MODEL:-qwen3-coder:480b-cloud}" >>$HOME/.env
-echo OPENCODE_SMALL_MODEL="${OPENCODE_SMALL_MODEL:-qwen3:1.7b}" >>$HOME/.env
+if test -n "$B64KUBECONFIG"
+then ops -base64 -d "$B64KUBECONFIG" >$HOME/.ops/tmp/kubeconfig
+fi
 
 chown -R node:node $HOME/.ssh $HOME/.env
 

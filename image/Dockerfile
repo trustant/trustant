@@ -23,29 +23,25 @@ ENV OPS_BRANCH=bestia
 ENV OPS_REPO=https://github.com/nuvolaris/bestia
 
 USER node
+WORKDIR /home/node
+COPY env .env
+COPY trustable.json trustable.json
+
 RUN \
-    echo "OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\
-    echo "OPS_REPO=$OPS_REPO" >>$HOME/.bashrc ;\
-    curl -sL https://raw.githubusercontent.com/apache/openserverless-cli/refs/heads/main/install.sh | bash ;\
-    source ~/.bashrc ; ops -t ;\
-    echo 'export PATH="$HOME/.ops/linux-$(dpkg --print-architecture)/bin:$PATH"' >>$HOME/.bashrc
+    echo "export OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\
+    echo "export OPS_REPO=$OPS_REPO" >>$HOME/.bashrc ;\
+    curl -sL n7s.co/get-ops | bash ;\
+    bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
 RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
 
-RUN \
-    echo WORKSPACE_DIR=$HOME/workspace >$HOME/.env ;\
-    echo OPENAI_BASE_URL=http://ollama:11434/v1 >>$HOME/.env ;\
-    echo OPENAI_API_KEY=dummy >>$HOME/.env ;\
-    echo OLLAMA_ENDPOINT=http://ollama:11434 >>$HOME/.env
-
-RUN mkdir /home/node/workspace
+RUN mkdir /home/node/data
 
 USER root
-ADD start.sh /usr/local/bin/start.sh
-
-ENTRYPOINT ["tini", "--"]
 COPY trustable-$TARGETARCH /usr/local/bin/trustable
+COPY start.sh /usr/local/bin/start.sh
 ADD supervisord.ini /etc/supervisord.ini
 CMD ["/usr/local/bin/start.sh"]
+ENTRYPOINT ["tini", "--"]
