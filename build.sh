@@ -1,5 +1,7 @@
 #!/bin/bash
 
+ops trustable trustable undeploy
+
 git tag -d $(git tag)
 git tag $(date +%Y.%m%d.%H%S)
 TAG=$(git tag)
@@ -16,4 +18,4 @@ jq  -r '.ollama|keys[]' <trustable.json >olaris-trustable/model.lst
 docker  buildx build image -t "$IMAGE:$TAG" --load
 
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
-
+ops trustable trustable deploy
