@@ -289,8 +289,46 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove .env and .env.production from git tracking and add to .gitignore
+	envFiles := []string{".env", ".env.production"}
+	var gitignoreEntries []string
+	for _, f := range envFiles {
+		fPath := filepath.Join(workspacePath, f)
+		if _, err := os.Stat(fPath); err == nil {
+			rmCmd := exec.Command("git", "rm", "-f", f)
+			rmCmd.Dir = workspacePath
+			if output, err := rmCmd.CombinedOutput(); err != nil {
+				log.Printf("Warning: git rm --cached %s: %s (%s)", f, err, string(output))
+			} else {
+				gitignoreEntries = append(gitignoreEntries, f)
+			}
+		}
+	}
+	if len(gitignoreEntries) > 0 {
+		gitignorePath := filepath.Join(workspacePath, ".gitignore")
+		existing, _ := os.ReadFile(gitignorePath)
+		content := string(existing)
+		for _, entry := range gitignoreEntries {
+			if !strings.Contains(content, entry) {
+				content += entry + "\n"
+			}
+		}
+		if err := os.WriteFile(gitignorePath, []byte(content), 0644); err != nil {
+			log.Printf("Warning: failed to update .gitignore: %s", err)
+		}
+	}
+
 	// Copy opencode.json to workspace (overwriting existing files)
+	// Generate it first if it doesn't exist
 	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
+	if _, err := os.Stat(opencodeConfigSrc); os.IsNotExist(err) {
+		log.Println("opencode.json not found, generating it...")
+		if cfg, err := loadTrustableConfig(); err != nil {
+			log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
+		} else if err := generateOpencodeConfig(cfg); err != nil {
+			log.Printf("Warning: failed to generate opencode.json: %s", err)
+		}
+	}
 	opencodeConfigDst := filepath.Join(workspacePath, "opencode.json")
 	if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
 		if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {

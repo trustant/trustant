@@ -109,7 +109,9 @@ Return a descriptive error if it fails.
 
 ## configuration files
 
-Copy the file `~/.config/lo/opencode.json`
+If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()`.
+
+Copy the file `~/.config/opencode/opencode.json`
 in the folder `<workspacedir>/workspace/<name>`
 overwriting exiting files.
 
@@ -141,6 +143,10 @@ using the ssh key in `~/.ssh/id_trustable` saving in
 <workspacedir>/workspace/<name>`
 
 Return error if fails.
+
+## clean up env files from git
+
+If the cloned repo contains `.env` or `.env.production` tracked by git, remove them from git with `git rm -f` and add them to `.gitignore` (creating or appending to the file). This prevents secrets from being committed back to the repository.
 
 ## create the .env
 

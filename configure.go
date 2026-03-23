@@ -448,6 +448,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	}
 
 	// Env rows from trustable.json (value editable, can't add/remove)
+	// Default values from trustable.json go to Development, not Production
 	for _, k := range envKeys {
 		devVal := devVars[k]
 		if devVal == "" {
