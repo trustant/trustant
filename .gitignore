@@ -1,5 +1,6 @@
 image/trustable-*
 image/trustable.json
+image/opencode.md
 workspace/
 tmp/
 .env

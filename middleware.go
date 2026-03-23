@@ -16,8 +16,17 @@ import (
 var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 
 // reverse proxy instances for opencode and vite
-var opencodeProxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "localhost:4096"})
-var viteProxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: "localhost:5173"})
+var opencodeProxy = newSilentProxy("localhost:4096")
+var viteProxy = newSilentProxy("localhost:5173")
+
+// newSilentProxy creates a reverse proxy that silently returns 502 when the backend is unavailable
+func newSilentProxy(host string) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: host})
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		w.WriteHeader(http.StatusBadGateway)
+	}
+	return proxy
+}
 
 // parseHostname extracts hostname, port, and protocol from a request
 func parseHostname(r *http.Request) (hostname, port, protocol string) {

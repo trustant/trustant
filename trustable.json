@@ -1,7 +1,6 @@
 {
     "ollama": {
         "nomic-embed-text-v2-moe:latest": "512",
-        "qwen3:1.7b": "40K",
         "qwen3-coder:480b-cloud": "256K",
         "qwen3-coder-next:cloud": "256k",
         "qwen3.5:cloud": "256K",
@@ -13,8 +12,8 @@
         "gpt-oss:120b-cloud": "128K"
     },
     "opencode": {
-        "default": "qwen3-coder:480b-cloud",
-        "small": "qwen3:1.7b"
+        "default": "qwen3-coder-next:cloud",
+        "small": "gpt-oss:20b-cloud"
     },
     "env": {
         "OPENAI_BASE_URL": "http://localhost:11434/v1",

@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,7 +286,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
-	encPath := url.PathEscape(absPath)
 
 	// Log the opencode session URLs
 	domain := r.Host
@@ -320,7 +318,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		"left":   leftPort,
 		"right":  rightPort,
 		"b64dir": b64Path,
-		"encdir": encPath,
+		"encdir": absPath,
 	})
 }
 
