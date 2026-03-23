@@ -7,7 +7,7 @@
     <script src="tailwind.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
-    <div class="w-full max-w-md">
+    <div id="mainContent" class="w-full max-w-md hidden">
         <!-- Centered Logo and Title -->
         <div class="flex flex-col items-center mb-8">
             <img src="trustable-logo.svg" alt="Trustable Logo" class="w-26 h-26">
@@ -194,6 +194,19 @@
                     Continue
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- Sign-in Required Modal -->
+    <div id="signinModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <h3 class="text-lg font-semibold mb-4 text-red-600">Sign-in Required</h3>
+            <p class="text-gray-700 mb-2">You are not logged in to ollama cloud.</p>
+            <p class="text-gray-700 mb-6">Please execute <code class="bg-gray-100 px-2 py-1 rounded text-sm">ops trustable signin</code></p>
+            <button onclick="retryOpenAITest()"
+                class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                Retry
+            </button>
         </div>
     </div>
 
@@ -580,6 +593,7 @@
                 if (!document.getElementById('configDone').classList.contains('hidden')) {
                     hideConfigModal();
                 }
+                // Note: signinModal intentionally not dismissible with Escape - user must click Retry
             }
         });
 
@@ -635,9 +649,49 @@
             document.getElementById('configModal').classList.remove('flex');
         }
 
+        function showSigninModal() {
+            document.getElementById('signinModal').classList.remove('hidden');
+            document.getElementById('signinModal').classList.add('flex');
+        }
+
+        function hideSigninModal() {
+            document.getElementById('signinModal').classList.add('hidden');
+            document.getElementById('signinModal').classList.remove('flex');
+        }
+
+        let _openaiTestResolve = null;
+
+        function retryOpenAITest() {
+            hideSigninModal();
+            if (_openaiTestResolve) _openaiTestResolve();
+        }
+
+        async function testOpenAIConnection() {
+            while (true) {
+                try {
+                    const resp = await fetch('/api/testmodel');
+                    const data = await resp.json();
+                    if (data.error) {
+                        await new Promise(resolve => {
+                            _openaiTestResolve = resolve;
+                            showSigninModal();
+                        });
+                        continue;
+                    }
+                    return true;
+                } catch (e) {
+                    await new Promise(resolve => {
+                        _openaiTestResolve = resolve;
+                        showSigninModal();
+                    });
+                }
+            }
+        }
+
         async function runConfiguration() {
             showConfigModal();
             const msgEl = document.getElementById('configMessages');
+            let configError = false;
             try {
                 const resp = await fetch('/api/configure');
                 const reader = resp.body.getReader();
@@ -654,12 +708,15 @@
                             const div = document.createElement('div');
                             if (line.startsWith('ERROR:')) {
                                 div.className = 'text-red-600';
+                                div.textContent = line;
+                                configError = true;
                             } else if (line.startsWith('OK:')) {
                                 div.className = 'text-green-600';
+                                div.textContent = line;
                             } else {
                                 div.className = 'text-gray-700';
+                                div.textContent = line;
                             }
-                            div.textContent = line;
                             msgEl.appendChild(div);
                             msgEl.scrollTop = msgEl.scrollHeight;
                         }
@@ -671,15 +728,35 @@
                     div.textContent = buffer;
                     msgEl.appendChild(div);
                 }
-                // Set configured cookie
-                document.cookie = 'CONFIGURED=1;path=/;max-age=31536000';
             } catch (e) {
                 const div = document.createElement('div');
                 div.className = 'text-red-600';
                 div.textContent = 'Error: ' + e.message;
                 msgEl.appendChild(div);
+                configError = true;
             }
             document.getElementById('configSpinner').classList.add('hidden');
+
+            if (!configError) {
+                // Test OpenAI API connection
+                const testDiv = document.createElement('div');
+                testDiv.className = 'text-gray-700';
+                testDiv.textContent = 'Testing AI model connection...';
+                msgEl.appendChild(testDiv);
+                msgEl.scrollTop = msgEl.scrollHeight;
+
+                await testOpenAIConnection();
+
+                const okDiv = document.createElement('div');
+                okDiv.className = 'text-green-600';
+                okDiv.textContent = 'OK: AI model connection successful';
+                msgEl.appendChild(okDiv);
+                msgEl.scrollTop = msgEl.scrollHeight;
+
+                // Set configured cookie
+                document.cookie = 'CONFIGURED=1;path=/';
+            }
+
             document.getElementById('configDone').classList.remove('hidden');
         }
 
@@ -702,8 +779,11 @@
                 // Run configuration if not yet configured
                 const configured = getCookie('CONFIGURED');
                 if (!configured || configured === '0') {
-                    runConfiguration();
+                    await runConfiguration();
                 }
+
+                // Show main content after all checks pass
+                document.getElementById('mainContent').classList.remove('hidden');
             } catch (e) {
                 console.error('Failed to check version:', e);
             }

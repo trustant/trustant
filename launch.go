@@ -298,7 +298,8 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	// POST to opencode session endpoint to initialize the session
-	sessionURL := fmt.Sprintf("http://%s:%d/session/", domain, leftPort)
+	// Use localhost since opencode is running on the same machine
+	sessionURL := fmt.Sprintf("http://localhost:%d/session/", leftPort)
 	sessionReq, err := http.NewRequest("POST", sessionURL, nil)
 	if err != nil {
 		log.Printf("Warning: failed to create session request: %s", err)

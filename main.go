@@ -46,6 +46,7 @@ func main() {
 	http.HandleFunc("/api/publish", handlePublish)
 	http.HandleFunc("/api/sshkey", handleSSHKey)
 	http.HandleFunc("/api/configure", handleConfigure)
+	http.HandleFunc("/api/testmodel", handleTestModel)
 	http.HandleFunc("/api/configuration", handleConfiguration)
 	http.HandleFunc("/api/appconfig/", handleAppConfig)
 

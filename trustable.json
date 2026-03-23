@@ -13,7 +13,7 @@
         "gpt-oss:120b-cloud": "128K"
     },
     "opencode": {
-        "default":  "qwen3-coder:480-cloud",
+        "default": "qwen3-coder:480b-cloud",
         "small": "qwen3:1.7b"
     },
     "env": {

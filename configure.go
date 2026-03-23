@@ -112,6 +112,8 @@ func modelDisplayName(modelID string) string {
 	return strings.Join(result, " ")
 }
 
+
+
 // handleConfigure handles GET /api/configure - pulls models and generates opencode config, streaming progress
 func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -238,6 +240,20 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		"enabled_providers": []string{"ollama"},
 		"model":             cfg.Opencode.Default,
 		"small_model":       cfg.Opencode.Small,
+		"permission": map[string]interface{}{
+			"read":       "allow",
+			"edit":       "allow",
+			"glob":       "allow",
+			"grep":       "allow",
+			"list":       "allow",
+			"bash":       "allow",
+			"task":       "allow",
+			"todowrite":  "allow",
+			"todoread":   "allow",
+			"webfetch":   "allow",
+			"websearch":  "allow",
+			"codesearch": "allow",
+		},
 		"provider": map[string]interface{}{
 			"ollama": map[string]interface{}{
 				"npm": "@ai-sdk/openai-compatible",
@@ -273,6 +289,71 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 
 	log.Printf("  - Written to %s", configPath)
 	return nil
+}
+
+// handleTestModel handles GET /api/testmodel - tests the OpenAI API connection
+func handleTestModel(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	baseURL := OpenAIBaseUrl
+	apiKey := OpenAIApiKey
+	model := cfg.Opencode.Default
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model":    model,
+		"messages": []map[string]string{{"role": "user", "content": "hello"}},
+	})
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	req, _ := http.NewRequest("POST", baseURL+"/chat/completions", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": string(body)})
+		return
+	}
+
+	// Check if response body contains "error"
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid response"})
+		return
+	}
+
+	if _, hasError := result["error"]; hasError {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("%v", result["error"])})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // handleConfiguration handles GET and POST /api/configuration

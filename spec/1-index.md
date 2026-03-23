@@ -11,7 +11,14 @@ if it expired show a page with only a centered message saying "This version expi
 The first time also invoke the configuration api
 expect a streamed answer and show the messages with a modal while it is configuring
 
-once configured set a cookie CONFIGURED=1
+then invoke the openai ai api using informations in in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.default model, asking hello.
+
+If you get "error", show popup saying "you are not logged in ollama cloud.\nPlease execute `ops trustable signin` and a button Retry
+
+Repeat until the test succeded
+
+once configured set a cookie CONFIGURED=1 valid util you close the browser
+
 repeat the configuration only if the cookie is no more present or has value 0
 
 # Home Page
