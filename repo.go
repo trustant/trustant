@@ -75,7 +75,7 @@ func expiredGuard(w http.ResponseWriter) bool {
 type Application struct {
 	Name    string `json:"name"`
 	Repo    string `json:"repo"`
-	APIHost string `json:"apihost,omitempty"`
+	ApiHost string `json:"apihost,omitempty"`
 }
 
 // Validation patterns
@@ -100,39 +100,6 @@ func getExistingUsers() (map[string]bool, error) {
 		}
 	}
 	return users, nil
-}
-
-func validateAPIHost(apihost string) error {
-	client := &http.Client{Timeout: 10 * time.Second}
-	url := fmt.Sprintf("https://%s/api/info", apihost)
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to connect to apihost: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("apihost returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read apihost response: %w", err)
-	}
-
-	var info struct {
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal(body, &info); err != nil {
-		return fmt.Errorf("apihost returned invalid JSON: %w", err)
-	}
-
-	if info.Description != "OpenWhisk" {
-		return fmt.Errorf("apihost is not an OpenWhisk instance (description: %s)", info.Description)
-	}
-
-	return nil
 }
 
 func handleGetRepo(w http.ResponseWriter, r *http.Request) {
@@ -175,17 +142,23 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Read apihost from .env.<name> if it exists
+		// Check for .env.production and read OPS_APIHOST
 		var apihost string
-		envNamePath := filepath.Join(WorkspaceDir, "workspace", name, ".env."+name)
-		if envData, err := os.ReadFile(envNamePath); err == nil {
-			apihost = parseEnvAPIHost(string(envData))
+		envFilePath := filepath.Join(WorkspaceDir, "workspace", name, ".env.production")
+		if envData, err := os.ReadFile(envFilePath); err == nil {
+			for _, line := range strings.Split(string(envData), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "OPS_APIHOST=") {
+					apihost = strings.TrimPrefix(line, "OPS_APIHOST=")
+					break
+				}
+			}
 		}
 
 		apps = append(apps, Application{
 			Name:    name,
 			Repo:    repo,
-			APIHost: apihost,
+			ApiHost: apihost,
 		})
 	}
 
@@ -243,39 +216,11 @@ func extractRepoFromURL(url string) string {
 	return url
 }
 
-func parseEnvAPIHost(envContent string) string {
-	lines := strings.Split(envContent, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "OPS_APIHOST=") {
-			value := strings.TrimPrefix(line, "OPS_APIHOST=")
-			// Remove https:// prefix as per spec
-			value = strings.TrimPrefix(value, "https://")
-			// Also remove http:// prefix for consistency
-			value = strings.TrimPrefix(value, "http://")
-			return value
-		}
-	}
-	return ""
-}
-
-// calculateStreamerURL adds "stream." to the domain of the apihost URL
-// Example: nuvolaris.org -> http://stream.nuvolaris.org
-func calculateStreamerURL(apihost string) string {
-	// Remove any protocol prefix if present
-	host := strings.TrimPrefix(apihost, "https://")
-	host = strings.TrimPrefix(host, "http://")
-
-	// Add stream. prefix to the host
-	return fmt.Sprintf("http://stream.%s", host)
-}
-
 func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name     string `json:"name"`
 		Repo     string `json:"repo"`
 		Password string `json:"password"`
-		APIHost  string `json:"apihost,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -307,30 +252,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize apihost: strip protocol prefix if present
-	req.APIHost = strings.TrimPrefix(req.APIHost, "https://")
-	req.APIHost = strings.TrimPrefix(req.APIHost, "http://")
-
-	// Validate apihost if provided
-	if req.APIHost != "" {
-		if err := validateAPIHost(req.APIHost); err != nil {
-			http.Error(w, fmt.Sprintf("Invalid apihost: %s", err), http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Create ~/.ops directory if it doesn't exist
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		http.Error(w, "Failed to get home directory", http.StatusInternalServerError)
-		return
-	}
-	opsDir := filepath.Join(homeDir, ".ops")
-	if err := os.MkdirAll(opsDir, 0700); err != nil {
-		http.Error(w, "Failed to create .ops directory", http.StatusInternalServerError)
-		return
-	}
-
+	// Create or retrieve the password
 	// Try to retrieve existing password with ops util kubeget
 	localPassword := req.Password
 	userExisted := false
@@ -351,72 +273,55 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Store password
-	passwordFile := filepath.Join(opsDir, req.Name+".password")
-	if err := os.WriteFile(passwordFile, []byte(localPassword), 0600); err != nil {
-		http.Error(w, "Failed to store password", http.StatusInternalServerError)
-		return
-	}
-
 	// Clone the repo using the trustable SSH key
 	repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
-	homeDir2, _ := os.UserHomeDir()
-	sshKeyPath := filepath.Join(homeDir2, ".ssh", "id_trustable")
+	homeDir, _ := os.UserHomeDir()
+	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_trustable")
 	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
 	cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
 	cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
-		// Clean up: delete user and password file
+		// Clean up: delete user
 		deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
 		deleteUserCmd.Run()
-		os.Remove(passwordFile)
 		log.Printf("Failed to clone repo: %s, output: %s", err, string(output))
 		http.Error(w, fmt.Sprintf("Failed to clone repository: %s", string(output)), http.StatusInternalServerError)
 		return
 	}
 
-	// Create .env file with default apihost and required environment variables
-	envContent := fmt.Sprintf(`OPS_USER=%s
-OPS_PASSWORD=%s
-OPS_APIHOST=http://miniops.me
-OLLAMA_HOST=ollama
-OLLAMA_PROTO=http
-OLLAMA_TOKEN=dummy
-OPENAI_BASE_URL=http://ollama:11434/v1
-OPENAI_API_KEY=dummy
-OLLAMA_MODEL=gpt-oss:20b
-VITE_STREAM=http://stream.miniops.me
-`, req.Name, localPassword)
+	// Copy opencode.json to workspace (overwriting existing files)
+	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
+	opencodeConfigDst := filepath.Join(workspacePath, "opencode.json")
+	if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
+		if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {
+			log.Printf("Warning: failed to copy opencode.json: %s", writeErr)
+		}
+	} else {
+		log.Printf("Warning: opencode.json not found: %s", readErr)
+	}
+
+	// Write embedded opencode.md to workspace (overwriting existing files)
+	opencodeMdDst := filepath.Join(workspacePath, "opencode.md")
+	if err := os.WriteFile(opencodeMdDst, []byte(opencodeMd), 0644); err != nil {
+		log.Printf("Warning: failed to write opencode.md: %s", err)
+	}
+
+	// Create .env file with OPS vars and localenv keys from trustable.json
+	envContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=http://miniops.me\n", req.Name, localPassword)
+
+	// Load trustable.json and append localenv keys
+	cfg, cfgErr := loadTrustableConfig()
+	if cfgErr != nil {
+		log.Printf("Warning: failed to load trustable.json: %s", cfgErr)
+	} else if cfg.Env != nil {
+		for k, v := range cfg.Env {
+			envContent += fmt.Sprintf("%s=%s\n", k, v)
+		}
+	}
+
 	envPath := filepath.Join(workspacePath, ".env")
 	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
 		log.Printf("Warning: failed to create .env file: %s", err)
-	}
-
-	// Create .env.<name> file if apihost is provided
-	if req.APIHost != "" {
-		envNameContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=https://%s\n", req.Name, localPassword, req.APIHost)
-
-		// Read .env from current directory and append it
-		if envData, err := os.ReadFile(".env"); err == nil {
-			envNameContent += string(envData)
-		} else {
-			log.Printf("Warning: failed to read .env: %s", err)
-		}
-
-		envNamePath := filepath.Join(workspacePath, ".env."+req.Name)
-		if err := os.WriteFile(envNamePath, []byte(envNameContent), 0600); err != nil {
-			log.Printf("Warning: failed to create .env.%s file: %s", req.Name, err)
-		}
-
-		// Calculate <streamer> by adding "stream." to the domain of apihost
-		streamer := calculateStreamerURL(req.APIHost)
-
-		// Create .env.production with VITE_STREAM
-		prodEnvContent := fmt.Sprintf("VITE_STREAM=%s\n", streamer)
-		destProdPath := filepath.Join(workspacePath, ".env.production")
-		if err := os.WriteFile(destProdPath, []byte(prodEnvContent), 0600); err != nil {
-			log.Printf("Warning: failed to create .env.production: %s", err)
-		}
 	}
 
 	// Run npm install if package.json exists
@@ -426,15 +331,13 @@ VITE_STREAM=http://stream.miniops.me
 		npmCmd.Dir = workspacePath
 		if output, err := npmCmd.CombinedOutput(); err != nil {
 			log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
-			// Don't fail the request, just log the warning
 		}
 	}
 
 	// Return the created application with optional warning
 	result := map[string]interface{}{
-		"name":    req.Name,
-		"repo":    req.Repo,
-		"apihost": req.APIHost,
+		"name": req.Name,
+		"repo": req.Repo,
 	}
 	if userExisted {
 		result["warning"] = "The provided password was ignored because the user already existed. The existing local password was reused."
@@ -481,15 +384,6 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 	// Remove workspace folder
 	if err := os.RemoveAll(workspacePath); err != nil {
 		log.Printf("Warning: failed to remove workspace folder: %s", err)
-	}
-
-	// Remove password file
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		passwordFile := filepath.Join(homeDir, ".ops", req.Name+".password")
-		if err := os.Remove(passwordFile); err != nil && !os.IsNotExist(err) {
-			log.Printf("Warning: failed to remove password file: %s", err)
-		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

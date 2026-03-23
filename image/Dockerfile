@@ -26,6 +26,7 @@ USER node
 WORKDIR /home/node
 COPY env .env
 COPY trustable.json trustable.json
+COPY opencode.md opencode.md
 
 RUN \
     echo "export OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\

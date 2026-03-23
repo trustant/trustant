@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,8 +19,8 @@ import (
 )
 
 const (
-	opencodePort   = 4096
-	defaultDevPort = 8080
+	opencodePort  = 4096
+	opsdevelPort  = 5173
 )
 
 // getPgidFile returns the path to the pgid file inside WorkspaceDir
@@ -29,66 +28,6 @@ func getPgidFile() string {
 	return filepath.Join(WorkspaceDir, "pgid")
 }
 
-// calculateStreamerFromHost calculates the streamer URL from the Host header
-// Expects Host to be trustable.<domain>[:<port>] and calculates streamer as <protocol>://stream.<domain>
-func calculateStreamerFromHost(r *http.Request) string {
-	host := r.Host
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	// Also check X-Forwarded-Proto header for reverse proxy setups
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
-	}
-
-	// Remove port if present
-	hostWithoutPort := host
-	if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
-		// Check if this is not part of IPv6 address
-		if bracketIdx := strings.LastIndex(host, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
-			hostWithoutPort = host[:colonIdx]
-		}
-	}
-
-	// Replace "trustable." prefix with "stream."
-	if strings.HasPrefix(hostWithoutPort, "trustable.") {
-		domain := strings.TrimPrefix(hostWithoutPort, "trustable.")
-		return fmt.Sprintf("%s://stream.%s", scheme, domain)
-	}
-
-	// Fallback: just prepend stream. to the domain
-	return fmt.Sprintf("%s://stream.%s", scheme, hostWithoutPort)
-}
-
-// detectVitePort scans vite.config.js or vite.config.ts for a port configuration
-// Returns the detected port or 8080 as default
-func detectVitePort(workspacePath string) int {
-	configFiles := []string{
-		filepath.Join(workspacePath, "vite.config.ts"),
-		filepath.Join(workspacePath, "vite.config.js"),
-	}
-
-	portPattern := regexp.MustCompile(`port:\s*(\d+)`)
-
-	for _, configFile := range configFiles {
-		data, err := os.ReadFile(configFile)
-		if err != nil {
-			continue
-		}
-
-		matches := portPattern.FindSubmatch(data)
-		if len(matches) >= 2 {
-			var port int
-			if _, err := fmt.Sscanf(string(matches[1]), "%d", &port); err == nil && port > 0 {
-				log.Printf("Detected vite port %d from %s", port, configFile)
-				return port
-			}
-		}
-	}
-
-	return defaultDevPort
-}
 
 // isPortFree checks if a port is available for use
 func isPortFree(port int) bool {
@@ -212,53 +151,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Terminate leftover processes
 	terminateLeftoverProcesses()
 
-	// Retrieve password using ops util kubeget
-	log.Printf("Retrieving password for %s...", app)
-	passwordCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+app, ".spec.password")
-	passwordOutput, err := passwordCmd.Output()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to retrieve password: %s", err)})
-		return
-	}
-	password := strings.TrimSpace(string(passwordOutput))
-
-	// Calculate streamer URL from Host header
-	// Expects Host to be <protocol>://trustable.<domain>[:<port>]/<path>
-	// Calculate streamer as <protocol>://stream.<domain>
-	streamer := calculateStreamerFromHost(r)
-
-	// Create .env file in workspace/<app>
-	envContent := fmt.Sprintf(`OPS_USER=%s
-OPS_PASSWORD=%s
-OPS_APIHOST=http://miniops.me
-OLLAMA_HOST=ollama:11434
-OLLAMA_PROTO=http
-OLLAMA_TOKEN=dummy
-OPENAI_BASE_URL=http://ollama:11434/v1
-OPENAI_API_KEY=dummy
-OPENAI_MODEL=gpt-oss:20b
-VITE_STREAM=%s
-`, app, password, streamer)
-	envPath := filepath.Join(workspacePath, ".env")
-	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create .env file: %s", err)})
-		return
-	}
-	log.Printf("Created .env file for %s with streamer %s", app, streamer)
-
-	// Copy opencode.json and opencode.md to workspace folder (overwriting existing files)
-	for _, filename := range []string{"opencode.json", "opencode.md"} {
-		srcPath := filename
-		dstPath := filepath.Join(workspacePath, filename)
-		if data, err := os.ReadFile(srcPath); err == nil {
-			if err := os.WriteFile(dstPath, data, 0644); err != nil {
-				log.Printf("Warning: failed to copy %s: %s", filename, err)
-			}
-		} else {
-			log.Printf("Warning: %s not found: %s", filename, err)
-		}
-	}
-
 	// Run ops ide login
 	log.Printf("Running ops ide login for %s...", app)
 	loginCmd := exec.Command("ops", "ide", "login")
@@ -272,7 +164,7 @@ VITE_STREAM=%s
 
 	// Detect ports
 	leftPort := opencodePort
-	rightPort := detectVitePort(workspacePath)
+	rightPort := opsdevelPort
 
 	// Check if ports are free
 	if !isPortFree(leftPort) {

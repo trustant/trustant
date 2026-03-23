@@ -8,7 +8,6 @@ connect to the endppoint and pull all the models,
 
 returning in streaming mode messages "Pulling model XXX"
 
-
 # prepare opencode config
 
 - Using information in <WorkspaceDir>/trustable.json and in the .env create the opencode config in

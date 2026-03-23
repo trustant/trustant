@@ -49,5 +49,3 @@ The web application requires you always access the application with a full fqdn 
 - if <host> is 'trustable', serve the folder `web`
 - if <host> is 'opencode', proxy pass to port 4096
 - if <host> is 'vite',  proxy pass to port 5173
-
-

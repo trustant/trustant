@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trustable - App Configuration</title>
+    <script src="tailwind.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+    <div class="w-full max-w-4xl">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center gap-3">
+                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-12 h-12">
+                <h1 class="text-2xl font-bold text-gray-800">Configure <span id="appNameTitle"></span></h1>
+            </div>
+            <button onclick="closeConfig()" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">Close</button>
+        </div>
+
+        <!-- Env Table -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b">
+                        <th class="text-left py-2 px-2">VARIABLE</th>
+                        <th class="text-left py-2 px-2">Development</th>
+                        <th class="text-left py-2 px-2">Production</th>
+                        <th class="text-right py-2 px-2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="envTableBody">
+                    <tr><td colspan="4" class="text-center py-4 text-gray-500">Loading...</td></tr>
+                </tbody>
+            </table>
+            <div class="mt-4">
+                <button onclick="addVariable()"
+                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    Add Variable
+                </button>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3">
+            <button onclick="saveAppConfig()"
+                class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                Save
+            </button>
+            <button onclick="closeConfig()"
+                class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors text-center">
+                Close
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const appName = params.get('app');
+        if (!appName) {
+            document.body.innerHTML = '<div class="flex justify-center items-center h-screen"><p class="text-xl">No app specified</p></div>';
+        }
+        document.getElementById('appNameTitle').textContent = appName || '';
+
+        let envVars = [];
+        let localEnvKeys = [];
+        let savedSnapshot = '';
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function loadAppConfig() {
+            try {
+                const resp = await fetch(`/api/appconfig/${encodeURIComponent(appName)}`);
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    alert('Failed to load config: ' + text);
+                    return;
+                }
+                const data = await resp.json();
+                envVars = data.vars || [];
+                localEnvKeys = data.localenv_keys || [];
+                savedSnapshot = JSON.stringify(envVars);
+                renderTable();
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('envTableBody');
+            if (envVars.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No variables</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = envVars.map((v, i) => {
+                const nameField = v.readonly
+                    ? `<span class="font-mono text-xs">${escapeHtml(v.name)}</span>`
+                    : v.fixed
+                        ? `<span class="font-mono text-xs">${escapeHtml(v.name)}</span>`
+                        : `<input type="text" value="${escapeHtml(v.name)}" onchange="updateVar(${i}, 'name', this.value)"
+                            class="w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">`;
+
+                const devField = v.readonly
+                    ? `<span class="text-xs text-gray-600">${escapeHtml(v.dev_value)}</span>`
+                    : `<input type="text" value="${escapeHtml(v.dev_value)}" onchange="updateVar(${i}, 'dev_value', this.value)"
+                        class="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">`;
+
+                const prodField = `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="updateVar(${i}, 'prod_value', this.value)"
+                    class="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">`;
+
+                const removeBtn = (v.readonly || v.fixed)
+                    ? ''
+                    : `<button onclick="removeVar(${i})"
+                        class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">
+                        Remove
+                    </button>`;
+
+                return `
+                <tr class="border-b">
+                    <td class="py-2 px-2">${nameField}</td>
+                    <td class="py-2 px-2">${devField}</td>
+                    <td class="py-2 px-2">${prodField}</td>
+                    <td class="py-2 px-2 text-right">${removeBtn}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function updateVar(index, field, value) {
+            envVars[index][field] = value;
+        }
+
+        function removeVar(index) {
+            envVars.splice(index, 1);
+            renderTable();
+        }
+
+        function addVariable() {
+            envVars.push({ name: '', dev_value: '', prod_value: '', readonly: false, fixed: false });
+            renderTable();
+            // Focus the last name input
+            const inputs = document.querySelectorAll('#envTableBody input[type="text"]');
+            if (inputs.length > 0) {
+                inputs[inputs.length - 3]?.focus();
+            }
+        }
+
+        async function saveAppConfig() {
+            try {
+                const resp = await fetch(`/api/appconfig/${encodeURIComponent(appName)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vars: envVars })
+                });
+                if (resp.ok) {
+                    savedSnapshot = JSON.stringify(envVars);
+                    alert('Configuration saved');
+                } else {
+                    const text = await resp.text();
+                    alert('Failed to save: ' + text);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function hasUnsavedChanges() {
+            return JSON.stringify(envVars) !== savedSnapshot;
+        }
+
+        function closeConfig() {
+            if (hasUnsavedChanges()) {
+                if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
+                    return;
+                }
+            }
+            window.location.href = 'index.html';
+        }
+
+        // Check version then load
+        (async function() {
+            try {
+                const resp = await fetch('/api/version');
+                const data = await resp.json();
+                if (data.expired) {
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please get an updated version. For info email: info@nuvolaris.io</p></div>';
+                    return;
+                }
+            } catch (e) {
+                console.error('Failed to check version:', e);
+            }
+            if (appName) loadAppConfig();
+        })();
+    </script>
+</body>
+</html>

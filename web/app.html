@@ -54,7 +54,7 @@
                 </svg>
             </div>
             <h3 id="publishTitle" class="text-lg font-semibold mb-2">Publish Application</h3>
-            <p id="publishMessage" class="text-gray-600 mb-4">Are you sure you want to publish to <span id="publishApiHost" class="font-semibold"></span>?</p>
+            <p id="publishMessage" class="text-gray-600 mb-4">Are you sure you want to publish <span id="publishApiHost" class="font-semibold"></span>?</p>
             <div id="publishConfirmButtons" class="flex gap-3">
                 <button onclick="hidePublishModal()"
                     class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
@@ -135,7 +135,6 @@
         const rightURL = getCookie('RIGHT');
         const appName = getCookie('NAME');
         const urlDirectory = getCookie('URLDIR');
-        const apiHost = getCookie('APIHOST');
 
         console.log('URLDIR:', urlDirectory);
 
@@ -155,15 +154,8 @@
             document.getElementById('rightFrame').src = rightURL;
         }
 
-        // Disable publish button if APIHOST is not defined
-        const publishBtn = document.getElementById('publishBtn');
-        if (!apiHost) {
-            publishBtn.disabled = true;
-            publishBtn.title = 'No API Host configured';
-        }
-
-        // Set the API host in the modal
-        document.getElementById('publishApiHost').textContent = apiHost || '';
+        // Set the app name in the publish modal
+        document.getElementById('publishApiHost').textContent = appName || '';
 
         function showPublishModal() {
             document.getElementById('publishSpinner').classList.add('hidden');

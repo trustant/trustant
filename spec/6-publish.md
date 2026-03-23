@@ -9,14 +9,15 @@ Put the code in the file `publish.go`
 
 
 Change to the folder `<workspacedir>/workspace/<name>`
-Check if there is an `.env.<name>`
-If not return an error as "not available for publishing``
+Check if there is an `.env.production`
+If not return an error as "not available for publishing`
 
-Execute two commands setting the env var `WSK_CONFIG_FILE=/tmp/<name>.props`
 
-Execute the command
+Execute the following two  commands,
+ setting the env var `WSK_CONFIG_FILE=/tmp/<name>.props`
 
-`ops ide login`
+
+`ops ide login --mode=production`
 
 If successful check the file pointed by $WSK_CONFIG_FILE exists
 otherwise return error

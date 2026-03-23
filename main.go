@@ -15,6 +15,9 @@ var embeddedWeb embed.FS
 //go:embed version.txt
 var versionTxt string
 
+//go:embed opencode.md
+var opencodeMd string
+
 func main() {
 	// Run preflight checks
 	if err := runPreflight(); err != nil {
@@ -44,6 +47,7 @@ func main() {
 	http.HandleFunc("/api/sshkey", handleSSHKey)
 	http.HandleFunc("/api/configure", handleConfigure)
 	http.HandleFunc("/api/configuration", handleConfiguration)
+	http.HandleFunc("/api/appconfig/", handleAppConfig)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {

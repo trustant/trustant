@@ -27,7 +27,6 @@ They will show:
 
 Write in console.log the values of the cookies B64DIR and URLDIR
 
-
 Clicking on the button back will
 - remove the cookie B64DIR
 - invoke the DELETE /api/launch to stop running subprocess
@@ -51,7 +50,7 @@ return the result if ok or fail and an Continue button
 
 # Upload
 
-Add an Upload  Button to the toolbar.
+Add an Upload Button to the toolbar.
 
 It will allow to select a file to upload
 and then invoke the api `/api/upload`

@@ -18,37 +18,6 @@ invoke `DELETE /api/launch` to ensure the group is terminated
 If it is stll there, forcefully terminate the process group
 pointed by that file.
 
-## configuration files
-
-Copy the files `opencode.json` and `opencode.md` in the folder `<workspacedir>/workspace/<name>`, overwriting exiting files.
-
-## create the .env
-
-Retrieve the <password> with
-
-```
-ops util kubeget whiskuser/<name> .spec.password
-```
-
-Calulate the <streamer> looking at the `Host` header,
-expects it to be `<protocol>://trustable.<domain>[:<port>]/<path>`
-and calculate the <streamer> as `<protocol>://stream.<domain>`
-
-Then creates a  `<workspacedir>/workspace/<name>/.env`  with
-
-```
-OPS_USER=<name>
-OPS_PASSWORD=<password>
-OPS_APIHOST=http://miniops.me
-OLLAMA_HOST=ollama:11434
-OLLAMA_PROTO=http
-OLLAMA_TOKEN=dummy
-OPENAI_BASE_URL=http://ollama:11434/v1
-OPENAI_API_KEY=dummy
-OPENAI_MODEL=gpt-oss:20b
-VITE_STREAM=http://stream.miniops.me
-```
-
 ## login
 
 Change to `<workspacedir>/workspace/<app>` folder
@@ -60,10 +29,7 @@ If it terminates with 0 continue otherwise return error
 
 Assume `opencode` port will be 4096.
 
-Assume `opsdevel`  port will be 8080,
-unless there is a file `vite.config.js` or `vite.config.ts`,
-in this case read it and search for `port: xxxxx`
-and use the found value as opsdevel port.
+Assume `opsdevel`  port will be 5173.
 
 Check if ports for `opencode` and `opsdevel` are free,
 otherwise return error.

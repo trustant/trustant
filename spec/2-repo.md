@@ -18,7 +18,6 @@ otherwise returns
 
 `{"version": "Trustable v<version>", "expire": "<date>" }`
 
-
 # GET /api/configure
 
 ## pull the models
@@ -90,14 +89,11 @@ Template:
 }
 ```
 
-
-
 # POST /api/repo
 `{
   "name: <name>
   "repo": <repo>
   "password": <password>
-  "apihost": <apihost>
 }`
 
 where <apihost> is optional
@@ -109,20 +105,27 @@ where <apihost> is optional
 -  list the users, executing `ops admin listuser | awk 'NR>1{print $1} that returns the users, one per line and check the names does not exists
 - check the folder `<WorkspaceDir>/workspace/<name>` does not exist
 
-- if <apihost> exists and is not empty check that `https://<apihost>/api/info` returns a json object with `description` == `OpenWhisk`
-
 Return a descriptive error if it fails.
+
+## configuration files
+
+Copy the file `~/.config/lo/opencode.json`
+in the folder `<workspacedir>/workspace/<name>`
+overwriting exiting files.
+
+Embed the file opencode.md in the executable.
+Write it in the folder `<workspacedir>/workspace/<name>`
+overwriting exiting files.
 
 ## Create or retrieve the password
 
-Verify if the user exists
-trying to retrieve the password with:
+Verify if the user exists trying to retrieve the password with:
 
 ```
 ops util kubeget whiskuser/<name> .spec.password
 ```
 
-If it is not an error, the user exists then use the returned value as `<local-password>`; save the password in ~/.ops/<name>.password
+If it is not an error, the user exists then use the returned value as `<local-password>`
 
 If it is an error:
 - use <password> as <local-password>
@@ -133,35 +136,27 @@ If it is an error:
 
 Return error if fails, otherwise return a waring that the password was ignored for local as the user was exiting and the local password was reused.
 
-
 Then try to clone the repo from gituhub as git@github.com:<repo>
 using the ssh key in `~/.ssh/id_trustable` saving in
 <workspacedir>/workspace/<name>`
 
 Return error if fails.
 
-If <apihost> exists and it is defined create
-a `<workspacedir>/workspace/<name>/.env.<name>` with
+## create the .env
+
+Then creates a  `<workspacedir>/workspace/<name>/.env`  with
 
 ```
 OPS_USER=<name>
-OPS_PASSWORD=<password>
-OPS_APIHOST=<apihost>
+OPS_PASSWORD=<local-password>
+OPS_APIHOST=http://miniops.me
 ```
 
-and append the content of the file `.env` in current directory.
+and add all the keys listed in trustable.json in section `env` with their value as default value
 
-Calculate the <streamer> modifying the <apihost> adding the host `stream` to the domain of the url.
+# install
 
-Example: if <apihost> is `http://nuvolaris.org` then `<stream>` should be `http://stream.nuvolaris.org`
-
-Create a file  <workspacedir>/workspace/<name>/.env.production with
-
-```
-VITE_STREAM=<streamer>
-```
-
-Finally, if there is a `<workspacedir>/workspace/<name>/package.json`
+If there is a `<workspacedir>/workspace/<name>/package.json`
 execute:
 
 ```

@@ -43,8 +43,8 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if .env.<name> exists
-	envFile := filepath.Join(workspacePath, ".env."+req.Name)
+	// Check if .env.production exists
+	envFile := filepath.Join(workspacePath, ".env.production")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -55,8 +55,8 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	// Set WSK_CONFIG_FILE path
 	propsFile := fmt.Sprintf("/tmp/%s.props", req.Name)
 
-	// Execute ops ide login
-	loginCmd := exec.Command("ops", "ide", "login")
+	// Execute ops ide login with production mode
+	loginCmd := exec.Command("ops", "ide", "login", "--mode=production")
 	loginCmd.Dir = workspacePath
 	loginCmd.Env = append(os.Environ(), "WSK_CONFIG_FILE="+propsFile)
 

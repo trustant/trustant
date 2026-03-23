@@ -23,6 +23,7 @@ type trustableConfig struct {
 		Default string `json:"default"`
 		Small   string `json:"small"`
 	} `json:"opencode"`
+	Env map[string]string `json:"env"`
 }
 
 // loadTrustableConfig reads trustable.json from the workspace directory
@@ -328,6 +329,215 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 	if err := os.WriteFile(configPath, formatted, 0644); err != nil {
 		http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
+
+// EnvVar represents a single environment variable with dev and prod values
+type EnvVar struct {
+	Name       string `json:"name"`
+	DevValue   string `json:"dev_value"`
+	ProdValue  string `json:"prod_value"`
+	Readonly   bool   `json:"readonly,omitempty"`
+	Fixed      bool   `json:"fixed,omitempty"`
+}
+
+// AppEnvConfig represents the full env configuration for an app
+type AppEnvConfig struct {
+	Vars     []EnvVar `json:"vars"`
+	LocalEnv []string `json:"localenv_keys"`
+}
+
+// parseEnvFile parses a .env file into a map
+func parseEnvFile(path string) map[string]string {
+	result := make(map[string]string)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			result[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+		}
+	}
+	return result
+}
+
+// writeEnvFile writes a map of key-value pairs to a .env file
+func writeEnvFile(path string, vars map[string]string, order []string) error {
+	var lines []string
+	written := make(map[string]bool)
+	for _, k := range order {
+		if v, ok := vars[k]; ok {
+			lines = append(lines, fmt.Sprintf("%s=%s", k, v))
+			written[k] = true
+		}
+	}
+	for k, v := range vars {
+		if !written[k] {
+			lines = append(lines, fmt.Sprintf("%s=%s", k, v))
+		}
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
+}
+
+// handleAppConfig handles GET and POST /api/appconfig/<name>
+func handleAppConfig(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+
+	name := strings.TrimPrefix(r.URL.Path, "/api/appconfig/")
+	name = strings.TrimPrefix(name, "/api/appconfig")
+	if name == "" || !namePattern.MatchString(name) {
+		http.Error(w, "Invalid app name", http.StatusBadRequest)
+		return
+	}
+
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", name)
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		http.Error(w, "App not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		handleGetAppConfig(w, r, name, workspacePath)
+	case http.MethodPost:
+		handlePostAppConfig(w, r, name, workspacePath)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspacePath string) {
+	envPath := filepath.Join(workspacePath, ".env")
+	prodPath := filepath.Join(workspacePath, ".env.production")
+
+	devVars := parseEnvFile(envPath)
+	prodVars := parseEnvFile(prodPath)
+
+	// Load env keys from trustable.json
+	var envKeys []string
+	cfg, err := loadTrustableConfig()
+	if err == nil && cfg.Env != nil {
+		for k := range cfg.Env {
+			envKeys = append(envKeys, k)
+		}
+	}
+
+	// Build the response
+	fixedKeys := []string{"OPS_APIHOST", "OPS_USER", "OPS_PASSWORD"}
+	var vars []EnvVar
+
+	// Fixed rows (readonly name and dev value)
+	for _, k := range fixedKeys {
+		vars = append(vars, EnvVar{
+			Name:     k,
+			DevValue: devVars[k],
+			ProdValue: prodVars[k],
+			Readonly: true,
+		})
+	}
+
+	// Env rows from trustable.json (value editable, can't add/remove)
+	for _, k := range envKeys {
+		devVal := devVars[k]
+		if devVal == "" {
+			devVal = cfg.Env[k]
+		}
+		vars = append(vars, EnvVar{
+			Name:      k,
+			DevValue:  devVal,
+			ProdValue: prodVars[k],
+			Fixed:     true,
+		})
+	}
+
+	// Collect remaining keys (custom vars)
+	seen := make(map[string]bool)
+	for _, k := range fixedKeys {
+		seen[k] = true
+	}
+	for _, k := range envKeys {
+		seen[k] = true
+	}
+
+	// Add remaining dev vars
+	for k := range devVars {
+		if !seen[k] {
+			vars = append(vars, EnvVar{
+				Name:      k,
+				DevValue:  devVars[k],
+				ProdValue: prodVars[k],
+			})
+			seen[k] = true
+		}
+	}
+	// Add remaining prod-only vars
+	for k := range prodVars {
+		if !seen[k] {
+			vars = append(vars, EnvVar{
+				Name:      k,
+				DevValue:  devVars[k],
+				ProdValue: prodVars[k],
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AppEnvConfig{
+		Vars:     vars,
+		LocalEnv: envKeys,
+	})
+}
+
+func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspacePath string) {
+	var req struct {
+		Vars []EnvVar `json:"vars"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	devVars := make(map[string]string)
+	prodVars := make(map[string]string)
+	var order []string
+
+	for _, v := range req.Vars {
+		if v.Name == "" {
+			continue
+		}
+		order = append(order, v.Name)
+		if v.DevValue != "" {
+			devVars[v.Name] = v.DevValue
+		}
+		if v.ProdValue != "" {
+			prodVars[v.Name] = v.ProdValue
+		}
+	}
+
+	envPath := filepath.Join(workspacePath, ".env")
+	prodPath := filepath.Join(workspacePath, ".env.production")
+
+	if err := writeEnvFile(envPath, devVars, order); err != nil {
+		http.Error(w, "Failed to write .env: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(prodVars) > 0 {
+		if err := writeEnvFile(prodPath, prodVars, order); err != nil {
+			http.Error(w, "Failed to write .env.production: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
