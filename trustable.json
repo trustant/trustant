@@ -11,6 +11,7 @@
         "gpt-oss:20b-cloud": "128K",
         "gpt-oss:120b-cloud": "128K"
     },
+    "testmodel":  "gpt-oss:20b-cloud",
     "opencode": {
         "default": "qwen3-coder-next:cloud",
         "small": "gpt-oss:20b-cloud"

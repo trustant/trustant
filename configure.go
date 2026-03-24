@@ -18,8 +18,9 @@ import (
 
 // trustableConfig represents the structure of trustable.json
 type trustableConfig struct {
-	Ollama   map[string]string `json:"ollama"`
-	Opencode struct {
+	Ollama    map[string]string `json:"ollama"`
+	TestModel string            `json:"testmodel"`
+	Opencode  struct {
 		Default string `json:"default"`
 		Small   string `json:"small"`
 	} `json:"opencode"`
@@ -292,30 +293,41 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	// Load config to find the first cloud model
+	// Load config to get the testmodel
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	// Find the first cloud model in trustable.json
-	cloudModel := ""
-	for modelName := range cfg.Ollama {
-		if strings.Contains(modelName, "cloud") {
-			cloudModel = modelName
-			break
-		}
-	}
-	if cloudModel == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "no cloud model found in trustable.json"})
+	if cfg.TestModel == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "no testmodel defined in trustable.json"})
 		return
 	}
 
-	// Use /api/show on the cloud model to verify auth
-	_, err = getModelCapabilities(cloudModel)
+	// Call /api/generate with the testmodel asking "hello"
+	log.Printf("Testing model %s...", cfg.TestModel)
+	client := &http.Client{Timeout: 60 * time.Second}
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model":  cfg.TestModel,
+		"prompt": "hello",
+		"stream": false,
+	})
+	resp, err := client.Post(OllamaEndpoint+"/api/generate", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
+		log.Printf("Test model %s error: %s", cfg.TestModel, err)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	log.Printf("Test model %s response: %s", cfg.TestModel, bodyStr)
+
+	// Check if the response starts with {"error" or doesn't contain "response"
+	if strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"response"`) {
+		json.NewEncoder(w).Encode(map[string]string{"error": bodyStr})
 		return
 	}
 
