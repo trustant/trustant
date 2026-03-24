@@ -273,25 +273,31 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clone the repo: use SSH if key exists, otherwise use HTTPS
+	// Clone the repo: try SSH first, fall back to HTTPS if SSH fails
 	sshKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable")
-	var cloneCmd *exec.Cmd
+	cloned := false
 	if _, err := os.Stat(sshKeyPath); err == nil {
 		repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
 		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-		cloneCmd = exec.Command("git", "clone", repoURL, workspacePath)
+		cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
 		cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
-	} else {
-		repoURL := fmt.Sprintf("https://github.com/%s", req.Repo)
-		cloneCmd = exec.Command("git", "clone", repoURL, workspacePath)
+		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			log.Printf("SSH clone failed, falling back to HTTPS: %s, output: %s", err, string(output))
+			os.RemoveAll(workspacePath)
+		} else {
+			cloned = true
+		}
 	}
-	if output, err := cloneCmd.CombinedOutput(); err != nil {
-		// Clean up: delete user
-		deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
-		deleteUserCmd.Run()
-		log.Printf("Failed to clone repo: %s, output: %s", err, string(output))
-		http.Error(w, fmt.Sprintf("Failed to clone repository: %s", string(output)), http.StatusInternalServerError)
-		return
+	if !cloned {
+		repoURL := fmt.Sprintf("https://github.com/%s", req.Repo)
+		cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
+		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
+			deleteUserCmd.Run()
+			log.Printf("Failed to clone repo: %s, output: %s", err, string(output))
+			http.Error(w, fmt.Sprintf("Failed to clone repository: %s", string(output)), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Remove .env and .env.production from git tracking and add to .gitignore
