@@ -19,7 +19,9 @@ Expect a streamed answer and show the messages with a modal while it is configur
 
 Then invoke the openai ai api using informations in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.default model, asking hello.
 
-If you get "error", show popup saying "you are not logged in ollama cloud.\nPlease execute `ops trustable signin` and a button Retry
+If you get "error", show a sign-in required popup:
+- If the page URL has a query string, show "Click here to login to Ollama Cloud" as a link pointing to `https://ollama.com/connect?<query_string>` and a Retry button.
+- If no query string, show "you are not logged in ollama cloud.\nPlease execute `ops trustable signin`" and a Retry button.
 
 Repeat until the test succeeded.
 

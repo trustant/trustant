@@ -3,7 +3,7 @@ ops trustable trustable undeploy
 git tag -d $(git tag)
 
 TAG=$(date +%Y.%m%d.%H%S)
-IMAGE=ghrc.io/trustable-ai/trustable-app
+IMAGE=ghcr.io/trustable-ai/trustable-app
 echo -e "Version: v$TAG-beta1\nExpiry: 2026/06/30\n" >version.txt
 
 OPSROOT="$(dirname "$0")/olaris-trustable/opsroot.json"
