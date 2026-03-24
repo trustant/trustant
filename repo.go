@@ -275,8 +275,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 
 	// Clone the repo using the trustable SSH key
 	repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
-	homeDir, _ := os.UserHomeDir()
-	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_trustable")
+	sshKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable")
 	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
 	cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
 	cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
@@ -385,6 +384,9 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Application not found", http.StatusNotFound)
 		return
 	}
+
+	// Terminate any running processes (opencode/opsdevel) to avoid locked files
+	terminateLeftoverProcesses()
 
 	// Delete user with ops admin deleteuser
 	deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)

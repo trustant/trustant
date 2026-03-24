@@ -31,7 +31,7 @@ OllamaEndpoint
 
 # generate an ssh key
 
-if not found, generate an ssh key in format ED25519 in ~/.ssh/id_trustable and his public key ~/.ssh/id_trustable.pub
+if not found, generate an ssh key in format ED25519 in <WorkspaceDir>/.ssh/id_trustable and its public key <WorkspaceDir>/.ssh/id_trustable.pub
 
 # web server
 

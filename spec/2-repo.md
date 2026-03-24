@@ -127,7 +127,7 @@ If it is an error:
 Return error if fails, otherwise return a waring that the password was ignored for local as the user was exiting and the local password was reused.
 
 Then try to clone the repo from gituhub as git@github.com:<repo>
-using the ssh key in `~/.ssh/id_trustable` saving in
+using the ssh key in `<WorkspaceDir>/.ssh/id_trustable` saving in
 <workspacedir>/workspace/<name>`
 
 Return error if fails.

@@ -44,7 +44,7 @@ show also a message:
 
 "To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account." and a button "Show key".
 
-If you click a button a popup showing the ~/.ssh/id_trustable.pub will be shown, with a button to copy on clipboard and a button to close the popup.
+If you click a button a popup showing the <WorkspaceDir>/.ssh/id_trustable.pub will be shown, with a button to copy on clipboard and a button to close the popup.
 
 If you cancel, go back
 

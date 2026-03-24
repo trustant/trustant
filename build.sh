@@ -22,4 +22,7 @@ docker buildx build image -t "$IMAGE:$TAG" --load
 
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
 ops trustable trustable deploy
+echo "You can now try http://trustable.miniops.me"
+echo "Delete and recreate the tests to avoid permission issues"
+
 

@@ -241,14 +241,10 @@ func checkOllamaHealth() error {
 }
 
 
-// ensureSSHKey generates an ED25519 SSH key at ~/.ssh/id_trustable if it doesn't already exist
+// ensureSSHKey generates an ED25519 SSH key at WorkspaceDir/.ssh/id_trustable if it doesn't already exist
 func ensureSSHKey() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	keyPath := filepath.Join(homeDir, ".ssh", "id_trustable")
+	sshDir := filepath.Join(WorkspaceDir, ".ssh")
+	keyPath := filepath.Join(sshDir, "id_trustable")
 
 	// Check if key already exists
 	if _, err := os.Stat(keyPath); err == nil {
@@ -256,8 +252,7 @@ func ensureSSHKey() error {
 		return nil
 	}
 
-	// Ensure ~/.ssh directory exists
-	sshDir := filepath.Join(homeDir, ".ssh")
+	// Ensure .ssh directory exists
 	if err := os.MkdirAll(sshDir, 0700); err != nil {
 		return fmt.Errorf("failed to create .ssh directory: %w", err)
 	}
@@ -279,13 +274,7 @@ func handleSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		http.Error(w, "Failed to get home directory", http.StatusInternalServerError)
-		return
-	}
-
-	pubKeyPath := filepath.Join(homeDir, ".ssh", "id_trustable.pub")
+	pubKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable.pub")
 	data, err := os.ReadFile(pubKeyPath)
 	if err != nil {
 		http.Error(w, "SSH public key not found", http.StatusNotFound)
