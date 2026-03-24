@@ -1,0 +1,15 @@
+alias tru="ops trustable"
+
+1. deploy trustable
+
+# install plugin
+
+ops -plugin https://github.com/trustable-ai/olaris-trustable
+
+ops trustable ollama undeploy
+ops trustable ollama deplooly
+ops trustable ollama enter
+
+
+
+ops trustable logs

@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trustable</title>
+    <script src="tailwind.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+    <div id="mainContent" class="w-full max-w-md">
+        <!-- Centered Logo and Title -->
+        <div class="flex flex-col items-center mb-8">
+            <img src="trustable-logo.svg" alt="Trustable Logo" class="w-26 h-26">
+            <h1 id="versionText" class="text-2xl font-bold text-gray-800 mt-4">Trustable</h1>
+        </div>
+
+        <!-- Applications List -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold">Applications</h2>
+                <div class="flex gap-2">
+                    <a href="configure.html"
+                        class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        Configure
+                    </a>
+                    <button onclick="showAddModal()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                        Add App
+                    </button>
+                </div>
+            </div>
+            <div id="appList" class="space-y-3">
+                <p class="text-gray-500 text-center py-4">Loading...</p>
+            </div>
+        </div>
+        <p id="expireText" class="text-sm text-gray-500 text-center mt-2"></p>
+    </div>
+
+    <!-- Add Application Modal -->
+    <div id="addModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-semibold mb-4">Add Application</h3>
+            <form id="addAppForm" class="space-y-4">
+                <div>
+                    <label for="appName" class="block text-sm font-medium text-gray-700 mb-1">Application Name</label>
+                    <input type="text" id="appName" required
+                        pattern="[a-zA-Z][a-zA-Z0-9]{5,19}"
+                        title="Must start with a letter, contain only alphanumeric characters, and be 6-20 characters long"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">6-20 alphanumeric characters, starting with a letter</p>
+                </div>
+                <div>
+                    <label for="appPassword" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="appPassword" required
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label for="appRepo" class="block text-sm font-medium text-gray-700 mb-1">GitHub Repository</label>
+                    <input type="text" id="appRepo" required
+                        placeholder="org/repo"
+                        pattern="[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+"
+                        title="Format: org/repo (e.g., nuvolaris/trustable-workspace)"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <p class="text-xs text-gray-500 mt-1">Format: org/repo</p>
+                </div>
+                <!-- Try suggestions -->
+                <div class="text-sm text-gray-600">
+                    Try:
+                    <a href="#" onclick="fillApp('trureact');return false" class="text-blue-600 hover:underline">trureact</a>,
+                    <a href="#" onclick="fillApp('truchat');return false" class="text-blue-600 hover:underline">truchat</a>,
+                    <a href="#" onclick="fillApp('truingest');return false" class="text-blue-600 hover:underline">truingest</a>
+                </div>
+                <!-- SSH Key Notice -->
+                <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                    <p class="text-sm text-yellow-800">To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account.</p>
+                    <button type="button" onclick="showSSHKeyModal()"
+                        class="mt-2 px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
+                        Show Key
+                    </button>
+                </div>
+                <div class="flex gap-3">
+                    <button type="button" onclick="hideAddModal()"
+                        class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                        class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                        Create
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SSH Key Modal -->
+    <div id="sshKeyModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4">
+            <h3 class="text-lg font-semibold mb-4">SSH Public Key</h3>
+            <p class="text-sm text-gray-600 mb-3">Add this key to your GitHub account under Settings &rarr; SSH and GPG keys:</p>
+            <textarea id="sshKeyContent" readonly rows="4"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono resize-none"></textarea>
+            <p id="sshKeyCopyFeedback" class="text-green-600 text-sm mt-1 hidden">Copied to clipboard!</p>
+            <div class="flex gap-3 mt-4">
+                <button onclick="copySSHKey()"
+                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Copy to Clipboard
+                </button>
+                <button onclick="hideSSHKeyModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="deleteSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-red-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold mb-4">Confirm Delete</h3>
+            <p id="deleteMessage" class="text-gray-600 mb-6">Are you sure you want to delete "<span id="deleteAppName"></span>"?</p>
+            <div id="deleteConfirmButtons" class="flex gap-3">
+                <button onclick="hideDeleteModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmDelete()"
+                    class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                    Delete
+                </button>
+            </div>
+            <div id="deleteResult" class="hidden">
+                <p id="deleteResultText" class="mb-4"></p>
+                <button onclick="hideDeleteModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Confirmation Modal -->
+    <div id="resetModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="resetSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-yellow-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 id="resetTitle" class="text-lg font-semibold mb-2">Reset Application</h3>
+            <p id="resetMessage" class="text-gray-600 mb-4">Are you sure you want to reset "<span id="resetAppName"></span>"?</p>
+            <div id="resetConfirmButtons" class="flex gap-3">
+                <button onclick="hideResetModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmReset()"
+                    class="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors">
+                    Reset
+                </button>
+            </div>
+            <div id="resetResult" class="hidden">
+                <p id="resetResultText" class="mb-4"></p>
+                <button onclick="hideResetModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Creating Application Modal -->
+    <div id="creatingModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="creatingSpinner" class="mb-4">
+                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 id="creatingTitle" class="text-lg font-semibold mb-2">Creating Application</h3>
+            <p id="creatingMessage" class="text-gray-600 mb-4">Please wait...</p>
+            <div id="creatingResult" class="hidden">
+                <p id="creatingResultText" class="mb-4"></p>
+                <button onclick="hideCreatingModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Launching Modal -->
+    <div id="launchModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="launchSpinner" class="mb-4">
+                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 id="launchTitle" class="text-lg font-semibold mb-2">Launching <span id="launchAppName"></span></h3>
+            <p id="launchMessage" class="text-gray-600 mb-4">Please wait...</p>
+            <div id="launchError" class="hidden">
+                <p id="launchErrorText" class="text-red-600 mb-4"></p>
+                <button onclick="hideLaunchModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let appToDelete = null;
+
+        function fillApp(name) {
+            document.getElementById('appName').value = name;
+            document.getElementById('appPassword').value = name;
+            document.getElementById('appRepo').value = 'trustable-ai/' + name;
+        }
+
+        function showAddModal() {
+            document.getElementById('addModal').classList.remove('hidden');
+            document.getElementById('addModal').classList.add('flex');
+            document.getElementById('appName').focus();
+        }
+
+        function hideAddModal() {
+            document.getElementById('addModal').classList.add('hidden');
+            document.getElementById('addModal').classList.remove('flex');
+            document.getElementById('addAppForm').reset();
+        }
+
+        // SSH Key Modal
+        async function showSSHKeyModal() {
+            document.getElementById('sshKeyContent').value = 'Loading...';
+            document.getElementById('sshKeyCopyFeedback').classList.add('hidden');
+            document.getElementById('sshKeyModal').classList.remove('hidden');
+            document.getElementById('sshKeyModal').classList.add('flex');
+
+            try {
+                const response = await fetch('/api/sshkey');
+                if (response.ok) {
+                    document.getElementById('sshKeyContent').value = await response.text();
+                } else {
+                    document.getElementById('sshKeyContent').value = 'Failed to load SSH key';
+                }
+            } catch (error) {
+                document.getElementById('sshKeyContent').value = 'Error: ' + error.message;
+            }
+        }
+
+        function hideSSHKeyModal() {
+            document.getElementById('sshKeyModal').classList.add('hidden');
+            document.getElementById('sshKeyModal').classList.remove('flex');
+        }
+
+        async function copySSHKey() {
+            const content = document.getElementById('sshKeyContent').value;
+            try {
+                await navigator.clipboard.writeText(content);
+                document.getElementById('sshKeyCopyFeedback').classList.remove('hidden');
+                setTimeout(() => {
+                    document.getElementById('sshKeyCopyFeedback').classList.add('hidden');
+                }, 2000);
+            } catch (error) {
+                document.getElementById('sshKeyContent').select();
+                document.execCommand('copy');
+                document.getElementById('sshKeyCopyFeedback').classList.remove('hidden');
+                setTimeout(() => {
+                    document.getElementById('sshKeyCopyFeedback').classList.add('hidden');
+                }, 2000);
+            }
+        }
+
+        function showDeleteModal(name) {
+            appToDelete = name;
+            document.getElementById('deleteAppName').textContent = name;
+            document.getElementById('deleteSpinner').classList.add('hidden');
+            document.getElementById('deleteMessage').classList.remove('hidden');
+            document.getElementById('deleteConfirmButtons').classList.remove('hidden');
+            document.getElementById('deleteResult').classList.add('hidden');
+            document.getElementById('deleteModal').classList.remove('hidden');
+            document.getElementById('deleteModal').classList.add('flex');
+        }
+
+        function hideDeleteModal() {
+            document.getElementById('deleteModal').classList.add('hidden');
+            document.getElementById('deleteModal').classList.remove('flex');
+            appToDelete = null;
+            loadApps();
+        }
+
+        let appToReset = null;
+
+        function showResetModal(name) {
+            appToReset = name;
+            document.getElementById('resetAppName').textContent = name;
+            document.getElementById('resetSpinner').classList.add('hidden');
+            document.getElementById('resetMessage').classList.remove('hidden');
+            document.getElementById('resetConfirmButtons').classList.remove('hidden');
+            document.getElementById('resetResult').classList.add('hidden');
+            document.getElementById('resetModal').classList.remove('hidden');
+            document.getElementById('resetModal').classList.add('flex');
+        }
+
+        function hideResetModal() {
+            document.getElementById('resetModal').classList.add('hidden');
+            document.getElementById('resetModal').classList.remove('flex');
+            appToReset = null;
+        }
+
+        async function confirmReset() {
+            if (!appToReset) return;
+
+            document.getElementById('resetSpinner').classList.remove('hidden');
+            document.getElementById('resetMessage').classList.add('hidden');
+            document.getElementById('resetConfirmButtons').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/git', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: appToReset,
+                        cmd: 'reset --hard'
+                    })
+                });
+
+                const data = await response.json();
+                document.getElementById('resetSpinner').classList.add('hidden');
+
+                if (response.ok && !data.error) {
+                    document.getElementById('resetResultText').textContent = data.output || 'Reset completed successfully';
+                    document.getElementById('resetResultText').className = 'mb-4 text-green-600';
+                } else {
+                    document.getElementById('resetResultText').textContent = data.error || data.output || 'Reset failed';
+                    document.getElementById('resetResultText').className = 'mb-4 text-red-600';
+                }
+                document.getElementById('resetResult').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('resetSpinner').classList.add('hidden');
+                document.getElementById('resetResultText').textContent = error.message;
+                document.getElementById('resetResultText').className = 'mb-4 text-red-600';
+                document.getElementById('resetResult').classList.remove('hidden');
+            }
+        }
+
+        async function loadApps() {
+            try {
+                const response = await fetch('/api/repo');
+                const apps = await response.json();
+                renderApps(apps || []);
+            } catch (error) {
+                console.error('Failed to load apps:', error);
+                document.getElementById('appList').innerHTML =
+                    '<p class="text-red-500 text-center py-4">Failed to load applications</p>';
+            }
+        }
+
+        function renderApps(apps) {
+            const appList = document.getElementById('appList');
+            if (!apps || apps.length === 0) {
+                appList.innerHTML = '<p class="text-gray-500 text-center py-4">No applications yet</p>';
+                return;
+            }
+
+            appList.innerHTML = apps.map(app => {
+                const localLink = `http://${escapeHtml(app.name)}.miniops.me`;
+
+                return `
+                <div class="p-3 bg-gray-50 rounded-md">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex-1 min-w-0 mr-3">
+                            <h3 class="font-medium truncate">${escapeHtml(app.name)}</h3>
+                            <p class="text-sm text-gray-500 truncate">${escapeHtml(app.repo)}</p>
+                        </div>
+                        <div class="flex gap-2 flex-shrink-0">
+                            <button onclick="launchApp('${escapeAttr(app.name)}')"
+                                class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors">
+                                Edit
+                            </button>
+                            <button onclick="configureApp('${escapeAttr(app.name)}')"
+                                class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors">
+                                Configure
+                            </button>
+                            <button onclick="showResetModal('${escapeAttr(app.name)}')"
+                                class="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
+                                Reset
+                            </button>
+                            <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
+                                class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex gap-3 text-sm">
+                        <a href="${localLink}" target="_blank" class="text-blue-600 hover:underline">Development</a>
+                        ${app.apihost ? (() => { try { const u = new URL(app.apihost); return `<a href="${u.protocol}//${escapeHtml(app.name)}.${u.host}" target="_blank" class="text-blue-600 hover:underline">Production</a>`; } catch(e) { return ''; } })() : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function escapeAttr(text) {
+            return text.replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        function showCreatingModal() {
+            document.getElementById('creatingSpinner').classList.remove('hidden');
+            document.getElementById('creatingTitle').textContent = 'Creating Application';
+            document.getElementById('creatingMessage').classList.remove('hidden');
+            document.getElementById('creatingResult').classList.add('hidden');
+            document.getElementById('creatingModal').classList.remove('hidden');
+            document.getElementById('creatingModal').classList.add('flex');
+        }
+
+        function showCreatingResult(message, type) {
+            document.getElementById('creatingSpinner').classList.add('hidden');
+            document.getElementById('creatingMessage').classList.add('hidden');
+            const textEl = document.getElementById('creatingResultText');
+            textEl.textContent = message;
+            if (type === 'error') {
+                textEl.className = 'mb-4 text-red-600';
+                document.getElementById('creatingTitle').textContent = 'Error';
+            } else if (type === 'warning') {
+                textEl.className = 'mb-4 text-yellow-700';
+                document.getElementById('creatingTitle').textContent = 'Application Created';
+            } else {
+                textEl.className = 'mb-4 text-green-600';
+                document.getElementById('creatingTitle').textContent = 'Application Created';
+            }
+            document.getElementById('creatingResult').classList.remove('hidden');
+        }
+
+        function hideCreatingModal() {
+            document.getElementById('creatingModal').classList.add('hidden');
+            document.getElementById('creatingModal').classList.remove('flex');
+            loadApps();
+        }
+
+        async function addApp(event) {
+            event.preventDefault();
+            const name = document.getElementById('appName').value.trim();
+            const password = document.getElementById('appPassword').value.trim();
+            const repo = document.getElementById('appRepo').value.trim();
+
+            const payload = { name, password, repo };
+
+            hideAddModal();
+            showCreatingModal();
+
+            try {
+                const response = await fetch('/api/repo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.warning) {
+                        showCreatingResult(data.warning, 'warning');
+                    } else {
+                        showCreatingResult('Application "' + name + '" created successfully.', 'success');
+                    }
+                } else {
+                    const error = await response.text();
+                    showCreatingResult('Failed to add application: ' + error, 'error');
+                }
+            } catch (error) {
+                showCreatingResult('Failed to add application: ' + error.message, 'error');
+            }
+        }
+
+        async function confirmDelete() {
+            if (!appToDelete) return;
+
+            document.getElementById('deleteSpinner').classList.remove('hidden');
+            document.getElementById('deleteMessage').classList.add('hidden');
+            document.getElementById('deleteConfirmButtons').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/repo', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: appToDelete })
+                });
+
+                document.getElementById('deleteSpinner').classList.add('hidden');
+
+                if (response.ok) {
+                    document.getElementById('deleteResultText').textContent = 'Application deleted successfully';
+                    document.getElementById('deleteResultText').className = 'mb-4 text-green-600';
+                } else {
+                    const error = await response.text();
+                    document.getElementById('deleteResultText').textContent = 'Failed to delete: ' + error;
+                    document.getElementById('deleteResultText').className = 'mb-4 text-red-600';
+                }
+                document.getElementById('deleteResult').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('deleteSpinner').classList.add('hidden');
+                document.getElementById('deleteResultText').textContent = error.message;
+                document.getElementById('deleteResultText').className = 'mb-4 text-red-600';
+                document.getElementById('deleteResult').classList.remove('hidden');
+            }
+        }
+
+        function showLaunchModal(name) {
+            document.getElementById('launchAppName').textContent = name;
+            document.getElementById('launchSpinner').classList.remove('hidden');
+            document.getElementById('launchMessage').classList.remove('hidden');
+            document.getElementById('launchError').classList.add('hidden');
+            document.getElementById('launchModal').classList.remove('hidden');
+            document.getElementById('launchModal').classList.add('flex');
+        }
+
+        function showLaunchError(error) {
+            document.getElementById('launchSpinner').classList.add('hidden');
+            document.getElementById('launchMessage').classList.add('hidden');
+            document.getElementById('launchErrorText').textContent = error;
+            document.getElementById('launchError').classList.remove('hidden');
+        }
+
+        function hideLaunchModal() {
+            document.getElementById('launchModal').classList.add('hidden');
+            document.getElementById('launchModal').classList.remove('flex');
+        }
+
+        async function launchApp(name) {
+            showLaunchModal(name);
+
+            const currentHostname = window.location.hostname;
+            const currentPort = window.location.port;
+            const protocol = window.location.protocol;
+            const dotIdx = currentHostname.indexOf('.');
+            if (dotIdx === -1 || !currentHostname.startsWith('trustable.')) {
+                showLaunchError('Invalid domain format. Expected: trustable.<domain>');
+                return;
+            }
+            const domain = currentHostname.substring(dotIdx + 1);
+            const portSuffix = currentPort ? `:${currentPort}` : '';
+            const leftURL = `${protocol}//opencode.${domain}${portSuffix}`;
+            const rightURL = `${protocol}//vite.${domain}${portSuffix}`;
+
+            try {
+                const response = await fetch(`/api/launch/${encodeURIComponent(name)}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    showLaunchError(data.error);
+                    return;
+                }
+
+                document.cookie = `LEFT=${encodeURIComponent(leftURL)};path=/`;
+                document.cookie = `RIGHT=${encodeURIComponent(rightURL)};path=/`;
+                document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
+                document.cookie = `URLDIR=${data.encdir};path=/`;
+
+                window.location.href = 'app.html';
+            } catch (error) {
+                showLaunchError(error.message);
+            }
+        }
+
+        function configureApp(name) {
+            window.location.href = `appconfig.html?app=${encodeURIComponent(name)}`;
+        }
+
+        // Close modals on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideAddModal();
+                hideSSHKeyModal();
+                hideDeleteModal();
+                if (!document.getElementById('resetResult').classList.contains('hidden')) {
+                    hideResetModal();
+                }
+                if (!document.getElementById('launchError').classList.contains('hidden')) {
+                    hideLaunchModal();
+                }
+                if (!document.getElementById('creatingResult').classList.contains('hidden')) {
+                    hideCreatingModal();
+                }
+            }
+        });
+
+        // Close modals on backdrop click
+        document.getElementById('addModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideAddModal();
+        });
+        document.getElementById('sshKeyModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideSSHKeyModal();
+        });
+        document.getElementById('deleteModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && (
+                !document.getElementById('deleteResult').classList.contains('hidden') ||
+                !document.getElementById('deleteConfirmButtons').classList.contains('hidden')
+            )) {
+                hideDeleteModal();
+            }
+        });
+        document.getElementById('resetModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('resetResult').classList.contains('hidden')) {
+                hideResetModal();
+            }
+        });
+        document.getElementById('launchModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('launchError').classList.contains('hidden')) {
+                hideLaunchModal();
+            }
+        });
+        document.getElementById('creatingModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('creatingResult').classList.contains('hidden')) {
+                hideCreatingModal();
+            }
+        });
+
+        document.getElementById('addAppForm').addEventListener('submit', addApp);
+
+        // Load version and apps
+        (async function() {
+            try {
+                const resp = await fetch('/api/version');
+                const data = await resp.json();
+                if (data.expired) {
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please get an updated version. For info email: info@nuvolaris.io</p></div>';
+                    return;
+                }
+                if (data.version) {
+                    document.getElementById('versionText').textContent = data.version;
+                }
+                if (data.expire) {
+                    document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
+                }
+            } catch (e) {
+                console.error('Failed to check version:', e);
+            }
+            loadApps();
+        })();
+    </script>
+</body>
+</html>

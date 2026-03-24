@@ -13,6 +13,11 @@ cleanup() {
 
 trap cleanup INT
 
+source ./.env
+if test -d "$WORKSPACE_DIR"
+then sudo chown -Rvf $(id -u) "$WORKSPACE_DIR"/*
+fi
+
 air &
 AIR_PID=$!
 wait "$AIR_PID"
