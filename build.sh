@@ -25,6 +25,7 @@ ops trustable trustable deploy
 cd olaris-trustable
 git commit -m "$TAG" -a
 git tag $TAG
+sleep 3
 ops trustable signin
 echo "Delete and recreate the tests to avoid permission issues"
 echo "do git push origin main --tags to trigger the build"
