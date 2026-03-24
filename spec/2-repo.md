@@ -107,18 +107,6 @@ where <apihost> is optional
 
 Return a descriptive error if it fails.
 
-## configuration files
-
-If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()`.
-
-Copy the file `~/.config/opencode/opencode.json`
-in the folder `<workspacedir>/workspace/<name>`
-overwriting exiting files.
-
-Embed the file opencode.md in the executable.
-Write it in the folder `<workspacedir>/workspace/<name>`
-overwriting exiting files.
-
 ## Create or retrieve the password
 
 Verify if the user exists trying to retrieve the password with:

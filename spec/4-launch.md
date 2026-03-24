@@ -34,6 +34,16 @@ Assume `opsdevel`  port will be 5173.
 Check if ports for `opencode` and `opsdevel` are free,
 otherwise return error.
 
+## copy opencode configuration files
+
+Before starting opencode, always copy the opencode configuration files to the workspace directory, overwriting existing files:
+
+If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()`.
+
+Copy the file `~/.config/opencode/opencode.json` to `<workspacedir>/workspace/<app>/opencode.json`, overwriting existing files.
+
+Write the embedded `opencode.md` to `<workspacedir>/workspace/<app>/opencode.md`, overwriting existing files.
+
 ## start process group
 
 Let <directory> be the absolute path of `<workspacedir>/workspace/<app>`

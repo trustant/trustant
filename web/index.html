@@ -631,11 +631,6 @@
         document.getElementById('addAppForm').addEventListener('submit', addApp);
         loadApps();
 
-        function getCookie(name) {
-            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-            return match ? match[2] : null;
-        }
-
         function showConfigModal() {
             document.getElementById('configMessages').innerHTML = '';
             document.getElementById('configSpinner').classList.remove('hidden');
@@ -753,8 +748,6 @@
                 msgEl.appendChild(okDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
 
-                // Set configured cookie
-                document.cookie = 'CONFIGURED=1;path=/';
             }
 
             document.getElementById('configDone').classList.remove('hidden');
@@ -776,11 +769,8 @@
                     document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
                 }
 
-                // Run configuration if not yet configured
-                const configured = getCookie('CONFIGURED');
-                if (!configured || configured === '0') {
-                    await runConfiguration();
-                }
+                // Always run configuration on page load
+                await runConfiguration();
 
                 // Show main content after all checks pass
                 document.getElementById('mainContent').classList.remove('hidden');

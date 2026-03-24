@@ -175,6 +175,30 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
+	// Always copy opencode.json and opencode.md to workspace (overwriting existing files)
+	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
+	if _, err := os.Stat(opencodeConfigSrc); os.IsNotExist(err) {
+		log.Println("opencode.json not found, generating it...")
+		if cfg, err := loadTrustableConfig(); err != nil {
+			log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
+		} else if err := generateOpencodeConfig(cfg); err != nil {
+			log.Printf("Warning: failed to generate opencode.json: %s", err)
+		}
+	}
+	opencodeConfigDst := filepath.Join(workspacePath, "opencode.json")
+	if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
+		if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {
+			log.Printf("Warning: failed to copy opencode.json: %s", writeErr)
+		}
+	} else {
+		log.Printf("Warning: opencode.json not found: %s", readErr)
+	}
+
+	opencodeMdDst := filepath.Join(workspacePath, "opencode.md")
+	if err := os.WriteFile(opencodeMdDst, []byte(opencodeMd), 0644); err != nil {
+		log.Printf("Warning: failed to write opencode.md: %s", err)
+	}
+
 	// Start opencode
 	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
 	opencodeCmd := exec.Command("opencode", "serve", "--port", strconv.Itoa(leftPort), "--hostname", "0.0.0.0", "--log-level", "DEBUG", "--print-logs")
