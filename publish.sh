@@ -1,4 +1,5 @@
 #!/bin/bash
+IMAGE="ghcr.io/trustable-ai/trustable-app"
 cd "$(dirname "$0")"
 git tag -d $(git tag)
 git tag $(date +%Y.%m%d.%H%S)

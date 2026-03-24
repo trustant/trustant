@@ -4,8 +4,10 @@ ops trustable trustable undeploy
 
 git tag -d $(git tag)
 git tag $(date +%Y.%m%d.%H%S)
+
 TAG=$(git tag)
 IMAGE=ghrc.io/trustable-ai/trustable-app
+echo -e "Version: v$TAG-beta1\nExpiry: 2026/06/30\n" >version.txt
 
 env GOOS=linux GOARCH=amd64 go build -o image/trustable-amd64
 env GOOS=linux GOARCH=arm64 go build -o image/trustable-arm64
@@ -20,3 +22,4 @@ docker buildx build image -t "$IMAGE:$TAG" --load
 
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
 ops trustable trustable deploy
+
