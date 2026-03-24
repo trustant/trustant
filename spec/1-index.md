@@ -91,7 +91,7 @@ If ok execute POST /api/git with value
 
 `{
    "name": <current app>,
-    "cmd":  "reset --force"
+    "cmd":  "reset --hard"
 }`
 
 Show ok or error result

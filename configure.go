@@ -112,8 +112,6 @@ func modelDisplayName(modelID string) string {
 	return strings.Join(result, " ")
 }
 
-
-
 // handleConfigure handles GET /api/configure - pulls models and generates opencode config, streaming progress
 func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -240,20 +238,6 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		"enabled_providers": []string{"ollama"},
 		"model":             cfg.Opencode.Default,
 		"small_model":       cfg.Opencode.Small,
-		"permission": map[string]interface{}{
-			"read":       "allow",
-			"edit":       "allow",
-			"glob":       "allow",
-			"grep":       "allow",
-			"list":       "allow",
-			"bash":       "allow",
-			"task":       "allow",
-			"todowrite":  "allow",
-			"todoread":   "allow",
-			"webfetch":   "allow",
-			"websearch":  "allow",
-			"codesearch": "allow",
-		},
 		"provider": map[string]interface{}{
 			"ollama": map[string]interface{}{
 				"npm": "@ai-sdk/openai-compatible",
@@ -418,11 +402,11 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 
 // EnvVar represents a single environment variable with dev and prod values
 type EnvVar struct {
-	Name       string `json:"name"`
-	DevValue   string `json:"dev_value"`
-	ProdValue  string `json:"prod_value"`
-	Readonly   bool   `json:"readonly,omitempty"`
-	Fixed      bool   `json:"fixed,omitempty"`
+	Name      string `json:"name"`
+	DevValue  string `json:"dev_value"`
+	ProdValue string `json:"prod_value"`
+	Readonly  bool   `json:"readonly,omitempty"`
+	Fixed     bool   `json:"fixed,omitempty"`
 }
 
 // AppEnvConfig represents the full env configuration for an app
@@ -521,10 +505,10 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	// Fixed rows (readonly name and dev value)
 	for _, k := range fixedKeys {
 		vars = append(vars, EnvVar{
-			Name:     k,
-			DevValue: devVars[k],
+			Name:      k,
+			DevValue:  devVars[k],
 			ProdValue: prodVars[k],
-			Readonly: true,
+			Readonly:  true,
 		})
 	}
 

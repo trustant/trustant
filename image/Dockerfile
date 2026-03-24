@@ -7,7 +7,7 @@ RUN \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc |  apt-key add - && \
     apt update && \
     apt install -y less man-db sudo vim jq python-is-python3 python3-virtualenv \
-    locales postgresql-client-16 openssh-server tini supervisor
+    locales postgresql-client-16 openssh-server tini supervisor ripgrep
 
 # setup env
 RUN \

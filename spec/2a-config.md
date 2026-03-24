@@ -75,27 +75,6 @@ Template:
 }
 ```
 
-# Permissions
-
-The generated opencode.json must also include a `permission` section that allows the AI tools to read, write and execute without asking:
-
-```
-"permission": {
-  "read": "allow",
-  "edit": "allow",
-  "glob": "allow",
-  "grep": "allow",
-  "list": "allow",
-  "bash": "allow",
-  "task": "allow",
-  "todowrite": "allow",
-  "todoread": "allow",
-  "webfetch": "allow",
-  "websearch": "allow",
-  "codesearch": "allow"
-}
-```
-
 # Manage configuration: GET /configuration
 returns the current <WorkspaceDir>/trustable.json from the workspace
 
