@@ -395,9 +395,13 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		// Continue anyway to clean up the workspace
 	}
 
-	// Remove workspace folder
+	// Remove workspace folder (retry once for leftover locked files)
 	if err := os.RemoveAll(workspacePath); err != nil {
-		log.Printf("Warning: failed to remove workspace folder: %s", err)
+		log.Printf("Warning: first remove attempt failed: %s, retrying...", err)
+		time.Sleep(1 * time.Second)
+		if err := os.RemoveAll(workspacePath); err != nil {
+			log.Printf("Warning: failed to remove workspace folder: %s", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

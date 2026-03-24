@@ -1,4 +1,5 @@
 #!/bin/bash
+
 ops trustable trustable undeploy
 git tag -d $(git tag)
 

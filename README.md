@@ -51,16 +51,14 @@ Start the app with live reload:
 
 ## Test
 
-To test in OpenServerless
-
-1. build a docker image with `./build.sh`
-2. deploy with ops trustable start
-3. play with http://trustable.miniops.me
+Execute `./build.sh`
+It will build an image, deploy and open the application locally
 
 # Publish
 
-```
-./publish.sh
-```
+`git push --tags`
+will trigger a build of an image
+once the build is complete
 
-will trigger a publish on github
+`cd ollama-trustable ; git push origin main --tags`
+will publish the references to the image
