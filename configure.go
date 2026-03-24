@@ -69,6 +69,11 @@ func getModelCapabilities(modelName string) ([]string, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("model %s: %s", modelName, strings.TrimSpace(string(body)))
+	}
+
 	var result ollamaShowResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
