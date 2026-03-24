@@ -21,7 +21,12 @@ cp -v opencode.md image/opencode.md
 docker buildx build image -t "$IMAGE:$TAG" --load
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
 ops trustable trustable deploy
-echo "You can now try http://trustable.miniops.me"
+cd olaris-trustable
+git commit -m "$TAG" -a
+git tag $TAG
+echo "Login with ops trustable signin"
 echo "Delete and recreate the tests to avoid permission issues"
+echo "do git push origin main --tags to trigger the build"
+echo "do cd olatris-trustable ; git push origin main --tags to publish the images when ready"
 
 
