@@ -273,12 +273,18 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clone the repo using the trustable SSH key
-	repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
+	// Clone the repo: use SSH if key exists, otherwise use HTTPS
 	sshKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable")
-	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-	cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
-	cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
+	var cloneCmd *exec.Cmd
+	if _, err := os.Stat(sshKeyPath); err == nil {
+		repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
+		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
+		cloneCmd = exec.Command("git", "clone", repoURL, workspacePath)
+		cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
+	} else {
+		repoURL := fmt.Sprintf("https://github.com/%s", req.Repo)
+		cloneCmd = exec.Command("git", "clone", repoURL, workspacePath)
+	}
 	if output, err := cloneCmd.CombinedOutput(); err != nil {
 		// Clean up: delete user
 		deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
