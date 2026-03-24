@@ -27,6 +27,7 @@ git tag $TAG
 echo "Login with ops trustable signin"
 echo "Delete and recreate the tests to avoid permission issues"
 echo "do git push origin main --tags to trigger the build"
-echo "do cd olatris-trustable ; git push origin main --tags to publish the images when ready"
+echo "check here https://github.com/trustable-ai/trustable-app/actions when the build completes"
+echo "do cd olaris-trustable ; git push origin main --tags to publish the plugin when ready"
 
 

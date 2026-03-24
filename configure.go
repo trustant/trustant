@@ -285,58 +285,35 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+
+	// Load config to find the first cloud model
 	cfg, err := loadTrustableConfig()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	baseURL := OpenAIBaseUrl
-	apiKey := OpenAIApiKey
-	model := cfg.Opencode.Default
+	// Find the first cloud model in trustable.json
+	cloudModel := ""
+	for modelName := range cfg.Ollama {
+		if strings.Contains(modelName, "cloud") {
+			cloudModel = modelName
+			break
+		}
+	}
+	if cloudModel == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "no cloud model found in trustable.json"})
+		return
+	}
 
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"model":    model,
-		"messages": []map[string]string{{"role": "user", "content": "hello"}},
-	})
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, _ := http.NewRequest("POST", baseURL+"/chat/completions", bytes.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := client.Do(req)
+	// Use /api/show on the cloud model to verify auth
+	_, err = getModelCapabilities(cloudModel)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": string(body)})
-		return
-	}
-
-	// Check if response body contains "error"
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid response"})
-		return
-	}
-
-	if _, hasError := result["error"]; hasError {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("%v", result["error"])})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
