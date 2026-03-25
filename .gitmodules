@@ -5,3 +5,6 @@
 	path = olaris
 	url = https://github.com/nuvolaris/bestia
 	branch = bestia
+[submodule "support"]
+	path = support
+	url = git@github.com:trustable-ai/.github
