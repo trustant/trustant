@@ -136,27 +136,7 @@ Return error if fails.
 
 If the cloned repo contains `.env` or `.env.production` tracked by git, remove them from git with `git rm -f` and add them to `.gitignore` (creating or appending to the file). This prevents secrets from being committed back to the repository.
 
-## create the .env
-
-Then creates a  `<workspacedir>/workspace/<name>/.env`  with
-
-```
-OPS_USER=<name>
-OPS_PASSWORD=<local-password>
-OPS_APIHOST=http://miniops.me
-```
-
-and add all the keys listed in trustable.json in section `env` with their value as default value
-
-# install
-
-If there is a `<workspacedir>/workspace/<name>/package.json`
-execute:
-
-```
-cd <workspacedir>/workspace/<name>
-npm install
-```
+Store the password in `<workspacedir>/workspace/<name>/.password` so it can be read at launch time when setting up the workbench.
 
 Return success
 
@@ -170,6 +150,8 @@ Check if there is the folder `<workspacedir>/workspace/<name>`
 Delete the user with `ops admin deleteuser <name>`
 
 Remove the folder  `<workspacedir>/workspace/<name>`
+
+Also remove the folder `<workbenchdir>/<name>` if it exists.
 
 Remove the password from ~/.ops/<name>.password
 
@@ -202,7 +184,7 @@ return an array of
 - accepting a multipart form-data with a file field `file` and a text field `name`
 - this commnd should accept an attached file
 - extact the <filename> from the file field and remove any path
-- save it in <workspacedir>/workspace/<name>/upload/<filename>
+- save it in <workbenchdir>/<name>/upload/<filename>
 - create the upload folder if necessary,
 - overwrite exiting files with the same name
 - return the complete absolute path of the uloaded file 200

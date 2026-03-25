@@ -17,6 +17,7 @@ import (
 // Environment configuration loaded from .env
 var (
 	WorkspaceDir   string
+	WorkbenchDir   string
 	OpenAIBaseUrl  string
 	OpenAIApiKey   string
 	OllamaEndpoint string
@@ -55,12 +56,16 @@ func loadEnv() error {
 
 	// Set package-level variables from environment
 	WorkspaceDir = os.Getenv("WORKSPACE_DIR")
+	WorkbenchDir = os.Getenv("WORKBENCH_DIR")
 	OpenAIBaseUrl = os.Getenv("OPENAI_BASE_URL")
 	OpenAIApiKey = os.Getenv("OPENAI_API_KEY")
 	OllamaEndpoint = os.Getenv("OLLAMA_ENDPOINT")
 
 	if WorkspaceDir == "" {
 		return fmt.Errorf("WORKSPACE_DIR is not set")
+	}
+	if WorkbenchDir == "" {
+		return fmt.Errorf("WORKBENCH_DIR is not set")
 	}
 	if OllamaEndpoint == "" {
 		return fmt.Errorf("OLLAMA_ENDPOINT is not set")
@@ -81,6 +86,7 @@ func runPreflight() error {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
 	log.Printf("  WorkspaceDir:       %s", WorkspaceDir)
+	log.Printf("  WorkbenchDir:       %s", WorkbenchDir)
 	log.Printf("  OllamaEndpoint:     %s", OllamaEndpoint)
 	log.Printf("  OpenAIBaseUrl:      %s", OpenAIBaseUrl)
 	log.Println("✓ Environment loaded")
@@ -139,9 +145,9 @@ func runPreflight() error {
 	return nil
 }
 
-// cleanupPgidFile reads and terminates process group from WorkspaceDir/pgid file
+// cleanupPgidFile reads and terminates process group from WorkbenchDir/pgid file
 func cleanupPgidFile() error {
-	pgidPath := filepath.Join(WorkspaceDir, "pgid")
+	pgidPath := filepath.Join(WorkbenchDir, "pgid")
 
 	data, err := os.ReadFile(pgidPath)
 	if err != nil {

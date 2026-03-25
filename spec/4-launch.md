@@ -4,7 +4,7 @@ Put the code in the file `launch.go`
 # GET /api/launch/<name>
 
 When invoking this api it should check the folder
-<workspacedir>/workspace/<name> exists, if not and return
+<workspacedir>/workspace/<name> exists, if not return
 
 ```
 { "error": <error> }
@@ -12,15 +12,29 @@ When invoking this api it should check the folder
 
 ## terminate leftover processes
 
-Then, check if exists a `<workspacedir>/workspace/pgid` file
+Then, check if exists a `<workbenchdir>/pgid` file
 invoke `DELETE /api/launch` to ensure the group is terminated
 
-If it is stll there, forcefully terminate the process group
+If it is still there, forcefully terminate the process group
 pointed by that file.
+
+## clone to workbench
+
+If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
+
+Otherwise, clone the workspace into the workbench:
+
+`git clone <workspacedir>/workspace/<name> <workbenchdir>/<name>`
+
+Then set up the workbench:
+
+- Create `.env` in `<workbenchdir>/<name>` with `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (read from `<workspacedir>/workspace/<name>/.env`) plus default env vars from `trustable.json`
+- If `<workspacedir>/workspace/<name>/.env.production` exists, copy it to `<workbenchdir>/<name>/.env.production`
+- If `<workbenchdir>/<name>/package.json` exists, run `npm install` in `<workbenchdir>/<name>`
 
 ## login
 
-Change to `<workspacedir>/workspace/<app>` folder
+Change to `<workbenchdir>/<app>` folder
 and execute `ops ide login`
 
 If it terminates with 0 continue otherwise return error
@@ -36,17 +50,17 @@ otherwise return error.
 
 ## copy opencode configuration files
 
-Before starting opencode, always copy the opencode configuration files to the workspace directory, overwriting existing files:
+Before starting opencode, always copy the opencode configuration files to the workbench directory, overwriting existing files:
 
 If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()`.
 
-Copy the file `~/.config/opencode/opencode.json` to `<workspacedir>/workspace/<app>/opencode.json`, overwriting existing files.
+Copy the file `~/.config/opencode/opencode.json` to `<workbenchdir>/<app>/opencode.json`, overwriting existing files.
 
-Write the embedded `opencode.md` to `<workspacedir>/workspace/<app>/opencode.md`, overwriting existing files.
+Write the embedded `opencode.md` to `<workbenchdir>/<app>/opencode.md`, overwriting existing files.
 
 ## start process group
 
-Let <directory> be the absolute path of `<workspacedir>/workspace/<app>`
+Let <directory> be the absolute path of `<workbenchdir>/<app>`
 
 Execute  opencode changing to this directory as
 
@@ -61,13 +75,14 @@ Get its process group.
 Ensure it does not terminate within .5 seconds
 If it terminates return error
 
-Write the process group in `<workspacedir>/workspace/pgid`
+Write the process group in `<workbenchdir>/pgid`
+Write the app name in `<workbenchdir>/current`
 
 Execute `ops ide devel`  in <directory> using the same process group as opencode
 
 Check the command does not terminate within .5 seconds.
 
-If it terminates, kill the whole process group and remove  `<workspacedir>/workspace/pgid`, and return error
+If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`, and return error
 
 Wait that both the processes are up and running and ports are listening.
 
@@ -88,10 +103,11 @@ btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
 
 # DELETE /api/launch
 
+Read the app name from `<workbenchdir>/current`.
+
 Terminate forcefully the process group you started
-and written in `<workspacedir>/workspace/pgid`
-Delete the file `<workspacedir>/workspace/pgid`.
+and written in `<workbenchdir>/pgid`.
+Delete the file `<workbenchdir>/pgid`.
+Delete the file `<workbenchdir>/current`.
 
-
-
-
+Do NOT remove the `<workbenchdir>/<name>` directory (it persists for reuse on next launch).

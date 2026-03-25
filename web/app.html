@@ -21,9 +21,14 @@
             <h1 id="appName" class="text-xl font-bold text-gray-800"></h1>
         </div>
         <div class="flex items-center gap-3">
-            <button id="publishBtn" onclick="showPublishModal()"
+            <!-- Git Status Indicator -->
+            <div id="gitStatus" class="flex items-center gap-1 text-sm text-gray-500">
+                <span id="gitDot" class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
+                <span id="gitText">No changes</span>
+            </div>
+            <button id="saveBtn" onclick="showSaveModal()" disabled
                 class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
-                Publish
+                Save
             </button>
             <button onclick="triggerUpload()"
                 class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
@@ -44,32 +49,50 @@
         <iframe id="rightFrame" class="h-full flex-1" style="min-width: 100px;"></iframe>
     </div>
 
-    <!-- Publish Confirmation Modal -->
-    <div id="publishModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <!-- Save Confirmation Modal -->
+    <div id="saveModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
-            <div id="publishSpinner" class="mb-4 hidden">
+            <div id="saveSpinner" class="mb-4 hidden">
                 <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             </div>
-            <h3 id="publishTitle" class="text-lg font-semibold mb-2">Publish Application</h3>
-            <p id="publishMessage" class="text-gray-600 mb-4">Are you sure you want to publish <span id="publishApiHost" class="font-semibold"></span>?</p>
-            <div id="publishConfirmButtons" class="flex gap-3">
-                <button onclick="hidePublishModal()"
+            <h3 id="saveTitle" class="text-lg font-semibold mb-2">Save Changes</h3>
+            <p id="saveMessage" class="text-gray-600 mb-4">Save all changes to workspace?</p>
+            <div id="saveConfirmButtons" class="flex gap-3">
+                <button onclick="hideSaveModal()"
                     class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
                     Cancel
                 </button>
-                <button onclick="confirmPublish()"
+                <button onclick="confirmSave()"
                     class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                    Publish
+                    Save
                 </button>
             </div>
-            <div id="publishResult" class="hidden">
-                <p id="publishResultText" class="mb-4"></p>
-                <button onclick="hidePublishModal()"
+            <div id="saveResult" class="hidden">
+                <p id="saveResultText" class="mb-4"></p>
+                <button onclick="hideSaveModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unsaved Changes Warning Modal -->
+    <div id="unsavedModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <h3 class="text-lg font-semibold mb-2 text-yellow-600">Unsaved Changes</h3>
+            <p class="text-gray-600 mb-4">You have unsaved changes. If you go back, changes will be lost.</p>
+            <div class="flex gap-3">
+                <button onclick="hideUnsavedModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="forceGoBack()"
+                    class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                    Go back anyway
                 </button>
             </div>
         </div>
@@ -154,57 +177,109 @@
             document.getElementById('rightFrame').src = rightURL;
         }
 
-        // Set the app name in the publish modal
-        document.getElementById('publishApiHost').textContent = appName || '';
+        // Git status tracking
+        let gitStatusClean = true;
 
-        function showPublishModal() {
-            document.getElementById('publishSpinner').classList.add('hidden');
-            document.getElementById('publishTitle').textContent = 'Publish Application';
-            document.getElementById('publishMessage').classList.remove('hidden');
-            document.getElementById('publishConfirmButtons').classList.remove('hidden');
-            document.getElementById('publishResult').classList.add('hidden');
-            document.getElementById('publishModal').classList.remove('hidden');
-            document.getElementById('publishModal').classList.add('flex');
+        async function refreshGitStatus() {
+            if (!appName) return;
+            try {
+                const resp = await fetch(`/api/git/status/${encodeURIComponent(appName)}`);
+                const data = await resp.json();
+                if (data.error) return;
+
+                gitStatusClean = data.clean;
+                const dot = document.getElementById('gitDot');
+                const text = document.getElementById('gitText');
+                const saveBtn = document.getElementById('saveBtn');
+
+                if (data.clean) {
+                    dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500 inline-block';
+                    text.textContent = 'No changes';
+                    saveBtn.disabled = true;
+                } else {
+                    dot.className = 'w-2.5 h-2.5 rounded-full bg-orange-500 inline-block';
+                    const parts = [];
+                    if (data.changed > 0) parts.push(data.changed + ' changed');
+                    if (data.added > 0) parts.push(data.added + ' added');
+                    if (data.deleted > 0) parts.push(data.deleted + ' deleted');
+                    text.textContent = parts.join(', ');
+                    saveBtn.disabled = false;
+                }
+            } catch (e) {
+                console.error('Failed to fetch git status:', e);
+            }
         }
 
-        function hidePublishModal() {
-            document.getElementById('publishModal').classList.add('hidden');
-            document.getElementById('publishModal').classList.remove('flex');
+        // Poll git status every 10 seconds
+        refreshGitStatus();
+        setInterval(refreshGitStatus, 10000);
+
+        // Save modal functions
+        function showSaveModal() {
+            document.getElementById('saveSpinner').classList.add('hidden');
+            document.getElementById('saveTitle').textContent = 'Save Changes';
+            document.getElementById('saveMessage').classList.remove('hidden');
+            document.getElementById('saveConfirmButtons').classList.remove('hidden');
+            document.getElementById('saveResult').classList.add('hidden');
+            document.getElementById('saveModal').classList.remove('hidden');
+            document.getElementById('saveModal').classList.add('flex');
         }
 
-        async function confirmPublish() {
-            // Show loading state
-            document.getElementById('publishSpinner').classList.remove('hidden');
-            document.getElementById('publishMessage').classList.add('hidden');
-            document.getElementById('publishConfirmButtons').classList.add('hidden');
+        function hideSaveModal() {
+            document.getElementById('saveModal').classList.add('hidden');
+            document.getElementById('saveModal').classList.remove('flex');
+        }
+
+        async function confirmSave() {
+            document.getElementById('saveSpinner').classList.remove('hidden');
+            document.getElementById('saveMessage').classList.add('hidden');
+            document.getElementById('saveConfirmButtons').classList.add('hidden');
 
             try {
-                const response = await fetch('/api/publish', {
+                const response = await fetch('/api/git/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: appName })
                 });
 
                 const data = await response.json();
-                document.getElementById('publishSpinner').classList.add('hidden');
+                document.getElementById('saveSpinner').classList.add('hidden');
 
-                if (response.ok && !data.error) {
-                    document.getElementById('publishResultText').textContent = data.message || data.output || 'Published successfully';
-                    document.getElementById('publishResultText').className = 'mb-4 text-green-600';
+                if (data.error) {
+                    document.getElementById('saveResultText').textContent = data.error;
+                    document.getElementById('saveResultText').className = 'mb-4 text-red-600';
                 } else {
-                    document.getElementById('publishResultText').textContent = data.error || data.message || 'Publish failed';
-                    document.getElementById('publishResultText').className = 'mb-4 text-red-600';
+                    document.getElementById('saveResultText').textContent = data.message || 'Saved successfully';
+                    document.getElementById('saveResultText').className = 'mb-4 text-green-600';
+                    refreshGitStatus();
                 }
-                document.getElementById('publishResult').classList.remove('hidden');
+                document.getElementById('saveResult').classList.remove('hidden');
             } catch (error) {
-                document.getElementById('publishSpinner').classList.add('hidden');
-                document.getElementById('publishResultText').textContent = error.message;
-                document.getElementById('publishResultText').className = 'mb-4 text-red-600';
-                document.getElementById('publishResult').classList.remove('hidden');
+                document.getElementById('saveSpinner').classList.add('hidden');
+                document.getElementById('saveResultText').textContent = error.message;
+                document.getElementById('saveResultText').className = 'mb-4 text-red-600';
+                document.getElementById('saveResult').classList.remove('hidden');
             }
         }
 
+        // Back with unsaved changes warning
         async function goBack() {
+            // Check for unsaved changes first
+            if (!gitStatusClean) {
+                document.getElementById('unsavedModal').classList.remove('hidden');
+                document.getElementById('unsavedModal').classList.add('flex');
+                return;
+            }
+            forceGoBack();
+        }
+
+        function hideUnsavedModal() {
+            document.getElementById('unsavedModal').classList.add('hidden');
+            document.getElementById('unsavedModal').classList.remove('flex');
+        }
+
+        async function forceGoBack() {
+            hideUnsavedModal();
             document.cookie = 'B64DIR=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT';
             try {
                 await fetch('/api/launch', {
@@ -296,37 +371,38 @@
         // Close modal on escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                // Only close publish modal if result is showing (has Continue button)
-                if (!document.getElementById('publishResult').classList.contains('hidden')) {
-                    hidePublishModal();
+                if (!document.getElementById('saveResult').classList.contains('hidden')) {
+                    hideSaveModal();
                 }
-                // Close upload modal if result or error is showing
                 if (!document.getElementById('uploadResult').classList.contains('hidden') ||
                     !document.getElementById('uploadError').classList.contains('hidden')) {
                     hideUploadModal();
                 }
+                hideUnsavedModal();
             }
         });
 
         // Close modal on backdrop click
-        document.getElementById('publishModal').addEventListener('click', (e) => {
+        document.getElementById('saveModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) {
-                // Only close if result is showing or confirm buttons are visible
-                if (!document.getElementById('publishResult').classList.contains('hidden') ||
-                    !document.getElementById('publishConfirmButtons').classList.contains('hidden')) {
-                    hidePublishModal();
+                if (!document.getElementById('saveResult').classList.contains('hidden') ||
+                    !document.getElementById('saveConfirmButtons').classList.contains('hidden')) {
+                    hideSaveModal();
                 }
             }
         });
 
         document.getElementById('uploadModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) {
-                // Only close if result or error is showing (not during upload)
                 if (!document.getElementById('uploadResult').classList.contains('hidden') ||
                     !document.getElementById('uploadError').classList.contains('hidden')) {
                     hideUploadModal();
                 }
             }
+        });
+
+        document.getElementById('unsavedModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideUnsavedModal();
         });
 
         // Resizable divider between iframes

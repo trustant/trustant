@@ -1,33 +1,10 @@
-This file describes support publish api
+This file describes the publish APIs.
 Put the code in the file `publish.go`
 
-# POST /api/publish
+Three publish endpoints will be added:
 
-`{
-   "name": <name>
- }'
+- `POST /api/publish/push` — push code from `<workspacedir>/workspace/<name>` to the git remote
+- `POST /api/publish/local` — deploy to the development environment using `.env`
+- `POST /api/publish/remote` — deploy to production using `.env.production`
 
-
-Change to the folder `<workspacedir>/workspace/<name>`
-Check if there is an `.env.production`
-If not return an error as "not available for publishing`
-
-
-Execute the following two  commands,
- setting the env var `WSK_CONFIG_FILE=/tmp/<name>.props`
-
-
-`ops ide login --mode=production`
-
-If successful check the file pointed by $WSK_CONFIG_FILE exists
-otherwise return error
-
-Execute
-
-`ops ide deploy`
-
-If successful return a message "publishing ok`
-
-Otherwiser retun error
-
-Remove the file pointed by $WSK_CONFIG_FILE
+For now, all three are stubs. The frontend publish dropdown in `applist.html` shows "To be implemented" without calling any API.

@@ -15,6 +15,8 @@ In the bar there is
 
 - the trustable logo 90% height
 - the text returned by the api version
+- a git status indicator (aligned to right, before buttons)
+- the button "Save" (aligned to right)
 - the button (aligned to right) to go back
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
@@ -27,26 +29,49 @@ They will show:
 
 Write in console.log the values of the cookies B64DIR and URLDIR
 
-Clicking on the button back will
-- remove the cookie B64DIR
-- invoke the DELETE /api/launch to stop running subprocess
+# Git Status
 
-# Publish
+On page load and every 10 seconds, invoke `GET /api/git/status/<name>` where `<name>` is read from the NAME cookie.
 
-Add a Publish Button to the toolbar.
-If the APIHOST is not defined it is disabled.
+The API returns:
+```
+{ "changed": N, "added": N, "deleted": N, "clean": true/false }
+```
+
+Display in the toolbar a compact status indicator:
+- If clean is true, show a green dot and "No changes"
+- If clean is false, show an orange dot and a summary like "3 changed, 1 added, 2 deleted"
+
+# Save
+
+Add a Save button to the toolbar.
+If the git status is clean (no changes), the button is disabled.
 If you click on it:
-- Ask for confirmation: "Are you sure you want to publish to <APIHOST>"
+- Ask for confirmation: "Save all changes to workspace?"
 If the user confirms invoke
 
-/api/publish with
+POST /api/git/save with
 
 `{
     "name": <current app>
-}
-`
+}`
 
-return the result if ok or fail and an Continue button
+Show a waiting indicator until the API responds.
+Return the result if ok or fail and a Continue button.
+After a successful save, refresh the git status indicator.
+
+# Back
+
+Clicking on the button back will:
+- First, invoke `GET /api/git/status/<name>` to check for uncommitted changes
+- If the status is not clean, show a warning modal:
+  "You have unsaved changes. If you go back, changes will be lost."
+  with buttons "Go back anyway" and "Cancel"
+- If the user clicks "Cancel", do nothing (stay on page)
+- If the user clicks "Go back anyway" or the status was clean:
+  - remove the cookie B64DIR
+  - invoke the DELETE /api/launch to stop running subprocess
+  - navigate to applist.html
 
 # Upload
 

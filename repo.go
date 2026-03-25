@@ -329,32 +329,10 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create .env file with OPS vars and localenv keys from trustable.json
-	envContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=http://miniops.me\n", req.Name, localPassword)
-
-	// Load trustable.json and append localenv keys
-	cfg, cfgErr := loadTrustableConfig()
-	if cfgErr != nil {
-		log.Printf("Warning: failed to load trustable.json: %s", cfgErr)
-	} else if cfg.Env != nil {
-		for k, v := range cfg.Env {
-			envContent += fmt.Sprintf("%s=%s\n", k, v)
-		}
-	}
-
-	envPath := filepath.Join(workspacePath, ".env")
-	if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
-		log.Printf("Warning: failed to create .env file: %s", err)
-	}
-
-	// Run npm install if package.json exists
-	packageJSONPath := filepath.Join(workspacePath, "package.json")
-	if _, err := os.Stat(packageJSONPath); err == nil {
-		npmCmd := exec.Command("npm", "install")
-		npmCmd.Dir = workspacePath
-		if output, err := npmCmd.CombinedOutput(); err != nil {
-			log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
-		}
+	// Store the password so it can be read at launch time when setting up the workbench
+	passwordPath := filepath.Join(workspacePath, ".password")
+	if err := os.WriteFile(passwordPath, []byte(localPassword), 0600); err != nil {
+		log.Printf("Warning: failed to store password: %s", err)
 	}
 
 	// Return the created application with optional warning
@@ -416,6 +394,12 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Also remove workbench folder if it exists
+	workbenchPath := filepath.Join(WorkbenchDir, req.Name)
+	if err := os.RemoveAll(workbenchPath); err != nil {
+		log.Printf("Warning: failed to remove workbench folder: %s", err)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -463,9 +447,9 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if workspace folder exists
-	workspacePath := filepath.Join(WorkspaceDir, "workspace", name)
-	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+	// Check if workbench folder exists
+	workbenchPath := filepath.Join(WorkbenchDir, name)
+	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
 		http.Error(w, "Application not found", http.StatusNotFound)
 		return
 	}
@@ -486,7 +470,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create upload directory if necessary
-	uploadDir := filepath.Join(workspacePath, "upload")
+	uploadDir := filepath.Join(workbenchPath, "upload")
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		http.Error(w, "Failed to create upload directory", http.StatusInternalServerError)
 		return

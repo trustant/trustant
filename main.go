@@ -24,10 +24,13 @@ func main() {
 		log.Fatalf("Preflight checks failed: %s", err)
 	}
 
-	// Ensure workspace directory exists
+	// Ensure workspace and workbench directories exist
 	wsPath := filepath.Join(WorkspaceDir, "workspace")
 	if err := os.MkdirAll(wsPath, 0755); err != nil {
 		log.Printf("Warning: failed to create workspace directory: %s", err)
+	}
+	if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
+		log.Printf("Warning: failed to create workbench directory: %s", err)
 	}
 
 	// Terminate any leftover processes from previous run (kept for backward compatibility)
@@ -43,7 +46,8 @@ func main() {
 	http.HandleFunc("/api/launch/", handleLaunch)
 	http.HandleFunc("/api/launch", handleLaunch)
 	http.HandleFunc("/api/git", handleGit)
-	http.HandleFunc("/api/publish", handlePublish)
+	http.HandleFunc("/api/git/status/", handleGitStatus)
+	http.HandleFunc("/api/git/save", handleGitSave)
 	http.HandleFunc("/api/sshkey", handleSSHKey)
 	http.HandleFunc("/api/configure", handleConfigure)
 	http.HandleFunc("/api/testmodel", handleTestModel)

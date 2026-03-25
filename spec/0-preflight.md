@@ -15,6 +15,7 @@ use the provided environment to set internal variables
 expanding them also using environment variables for:
 
 WorkspaceDir
+WorkbenchDir
 OpenAIBaseUrl
 OpenAIApiKey
 OllamaEndpoint

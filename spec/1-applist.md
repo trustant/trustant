@@ -27,6 +27,18 @@ You can
 - edit applications
 - configure application
 
+- publish applications
+
+## Publish application
+
+Each application has a "Publish" dropdown button with 3 options:
+
+- **Push code**
+- **Publish locally**
+- **Publish remote**
+
+For now, clicking any of the three options shows a popup saying "To be implemented" with an OK button. No API calls are made. The actual publish endpoints will be implemented later.
+
 ## Adding an application
 
 When you add an application it will ask for:

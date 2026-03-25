@@ -22,9 +22,33 @@ const (
 	opsdevelPort  = 5173
 )
 
-// getPgidFile returns the path to the pgid file inside WorkspaceDir
+// getPgidFile returns the path to the pgid file inside WorkbenchDir
 func getPgidFile() string {
-	return filepath.Join(WorkspaceDir, "pgid")
+	return filepath.Join(WorkbenchDir, "pgid")
+}
+
+// getCurrentFile returns the path to the current app name file inside WorkbenchDir
+func getCurrentFile() string {
+	return filepath.Join(WorkbenchDir, "current")
+}
+
+// writeCurrentApp writes the current app name to the current file
+func writeCurrentApp(name string) error {
+	return os.WriteFile(getCurrentFile(), []byte(name), 0644)
+}
+
+// readCurrentApp reads the current app name from the current file
+func readCurrentApp() (string, error) {
+	data, err := os.ReadFile(getCurrentFile())
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// removeCurrentFile removes the current app name file
+func removeCurrentFile() {
+	os.Remove(getCurrentFile())
 }
 
 
@@ -150,10 +174,74 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Terminate leftover processes
 	terminateLeftoverProcesses()
 
-	// Run ops ide login
+	// Clone to workbench if not already present
+	workbenchPath := filepath.Join(WorkbenchDir, app)
+	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
+		log.Printf("Cloning workspace/%s to workbench/%s...", app, app)
+		if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create workbench dir: %s", err)})
+			return
+		}
+		cloneCmd := exec.Command("git", "clone", workspacePath, workbenchPath)
+		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to clone to workbench: %s", string(output))})
+			return
+		}
+
+		// Allow pushing back to workspace by setting receive.denyCurrentBranch
+		configCmd := exec.Command("git", "config", "receive.denyCurrentBranch", "updateInstead")
+		configCmd.Dir = workspacePath
+		if output, err := configCmd.CombinedOutput(); err != nil {
+			log.Printf("Warning: failed to set receive.denyCurrentBranch on workspace: %s", string(output))
+		}
+
+		// Create .env in workbench from workspace .env values + trustable.json defaults
+		if envData, err := os.ReadFile(filepath.Join(workspacePath, ".env")); err == nil {
+			if err := os.WriteFile(filepath.Join(workbenchPath, ".env"), envData, 0600); err != nil {
+				log.Printf("Warning: failed to create workbench .env: %s", err)
+			}
+		} else {
+			// Build .env from .password file and trustable.json defaults
+			passwordData, _ := os.ReadFile(filepath.Join(workspacePath, ".password"))
+			localPassword := strings.TrimSpace(string(passwordData))
+			envContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=http://miniops.me\n", app, localPassword)
+			cfg, cfgErr := loadTrustableConfig()
+			if cfgErr == nil && cfg.Env != nil {
+				for k, v := range cfg.Env {
+					envContent += fmt.Sprintf("%s=%s\n", k, v)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(workbenchPath, ".env"), []byte(envContent), 0600); err != nil {
+				log.Printf("Warning: failed to create workbench .env: %s", err)
+			}
+		}
+
+		// Copy .env.production if it exists
+		if prodData, err := os.ReadFile(filepath.Join(workspacePath, ".env.production")); err == nil {
+			if err := os.WriteFile(filepath.Join(workbenchPath, ".env.production"), prodData, 0600); err != nil {
+				log.Printf("Warning: failed to copy .env.production to workbench: %s", err)
+			}
+		}
+
+		// Run npm install if package.json exists
+		if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err == nil {
+			log.Printf("Running npm install in workbench/%s...", app)
+			npmCmd := exec.Command("npm", "install")
+			npmCmd.Dir = workbenchPath
+			if output, err := npmCmd.CombinedOutput(); err != nil {
+				log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
+			}
+		}
+
+		log.Printf("Workbench for %s set up successfully", app)
+	} else {
+		log.Printf("Workbench for %s already exists, reusing", app)
+	}
+
+	// Run ops ide login (always, even when reusing workbench)
 	log.Printf("Running ops ide login for %s...", app)
 	loginCmd := exec.Command("ops", "ide", "login")
-	loginCmd.Dir = workspacePath
+	loginCmd.Dir = workbenchPath
 	if output, err := loginCmd.CombinedOutput(); err != nil {
 		log.Printf("ops ide login for %s failed: %s, output: %s", app, err, string(output))
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("ops ide login failed: %s", string(output))})
@@ -175,7 +263,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	// Always copy opencode.json and opencode.md to workspace (overwriting existing files)
+	// Always copy opencode.json and opencode.md to workbench (overwriting existing files)
 	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
 	if _, err := os.Stat(opencodeConfigSrc); os.IsNotExist(err) {
 		log.Println("opencode.json not found, generating it...")
@@ -185,7 +273,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			log.Printf("Warning: failed to generate opencode.json: %s", err)
 		}
 	}
-	opencodeConfigDst := filepath.Join(workspacePath, "opencode.json")
+	opencodeConfigDst := filepath.Join(workbenchPath, "opencode.json")
 	if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
 		if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {
 			log.Printf("Warning: failed to copy opencode.json: %s", writeErr)
@@ -194,7 +282,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		log.Printf("Warning: opencode.json not found: %s", readErr)
 	}
 
-	opencodeMdDst := filepath.Join(workspacePath, "opencode.md")
+	opencodeMdDst := filepath.Join(workbenchPath, "opencode.md")
 	if err := os.WriteFile(opencodeMdDst, []byte(opencodeMd), 0644); err != nil {
 		log.Printf("Warning: failed to write opencode.md: %s", err)
 	}
@@ -202,7 +290,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Start opencode
 	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
 	opencodeCmd := exec.Command("opencode", "serve", "--port", strconv.Itoa(leftPort), "--hostname", "0.0.0.0", "--log-level", "DEBUG", "--print-logs")
-	opencodeCmd.Dir = workspacePath
+	opencodeCmd.Dir = workbenchPath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
 	// Set process group so we can kill all child processes
@@ -213,7 +301,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	log.Printf("Started opencode in directory: %s", workspacePath)
+	log.Printf("Started opencode in directory: %s", workbenchPath)
 
 	// Get the process group ID
 	pgid, err := syscall.Getpgid(opencodeCmd.Process.Pid)
@@ -242,17 +330,20 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		// Process is still running - continue
 	}
 
-	// Write pgid to file
+	// Write pgid and current app name to files
 	if err := writePgid(pgid); err != nil {
 		killPgid(pgid)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to write pgid file: %s", err)})
 		return
 	}
+	if err := writeCurrentApp(app); err != nil {
+		log.Printf("Warning: failed to write current app file: %s", err)
+	}
 
 	// Start ops ide devel in the same process group
 	log.Printf("Starting ops ide devel for %s on port %d...", app, rightPort)
 	develCmd := exec.Command("ops", "ide", "devel")
-	develCmd.Dir = workspacePath
+	develCmd.Dir = workbenchPath
 	develCmd.Stdout = os.Stdout
 	develCmd.Stderr = os.Stderr
 	// Join the same process group as opencode
@@ -302,7 +393,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	// Calculate URL-encoded absolute path of the app folder
-	absPath, err := filepath.Abs(workspacePath)
+	absPath, err := filepath.Abs(workbenchPath)
 	if err != nil {
 		killPgid(pgid)
 		removePgidFile()
@@ -361,6 +452,7 @@ func handleLaunchDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	removePgidFile()
+	removeCurrentFile()
 	log.Printf("Process group %d terminated and pgid file removed", pgid)
 
 	w.WriteHeader(http.StatusNoContent)

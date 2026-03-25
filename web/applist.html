@@ -387,6 +387,17 @@
                                 class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors">
                                 Edit
                             </button>
+                            <div class="relative">
+                                <button onclick="togglePublishMenu('${escapeAttr(app.name)}')"
+                                    class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors">
+                                    Publish &#9662;
+                                </button>
+                                <div id="publishMenu-${escapeAttr(app.name)}" class="hidden absolute right-0 mt-1 w-40 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                                    <button onclick="showTodoModal('Push code');closePublishMenus()" class="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100">Push code</button>
+                                    <button onclick="showTodoModal('Publish locally');closePublishMenus()" class="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100">Publish locally</button>
+                                    <button onclick="showTodoModal('Publish remote');closePublishMenus()" class="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100">Publish remote</button>
+                                </div>
+                            </div>
                             <button onclick="configureApp('${escapeAttr(app.name)}')"
                                 class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors">
                                 Configure
@@ -626,6 +637,30 @@
         document.getElementById('creatingModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget && !document.getElementById('creatingResult').classList.contains('hidden')) {
                 hideCreatingModal();
+            }
+        });
+
+        // Publish dropdown functions
+        function togglePublishMenu(name) {
+            closePublishMenus();
+            const menu = document.getElementById('publishMenu-' + name);
+            if (menu) {
+                menu.classList.toggle('hidden');
+            }
+        }
+
+        function closePublishMenus() {
+            document.querySelectorAll('[id^="publishMenu-"]').forEach(el => el.classList.add('hidden'));
+        }
+
+        function showTodoModal(action) {
+            alert(action + ': To be implemented');
+        }
+
+        // Close publish menus when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('[onclick^="togglePublishMenu"]')) {
+                closePublishMenus();
             }
         });
 
