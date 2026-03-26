@@ -24,9 +24,6 @@ ENV OPS_REPO=https://github.com/nuvolaris/bestia
 
 USER node
 WORKDIR /home/node
-COPY env .env
-COPY trustable.json trustable.json
-COPY opencode.md opencode.md
 
 RUN \
     echo "export OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\
@@ -41,9 +38,12 @@ RUN \
 RUN mkdir /home/node/data
 
 USER root
-COPY start.sh /usr/local/bin/start.sh
-ADD supervisord.ini /etc/supervisord.ini
 CMD ["/usr/local/bin/start.sh"]
 ENTRYPOINT ["tini", "--"]
 ###---###
+COPY supervisord.ini /etc/supervisord.ini
+COPY start.sh /usr/local/bin/start.sh
+COPY env .env
+COPY trustable.json trustable.json
+COPY opencode.md opencode.md
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
