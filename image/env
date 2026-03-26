@@ -2,7 +2,10 @@ HOME=/home/node
 PATH=/home/node/.local/bin:/home/node/.opencode/bin:/usr/local/bin:/usr/bin:/bin
 OPS_REPO=https://github.com/nuvolaris/bestia
 OPS_BRANCH=bestia
-WORKSPACE_DIR=/home/node/data
 OLLAMA_ENDPOINT=http://localhost:11434
 OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=dummy
+WORKSPACE_DIR=/home/node/workspace
+WORKBENCH_DIR=/home/node/workbench
+
+
