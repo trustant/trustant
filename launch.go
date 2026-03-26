@@ -225,6 +225,62 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		}
 	}
 
+	// Ensure the OpenWhisk user exists and password is in sync
+	log.Printf("Checking OpenWhisk user for %s...", app)
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to load config: %s", err)})
+		return
+	}
+	storedPassword := ""
+	if cfg.Apps != nil && cfg.Apps[app] != nil {
+		storedPassword = cfg.Apps[app].Password
+	}
+
+	kubegetCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+app, ".spec.password")
+	kubegetOutput, kubegetErr := kubegetCmd.Output()
+	if kubegetErr != nil {
+		// User doesn't exist, recreate with stored password
+		if storedPassword == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "No stored password for user " + app + ", cannot recreate"})
+			return
+		}
+		log.Printf("User %s not found, creating with stored password...", app)
+		email := app + "@n7s.co"
+		addUserCmd := exec.Command("ops", "admin", "adduser", app, email, storedPassword, "--all")
+		if output, err := addUserCmd.CombinedOutput(); err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create user: %s", string(output))})
+			return
+		}
+		log.Printf("User %s created successfully", app)
+	} else {
+		// User exists, check if password matches
+		remotePassword := strings.TrimSpace(string(kubegetOutput))
+		if remotePassword != storedPassword && remotePassword != "" {
+			log.Printf("Password mismatch for %s, updating stored password", app)
+			wsCfg, err := loadWorkspaceConfig()
+			if err == nil {
+				if wsCfg.Apps == nil {
+					wsCfg.Apps = make(map[string]*AppConfig)
+				}
+				if wsCfg.Apps[app] == nil {
+					wsCfg.Apps[app] = &AppConfig{
+						Development: make(map[string]string),
+						Production:  make(map[string]string),
+					}
+				}
+				wsCfg.Apps[app].Password = remotePassword
+				if err := saveWorkspaceConfig(wsCfg); err != nil {
+					log.Printf("Warning: failed to update stored password: %s", err)
+				}
+				// Regenerate .env with updated password
+				if err := generateAppEnvFiles(app); err != nil {
+					log.Printf("Warning: failed to regenerate .env after password update: %s", err)
+				}
+			}
+		}
+	}
+
 	// Run ops ide login (always, even when reusing workbench)
 	log.Printf("Running ops ide login for %s...", app)
 	loginCmd := exec.Command("ops", "ide", "login")
