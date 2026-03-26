@@ -11,3 +11,4 @@ trustable-app
 .vscode/
 appo/
 out.json
+image/Dockerfile.*
