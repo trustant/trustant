@@ -46,4 +46,4 @@ ADD supervisord.ini /etc/supervisord.ini
 CMD ["/usr/local/bin/start.sh"]
 ENTRYPOINT ["tini", "--"]
 ###---###
-COPY trustable-$TARGETARCH /usr/local/bin/trustable
+COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
