@@ -32,9 +32,17 @@ func getCurrentFile() string {
 	return filepath.Join(WorkbenchDir, "current")
 }
 
-// writeCurrentApp writes the current app name to the current file
+// writeCurrentApp writes the current app name to the current file and workspace config
 func writeCurrentApp(name string) error {
-	return os.WriteFile(getCurrentFile(), []byte(name), 0644)
+	if err := os.WriteFile(getCurrentFile(), []byte(name), 0644); err != nil {
+		return err
+	}
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return err
+	}
+	wsCfg.Current = name
+	return saveWorkspaceConfig(wsCfg)
 }
 
 // readCurrentApp reads the current app name from the current file
@@ -46,9 +54,14 @@ func readCurrentApp() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// removeCurrentFile removes the current app name file
+// removeCurrentFile removes the current app name file and clears it from workspace config
 func removeCurrentFile() {
 	os.Remove(getCurrentFile())
+	wsCfg, err := loadWorkspaceConfig()
+	if err == nil {
+		wsCfg.Current = ""
+		saveWorkspaceConfig(wsCfg)
+	}
 }
 
 
@@ -188,39 +201,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			return
 		}
 
-		// Allow pushing back to workspace by setting receive.denyCurrentBranch
-		configCmd := exec.Command("git", "config", "receive.denyCurrentBranch", "updateInstead")
-		configCmd.Dir = workspacePath
-		if output, err := configCmd.CombinedOutput(); err != nil {
-			log.Printf("Warning: failed to set receive.denyCurrentBranch on workspace: %s", string(output))
-		}
-
-		// Create .env in workbench from workspace .env values + trustable.json defaults
-		if envData, err := os.ReadFile(filepath.Join(workspacePath, ".env")); err == nil {
-			if err := os.WriteFile(filepath.Join(workbenchPath, ".env"), envData, 0600); err != nil {
-				log.Printf("Warning: failed to create workbench .env: %s", err)
-			}
-		} else {
-			// Build .env from .password file and trustable.json defaults
-			passwordData, _ := os.ReadFile(filepath.Join(workspacePath, ".password"))
-			localPassword := strings.TrimSpace(string(passwordData))
-			envContent := fmt.Sprintf("OPS_USER=%s\nOPS_PASSWORD=%s\nOPS_APIHOST=http://miniops.me\n", app, localPassword)
-			cfg, cfgErr := loadTrustableConfig()
-			if cfgErr == nil && cfg.Env != nil {
-				for k, v := range cfg.Env {
-					envContent += fmt.Sprintf("%s=%s\n", k, v)
-				}
-			}
-			if err := os.WriteFile(filepath.Join(workbenchPath, ".env"), []byte(envContent), 0600); err != nil {
-				log.Printf("Warning: failed to create workbench .env: %s", err)
-			}
-		}
-
-		// Copy .env.production if it exists
-		if prodData, err := os.ReadFile(filepath.Join(workspacePath, ".env.production")); err == nil {
-			if err := os.WriteFile(filepath.Join(workbenchPath, ".env.production"), prodData, 0600); err != nil {
-				log.Printf("Warning: failed to copy .env.production to workbench: %s", err)
-			}
+		// Generate .env and .env.production from config
+		if err := generateAppEnvFiles(app); err != nil {
+			log.Printf("Warning: failed to generate workbench .env: %s", err)
 		}
 
 		// Run npm install if package.json exists
@@ -236,6 +219,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		log.Printf("Workbench for %s set up successfully", app)
 	} else {
 		log.Printf("Workbench for %s already exists, reusing", app)
+		// Always regenerate .env from config to keep in sync
+		if err := generateAppEnvFiles(app); err != nil {
+			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
+		}
 	}
 
 	// Run ops ide login (always, even when reusing workbench)
@@ -248,6 +235,17 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 	log.Printf("ops ide login for %s completed successfully", app)
+
+	// Run ops ide deploy
+	log.Printf("Running ops ide deploy for %s...", app)
+	deployCmd := exec.Command("ops", "ide", "deploy")
+	deployCmd.Dir = workbenchPath
+	if output, err := deployCmd.CombinedOutput(); err != nil {
+		log.Printf("ops ide deploy for %s failed: %s, output: %s", app, err, string(output))
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("ops ide deploy failed: %s", string(output))})
+		return
+	}
+	log.Printf("ops ide deploy for %s completed successfully", app)
 
 	// Detect ports
 	leftPort := opencodePort

@@ -18,77 +18,6 @@ otherwise returns
 
 `{"version": "Trustable v<version>", "expire": "<date>" }`
 
-# GET /api/configure
-
-## pull the models
-
-## prepare opencode config
-
-- Using information in <WorkspaceDir>/trustable.json and in the .env create the opencode config in
-
-`~/.config/opencode/opencode.json` following the structure:
-
-```
-{
-  "$schema": "https://opencode.ai/config.json",
-  "instructions": ["opencode.md"],
-  "enabled_providers": [
-    "ollama"
-  ],
-  "model": <OpencodeModel>,
-  "small_model": <OpencodeSmallModel>,
-  "provider": {
-    "ollama": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": <OpenAIBaseUrl>
-        "apiKey": <OpenAIApiKey>
-      },
-      "models": {
-         <models with capabilities>
-      }
-    }
-  }
-}
-```
-
-To get the capabilites of a model use the OllamaEndPoint, list the models then show their capabilities.
-
-To get the context size for a model look in trustable.json -  <value>K mean  <value> * 1024.
-
-Model name is the model id, split in "-" and ":", capitalized, with numbers with extensions in parenthesis
-
-Example: qwen3-coder:480b-cloud => Quen3 Coder (48OB) Cloud
-
-Template:
-
-```
-"<model>": {
-  "name": <model-name>,
-  "tool_call": >true if you find tools in capabilities
-  "reasoning": true if you find thinking>
-  "temperature": true,
-  "limit": {
-    "context": <context size for model>
-    "output": 32768
-  },
-  "options": {
-    "maxTokens": 8192
-  },
-  "variants": {
-    "fast": {
-      "options": { "maxTokens": 2048 }
-    },
-    "deep": {
-      "options": { "maxTokens": 16000 }
-    },
-    "disabled_variant": {
-      "disabled": true
-    }
-  }
-}
-```
-
 # POST /api/repo
 `{
   "name: <name>
@@ -119,24 +48,21 @@ If it is not an error, the user exists then use the returned value as `<local-pa
 
 If it is an error:
 - use <password> as <local-password>
-- store it in ~/.ops/<name>.password.
 - create the user with
 
 `ops admin adduser <name> <name>@n7s.co <local-password> --all`
 
-Return error if fails, otherwise return a waring that the password was ignored for local as the user was exiting and the local password was reused.
+Return error if fails, otherwise return a warning that the password was ignored for local as the user was existing and the local password was reused.
 
-Then try to clone the repo from gituhub as git@github.com:<repo>
+Then try to clone the repo as bare from github as git@github.com:<repo>
 using the ssh key in `<WorkspaceDir>/.ssh/id_trustable` saving in
-<workspacedir>/workspace/<name>`
+`<workspacedir>/workspace/<name>`
+
+Use `git clone --bare` so the workspace is a bare repository (no working tree). This avoids push conflicts when saving from the workbench.
 
 Return error if fails.
 
-## clean up env files from git
-
-If the cloned repo contains `.env` or `.env.production` tracked by git, remove them from git with `git rm -f` and add them to `.gitignore` (creating or appending to the file). This prevents secrets from being committed back to the repository.
-
-Store the password in `<workspacedir>/workspace/<name>/.password` so it can be read at launch time when setting up the workbench.
+Store the password and initial app config in `<WorkspaceDir>/trustable.json` under `apps.<name>` with empty `development` and `production` maps.
 
 Return success
 
@@ -153,7 +79,7 @@ Remove the folder  `<workspacedir>/workspace/<name>`
 
 Also remove the folder `<workbenchdir>/<name>` if it exists.
 
-Remove the password from ~/.ops/<name>.password
+Remove the app entry from `<WorkspaceDir>/trustable.json` under `apps.<name>`.
 
 # GET /api/repo
 
@@ -166,9 +92,7 @@ Example: if remote is
 git@github.com:nuvolaris/trustable-workspace
 use as <repo> nuvolaris/trustable-workspace
 
-If there is the file  <workspacedir>/workspace/<name>/.env.<name>,
-read it and set the <apihost> to the value of `OPS_APIHOST=`,
-removing the prefix `https`, otherwise <apihost> is empty
+Read the `<apihost>` from the merged config's `apps.<name>.production.OPS_APIHOST` value, otherwise <apihost> is empty.
 
 return an array of
 

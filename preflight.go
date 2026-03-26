@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"log"
 	"net/http"
@@ -92,7 +91,7 @@ func runPreflight() error {
 	log.Println("✓ Environment loaded")
 
 	// Step 1: Clean up PGID file if exists
-	log.Println("[1/4] Checking for leftover process groups...")
+	log.Println("[1/3] Checking for leftover process groups...")
 	if err := cleanupPgidFile(); err != nil {
 		log.Printf("Warning: PGID cleanup failed: %v", err)
 	} else {
@@ -100,40 +99,20 @@ func runPreflight() error {
 	}
 
 	// Step 2: Clean up ports
-	log.Println("[2/4] Checking ports 8910, 4096, 5173...")
+	log.Println("[2/3] Checking ports 8910, 4096, 5173...")
 	if err := cleanupPorts(); err != nil {
 		log.Printf("Warning: Port cleanup failed: %v", err)
 	} else {
 		log.Println("✓ Port cleanup complete")
 	}
 
-	// Step 3: Check Ollama health
-	log.Println("[3/4] Checking Ollama health...")
-	if err := checkOllamaHealth(); err != nil {
-		return fmt.Errorf("Ollama health check failed: %w", err)
-	}
-	log.Println("✓ Ollama is healthy")
-
-	// Step 3b: Copy default trustable.json if not present in workspace
-	trustableJsonDest := filepath.Join(WorkspaceDir, "trustable.json")
-	if _, err := os.Stat(trustableJsonDest); os.IsNotExist(err) {
-		log.Println("  - Copying default trustable.json to workspace...")
-		src, err := os.ReadFile("trustable.json")
-		if err != nil {
-			log.Printf("Warning: failed to read trustable.json: %v", err)
-		} else {
-			if err := os.MkdirAll(WorkspaceDir, 0755); err != nil {
-				log.Printf("Warning: failed to create workspace dir: %v", err)
-			} else if err := os.WriteFile(trustableJsonDest, src, 0644); err != nil {
-				log.Printf("Warning: failed to copy trustable.json: %v", err)
-			} else {
-				log.Println("  - ✓ trustable.json copied to workspace")
-			}
-		}
+	// Step 2b: Migrate existing apps into workspace trustable.json
+	if err := migrateToLayeredConfig(); err != nil {
+		log.Printf("Warning: config migration failed: %v", err)
 	}
 
-	// Step 4: Ensure SSH key exists
-	log.Println("[4/4] Checking SSH key...")
+	// Step 3: Ensure SSH key exists
+	log.Println("[3/3] Checking SSH key...")
 	if err := ensureSSHKey(); err != nil {
 		return fmt.Errorf("SSH key generation failed: %w", err)
 	}
@@ -143,6 +122,86 @@ func runPreflight() error {
 	log.Println("✓ All preflight checks passed")
 	log.Println("========================================")
 	return nil
+}
+
+// mapsEqual compares two string maps for equality
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// migrateToLayeredConfig migrates existing apps into workspace trustable.json
+func migrateToLayeredConfig() error {
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return err
+	}
+
+	// If apps section already exists, migration is done
+	if wsCfg.Apps != nil {
+		return nil
+	}
+
+	wsDir := filepath.Join(WorkspaceDir, "workspace")
+	entries, err := os.ReadDir(wsDir)
+	if err != nil {
+		// No workspace dir yet, nothing to migrate
+		return nil
+	}
+
+	log.Println("  Migrating configuration to layered format...")
+	wsCfg.Apps = make(map[string]*AppConfig)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+
+		app := &AppConfig{
+			Development: make(map[string]string),
+			Production:  make(map[string]string),
+		}
+
+		// Retrieve password from ops
+		kubegetCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+name, ".spec.password")
+		if output, err := kubegetCmd.Output(); err == nil {
+			app.Password = strings.TrimSpace(string(output))
+		} else {
+			log.Printf("  Warning: could not retrieve password for %s: %v", name, err)
+		}
+
+		wsCfg.Apps[name] = app
+	}
+
+	// Strip fields from workspace config that match base (keep only overrides + apps)
+	baseCfg, baseErr := loadBaseConfig()
+	if baseErr == nil {
+		if mapsEqual(wsCfg.Ollama, baseCfg.Ollama) {
+			wsCfg.Ollama = nil
+		}
+		if wsCfg.TestModel == baseCfg.TestModel {
+			wsCfg.TestModel = ""
+		}
+		if wsCfg.Opencode != nil && baseCfg.Opencode != nil &&
+			wsCfg.Opencode.Default == baseCfg.Opencode.Default &&
+			wsCfg.Opencode.Small == baseCfg.Opencode.Small {
+			wsCfg.Opencode = nil
+		}
+		if mapsEqual(wsCfg.Env, baseCfg.Env) {
+			wsCfg.Env = nil
+		}
+	}
+
+	log.Printf("  Migrated %d app(s) to layered config", len(wsCfg.Apps))
+	return saveWorkspaceConfig(wsCfg)
 }
 
 // cleanupPgidFile reads and terminates process group from WorkbenchDir/pgid file
@@ -224,28 +283,6 @@ func killProcessOnPort(port string) error {
 	time.Sleep(200 * time.Millisecond)
 	return nil
 }
-
-// checkOllamaHealth checks that the Ollama server is responding
-func checkOllamaHealth() error {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(OllamaEndpoint)
-	if err != nil {
-		return fmt.Errorf("cannot reach Ollama at %s: %w", OllamaEndpoint, err)
-	}
-	defer resp.Body.Close()
-
-	buf := new(bytes.Buffer)
-	buf.ReadFrom(resp.Body)
-	body := buf.String()
-
-	if !strings.Contains(body, "Ollama is running") {
-		return fmt.Errorf("Ollama at %s did not return expected response (got: %s)", OllamaEndpoint, body)
-	}
-
-	log.Printf("  - Ollama is running at %s", OllamaEndpoint)
-	return nil
-}
-
 
 // ensureSSHKey generates an ED25519 SSH key at WorkspaceDir/.ssh/id_trustable if it doesn't already exist
 func ensureSSHKey() error {

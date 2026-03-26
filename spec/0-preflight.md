@@ -20,15 +20,13 @@ OpenAIBaseUrl
 OpenAIApiKey
 OllamaEndpoint
 
-- if there is not a file <WorkspaceDir>/trustable.json copy over the file  trustable.json in current dir as the default.
+- Run migration: if the workspace `trustable.json` does not yet have an `apps` section, scan `<WorkspaceDir>/workspace/*/` for existing app directories, retrieve each app's password via `ops util kubeget whiskuser/<name> .spec.password`, build `apps` entries, strip fields that match the base config, and save the updated workspace `trustable.json`.
 
 # cleanup
 
 - if there is a file pgid in WorkspaceDir, read it and terminate the process group and remove the file
 
 - use lsof -i and check for processes occupying in port 8910 4096 and 5173 and kill them
-
-- check the health of OllamaEndPoint
 
 # generate an ssh key
 

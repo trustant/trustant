@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -142,8 +143,18 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ops ide deploy
+	deployCmd := exec.Command("ops", "ide", "deploy")
+	deployCmd.Dir = workbenchPath
+	if output, err := deployCmd.CombinedOutput(); err != nil {
+		log.Printf("ops ide deploy failed: %s, output: %s", err, string(output))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "ops ide deploy failed: " + string(output)})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "saved successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": "committed and deployed successfully"})
 }
 
 func handleGit(w http.ResponseWriter, r *http.Request) {

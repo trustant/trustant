@@ -16,29 +16,126 @@ import (
 	"unicode"
 )
 
-// trustableConfig represents the structure of trustable.json
-type trustableConfig struct {
-	Ollama    map[string]string `json:"ollama"`
-	TestModel string            `json:"testmodel"`
-	Opencode  struct {
-		Default string `json:"default"`
-		Small   string `json:"small"`
-	} `json:"opencode"`
-	Env map[string]string `json:"env"`
+// opencodeConfig holds the opencode model settings
+type opencodeConfig struct {
+	Default string `json:"default"`
+	Small   string `json:"small"`
 }
 
-// loadTrustableConfig reads trustable.json from the workspace directory
-func loadTrustableConfig() (*trustableConfig, error) {
-	configPath := filepath.Join(WorkspaceDir, "trustable.json")
-	data, err := os.ReadFile(configPath)
+// AppConfig holds per-app configuration within trustable.json
+type AppConfig struct {
+	Password    string            `json:"password"`
+	Development map[string]string `json:"development"`
+	Production  map[string]string `json:"production"`
+}
+
+// trustableConfig represents the structure of trustable.json
+type trustableConfig struct {
+	Ollama    map[string]string    `json:"ollama,omitempty"`
+	TestModel string               `json:"testmodel,omitempty"`
+	Opencode  *opencodeConfig      `json:"opencode,omitempty"`
+	Env       map[string]string    `json:"env,omitempty"`
+	Apps      map[string]*AppConfig `json:"apps,omitempty"`
+	Current   string               `json:"current,omitempty"`
+}
+
+// loadBaseConfig reads the app-root trustable.json (immutable defaults)
+func loadBaseConfig() (*trustableConfig, error) {
+	data, err := os.ReadFile("trustable.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read trustable.json: %w", err)
+		return nil, fmt.Errorf("failed to read base trustable.json: %w", err)
 	}
 	var cfg trustableConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse trustable.json: %w", err)
+		return nil, fmt.Errorf("failed to parse base trustable.json: %w", err)
 	}
 	return &cfg, nil
+}
+
+// loadWorkspaceConfig reads the workspace trustable.json (overrides)
+func loadWorkspaceConfig() (*trustableConfig, error) {
+	configPath := filepath.Join(WorkspaceDir, "trustable.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &trustableConfig{}, nil
+		}
+		return nil, fmt.Errorf("failed to read workspace trustable.json: %w", err)
+	}
+	var cfg trustableConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse workspace trustable.json: %w", err)
+	}
+	return &cfg, nil
+}
+
+// mergeConfigs merges workspace overrides onto base config.
+// Non-nil/non-empty workspace fields override base fields.
+// Maps are merged key-by-key (workspace keys override base keys).
+func mergeConfigs(base, override *trustableConfig) *trustableConfig {
+	result := *base // shallow copy
+
+	if len(override.Ollama) > 0 {
+		merged := make(map[string]string)
+		for k, v := range base.Ollama {
+			merged[k] = v
+		}
+		for k, v := range override.Ollama {
+			merged[k] = v
+		}
+		result.Ollama = merged
+	}
+
+	if override.TestModel != "" {
+		result.TestModel = override.TestModel
+	}
+
+	if override.Opencode != nil {
+		result.Opencode = override.Opencode
+	}
+
+	if len(override.Env) > 0 {
+		merged := make(map[string]string)
+		for k, v := range base.Env {
+			merged[k] = v
+		}
+		for k, v := range override.Env {
+			merged[k] = v
+		}
+		result.Env = merged
+	}
+
+	if override.Apps != nil {
+		result.Apps = override.Apps
+	}
+
+	return &result
+}
+
+// loadTrustableConfig loads merged config (base + workspace overrides)
+func loadTrustableConfig() (*trustableConfig, error) {
+	base, err := loadBaseConfig()
+	if err != nil {
+		return nil, err
+	}
+	ws, err := loadWorkspaceConfig()
+	if err != nil {
+		return nil, err
+	}
+	return mergeConfigs(base, ws), nil
+}
+
+// saveWorkspaceConfig writes only the workspace trustable.json
+func saveWorkspaceConfig(cfg *trustableConfig) error {
+	formatted, err := json.MarshalIndent(cfg, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to format configuration: %w", err)
+	}
+	configPath := filepath.Join(WorkspaceDir, "trustable.json")
+	if err := os.MkdirAll(WorkspaceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create workspace dir: %w", err)
+	}
+	return os.WriteFile(configPath, formatted, 0644)
 }
 
 // parseContextSize parses a context size string like "256K" or "512"
@@ -143,14 +240,41 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	// Load trustable.json config
+	// Step 1: Check Ollama connectivity with retries
+	sendMsg("Checking Ollama connection at " + OllamaEndpoint + "...")
+	ollamaOK := false
+	maxAttempts := 12 // 2 minutes at 10-second intervals
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(OllamaEndpoint)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if strings.Contains(string(body), "Ollama is running") {
+				sendMsg("OK: Ollama is running")
+				ollamaOK = true
+				break
+			}
+		}
+		if attempt < maxAttempts {
+			sendMsg(fmt.Sprintf("Attempt %d/%d: Cannot reach Ollama at %s - retrying in 10 seconds...", attempt, maxAttempts, OllamaEndpoint))
+			time.Sleep(10 * time.Second)
+		} else {
+			sendMsg(fmt.Sprintf("ERROR: Cannot connect to Ollama at %s after 2 minutes. Please check that Ollama is running and try again.", OllamaEndpoint))
+		}
+	}
+	if !ollamaOK {
+		return
+	}
+
+	// Step 2: Load trustable.json config
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		sendMsg("ERROR: " + err.Error())
 		return
 	}
 
-	// Pull each model
+	// Step 3: Pull each model
 	client := &http.Client{Timeout: 600 * time.Second}
 	for modelName := range cfg.Ollama {
 		sendMsg("Pulling model " + modelName)
@@ -238,12 +362,18 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 			ctxSize)
 	}
 
+	var modelDefault, modelSmall string
+	if cfg.Opencode != nil {
+		modelDefault = cfg.Opencode.Default
+		modelSmall = cfg.Opencode.Small
+	}
+
 	config := map[string]interface{}{
 		"$schema":           "https://opencode.ai/config.json",
 		"instructions":      []string{"opencode.md"},
 		"enabled_providers": []string{"ollama"},
-		"model":             cfg.Opencode.Default,
-		"small_model":       cfg.Opencode.Small,
+		"model":             modelDefault,
+		"small_model":       modelSmall,
 		"provider": map[string]interface{}{
 			"ollama": map[string]interface{}{
 				"npm": "@ai-sdk/openai-compatible",
@@ -349,46 +479,49 @@ func handleConfiguration(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleGetConfiguration returns the current trustable.json from the workspace
+// handleGetConfiguration returns the merged configuration (base + workspace overrides)
 func handleGetConfiguration(w http.ResponseWriter, r *http.Request) {
-	configPath := filepath.Join(WorkspaceDir, "trustable.json")
-	data, err := os.ReadFile(configPath)
+	cfg, err := loadTrustableConfig()
 	if err != nil {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(data)
+	json.NewEncoder(w).Encode(cfg)
 }
 
-// handlePostConfiguration saves the provided configuration to trustable.json
+// handlePostConfiguration saves the provided configuration to workspace trustable.json
 func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
-	// Read and validate JSON
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
 
-	// Validate it's valid JSON and matches expected structure
 	var cfg trustableConfig
 	if err := json.Unmarshal(body, &cfg); err != nil {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Pretty-print and write
-	formatted, err := json.MarshalIndent(cfg, "", "    ")
-	if err != nil {
-		http.Error(w, "Failed to format configuration", http.StatusInternalServerError)
-		return
+	// Preserve existing apps and current from workspace config
+	wsCfg, wsErr := loadWorkspaceConfig()
+	if wsErr == nil {
+		if wsCfg.Apps != nil && cfg.Apps == nil {
+			cfg.Apps = wsCfg.Apps
+		}
+		if wsCfg.Current != "" && cfg.Current == "" {
+			cfg.Current = wsCfg.Current
+		}
 	}
 
-	configPath := filepath.Join(WorkspaceDir, "trustable.json")
-	if err := os.WriteFile(configPath, formatted, 0644); err != nil {
+	if err := saveWorkspaceConfig(&cfg); err != nil {
 		http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Regenerate .env files for all apps
+	regenerateAllAppEnvFiles()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
@@ -447,6 +580,78 @@ func writeEnvFile(path string, vars map[string]string, order []string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
 }
 
+// generateAppEnvFiles writes .env and .env.production for an app in its workbench directory
+func generateAppEnvFiles(appName string) error {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return err
+	}
+
+	workbenchPath := filepath.Join(WorkbenchDir, appName)
+
+	appCfg := cfg.Apps[appName]
+	if appCfg == nil {
+		appCfg = &AppConfig{
+			Development: make(map[string]string),
+			Production:  make(map[string]string),
+		}
+	}
+
+	// Build development env
+	devVars := make(map[string]string)
+	devVars["OPS_USER"] = appName
+	devVars["OPS_PASSWORD"] = appCfg.Password
+	devVars["OPS_APIHOST"] = "http://miniops.me"
+
+	// Global env defaults
+	for k, v := range cfg.Env {
+		devVars[k] = v
+	}
+	// Per-app development overrides
+	for k, v := range appCfg.Development {
+		devVars[k] = v
+	}
+
+	// Build production env
+	prodVars := make(map[string]string)
+	for k, v := range appCfg.Production {
+		prodVars[k] = v
+	}
+
+	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST"}
+
+	envPath := filepath.Join(workbenchPath, ".env")
+	if err := writeEnvFile(envPath, devVars, order); err != nil {
+		return fmt.Errorf("failed to write .env: %w", err)
+	}
+
+	if len(prodVars) > 0 {
+		prodPath := filepath.Join(workbenchPath, ".env.production")
+		if err := writeEnvFile(prodPath, prodVars, order); err != nil {
+			return fmt.Errorf("failed to write .env.production: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// regenerateAllAppEnvFiles regenerates .env files for all apps that have a workbench
+func regenerateAllAppEnvFiles() {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		log.Printf("Warning: failed to load config for env regeneration: %s", err)
+		return
+	}
+	for appName := range cfg.Apps {
+		workbenchPath := filepath.Join(WorkbenchDir, appName)
+		if _, err := os.Stat(workbenchPath); err == nil {
+			if err := generateAppEnvFiles(appName); err != nil {
+				log.Printf("Warning: failed to regenerate .env for %s: %s", appName, err)
+			}
+		}
+	}
+}
+
 // handleAppConfig handles GET and POST /api/appconfig/<name>
 func handleAppConfig(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -477,51 +682,57 @@ func handleAppConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspacePath string) {
-	envPath := filepath.Join(workspacePath, ".env")
-	prodPath := filepath.Join(workspacePath, ".env.production")
-
-	devVars := parseEnvFile(envPath)
-	prodVars := parseEnvFile(prodPath)
-
-	// Load env keys from trustable.json
-	var envKeys []string
 	cfg, err := loadTrustableConfig()
-	if err == nil && cfg.Env != nil {
+	if err != nil {
+		http.Error(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	appCfg := cfg.Apps[name]
+	if appCfg == nil {
+		appCfg = &AppConfig{
+			Development: make(map[string]string),
+			Production:  make(map[string]string),
+		}
+	}
+	if appCfg.Development == nil {
+		appCfg.Development = make(map[string]string)
+	}
+	if appCfg.Production == nil {
+		appCfg.Production = make(map[string]string)
+	}
+
+	// Collect global env keys
+	var envKeys []string
+	if cfg.Env != nil {
 		for k := range cfg.Env {
 			envKeys = append(envKeys, k)
 		}
 	}
 
-	// Build the response
 	fixedKeys := []string{"OPS_APIHOST", "OPS_USER", "OPS_PASSWORD"}
 	var vars []EnvVar
 
-	// Fixed rows (readonly name and dev value)
-	for _, k := range fixedKeys {
-		vars = append(vars, EnvVar{
-			Name:      k,
-			DevValue:  devVars[k],
-			ProdValue: prodVars[k],
-			Readonly:  true,
-		})
-	}
+	// Fixed rows (readonly)
+	vars = append(vars, EnvVar{Name: "OPS_USER", DevValue: name, ProdValue: appCfg.Production["OPS_USER"], Readonly: true})
+	vars = append(vars, EnvVar{Name: "OPS_PASSWORD", DevValue: appCfg.Password, ProdValue: appCfg.Production["OPS_PASSWORD"], Readonly: true})
+	vars = append(vars, EnvVar{Name: "OPS_APIHOST", DevValue: "http://miniops.me", ProdValue: appCfg.Production["OPS_APIHOST"], Readonly: true})
 
-	// Env rows from trustable.json (value editable, can't add/remove)
-	// Default values from trustable.json go to Development, not Production
+	// Env rows from global config (fixed name, editable values)
 	for _, k := range envKeys {
-		devVal := devVars[k]
+		devVal := appCfg.Development[k]
 		if devVal == "" {
 			devVal = cfg.Env[k]
 		}
 		vars = append(vars, EnvVar{
 			Name:      k,
 			DevValue:  devVal,
-			ProdValue: prodVars[k],
+			ProdValue: appCfg.Production[k],
 			Fixed:     true,
 		})
 	}
 
-	// Collect remaining keys (custom vars)
+	// Custom vars (in development or production but not in fixed or env keys)
 	seen := make(map[string]bool)
 	for _, k := range fixedKeys {
 		seen[k] = true
@@ -530,24 +741,22 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		seen[k] = true
 	}
 
-	// Add remaining dev vars
-	for k := range devVars {
+	for k := range appCfg.Development {
 		if !seen[k] {
 			vars = append(vars, EnvVar{
 				Name:      k,
-				DevValue:  devVars[k],
-				ProdValue: prodVars[k],
+				DevValue:  appCfg.Development[k],
+				ProdValue: appCfg.Production[k],
 			})
 			seen[k] = true
 		}
 	}
-	// Add remaining prod-only vars
-	for k := range prodVars {
+	for k := range appCfg.Production {
 		if !seen[k] {
 			vars = append(vars, EnvVar{
 				Name:      k,
-				DevValue:  devVars[k],
-				ProdValue: prodVars[k],
+				DevValue:  appCfg.Development[k],
+				ProdValue: appCfg.Production[k],
 			})
 		}
 	}
@@ -568,15 +777,25 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 		return
 	}
 
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		http.Error(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if wsCfg.Apps == nil {
+		wsCfg.Apps = make(map[string]*AppConfig)
+	}
+	if wsCfg.Apps[name] == nil {
+		wsCfg.Apps[name] = &AppConfig{}
+	}
+
 	devVars := make(map[string]string)
 	prodVars := make(map[string]string)
-	var order []string
-
 	for _, v := range req.Vars {
 		if v.Name == "" {
 			continue
 		}
-		order = append(order, v.Name)
 		if v.DevValue != "" {
 			devVars[v.Name] = v.DevValue
 		}
@@ -585,19 +804,17 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 		}
 	}
 
-	envPath := filepath.Join(workspacePath, ".env")
-	prodPath := filepath.Join(workspacePath, ".env.production")
+	wsCfg.Apps[name].Development = devVars
+	wsCfg.Apps[name].Production = prodVars
 
-	if err := writeEnvFile(envPath, devVars, order); err != nil {
-		http.Error(w, "Failed to write .env: "+err.Error(), http.StatusInternalServerError)
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		http.Error(w, "Failed to save: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if len(prodVars) > 0 {
-		if err := writeEnvFile(prodPath, prodVars, order); err != nil {
-			http.Error(w, "Failed to write .env.production: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Regenerate .env files from config
+	if err := generateAppEnvFiles(name); err != nil {
+		log.Printf("Warning: failed to regenerate .env for %s: %s", name, err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

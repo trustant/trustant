@@ -1,7 +1,13 @@
 image/trustable-*
 image/trustable.json
 image/opencode.md
-workspace/
+workspace
+workbench
 tmp/
 .env
 .key
+trustable-app
+.DS_Store
+.vscode/
+appo/
+out.json

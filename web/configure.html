@@ -111,9 +111,12 @@
             <h3 class="text-lg font-semibold mb-2">Configuring</h3>
             <p class="text-sm text-gray-500 mb-3">Pulling models and generating configuration...</p>
             <div id="progressMessages" class="text-left text-sm font-mono bg-gray-50 rounded p-3 max-h-48 overflow-y-auto mb-4"></div>
-            <div id="progressDone" class="hidden">
+            <div id="progressDone" class="hidden flex gap-3 justify-center">
+                <button id="progressRetryBtn" onclick="retryConfigure()" class="hidden px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Retry
+                </button>
                 <button onclick="hideProgressModal()"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="px-6 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
                     Continue
                 </button>
             </div>
@@ -203,10 +206,13 @@
         function buildConfig() {
             return {
                 ollama: config.ollama || {},
+                testmodel: config.testmodel || '',
                 opencode: {
                     default: document.getElementById('opencodeDefault').value.trim(),
                     small: document.getElementById('opencodeSmall').value.trim()
-                }
+                },
+                env: config.env || {},
+                apps: config.apps || {}
             };
         }
 
@@ -249,8 +255,17 @@
             }
 
             // Then run configure with streaming
+            await streamConfigure();
+        }
+
+        async function retryConfigure() {
             showProgressModal();
+            await streamConfigure();
+        }
+
+        async function streamConfigure() {
             const msgEl = document.getElementById('progressMessages');
+            let hasError = false;
             try {
                 const resp = await fetch('/api/configure');
                 const reader = resp.body.getReader();
@@ -267,6 +282,7 @@
                             const div = document.createElement('div');
                             if (line.startsWith('ERROR:')) {
                                 div.className = 'text-red-600';
+                                hasError = true;
                             } else if (line.startsWith('OK:')) {
                                 div.className = 'text-green-600';
                             } else {
@@ -283,14 +299,22 @@
                     div.textContent = buffer;
                     msgEl.appendChild(div);
                 }
-                document.cookie = 'CONFIGURED=1;path=/;max-age=31536000';
+                if (!hasError) {
+                    document.cookie = 'CONFIGURED=1;path=/;max-age=31536000';
+                }
             } catch (e) {
                 const div = document.createElement('div');
                 div.className = 'text-red-600';
                 div.textContent = 'Error: ' + e.message;
                 msgEl.appendChild(div);
+                hasError = true;
             }
             document.getElementById('progressSpinner').classList.add('hidden');
+            if (hasError) {
+                document.getElementById('progressRetryBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('progressRetryBtn').classList.add('hidden');
+            }
             document.getElementById('progressDone').classList.remove('hidden');
         }
 

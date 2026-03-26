@@ -28,7 +28,7 @@
             </div>
             <button id="saveBtn" onclick="showSaveModal()" disabled
                 class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
-                Save
+                Commit
             </button>
             <button onclick="triggerUpload()"
                 class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
@@ -58,8 +58,8 @@
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             </div>
-            <h3 id="saveTitle" class="text-lg font-semibold mb-2">Save Changes</h3>
-            <p id="saveMessage" class="text-gray-600 mb-4">Save all changes to workspace?</p>
+            <h3 id="saveTitle" class="text-lg font-semibold mb-2">Commit Changes</h3>
+            <p id="saveMessage" class="text-gray-600 mb-4">Commit all changes to workspace?</p>
             <div id="saveConfirmButtons" class="flex gap-3">
                 <button onclick="hideSaveModal()"
                     class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
@@ -67,7 +67,7 @@
                 </button>
                 <button onclick="confirmSave()"
                     class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                    Save
+                    Commit
                 </button>
             </div>
             <div id="saveResult" class="hidden">
@@ -83,8 +83,8 @@
     <!-- Unsaved Changes Warning Modal -->
     <div id="unsavedModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
-            <h3 class="text-lg font-semibold mb-2 text-yellow-600">Unsaved Changes</h3>
-            <p class="text-gray-600 mb-4">You have unsaved changes. If you go back, changes will be lost.</p>
+            <h3 class="text-lg font-semibold mb-2 text-yellow-600">Uncommitted Changes</h3>
+            <p class="text-gray-600 mb-4">You have uncommitted changes. If you go back, changes will be lost.</p>
             <div class="flex gap-3">
                 <button onclick="hideUnsavedModal()"
                     class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
@@ -217,7 +217,7 @@
         // Save modal functions
         function showSaveModal() {
             document.getElementById('saveSpinner').classList.add('hidden');
-            document.getElementById('saveTitle').textContent = 'Save Changes';
+            document.getElementById('saveTitle').textContent = 'Commit Changes';
             document.getElementById('saveMessage').classList.remove('hidden');
             document.getElementById('saveConfirmButtons').classList.remove('hidden');
             document.getElementById('saveResult').classList.add('hidden');
@@ -249,7 +249,7 @@
                     document.getElementById('saveResultText').textContent = data.error;
                     document.getElementById('saveResultText').className = 'mb-4 text-red-600';
                 } else {
-                    document.getElementById('saveResultText').textContent = data.message || 'Saved successfully';
+                    document.getElementById('saveResultText').textContent = data.message || 'Committed successfully';
                     document.getElementById('saveResultText').className = 'mb-4 text-green-600';
                     refreshGitStatus();
                 }
@@ -452,7 +452,7 @@
                     return;
                 }
                 if (data.version) {
-                    document.getElementById('appName').textContent = data.version;
+                    document.getElementById('appName').textContent = (appName || 'App') + ' - ' + data.version;
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);

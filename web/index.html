@@ -26,9 +26,12 @@
             <h3 class="text-lg font-semibold mb-2">Configuring</h3>
             <p class="text-sm text-gray-500 mb-3">Pulling models and generating configuration...</p>
             <div id="configMessages" class="text-left text-sm font-mono bg-gray-50 rounded p-3 max-h-48 overflow-y-auto mb-4"></div>
-            <div id="configDone" class="hidden">
+            <div id="configDone" class="hidden flex gap-3 justify-center">
+                <button id="configRetryBtn" onclick="runConfiguration()" class="hidden px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Retry
+                </button>
                 <button onclick="hideConfigModal()"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="px-6 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
                     Continue
                 </button>
             </div>
@@ -166,6 +169,12 @@
                 configError = true;
             }
             document.getElementById('configSpinner').classList.add('hidden');
+
+            if (configError) {
+                document.getElementById('configRetryBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('configRetryBtn').classList.add('hidden');
+            }
 
             if (!configError) {
                 // Test OpenAI API connection

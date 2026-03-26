@@ -123,11 +123,16 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 		}
 
 		name := entry.Name()
-		gitConfigPath := filepath.Join(WorkspaceDir, "workspace", name, ".git", "config")
+		// Bare repos have config directly in the repo dir
+		gitConfigPath := filepath.Join(WorkspaceDir, "workspace", name, "config")
 
-		// Check if .git exists
+		// Check if this is a bare git repo
 		if _, err := os.Stat(gitConfigPath); os.IsNotExist(err) {
-			continue
+			// Also check for non-bare repos (.git/config) for backward compatibility
+			gitConfigPath = filepath.Join(WorkspaceDir, "workspace", name, ".git", "config")
+			if _, err := os.Stat(gitConfigPath); os.IsNotExist(err) {
+				continue
+			}
 		}
 
 		// Read git config to get remote origin
@@ -142,17 +147,11 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Check for .env.production and read OPS_APIHOST
+		// Read apihost from workspace config
 		var apihost string
-		envFilePath := filepath.Join(WorkspaceDir, "workspace", name, ".env.production")
-		if envData, err := os.ReadFile(envFilePath); err == nil {
-			for _, line := range strings.Split(string(envData), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "OPS_APIHOST=") {
-					apihost = strings.TrimPrefix(line, "OPS_APIHOST=")
-					break
-				}
-			}
+		cfg, cfgErr := loadTrustableConfig()
+		if cfgErr == nil && cfg.Apps != nil && cfg.Apps[name] != nil {
+			apihost = cfg.Apps[name].Production["OPS_APIHOST"]
 		}
 
 		apps = append(apps, Application{
@@ -273,13 +272,13 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clone the repo: try SSH first, fall back to HTTPS if SSH fails
+	// Clone the repo as bare: try SSH first, fall back to HTTPS if SSH fails
 	sshKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable")
 	cloned := false
 	if _, err := os.Stat(sshKeyPath); err == nil {
 		repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
 		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-		cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
+		cloneCmd := exec.Command("git", "clone", "--bare", repoURL, workspacePath)
 		cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
 		if output, err := cloneCmd.CombinedOutput(); err != nil {
 			log.Printf("SSH clone failed, falling back to HTTPS: %s, output: %s", err, string(output))
@@ -290,7 +289,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	if !cloned {
 		repoURL := fmt.Sprintf("https://github.com/%s", req.Repo)
-		cloneCmd := exec.Command("git", "clone", repoURL, workspacePath)
+		cloneCmd := exec.Command("git", "clone", "--bare", repoURL, workspacePath)
 		if output, err := cloneCmd.CombinedOutput(); err != nil {
 			deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
 			deleteUserCmd.Run()
@@ -300,39 +299,21 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remove .env and .env.production from git tracking and add to .gitignore
-	envFiles := []string{".env", ".env.production"}
-	var gitignoreEntries []string
-	for _, f := range envFiles {
-		fPath := filepath.Join(workspacePath, f)
-		if _, err := os.Stat(fPath); err == nil {
-			rmCmd := exec.Command("git", "rm", "-f", f)
-			rmCmd.Dir = workspacePath
-			if output, err := rmCmd.CombinedOutput(); err != nil {
-				log.Printf("Warning: git rm --cached %s: %s (%s)", f, err, string(output))
-			} else {
-				gitignoreEntries = append(gitignoreEntries, f)
-			}
-		}
+	// Store the password and initial config in workspace trustable.json
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		wsCfg = &trustableConfig{}
 	}
-	if len(gitignoreEntries) > 0 {
-		gitignorePath := filepath.Join(workspacePath, ".gitignore")
-		existing, _ := os.ReadFile(gitignorePath)
-		content := string(existing)
-		for _, entry := range gitignoreEntries {
-			if !strings.Contains(content, entry) {
-				content += entry + "\n"
-			}
-		}
-		if err := os.WriteFile(gitignorePath, []byte(content), 0644); err != nil {
-			log.Printf("Warning: failed to update .gitignore: %s", err)
-		}
+	if wsCfg.Apps == nil {
+		wsCfg.Apps = make(map[string]*AppConfig)
 	}
-
-	// Store the password so it can be read at launch time when setting up the workbench
-	passwordPath := filepath.Join(workspacePath, ".password")
-	if err := os.WriteFile(passwordPath, []byte(localPassword), 0600); err != nil {
-		log.Printf("Warning: failed to store password: %s", err)
+	wsCfg.Apps[req.Name] = &AppConfig{
+		Password:    localPassword,
+		Development: make(map[string]string),
+		Production:  make(map[string]string),
+	}
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		log.Printf("Warning: failed to save password to config: %s", err)
 	}
 
 	// Return the created application with optional warning
@@ -398,6 +379,15 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 	workbenchPath := filepath.Join(WorkbenchDir, req.Name)
 	if err := os.RemoveAll(workbenchPath); err != nil {
 		log.Printf("Warning: failed to remove workbench folder: %s", err)
+	}
+
+	// Remove app entry from workspace config
+	wsCfg, err := loadWorkspaceConfig()
+	if err == nil && wsCfg.Apps != nil {
+		delete(wsCfg.Apps, req.Name)
+		if err := saveWorkspaceConfig(wsCfg); err != nil {
+			log.Printf("Warning: failed to update config after delete: %s", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

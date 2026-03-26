@@ -377,12 +377,12 @@
 
                 return `
                 <div class="p-3 bg-gray-50 rounded-md">
+                    <div class="mb-2">
+                        <h3 class="font-medium">${escapeHtml(app.name)}</h3>
+                        <p class="text-sm text-gray-500">${escapeHtml(app.repo)}</p>
+                    </div>
                     <div class="flex items-center justify-between mb-2">
-                        <div class="flex-1 min-w-0 mr-3">
-                            <h3 class="font-medium truncate">${escapeHtml(app.name)}</h3>
-                            <p class="text-sm text-gray-500 truncate">${escapeHtml(app.repo)}</p>
-                        </div>
-                        <div class="flex gap-2 flex-shrink-0">
+                        <div class="flex gap-2 flex-wrap">
                             <button onclick="launchApp('${escapeAttr(app.name)}')"
                                 class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors">
                                 Edit
