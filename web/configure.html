@@ -57,15 +57,28 @@
             </div>
         </div>
 
+        <!-- Git User -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Git User</h2>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">User Name</label>
+                    <input type="text" id="gitUser"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="text" id="gitEmail"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+            </div>
+        </div>
+
         <!-- Actions -->
         <div class="flex gap-3">
             <button onclick="saveAndConfigure()"
                 class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
                 Save &amp; Configure
-            </button>
-            <button onclick="saveConfig()"
-                class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                Save Only
             </button>
         </div>
     </div>
@@ -99,30 +112,6 @@
         </div>
     </div>
 
-    <!-- Progress Modal -->
-    <div id="progressModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
-            <div id="progressSpinner" class="mb-4">
-                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-            </div>
-            <h3 class="text-lg font-semibold mb-2">Configuring</h3>
-            <p class="text-sm text-gray-500 mb-3">Pulling models and generating configuration...</p>
-            <div id="progressMessages" class="text-left text-sm font-mono bg-gray-50 rounded p-3 max-h-48 overflow-y-auto mb-4"></div>
-            <div id="progressDone" class="hidden flex gap-3 justify-center">
-                <button id="progressRetryBtn" onclick="retryConfigure()" class="hidden px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                    Retry
-                </button>
-                <button onclick="hideProgressModal()"
-                    class="px-6 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
-                    Continue
-                </button>
-            </div>
-        </div>
-    </div>
-
     <script>
         let config = { ollama: {}, opencode: { default: '', small: '' } };
 
@@ -133,6 +122,8 @@
                 renderModels();
                 document.getElementById('opencodeDefault').value = config.opencode?.default || '';
                 document.getElementById('opencodeSmall').value = config.opencode?.small || '';
+                document.getElementById('gitUser').value = config.git?.user || '';
+                document.getElementById('gitEmail').value = config.git?.email || '';
             } catch (e) {
                 console.error('Failed to load config:', e);
             }
@@ -211,28 +202,13 @@
                     default: document.getElementById('opencodeDefault').value.trim(),
                     small: document.getElementById('opencodeSmall').value.trim()
                 },
+                git: {
+                    user: document.getElementById('gitUser').value.trim(),
+                    email: document.getElementById('gitEmail').value.trim()
+                },
                 env: config.env || {},
                 apps: config.apps || {}
             };
-        }
-
-        async function saveConfig() {
-            const cfg = buildConfig();
-            try {
-                const resp = await fetch('/api/configuration', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(cfg)
-                });
-                if (resp.ok) {
-                    alert('Configuration saved');
-                } else {
-                    const text = await resp.text();
-                    alert('Failed to save: ' + text);
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
         }
 
         async function saveAndConfigure() {
@@ -254,100 +230,19 @@
                 return;
             }
 
-            // Then run configure with streaming
-            await streamConfigure();
-        }
-
-        async function retryConfigure() {
-            showProgressModal();
-            await streamConfigure();
-        }
-
-        async function streamConfigure() {
-            const msgEl = document.getElementById('progressMessages');
-            let hasError = false;
-            try {
-                const resp = await fetch('/api/configure');
-                const reader = resp.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
-                    for (const line of lines) {
-                        if (line.trim()) {
-                            const div = document.createElement('div');
-                            if (line.startsWith('ERROR:')) {
-                                div.className = 'text-red-600';
-                                hasError = true;
-                            } else if (line.startsWith('OK:')) {
-                                div.className = 'text-green-600';
-                            } else {
-                                div.className = 'text-gray-700';
-                            }
-                            div.textContent = line;
-                            msgEl.appendChild(div);
-                            msgEl.scrollTop = msgEl.scrollHeight;
-                        }
-                    }
-                }
-                if (buffer.trim()) {
-                    const div = document.createElement('div');
-                    div.textContent = buffer;
-                    msgEl.appendChild(div);
-                }
-                if (!hasError) {
-                    document.cookie = 'CONFIGURED=1;path=/;max-age=31536000';
-                }
-            } catch (e) {
-                const div = document.createElement('div');
-                div.className = 'text-red-600';
-                div.textContent = 'Error: ' + e.message;
-                msgEl.appendChild(div);
-                hasError = true;
-            }
-            document.getElementById('progressSpinner').classList.add('hidden');
-            if (hasError) {
-                document.getElementById('progressRetryBtn').classList.remove('hidden');
-            } else {
-                document.getElementById('progressRetryBtn').classList.add('hidden');
-            }
-            document.getElementById('progressDone').classList.remove('hidden');
-        }
-
-        function showProgressModal() {
-            document.getElementById('progressMessages').innerHTML = '';
-            document.getElementById('progressSpinner').classList.remove('hidden');
-            document.getElementById('progressDone').classList.add('hidden');
-            document.getElementById('progressModal').classList.remove('hidden');
-            document.getElementById('progressModal').classList.add('flex');
-        }
-
-        function hideProgressModal() {
-            document.getElementById('progressModal').classList.add('hidden');
-            document.getElementById('progressModal').classList.remove('flex');
+            // Redirect to index.html which runs the full configuration flow
+            window.location.href = 'index.html';
         }
 
         // Close modals on escape
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 hideAddModelModal();
-                if (!document.getElementById('progressDone').classList.contains('hidden')) {
-                    hideProgressModal();
-                }
             }
         });
 
         document.getElementById('addModelModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hideAddModelModal();
-        });
-        document.getElementById('progressModal').addEventListener('click', (e) => {
-            if (e.target === e.currentTarget && !document.getElementById('progressDone').classList.contains('hidden')) {
-                hideProgressModal();
-            }
         });
 
         // Check version

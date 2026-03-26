@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -29,11 +30,18 @@ type AppConfig struct {
 	Production  map[string]string `json:"production"`
 }
 
+// GitConfig holds git user configuration
+type GitConfig struct {
+	User  string `json:"user"`
+	Email string `json:"email"`
+}
+
 // trustableConfig represents the structure of trustable.json
 type trustableConfig struct {
 	Ollama    map[string]string    `json:"ollama,omitempty"`
 	TestModel string               `json:"testmodel,omitempty"`
 	Opencode  *opencodeConfig      `json:"opencode,omitempty"`
+	Git       *GitConfig           `json:"git,omitempty"`
 	Env       map[string]string    `json:"env,omitempty"`
 	Apps      map[string]*AppConfig `json:"apps,omitempty"`
 	Current   string               `json:"current,omitempty"`
@@ -92,6 +100,10 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 
 	if override.Opencode != nil {
 		result.Opencode = override.Opencode
+	}
+
+	if override.Git != nil {
+		result.Git = override.Git
 	}
 
 	if len(override.Env) > 0 {
@@ -274,7 +286,25 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 3: Pull each model
+	// Step 3: Configure git user
+	if cfg.Git != nil {
+		if cfg.Git.User != "" {
+			if err := exec.Command("git", "config", "--global", "user.name", cfg.Git.User).Run(); err != nil {
+				sendMsg("ERROR: failed to set git user.name: " + err.Error())
+			} else {
+				sendMsg("OK: git user.name set to " + cfg.Git.User)
+			}
+		}
+		if cfg.Git.Email != "" {
+			if err := exec.Command("git", "config", "--global", "user.email", cfg.Git.Email).Run(); err != nil {
+				sendMsg("ERROR: failed to set git user.email: " + err.Error())
+			} else {
+				sendMsg("OK: git user.email set to " + cfg.Git.Email)
+			}
+		}
+	}
+
+	// Step 4: Pull each model
 	client := &http.Client{Timeout: 600 * time.Second}
 	for modelName := range cfg.Ollama {
 		sendMsg("Pulling model " + modelName)
