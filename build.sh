@@ -3,6 +3,7 @@
 ops trustable trustable undeploy
 git tag -d $(git tag)
 
+#TAG=$(git tag)
 TAG=$(date +%y.%j.%H%S)
 IMAGE=ghcr.io/trustable-ai/trustable-app
 echo -e "Version: v$TAG-beta1\nExpiry: 2026/06/30\n" >version.txt
