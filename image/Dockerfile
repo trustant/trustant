@@ -41,8 +41,9 @@ RUN \
 RUN mkdir /home/node/data
 
 USER root
-COPY trustable-$TARGETARCH /usr/local/bin/trustable
 COPY start.sh /usr/local/bin/start.sh
 ADD supervisord.ini /etc/supervisord.ini
 CMD ["/usr/local/bin/start.sh"]
 ENTRYPOINT ["tini", "--"]
+COPY trustable-$TARGETARCH /usr/local/bin/trustable
+
