@@ -35,7 +35,7 @@ RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
 
-RUN mkdir /home/node/data
+RUN mkdir /home/node/workspace
 
 USER root
 CMD ["/usr/local/bin/start.sh"]

@@ -21,7 +21,7 @@ env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
 cp -v trustable.json image/trustable.json
 cp -v opencode.md image/opencode.md
 
-docker buildx build image -t "$IMAGE:$TAG" --load
+image/images.sh "$TAG"
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
 ops trustable trustable deploy
 cd olaris-trustable
