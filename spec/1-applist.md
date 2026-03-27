@@ -46,9 +46,13 @@ If the SSH key is available (GET /api/sshkey returns 200), show a message:
 
 "To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account." and a button "Show key".
 
-If you click the button, a popup showing the `~/.ssh/id_ed25519.pub` content (fetched from /api/sshkey) will be shown, with a button to copy on clipboard and a button to close the popup.
+If you click the button, a popup showing the `~/.ssh/id_ed25519.pub` content (fetched from /api/sshkey) will be shown, with a message "A local copy of the private key is in ~/.ssh/id_trustable", a button to copy on clipboard and a button to close the popup.
 
 If the SSH key is not available, do not show this message.
+
+## SSH Key link
+
+If the SSH key is available, show an "SSH Key" link below the applications list. Clicking it opens the same SSH key popup described above.
 
 If you cancel, go back
 
