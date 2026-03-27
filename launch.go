@@ -223,6 +223,16 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
 		}
+
+		// Run npm install if package.json exists (always, to keep deps in sync)
+		if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err == nil {
+			log.Printf("Running npm install in workbench/%s...", app)
+			npmCmd := exec.Command("npm", "install")
+			npmCmd.Dir = workbenchPath
+			if output, err := npmCmd.CombinedOutput(); err != nil {
+				log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
+			}
+		}
 	}
 
 	// Ensure the OpenWhisk user exists and password is in sync

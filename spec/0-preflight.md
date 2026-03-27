@@ -28,9 +28,9 @@ OllamaEndpoint
 
 - use lsof -i and check for processes occupying in port 8910 4096 and 5173 and kill them
 
-# generate an ssh key
+# check ssh key
 
-if not found, generate an ssh key in format ED25519 in <WorkspaceDir>/.ssh/id_trustable and its public key <WorkspaceDir>/.ssh/id_trustable.pub
+Check if `~/.ssh/id_ed25519` exists. If found, set `sshKeyAvailable` to true. If not found, log a warning that the SSH key is missing and set `sshKeyAvailable` to false. Do not generate any keys.
 
 # web server
 

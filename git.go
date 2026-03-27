@@ -191,17 +191,17 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check workspace folder exists
-	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
-	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		http.Error(w, "Workspace not found", http.StatusNotFound)
+	// Run git commands in the workbench directory (working tree)
+	workbenchPath := filepath.Join(WorkbenchDir, req.Name)
+	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
+		http.Error(w, "Workbench not found", http.StatusNotFound)
 		return
 	}
 
 	// Execute git command
 	args := strings.Fields(req.Cmd)
 	cmd := exec.Command("git", args...)
-	cmd.Dir = workspacePath
+	cmd.Dir = workbenchPath
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -212,6 +212,17 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 			"output": string(output),
 		})
 		return
+	}
+
+	// After checkout, also remove untracked files
+	if req.Cmd == "checkout ." {
+		cleanCmd := exec.Command("git", "clean", "-fd")
+		cleanCmd.Dir = workbenchPath
+		if cleanOutput, cleanErr := cleanCmd.CombinedOutput(); cleanErr != nil {
+			log.Printf("Warning: git clean failed: %s, output: %s", cleanErr, string(cleanOutput))
+		} else {
+			output = append(output, cleanOutput...)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

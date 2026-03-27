@@ -111,12 +111,14 @@ func runPreflight() error {
 		log.Printf("Warning: config migration failed: %v", err)
 	}
 
-	// Step 3: Ensure SSH key exists
+	// Step 3: Check SSH key
 	log.Println("[3/3] Checking SSH key...")
-	if err := ensureSSHKey(); err != nil {
-		return fmt.Errorf("SSH key generation failed: %w", err)
+	checkSSHKey()
+	if sshKeyAvailable {
+		log.Println("✓ SSH key ready")
+	} else {
+		log.Println("⚠ SSH key missing - private repo access unavailable")
 	}
-	log.Println("✓ SSH key ready")
 
 	log.Println("========================================")
 	log.Println("✓ All preflight checks passed")
@@ -284,30 +286,25 @@ func killProcessOnPort(port string) error {
 	return nil
 }
 
-// ensureSSHKey generates an ED25519 SSH key at WorkspaceDir/.ssh/id_trustable if it doesn't already exist
-func ensureSSHKey() error {
-	sshDir := filepath.Join(WorkspaceDir, ".ssh")
-	keyPath := filepath.Join(sshDir, "id_trustable")
+// sshKeyAvailable indicates whether the SSH key was found during preflight
+var sshKeyAvailable bool
 
-	// Check if key already exists
+// checkSSHKey checks if ~/.ssh/id_ed25519 exists and sets sshKeyAvailable accordingly
+func checkSSHKey() {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("  - Warning: cannot determine home directory: %v", err)
+		sshKeyAvailable = false
+		return
+	}
+	keyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
 	if _, err := os.Stat(keyPath); err == nil {
-		log.Printf("  - SSH key already exists at %s", keyPath)
-		return nil
+		log.Printf("  - SSH key found at %s", keyPath)
+		sshKeyAvailable = true
+	} else {
+		log.Printf("  - Warning: SSH key not found at %s - SSH key notice will be hidden", keyPath)
+		sshKeyAvailable = false
 	}
-
-	// Ensure .ssh directory exists
-	if err := os.MkdirAll(sshDir, 0700); err != nil {
-		return fmt.Errorf("failed to create .ssh directory: %w", err)
-	}
-
-	log.Printf("  - Generating ED25519 SSH key at %s...", keyPath)
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-f", keyPath, "-N", "", "-C", "trustable")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ssh-keygen failed: %w\n%s", err, string(output))
-	}
-
-	log.Printf("  - ✓ SSH key generated: %s and %s.pub", keyPath, keyPath)
-	return nil
 }
 
 // handleSSHKey serves the SSH public key via GET /api/sshkey
@@ -317,7 +314,18 @@ func handleSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pubKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable.pub")
+	if !sshKeyAvailable {
+		http.Error(w, "SSH public key not found", http.StatusNotFound)
+		return
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "SSH public key not found", http.StatusNotFound)
+		return
+	}
+
+	pubKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519.pub")
 	data, err := os.ReadFile(pubKeyPath)
 	if err != nil {
 		http.Error(w, "SSH public key not found", http.StatusNotFound)

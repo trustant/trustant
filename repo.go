@@ -76,6 +76,8 @@ type Application struct {
 	Name    string `json:"name"`
 	Repo    string `json:"repo"`
 	ApiHost string `json:"apihost,omitempty"`
+	OpsUser string `json:"opsuser,omitempty"`
+	OpsRepo string `json:"opsrepo,omitempty"`
 }
 
 // Validation patterns
@@ -147,17 +149,21 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Read apihost from workspace config
-		var apihost string
+		// Read production config from workspace config
+		var apihost, opsuser, opsrepo string
 		cfg, cfgErr := loadTrustableConfig()
 		if cfgErr == nil && cfg.Apps != nil && cfg.Apps[name] != nil {
 			apihost = cfg.Apps[name].Production["OPS_APIHOST"]
+			opsuser = cfg.Apps[name].Production["OPS_USER"]
+			opsrepo = cfg.Apps[name].Production["OPS_REPO"]
 		}
 
 		apps = append(apps, Application{
 			Name:    name,
 			Repo:    repo,
 			ApiHost: apihost,
+			OpsUser: opsuser,
+			OpsRepo: opsrepo,
 		})
 	}
 
@@ -189,6 +195,21 @@ func parseGitRemoteOrigin(configContent string) string {
 		}
 	}
 	return ""
+}
+
+// getAppRepo returns the repo (org/name) for a given app by reading its git remote origin
+func getAppRepo(name string) string {
+	// Try bare repo config first
+	gitConfigPath := filepath.Join(WorkspaceDir, "workspace", name, "config")
+	if _, err := os.Stat(gitConfigPath); os.IsNotExist(err) {
+		// Try non-bare repo
+		gitConfigPath = filepath.Join(WorkspaceDir, "workspace", name, ".git", "config")
+	}
+	data, err := os.ReadFile(gitConfigPath)
+	if err != nil {
+		return ""
+	}
+	return parseGitRemoteOrigin(string(data))
 }
 
 func extractRepoFromURL(url string) string {
@@ -273,7 +294,8 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clone the repo as bare: try SSH first, fall back to HTTPS if SSH fails
-	sshKeyPath := filepath.Join(WorkspaceDir, ".ssh", "id_trustable")
+	homeDir, _ := os.UserHomeDir()
+	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
 	cloned := false
 	if _, err := os.Stat(sshKeyPath); err == nil {
 		repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)

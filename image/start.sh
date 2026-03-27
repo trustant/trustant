@@ -12,14 +12,21 @@ mkdir -p /run/sshd
 ssh-keygen -A
 
 # add ssh key
-if test -n "$SSHKEY"
+if test -n "$ID_ED25519"
 then
     mkdir -p $HOME/.ssh
     touch $HOME/.ssh/authorized_keys
-    if ! grep "$SSHKEY" $HOME/.ssh/authorized_keys >/dev/null
-    then echo "$SSHKEY" >>$HOME/.ssh/authorized_keys
+    if ! test -e $HOME/.ssh/id_ed25519
+    then echo "$ID_ED25519" > $HOME/.ssh/id_ed25519
+    else echo "id_ed25519 already exists"
     fi
-    chmod 600 $HOME/.ssh/authorized_keys
+    if ! test -e $HOME/.ssh/id_ed25519.pub
+    then ssh-keygen -y -f $HOME/.ssh/id_ed25519 > $HOME/.ssh/id_ed25519.pub
+    fi
+    if ! grep -F "$(cat $HOME/.ssh/id_ed25519.pub)" $HOME/.ssh/authorized_keys >/dev/null
+    then cat "$HOME/.ssh/id_ed25519.pub" >>$HOME/.ssh/authorized_keys
+    fi
+    chmod 600 $HOME/.ssh/authorized_keys $HOME/.ssh/id_ed25519  $HOME/.ssh/id_ed25519.pub
     chmod 700 $HOME/.ssh
 fi
 

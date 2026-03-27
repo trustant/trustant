@@ -30,6 +30,10 @@
                 class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
                 Commit
             </button>
+            <button id="revertBtn" onclick="showRevertModal()" disabled
+                class="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
+                Revert
+            </button>
             <button onclick="triggerUpload()"
                 class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
                 Upload
@@ -139,6 +143,37 @@
         </div>
     </div>
 
+    <!-- Revert Confirmation Modal -->
+    <div id="revertModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="revertSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-orange-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </div>
+            <h3 id="revertTitle" class="text-lg font-semibold mb-2">Revert Changes</h3>
+            <p id="revertMessage" class="text-gray-600 mb-4">Are you sure you want to revert all uncommitted changes?</p>
+            <div id="revertConfirmButtons" class="flex gap-3">
+                <button onclick="hideRevertModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmRevert()"
+                    class="flex-1 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors">
+                    Revert
+                </button>
+            </div>
+            <div id="revertResult" class="hidden">
+                <p id="revertResultText" class="mb-4"></p>
+                <button onclick="hideRevertModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Read cookies
         function getCookie(name) {
@@ -191,11 +226,13 @@
                 const dot = document.getElementById('gitDot');
                 const text = document.getElementById('gitText');
                 const saveBtn = document.getElementById('saveBtn');
+                const revertBtn = document.getElementById('revertBtn');
 
                 if (data.clean) {
                     dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500 inline-block';
                     text.textContent = 'No changes';
                     saveBtn.disabled = true;
+                    revertBtn.disabled = true;
                 } else {
                     dot.className = 'w-2.5 h-2.5 rounded-full bg-orange-500 inline-block';
                     const parts = [];
@@ -204,6 +241,7 @@
                     if (data.deleted > 0) parts.push(data.deleted + ' deleted');
                     text.textContent = parts.join(', ');
                     saveBtn.disabled = false;
+                    revertBtn.disabled = false;
                 }
             } catch (e) {
                 console.error('Failed to fetch git status:', e);
@@ -259,6 +297,56 @@
                 document.getElementById('saveResultText').textContent = error.message;
                 document.getElementById('saveResultText').className = 'mb-4 text-red-600';
                 document.getElementById('saveResult').classList.remove('hidden');
+            }
+        }
+
+        // Revert modal functions
+        function showRevertModal() {
+            document.getElementById('revertSpinner').classList.add('hidden');
+            document.getElementById('revertMessage').classList.remove('hidden');
+            document.getElementById('revertConfirmButtons').classList.remove('hidden');
+            document.getElementById('revertResult').classList.add('hidden');
+            document.getElementById('revertModal').classList.remove('hidden');
+            document.getElementById('revertModal').classList.add('flex');
+        }
+
+        function hideRevertModal() {
+            document.getElementById('revertModal').classList.add('hidden');
+            document.getElementById('revertModal').classList.remove('flex');
+        }
+
+        async function confirmRevert() {
+            document.getElementById('revertSpinner').classList.remove('hidden');
+            document.getElementById('revertMessage').classList.add('hidden');
+            document.getElementById('revertConfirmButtons').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/git', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: appName,
+                        cmd: 'checkout .'
+                    })
+                });
+
+                const data = await response.json();
+                document.getElementById('revertSpinner').classList.add('hidden');
+
+                if (response.ok && !data.error) {
+                    document.getElementById('revertResultText').textContent = data.output || 'Revert completed successfully';
+                    document.getElementById('revertResultText').className = 'mb-4 text-green-600';
+                    refreshGitStatus();
+                } else {
+                    document.getElementById('revertResultText').textContent = data.error || data.output || 'Revert failed';
+                    document.getElementById('revertResultText').className = 'mb-4 text-red-600';
+                }
+                document.getElementById('revertResult').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('revertSpinner').classList.add('hidden');
+                document.getElementById('revertResultText').textContent = error.message;
+                document.getElementById('revertResultText').className = 'mb-4 text-red-600';
+                document.getElementById('revertResult').classList.remove('hidden');
             }
         }
 
@@ -378,6 +466,10 @@
                     !document.getElementById('uploadError').classList.contains('hidden')) {
                     hideUploadModal();
                 }
+                if (!document.getElementById('revertResult').classList.contains('hidden') ||
+                    !document.getElementById('revertConfirmButtons').classList.contains('hidden')) {
+                    hideRevertModal();
+                }
                 hideUnsavedModal();
             }
         });
@@ -397,6 +489,15 @@
                 if (!document.getElementById('uploadResult').classList.contains('hidden') ||
                     !document.getElementById('uploadError').classList.contains('hidden')) {
                     hideUploadModal();
+                }
+            }
+        });
+
+        document.getElementById('revertModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                if (!document.getElementById('revertResult').classList.contains('hidden') ||
+                    !document.getElementById('revertConfirmButtons').classList.contains('hidden')) {
+                    hideRevertModal();
                 }
             }
         });

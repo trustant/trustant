@@ -63,15 +63,13 @@
                         class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <p class="text-xs text-gray-500 mt-1">Format: org/repo</p>
                 </div>
-                <!-- Try suggestions -->
+                <!-- Starter suggestion -->
                 <div class="text-sm text-gray-600">
-                    Try:
-                    <a href="#" onclick="fillApp('trureact');return false" class="text-blue-600 hover:underline">trureact</a>,
-                    <a href="#" onclick="fillApp('truchat');return false" class="text-blue-600 hover:underline">truchat</a>,
-                    <a href="#" onclick="fillApp('truingest');return false" class="text-blue-600 hover:underline">truingest</a>
+                    Use our starter:
+                    <a href="#" onclick="fillApp('trureact');return false" class="text-blue-600 hover:underline">trureact</a>
                 </div>
-                <!-- SSH Key Notice -->
-                <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                <!-- SSH Key Notice (hidden if key not available) -->
+                <div id="sshKeyNotice" class="bg-yellow-50 border border-yellow-200 rounded-md p-3 hidden">
                     <p class="text-sm text-yellow-800">To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account.</p>
                     <button type="button" onclick="showSSHKeyModal()"
                         class="mt-2 px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
@@ -144,30 +142,103 @@
         </div>
     </div>
 
-    <!-- Reset Confirmation Modal -->
-    <div id="resetModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <!-- Git Push Modal -->
+    <div id="gitPushModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
-            <div id="resetSpinner" class="mb-4 hidden">
-                <svg class="animate-spin h-12 w-12 text-yellow-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <div id="gitPushSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-indigo-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
+                <p class="mt-2 text-gray-600">Pushing to production...</p>
             </div>
-            <h3 id="resetTitle" class="text-lg font-semibold mb-2">Reset Application</h3>
-            <p id="resetMessage" class="text-gray-600 mb-4">Are you sure you want to reset "<span id="resetAppName"></span>"?</p>
-            <div id="resetConfirmButtons" class="flex gap-3">
-                <button onclick="hideResetModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
-                    Cancel
-                </button>
-                <button onclick="confirmReset()"
-                    class="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors">
-                    Reset
+            <div id="gitPushForm">
+                <h3 class="text-lg font-semibold mb-4">Git Push to Production</h3>
+                <div class="text-left space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Production Repository (org/repo)</label>
+                        <input type="text" id="gitPushRepo"
+                            placeholder="org/repo"
+                            pattern="[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+"
+                            title="Format: org/repo"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div id="gitPushSshNotice" class="bg-yellow-50 border border-yellow-200 rounded-md p-3 hidden">
+                        <p class="text-sm text-yellow-800">The SSH public key must be added to this repository's deploy keys or your GitHub account.</p>
+                        <button type="button" onclick="showSSHKeyModal()"
+                            class="mt-2 px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
+                            Show Key
+                        </button>
+                    </div>
+                </div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="hideGitPushModal()"
+                        class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button onclick="confirmGitPush()"
+                        class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors">
+                        Push
+                    </button>
+                </div>
+            </div>
+            <div id="gitPushResult" class="hidden">
+                <p id="gitPushResultText" class="mb-4"></p>
+                <button onclick="hideGitPushModal()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
                 </button>
             </div>
-            <div id="resetResult" class="hidden">
-                <p id="resetResultText" class="mb-4"></p>
-                <button onclick="hideResetModal()"
+        </div>
+    </div>
+
+    <!-- Publish Remote Modal -->
+    <div id="publishModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="publishSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-teal-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-gray-600">Publishing to production...</p>
+            </div>
+            <div id="publishForm">
+                <h3 class="text-lg font-semibold mb-4">Publish to Production</h3>
+                <div class="text-left space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API Host</label>
+                        <input type="text" id="publishApiHost"
+                            placeholder="https://your-openserverless-host.com"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">User</label>
+                        <input type="text" id="publishUser"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input type="password" id="publishPassword"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-md p-3">
+                        <p class="text-sm text-blue-800">You need an OpenServerless environment for publishing. Contact <a href="mailto:info@nuvolaris.io" class="underline">info@nuvolaris.io</a> or check <a href="https://openserverless.apache.org" target="_blank" class="underline">openserverless.apache.org</a></p>
+                    </div>
+                </div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="hidePublishModal()"
+                        class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button onclick="confirmPublish()"
+                        class="flex-1 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors">
+                        Publish
+                    </button>
+                </div>
+            </div>
+            <div id="publishResult" class="hidden">
+                <p id="publishResultText" class="mb-4"></p>
+                <button onclick="hidePublishModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
                 </button>
@@ -219,6 +290,7 @@
 
     <script>
         let appToDelete = null;
+        let sshKeyAvailable = false;
 
         function fillApp(name) {
             document.getElementById('appName').value = name;
@@ -298,58 +370,171 @@
             loadApps();
         }
 
-        let appToReset = null;
+        // Git Push functions
+        let gitPushApp = null;
 
-        function showResetModal(name) {
-            appToReset = name;
-            document.getElementById('resetAppName').textContent = name;
-            document.getElementById('resetSpinner').classList.add('hidden');
-            document.getElementById('resetMessage').classList.remove('hidden');
-            document.getElementById('resetConfirmButtons').classList.remove('hidden');
-            document.getElementById('resetResult').classList.add('hidden');
-            document.getElementById('resetModal').classList.remove('hidden');
-            document.getElementById('resetModal').classList.add('flex');
-        }
-
-        function hideResetModal() {
-            document.getElementById('resetModal').classList.add('hidden');
-            document.getElementById('resetModal').classList.remove('flex');
-            appToReset = null;
-        }
-
-        async function confirmReset() {
-            if (!appToReset) return;
-
-            document.getElementById('resetSpinner').classList.remove('hidden');
-            document.getElementById('resetMessage').classList.add('hidden');
-            document.getElementById('resetConfirmButtons').classList.add('hidden');
-
+        async function handleGitPush(name) {
+            gitPushApp = name;
+            // Check if OPS_REPO is already configured
             try {
-                const response = await fetch('/api/git', {
+                const response = await fetch('/api/publish/push', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: appToReset,
-                        cmd: 'reset --hard'
-                    })
+                    body: JSON.stringify({ name })
                 });
-
                 const data = await response.json();
-                document.getElementById('resetSpinner').classList.add('hidden');
-
-                if (response.ok && !data.error) {
-                    document.getElementById('resetResultText').textContent = data.output || 'Reset completed successfully';
-                    document.getElementById('resetResultText').className = 'mb-4 text-green-600';
+                if (data.needs_config) {
+                    showGitPushModal();
+                } else if (data.error) {
+                    showGitPushModal();
+                    showGitPushResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
-                    document.getElementById('resetResultText').textContent = data.error || data.output || 'Reset failed';
-                    document.getElementById('resetResultText').className = 'mb-4 text-red-600';
+                    showGitPushModal();
+                    showGitPushResult(data.output || 'Push completed successfully', 'success');
                 }
-                document.getElementById('resetResult').classList.remove('hidden');
             } catch (error) {
-                document.getElementById('resetSpinner').classList.add('hidden');
-                document.getElementById('resetResultText').textContent = error.message;
-                document.getElementById('resetResultText').className = 'mb-4 text-red-600';
-                document.getElementById('resetResult').classList.remove('hidden');
+                showGitPushModal();
+                showGitPushResult('Failed: ' + error.message, 'error');
+            }
+        }
+
+        function showGitPushModal() {
+            document.getElementById('gitPushSpinner').classList.add('hidden');
+            document.getElementById('gitPushForm').classList.remove('hidden');
+            document.getElementById('gitPushResult').classList.add('hidden');
+            if (sshKeyAvailable) {
+                document.getElementById('gitPushSshNotice').classList.remove('hidden');
+            }
+            document.getElementById('gitPushModal').classList.remove('hidden');
+            document.getElementById('gitPushModal').classList.add('flex');
+        }
+
+        function hideGitPushModal() {
+            document.getElementById('gitPushModal').classList.add('hidden');
+            document.getElementById('gitPushModal').classList.remove('flex');
+            document.getElementById('gitPushRepo').value = '';
+            gitPushApp = null;
+        }
+
+        function showGitPushResult(message, type) {
+            document.getElementById('gitPushSpinner').classList.add('hidden');
+            document.getElementById('gitPushForm').classList.add('hidden');
+            const textEl = document.getElementById('gitPushResultText');
+            textEl.textContent = message;
+            textEl.className = type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-600';
+            document.getElementById('gitPushResult').classList.remove('hidden');
+        }
+
+        async function confirmGitPush() {
+            if (!gitPushApp) return;
+            const repo = document.getElementById('gitPushRepo').value.trim();
+            if (!repo || !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)) {
+                alert('Please enter a valid repository in org/repo format');
+                return;
+            }
+
+            document.getElementById('gitPushForm').classList.add('hidden');
+            document.getElementById('gitPushSpinner').classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/publish/push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: gitPushApp, repo })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showGitPushResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showGitPushResult(data.output || 'Push completed successfully', 'success');
+                }
+            } catch (error) {
+                showGitPushResult('Failed: ' + error.message, 'error');
+            }
+        }
+
+        // Publish Remote functions
+        let publishApp = null;
+
+        async function handlePublishRemote(name) {
+            publishApp = name;
+            // Check if production config is already set
+            try {
+                const response = await fetch('/api/publish/remote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (data.needs_config) {
+                    showPublishModal();
+                } else if (data.error) {
+                    showPublishModal();
+                    showPublishResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showPublishModal();
+                    showPublishResult(data.output || 'Published successfully', 'success');
+                }
+            } catch (error) {
+                showPublishModal();
+                showPublishResult('Failed: ' + error.message, 'error');
+            }
+        }
+
+        function showPublishModal() {
+            document.getElementById('publishSpinner').classList.add('hidden');
+            document.getElementById('publishForm').classList.remove('hidden');
+            document.getElementById('publishResult').classList.add('hidden');
+            document.getElementById('publishModal').classList.remove('hidden');
+            document.getElementById('publishModal').classList.add('flex');
+        }
+
+        function hidePublishModal() {
+            document.getElementById('publishModal').classList.add('hidden');
+            document.getElementById('publishModal').classList.remove('flex');
+            document.getElementById('publishApiHost').value = '';
+            document.getElementById('publishUser').value = '';
+            document.getElementById('publishPassword').value = '';
+            publishApp = null;
+        }
+
+        function showPublishResult(message, type) {
+            document.getElementById('publishSpinner').classList.add('hidden');
+            document.getElementById('publishForm').classList.add('hidden');
+            const textEl = document.getElementById('publishResultText');
+            textEl.textContent = message;
+            textEl.className = type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-600';
+            document.getElementById('publishResult').classList.remove('hidden');
+        }
+
+        async function confirmPublish() {
+            if (!publishApp) return;
+            const apihost = document.getElementById('publishApiHost').value.trim();
+            const user = document.getElementById('publishUser').value.trim();
+            const password = document.getElementById('publishPassword').value.trim();
+
+            if (!apihost || !user || !password) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            document.getElementById('publishForm').classList.add('hidden');
+            document.getElementById('publishSpinner').classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/publish/remote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: publishApp, apihost, user, password })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showPublishResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showPublishResult(data.output || 'Published successfully', 'success');
+                }
+            } catch (error) {
+                showPublishResult('Failed: ' + error.message, 'error');
             }
         }
 
@@ -387,24 +572,17 @@
                                 class="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors">
                                 Edit
                             </button>
-                            <div class="relative">
-                                <button onclick="togglePublishMenu('${escapeAttr(app.name)}')"
-                                    class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors">
-                                    Publish &#9662;
-                                </button>
-                                <div id="publishMenu-${escapeAttr(app.name)}" class="hidden absolute right-0 mt-1 w-40 bg-white rounded-md shadow-lg border border-gray-200 z-50">
-                                    <button onclick="showTodoModal('Push code');closePublishMenus()" class="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100">Push code</button>
-                                    <button onclick="showTodoModal('Publish locally');closePublishMenus()" class="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100">Publish locally</button>
-                                    <button onclick="showTodoModal('Publish remote');closePublishMenus()" class="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100">Publish remote</button>
-                                </div>
-                            </div>
                             <button onclick="configureApp('${escapeAttr(app.name)}')"
                                 class="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors">
                                 Configure
                             </button>
-                            <button onclick="showResetModal('${escapeAttr(app.name)}')"
-                                class="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
-                                Reset
+                            <button onclick="handleGitPush('${escapeAttr(app.name)}')"
+                                class="px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 transition-colors">
+                                Git Push
+                            </button>
+                            <button onclick="handlePublishRemote('${escapeAttr(app.name)}')"
+                                class="px-3 py-1 bg-teal-600 text-white text-sm rounded hover:bg-teal-700 transition-colors">
+                                Publish
                             </button>
                             <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
                                 class="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors">
@@ -414,7 +592,8 @@
                     </div>
                     <div class="flex gap-3 text-sm">
                         <a href="${localLink}" target="_blank" class="text-blue-600 hover:underline">Development</a>
-                        ${app.apihost ? (() => { try { const u = new URL(app.apihost); return `<a href="${u.protocol}//${escapeHtml(app.name)}.${u.host}" target="_blank" class="text-blue-600 hover:underline">Production</a>`; } catch(e) { return ''; } })() : ''}
+                        ${app.apihost && app.opsuser ? (() => { try { const u = new URL(app.apihost); return `<a href="${u.protocol}//${escapeHtml(app.opsuser)}.${u.host}" target="_blank" class="text-blue-600 hover:underline">Production</a>`; } catch(e) { return ''; } })() : ''}
+                        ${app.opsrepo ? `<a href="https://github.com/${escapeHtml(app.opsrepo)}" target="_blank" class="text-blue-600 hover:underline">Repository</a>` : ''}
                     </div>
                 </div>`;
             }).join('');
@@ -597,8 +776,13 @@
                 hideAddModal();
                 hideSSHKeyModal();
                 hideDeleteModal();
-                if (!document.getElementById('resetResult').classList.contains('hidden')) {
-                    hideResetModal();
+                if (!document.getElementById('gitPushResult').classList.contains('hidden') ||
+                    !document.getElementById('gitPushForm').classList.contains('hidden')) {
+                    hideGitPushModal();
+                }
+                if (!document.getElementById('publishResult').classList.contains('hidden') ||
+                    !document.getElementById('publishForm').classList.contains('hidden')) {
+                    hidePublishModal();
                 }
                 if (!document.getElementById('launchError').classList.contains('hidden')) {
                     hideLaunchModal();
@@ -624,10 +808,11 @@
                 hideDeleteModal();
             }
         });
-        document.getElementById('resetModal').addEventListener('click', (e) => {
-            if (e.target === e.currentTarget && !document.getElementById('resetResult').classList.contains('hidden')) {
-                hideResetModal();
-            }
+        document.getElementById('gitPushModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideGitPushModal();
+        });
+        document.getElementById('publishModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hidePublishModal();
         });
         document.getElementById('launchModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget && !document.getElementById('launchError').classList.contains('hidden')) {
@@ -637,30 +822,6 @@
         document.getElementById('creatingModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget && !document.getElementById('creatingResult').classList.contains('hidden')) {
                 hideCreatingModal();
-            }
-        });
-
-        // Publish dropdown functions
-        function togglePublishMenu(name) {
-            closePublishMenus();
-            const menu = document.getElementById('publishMenu-' + name);
-            if (menu) {
-                menu.classList.toggle('hidden');
-            }
-        }
-
-        function closePublishMenus() {
-            document.querySelectorAll('[id^="publishMenu-"]').forEach(el => el.classList.add('hidden'));
-        }
-
-        function showTodoModal(action) {
-            alert(action + ': To be implemented');
-        }
-
-        // Close publish menus when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('[onclick^="togglePublishMenu"]')) {
-                closePublishMenus();
             }
         });
 
@@ -683,6 +844,16 @@
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);
+            }
+            // Check if SSH key is available and show notice accordingly
+            try {
+                const sshResp = await fetch('/api/sshkey');
+                if (sshResp.ok) {
+                    sshKeyAvailable = true;
+                    document.getElementById('sshKeyNotice').classList.remove('hidden');
+                }
+            } catch (e) {
+                // SSH key not available, keep notice hidden
             }
             loadApps();
         })();

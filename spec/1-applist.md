@@ -14,30 +14,20 @@ Show also in smaller font at the end of the page "Expiration date: <date>"
 
 It will list the applications, using the backend api.
 
-For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optional a "Production" link if the application has a public endpoint defined in a `.env.production`
+For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
 
-The Local link points to to `http://<name>.miniops.me`,
-The public link points to the `<protocol>://<name>.<domain>` where `<protocol>://<domanin>` is defined in `.env.production` as the value of OPS_APIHOST
+The Local link points to to `http://<name>.miniops.me`.
+The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined in `.env.production`. It points to `<protocol>://<opsuser>.<domain>` where `<protocol>://<domain>` comes from OPS_APIHOST and `<opsuser>` comes from OPS_USER.
+The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 
 You can
 - configure (general)
 - add applications
 - remove applications
-- reset applications
 - edit applications
 - configure application
-
-- publish applications
-
-## Publish application
-
-Each application has a "Publish" dropdown button with 3 options:
-
-- **Push code**
-- **Publish locally**
-- **Publish remote**
-
-For now, clicking any of the three options shows a popup saying "To be implemented" with an OK button. No API calls are made. The actual publish endpoints will be implemented later.
+- git push (push code to a production GitHub repository)
+- publish (deploy to a production OpenServerless environment)
 
 ## Adding an application
 
@@ -49,14 +39,16 @@ When you add an application it will ask for:
 
 with a button "Create" and "Cancel"
 
-Show a "Try:" text followed by clickable links: trureact, truchat, truingest.
-Clicking one of these links fills the form: Name with the item name, Password with the item name, and Repo with trustable-ai/<item>.
+Show "Use our starter:" followed by a clickable link: trureact.
+Clicking the link fills the form: Name with "trureact", Password with "trureact", and Repo with "trustable-ai/trureact".
 
-show also a message:
+If the SSH key is available (GET /api/sshkey returns 200), show a message:
 
 "To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account." and a button "Show key".
 
-If you click a button a popup showing the <WorkspaceDir>/.ssh/id_trustable.pub will be shown, with a button to copy on clipboard and a button to close the popup.
+If you click the button, a popup showing the `~/.ssh/id_ed25519.pub` content (fetched from /api/sshkey) will be shown, with a button to copy on clipboard and a button to close the popup.
+
+If the SSH key is not available, do not show this message.
 
 If you cancel, go back
 
@@ -83,18 +75,52 @@ You can click the button `edit` to open an app
   - the URLDIR in a cookie
   navigate to the page app.html
 
-# Reset applications
+## Revert (in app.html)
 
-You can click on the button Reset
-Ask for confirmation "are you sure"
+In the application screen (app.html), next to the Commit button, show a Revert button. The button is disabled when there are no uncommitted changes (same condition as Commit).
+
+When clicked, ask for confirmation "Are you sure you want to revert all uncommitted changes?"
 If ok execute POST /api/git with value
 
 `{
    "name": <current app>,
-    "cmd":  "reset --hard"
+    "cmd":  "checkout ."
 }`
 
-Show ok or error result
+The backend handles `checkout .` by also running `git clean -fd` to remove untracked files.
+
+Show ok or error result. After a successful revert, refresh the git status.
+
+# Git Push
+
+Each app card has a "Git Push" button. Clicking it calls `POST /api/publish/push` with the app name.
+
+If the backend returns `{"needs_config": true}`, show a popup asking for:
+- The production repository in org/repo format
+- The SSH key notice (same as in app creation: yellow box with "Show Key" button, only if SSH key is available)
+- A note: "The SSH public key must be added to this repository's deploy keys or your GitHub account."
+
+Once the repo is set, the backend saves it as `OPS_REPO` in production config, adds a "production" git remote, and runs `git push production main` using the SSH key.
+
+If `needs_config` was not returned (already configured), skip the form and show the result directly.
+
+Show spinner during the operation and result on completion.
+
+# Publish
+
+Each app card has a "Publish" button. Clicking it calls `POST /api/publish/remote` with the app name.
+
+If the backend returns `{"needs_config": true}`, show a popup asking for:
+- OPS_APIHOST (placeholder: "https://your-openserverless-host.com")
+- OPS_USER
+- OPS_PASSWORD
+- A note: "You need an OpenServerless environment for publishing. Contact info@nuvolaris.io or check https://openserverless.apache.org"
+
+Once configured, the backend ensures the workbench exists (clones from workspace if needed), generates env files including `.env.production`, runs `ops ide login --mode=production`, then `ops ide deploy`.
+
+If `needs_config` was not returned (already configured), skip the form and show the result directly.
+
+Show spinner during the operation and result on completion.
 
 # Configure Application
 
@@ -107,15 +133,18 @@ Each row shows a text filed to edit the variable and the value for development a
 Read the .env and the .env.production allowing to add and remove variables.
 If a file is missing or a value is missing default to empty string.
 
-The first 3 rows are:
+The first 4 rows are:
 
 - OPS_APIHOST
 - OPS_USER
 - OPS_PASSWORD
+- OPS_REPO
 
-those 3 cannot be changed or removed
+those 4 cannot be changed or removed
 the development value cannot be changed
 the pruduction value can be changed
+
+OPS_REPO is initialized to the git remote origin (org/repo) of the application.
 
 Then there are the env vars listed in `trustable.json` in section `env`
 there cannot be added or removed but both the development and pruduction value can be changed

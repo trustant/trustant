@@ -632,6 +632,7 @@ func generateAppEnvFiles(appName string) error {
 	devVars["OPS_USER"] = appName
 	devVars["OPS_PASSWORD"] = appCfg.Password
 	devVars["OPS_APIHOST"] = "http://miniops.me"
+	devVars["OPS_REPO"] = getAppRepo(appName)
 
 	// Global env defaults
 	for k, v := range cfg.Env {
@@ -648,7 +649,7 @@ func generateAppEnvFiles(appName string) error {
 		prodVars[k] = v
 	}
 
-	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST"}
+	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO"}
 
 	envPath := filepath.Join(workbenchPath, ".env")
 	if err := writeEnvFile(envPath, devVars, order); err != nil {
@@ -740,13 +741,14 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		}
 	}
 
-	fixedKeys := []string{"OPS_APIHOST", "OPS_USER", "OPS_PASSWORD"}
+	fixedKeys := []string{"OPS_APIHOST", "OPS_USER", "OPS_PASSWORD", "OPS_REPO"}
 	var vars []EnvVar
 
 	// Fixed rows (readonly)
 	vars = append(vars, EnvVar{Name: "OPS_USER", DevValue: name, ProdValue: appCfg.Production["OPS_USER"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_PASSWORD", DevValue: appCfg.Password, ProdValue: appCfg.Production["OPS_PASSWORD"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_APIHOST", DevValue: "http://miniops.me", ProdValue: appCfg.Production["OPS_APIHOST"], Readonly: true})
+	vars = append(vars, EnvVar{Name: "OPS_REPO", DevValue: getAppRepo(name), ProdValue: appCfg.Production["OPS_REPO"], Readonly: true})
 
 	// Env rows from global config (fixed name, editable values)
 	for _, k := range envKeys {

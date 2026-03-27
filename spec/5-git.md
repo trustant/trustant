@@ -9,9 +9,10 @@ Put the code in the file `git.go`
  }'
 
 
-Change to the folder `<workspacedir>/workspace/<name>`
-and execute the command `git <command>`
-return the output
+Change to the folder `<workbenchdir>/<name>`
+and execute the command `git <command>`.
+If the command is `checkout .`, also run `git clean -fd` to remove untracked files.
+Return the output.
 
 # GET /api/git/status/<name>
 

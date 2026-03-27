@@ -55,7 +55,7 @@ If it is an error:
 Return error if fails, otherwise return a warning that the password was ignored for local as the user was existing and the local password was reused.
 
 Then try to clone the repo as bare from github as git@github.com:<repo>
-using the ssh key in `<WorkspaceDir>/.ssh/id_trustable` saving in
+using the ssh key in `~/.ssh/id_ed25519` saving in
 `<workspacedir>/workspace/<name>`
 
 Use `git clone --bare` so the workspace is a bare repository (no working tree). This avoids push conflicts when saving from the workbench.
@@ -92,14 +92,19 @@ Example: if remote is
 git@github.com:nuvolaris/trustable-workspace
 use as <repo> nuvolaris/trustable-workspace
 
-Read the `<apihost>` from the merged config's `apps.<name>.production.OPS_APIHOST` value, otherwise <apihost> is empty.
+Read from the merged config's `apps.<name>.production`:
+- `<apihost>` from `OPS_APIHOST` (empty if not set)
+- `<opsuser>` from `OPS_USER` (empty if not set)
+- `<opsrepo>` from `OPS_REPO` (empty if not set)
 
 return an array of
 
 `{
-  "name: <name>
-  "repo": <repo>
-  "apihost" <apihost>
+  "name": <name>,
+  "repo": <repo>,
+  "apihost": <apihost>,
+  "opsuser": <opsuser>,
+  "opsrepo": <opsrepo>
 }`
 
 
