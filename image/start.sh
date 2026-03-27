@@ -17,9 +17,10 @@ then
     mkdir -p $HOME/.ssh
     touch $HOME/.ssh/authorized_keys
     if ! test -e $HOME/.ssh/id_ed25519
-    then echo "$ID_ED25519" > $HOME/.ssh/id_ed25519
+    then printf  "%s\n" "$ID_ED25519" > $HOME/.ssh/id_ed25519
     else echo "id_ed25519 already exists"
     fi
+    chmod 600 $HOME/.ssh/id_ed25519
     if ! test -e $HOME/.ssh/id_ed25519.pub
     then ssh-keygen -y -f $HOME/.ssh/id_ed25519 > $HOME/.ssh/id_ed25519.pub
     fi
