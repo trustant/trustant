@@ -17,7 +17,6 @@
     <!-- Top Bar (10% height) -->
     <div class="h-[10%] bg-white shadow-md flex items-center justify-between px-4">
         <div class="flex items-center gap-3 h-full">
-            <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
             <h1 id="appName" class="text-xl font-bold text-gray-800"></h1>
         </div>
         <div class="flex items-center gap-3">
@@ -551,9 +550,6 @@
                 if (data.expired) {
                     document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please get an updated version. For info email: info@nuvolaris.io</p></div>';
                     return;
-                }
-                if (data.version) {
-                    document.getElementById('appName').textContent = (appName || 'App') + ' - ' + data.version;
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);

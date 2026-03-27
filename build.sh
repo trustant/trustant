@@ -1,12 +1,10 @@
 #!/bin/bash
-
-ops trustable trustable undeploy
-git tag -d $(git tag)
-
-#TAG=$(git tag)
-TAG=$(date +%y.%j.%H%S)
+VERSION=0.3.1-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
-echo -e "Version: v$TAG-beta1\nExpiry: 2026/06/30\n" >version.txt
+TAG=$(date +%y.%j.%H%S)
+
+git tag -d $(git tag)
+echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: 2026/06/30\n" >version.txt
 
 OPSROOT="$(dirname "$0")/olaris-trustable/opsroot.json"
 jq --arg img "$IMAGE:$TAG" '.config.images.trustable = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"
@@ -23,7 +21,8 @@ cp -v opencode.md image/opencode.md
 
 image/image.sh "$TAG"
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
-ops trustable trustable deploy
+ops trustable trustable redeploy
+
 cd olaris-trustable
 git commit -m "$TAG" -a
 git tag $TAG

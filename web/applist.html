@@ -9,9 +9,15 @@
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
     <div id="mainContent" class="w-full max-w-md">
         <!-- Centered Logo and Title -->
-        <div class="flex flex-col items-center mb-8">
+        <div class="flex flex-col items-center mb-4">
             <img src="trustable-logo.svg" alt="Trustable Logo" class="w-26 h-26">
             <h1 id="versionText" class="text-2xl font-bold text-gray-800 mt-4">Trustable</h1>
+            <div class="flex gap-4 mt-2 text-sm">
+                <a id="sshKeyLink" href="#" onclick="showSSHKeyModal(); return false"
+                    class="text-blue-600 hover:underline hidden">SSH Key</a>
+                <a href="https://github.com/trustable-ai" target="_blank"
+                    class="text-blue-600 hover:underline">Support</a>
+            </div>
         </div>
 
         <!-- Applications List -->
@@ -33,10 +39,10 @@
                 <p class="text-gray-500 text-center py-4">Loading...</p>
             </div>
         </div>
-        <p id="sshKeyLink" class="text-sm text-center mt-2 hidden">
-            <a href="#" onclick="showSSHKeyModal(); return false" class="text-blue-600 hover:underline">SSH Key</a>
+        <p class="text-sm text-gray-500 text-center mt-2">
+            <span id="buildText"></span>
+            <span id="expireText"></span>
         </p>
-        <p id="expireText" class="text-sm text-gray-500 text-center mt-2"></p>
     </div>
 
     <!-- Add Application Modal -->
@@ -843,8 +849,12 @@
                 if (data.version) {
                     document.getElementById('versionText').textContent = data.version;
                 }
+                if (data.build) {
+                    document.getElementById('buildText').textContent = 'Build: ' + data.build;
+                }
                 if (data.expire) {
-                    document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
+                    var sep = data.build ? ' \u2014 ' : '';
+                    document.getElementById('expireText').textContent = sep + 'Expires: ' + data.expire;
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);

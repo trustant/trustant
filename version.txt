@@ -1,3 +1,4 @@
-Version: v26.086.1217-beta1
+Version: v0.3.1-alpha
+Build: 26.086.1301
 Expiry: 2026/06/30
 
