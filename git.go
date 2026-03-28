@@ -214,8 +214,26 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// After checkout, also remove untracked files
+	// After checkout, also unstage and remove untracked files
 	if req.Cmd == "checkout ." {
+		// Unstage any staged new files first
+		resetCmd := exec.Command("git", "reset", "HEAD")
+		resetCmd.Dir = workbenchPath
+		if resetOutput, resetErr := resetCmd.CombinedOutput(); resetErr != nil {
+			log.Printf("Warning: git reset failed: %s, output: %s", resetErr, string(resetOutput))
+		} else {
+			output = append(output, resetOutput...)
+		}
+
+		// Re-run checkout to revert any previously staged modifications
+		recheckoutCmd := exec.Command("git", "checkout", ".")
+		recheckoutCmd.Dir = workbenchPath
+		if recheckoutOutput, recheckoutErr := recheckoutCmd.CombinedOutput(); recheckoutErr != nil {
+			log.Printf("Warning: git checkout after reset failed: %s, output: %s", recheckoutErr, string(recheckoutOutput))
+		} else {
+			output = append(output, recheckoutOutput...)
+		}
+
 		cleanCmd := exec.Command("git", "clean", "-fd")
 		cleanCmd.Dir = workbenchPath
 		if cleanOutput, cleanErr := cleanCmd.CombinedOutput(); cleanErr != nil {

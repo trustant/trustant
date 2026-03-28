@@ -188,7 +188,8 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	terminateLeftoverProcesses()
 
 	// Clone to workbench if not already present
-	workbenchPath := filepath.Join(WorkbenchDir, app)
+	// Use absolute path so child processes (Vite) resolve watches correctly
+	workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, app))
 	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
 		log.Printf("Cloning workspace/%s to workbench/%s...", app, app)
 		if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
@@ -234,6 +235,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			}
 		}
 	}
+
+	// Set up skills if not already present
+	skillsAdded := ensureSkills(app)
 
 	// Ensure the OpenWhisk user exists and password is in sync
 	log.Printf("Checking OpenWhisk user for %s...", app)
@@ -406,8 +410,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	// Start ops ide devel in the same process group
 	log.Printf("Starting ops ide devel for %s on port %d...", app, rightPort)
-	develCmd := exec.Command("ops", "ide", "devel")
-	develCmd.Dir = workbenchPath
+	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel", workbenchPath))
 	develCmd.Stdout = os.Stdout
 	develCmd.Stderr = os.Stderr
 	// Join the same process group as opencode
@@ -494,10 +497,11 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"left":   leftPort,
-		"right":  rightPort,
-		"b64dir": b64Path,
-		"encdir": absPath,
+		"left":         leftPort,
+		"right":        rightPort,
+		"b64dir":       b64Path,
+		"encdir":       absPath,
+		"skills_added": skillsAdded,
 	})
 }
 

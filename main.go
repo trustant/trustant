@@ -55,6 +55,7 @@ func main() {
 	http.HandleFunc("/api/appconfig/", handleAppConfig)
 	http.HandleFunc("/api/publish/push", handlePublish)
 	http.HandleFunc("/api/publish/remote", handlePublish)
+	http.HandleFunc("/api/skills/", handleSkills)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {
