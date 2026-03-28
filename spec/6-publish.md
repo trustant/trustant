@@ -16,8 +16,8 @@ Where `repo` is optional (only sent when user provides it from the popup).
 1. Validate `name` with the standard name pattern
 2. If `repo` is provided, validate it (org/repo format) and save to `apps.<name>.production.OPS_REPO` in workspace config
 3. Read `OPS_REPO` from production config. If empty, return `{"needs_config": true}`
-4. Check workbench exists at `<WorkbenchDir>/<name>`. If not, return error: "Please launch (Edit) the app at least once."
-5. In the workbench directory:
+4. Check workspace bare repo exists at `<WorkspaceDir>/workspace/<name>`. If not, return error.
+5. In the workspace bare repo directory:
    - `git remote remove production` (ignore errors, may not exist)
    - `git remote add production git@github.com:<OPS_REPO>.git`
    - `git push production main` with `GIT_SSH_COMMAND=ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no`

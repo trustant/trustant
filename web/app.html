@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable App</title>
     <script src="tailwind.js"></script>
+    <script src="js/marked.min.js"></script>
     <style>
         html, body {
             height: 100%;
@@ -15,34 +16,49 @@
 </head>
 <body class="bg-gray-100 h-full flex flex-col">
     <!-- Top Bar (10% height) -->
-    <div class="h-[10%] bg-white shadow-md flex items-center justify-between px-4">
+    <div class="h-[10%] bg-white shadow-md flex items-center px-4">
+        <!-- Left group: logo, app name, env, skills -->
         <div class="flex items-center gap-3 h-full">
+            <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
             <h1 id="appName" class="text-xl font-bold text-gray-800"></h1>
+            <button onclick="showEnvModal()"
+                class="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
+                Env
+            </button>
+            <button onclick="showSkillsModal()"
+                class="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                Skills
+            </button>
         </div>
-        <div class="flex items-center gap-3">
-            <!-- Git Status Indicator -->
+        <!-- Right group: git status, commit, revert, upload, back -->
+        <div class="flex items-center gap-3 ml-auto">
             <div id="gitStatus" class="flex items-center gap-1 text-sm text-gray-500">
                 <span id="gitDot" class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
                 <span id="gitText">No changes</span>
             </div>
             <button id="saveBtn" onclick="showSaveModal()" disabled
-                class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
+                class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                 Commit
             </button>
             <button id="revertBtn" onclick="showRevertModal()" disabled
-                class="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
+                class="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-md hover:bg-orange-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a5 5 0 010 10H9M3 10l4-4m-4 4l4 4"/></svg>
                 Revert
             </button>
             <button onclick="triggerUpload()"
-                class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                class="px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/></svg>
                 Upload
             </button>
             <input type="file" id="fileInput" class="hidden" onchange="handleFileUpload(event)">
             <button onclick="goBack()"
-                class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                class="px-3 py-1.5 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700 transition-colors flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
                 Back
             </button>
-            <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
         </div>
     </div>
 
@@ -168,6 +184,81 @@
                 <p id="revertResultText" class="mb-4"></p>
                 <button onclick="hideRevertModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skills Modal -->
+    <div id="skillsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Skills</h3>
+                <button onclick="hideSkillsModal()" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+            </div>
+            <div id="skillsSource" class="px-4 pt-3 text-sm text-gray-600"></div>
+            <div id="skillsLoading" class="p-8 text-center text-gray-500">Loading skills...</div>
+            <div id="skillsContent" class="hidden flex-1 flex flex-col min-h-0">
+                <div id="skillsTabs" class="flex border-b px-4 gap-1 overflow-x-auto flex-shrink-0"></div>
+                <div id="skillsBody" class="flex-1 overflow-y-auto p-4"></div>
+            </div>
+            <div id="skillsEmpty" class="hidden p-8 text-center text-gray-500">No skills found. Click "Update Skills to Latest" to install.</div>
+            <div id="skillsError" class="hidden p-8 text-center text-red-600"></div>
+        </div>
+    </div>
+
+    <!-- Env Modal (read-only) -->
+    <div id="envModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b">
+                <h3 class="text-lg font-semibold">Environment Variables</h3>
+                <button onclick="hideEnvModal()" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+            </div>
+            <div id="envLoading" class="p-8 text-center text-gray-500">Loading...</div>
+            <div id="envContent" class="hidden flex-1 overflow-y-auto p-4">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="text-left py-2 px-2">VARIABLE</th>
+                            <th class="text-left py-2 px-2">Development</th>
+                            <th class="text-left py-2 px-2">Production</th>
+                        </tr>
+                    </thead>
+                    <tbody id="envTableBody"></tbody>
+                </table>
+                <p class="text-sm text-gray-500 mt-4 italic">To edit environment variables, use the Env button from the app list.</p>
+            </div>
+            <div id="envError" class="hidden p-8 text-center text-red-600"></div>
+        </div>
+    </div>
+
+    <!-- Skills Update Confirmation Modal -->
+    <div id="skillsUpdateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-[60]">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="skillsUpdateSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-purple-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-gray-600">Updating skills...</p>
+            </div>
+            <h3 id="skillsUpdateTitle" class="text-lg font-semibold mb-2 text-yellow-600">Update Skills</h3>
+            <p id="skillsUpdateMessage" class="text-gray-600 mb-4">Warning: I will remove current skills and replace with the latest.</p>
+            <div id="skillsUpdateConfirmButtons" class="flex gap-3">
+                <button onclick="hideSkillsUpdateModal()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Cancel
+                </button>
+                <button onclick="confirmSkillsUpdate()"
+                    class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
+                    Update
+                </button>
+            </div>
+            <div id="skillsUpdateResult" class="hidden">
+                <p id="skillsUpdateResultText" class="mb-4"></p>
+                <button onclick="hideSkillsUpdateModal(); loadSkills();"
+                    class="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
                     Continue
                 </button>
             </div>
@@ -471,6 +562,9 @@
                     hideRevertModal();
                 }
                 hideUnsavedModal();
+                hideEnvModal();
+                hideSkillsModal();
+                hideSkillsUpdateModal();
             }
         });
 
@@ -504,6 +598,18 @@
 
         document.getElementById('unsavedModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hideUnsavedModal();
+        });
+
+        document.getElementById('envModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideEnvModal();
+        });
+
+        document.getElementById('skillsModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideSkillsModal();
+        });
+
+        document.getElementById('skillsUpdateModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) hideSkillsUpdateModal();
         });
 
         // Resizable divider between iframes
@@ -542,6 +648,215 @@
                 divider.classList.remove('bg-blue-500');
             });
         })();
+
+        // Env functions
+        function showEnvModal() {
+            document.getElementById('envModal').classList.remove('hidden');
+            document.getElementById('envModal').classList.add('flex');
+            loadEnvVars();
+        }
+
+        function hideEnvModal() {
+            document.getElementById('envModal').classList.add('hidden');
+            document.getElementById('envModal').classList.remove('flex');
+        }
+
+        async function loadEnvVars() {
+            document.getElementById('envLoading').classList.remove('hidden');
+            document.getElementById('envContent').classList.add('hidden');
+            document.getElementById('envError').classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/appconfig/${encodeURIComponent(appName)}`);
+                if (!resp.ok) {
+                    throw new Error(await resp.text());
+                }
+                const data = await resp.json();
+                const vars = data.vars || [];
+
+                const tbody = document.getElementById('envTableBody');
+                if (vars.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No variables configured</td></tr>';
+                } else {
+                    tbody.innerHTML = vars.map(v => `
+                        <tr class="border-b">
+                            <td class="py-2 px-2 font-mono text-xs">${escapeHtml(v.name)}</td>
+                            <td class="py-2 px-2 text-xs text-gray-600">${escapeHtml(v.dev_value)}</td>
+                            <td class="py-2 px-2 text-xs text-gray-600">${escapeHtml(v.prod_value)}</td>
+                        </tr>`).join('');
+                }
+
+                document.getElementById('envLoading').classList.add('hidden');
+                document.getElementById('envContent').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('envLoading').classList.add('hidden');
+                document.getElementById('envError').textContent = error.message;
+                document.getElementById('envError').classList.remove('hidden');
+            }
+        }
+
+        // Skills functions
+        function showSkillsModal() {
+            document.getElementById('skillsModal').classList.remove('hidden');
+            document.getElementById('skillsModal').classList.add('flex');
+            loadSkills();
+        }
+
+        function hideSkillsModal() {
+            document.getElementById('skillsModal').classList.add('hidden');
+            document.getElementById('skillsModal').classList.remove('flex');
+        }
+
+        async function loadSkills() {
+            document.getElementById('skillsLoading').classList.remove('hidden');
+            document.getElementById('skillsContent').classList.add('hidden');
+            document.getElementById('skillsEmpty').classList.add('hidden');
+            document.getElementById('skillsError').classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/skills/${encodeURIComponent(appName)}`);
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    throw new Error(text);
+                }
+                const data = await resp.json();
+
+                document.getElementById('skillsLoading').classList.add('hidden');
+
+                // Show source and update button
+                const sourceDiv = document.getElementById('skillsSource');
+                sourceDiv.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="font-medium">Source:</span>
+                            <a href="https://github.com/${data.source}" target="_blank" class="text-blue-600 hover:underline">${data.source}</a>
+                        </div>
+                        <button onclick="showSkillsUpdateModal()"
+                            class="px-3 py-1 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors">
+                            Update Skills to Latest
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">Configure OPS_SKILLS in main window to use your own skill repo.</p>
+                `;
+
+                if (!data.skills || data.skills.length === 0) {
+                    document.getElementById('skillsEmpty').classList.remove('hidden');
+                    return;
+                }
+
+                renderSkillsTabs(data.skills);
+            } catch (error) {
+                document.getElementById('skillsLoading').classList.add('hidden');
+                document.getElementById('skillsError').textContent = error.message;
+                document.getElementById('skillsError').classList.remove('hidden');
+            }
+        }
+
+        function renderSkillsTabs(skills) {
+            const tabsDiv = document.getElementById('skillsTabs');
+            const bodyDiv = document.getElementById('skillsBody');
+            tabsDiv.innerHTML = '';
+            bodyDiv.innerHTML = '';
+
+            skills.forEach((skill, index) => {
+                const tab = document.createElement('button');
+                tab.textContent = skill.name;
+                tab.className = index === 0
+                    ? 'px-4 py-2 text-sm font-medium border-b-2 border-purple-600 text-purple-600'
+                    : 'px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700';
+                tab.onclick = () => selectSkillTab(skills, index);
+                tabsDiv.appendChild(tab);
+            });
+
+            renderSkillBody(skills[0]);
+            document.getElementById('skillsContent').classList.remove('hidden');
+        }
+
+        function selectSkillTab(skills, selectedIndex) {
+            const tabs = document.getElementById('skillsTabs').children;
+            for (let i = 0; i < tabs.length; i++) {
+                tabs[i].className = i === selectedIndex
+                    ? 'px-4 py-2 text-sm font-medium border-b-2 border-purple-600 text-purple-600'
+                    : 'px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700';
+            }
+            renderSkillBody(skills[selectedIndex]);
+        }
+
+        function renderSkillBody(skill) {
+            const bodyDiv = document.getElementById('skillsBody');
+            let html = '';
+
+            // Front matter as key-value table
+            if (skill.front_matter && Object.keys(skill.front_matter).length > 0) {
+                html += '<table class="w-full text-sm mb-4 border border-gray-200 rounded">';
+                for (const [key, value] of Object.entries(skill.front_matter)) {
+                    html += `<tr class="border-b border-gray-100"><td class="px-3 py-1.5 font-medium text-gray-700 bg-gray-50 w-1/4">${escapeHtml(key)}</td><td class="px-3 py-1.5 text-gray-600">${escapeHtml(value)}</td></tr>`;
+                }
+                html += '</table>';
+            }
+
+            // Body as rendered markdown (simple rendering)
+            if (skill.body) {
+                html += '<div class="prose prose-sm max-w-none">' + renderMarkdown(skill.body) + '</div>';
+            }
+
+            bodyDiv.innerHTML = html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderMarkdown(text) {
+            return marked.parse(text);
+        }
+
+        // Skills update functions
+        function showSkillsUpdateModal() {
+            document.getElementById('skillsUpdateSpinner').classList.add('hidden');
+            document.getElementById('skillsUpdateTitle').classList.remove('hidden');
+            document.getElementById('skillsUpdateMessage').classList.remove('hidden');
+            document.getElementById('skillsUpdateConfirmButtons').classList.remove('hidden');
+            document.getElementById('skillsUpdateResult').classList.add('hidden');
+            document.getElementById('skillsUpdateModal').classList.remove('hidden');
+            document.getElementById('skillsUpdateModal').classList.add('flex');
+        }
+
+        function hideSkillsUpdateModal() {
+            document.getElementById('skillsUpdateModal').classList.add('hidden');
+            document.getElementById('skillsUpdateModal').classList.remove('flex');
+        }
+
+        async function confirmSkillsUpdate() {
+            document.getElementById('skillsUpdateSpinner').classList.remove('hidden');
+            document.getElementById('skillsUpdateTitle').classList.add('hidden');
+            document.getElementById('skillsUpdateMessage').classList.add('hidden');
+            document.getElementById('skillsUpdateConfirmButtons').classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/skills/${encodeURIComponent(appName)}/update`, {
+                    method: 'POST'
+                });
+                const data = await resp.json();
+                document.getElementById('skillsUpdateSpinner').classList.add('hidden');
+
+                if (data.error) {
+                    document.getElementById('skillsUpdateResultText').textContent = data.error;
+                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600';
+                } else {
+                    document.getElementById('skillsUpdateResultText').textContent = 'Skills updated successfully';
+                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-green-600';
+                }
+                document.getElementById('skillsUpdateResult').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('skillsUpdateSpinner').classList.add('hidden');
+                document.getElementById('skillsUpdateResultText').textContent = error.message;
+                document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600';
+                document.getElementById('skillsUpdateResult').classList.remove('hidden');
+            }
+        }
 
         // Check version and expiry
         (async function() {

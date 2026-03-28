@@ -20,6 +20,7 @@ var (
 	OpenAIBaseUrl  string
 	OpenAIApiKey   string
 	OllamaEndpoint string
+	OpsSkills      string
 )
 
 // loadEnv reads .env from the current directory and sets the config variables,
@@ -59,6 +60,11 @@ func loadEnv() error {
 	OpenAIBaseUrl = os.Getenv("OPENAI_BASE_URL")
 	OpenAIApiKey = os.Getenv("OPENAI_API_KEY")
 	OllamaEndpoint = os.Getenv("OLLAMA_ENDPOINT")
+	OpsSkills = os.Getenv("OPS_SKILLS")
+	if OpsSkills == "" {
+		OpsSkills = "trustable-ai/skills"
+		os.Setenv("OPS_SKILLS", OpsSkills)
+	}
 
 	if WorkspaceDir == "" {
 		return fmt.Errorf("WORKSPACE_DIR is not set")
@@ -88,6 +94,7 @@ func runPreflight() error {
 	log.Printf("  WorkbenchDir:       %s", WorkbenchDir)
 	log.Printf("  OllamaEndpoint:     %s", OllamaEndpoint)
 	log.Printf("  OpenAIBaseUrl:      %s", OpenAIBaseUrl)
+	log.Printf("  OpsSkills:          %s", OpsSkills)
 	log.Println("✓ Environment loaded")
 
 	// Step 1: Clean up PGID file if exists

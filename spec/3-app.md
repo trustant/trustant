@@ -11,13 +11,22 @@ reading it the cookie LEFT, RIGHT, URLDIR and NAME
 
 It shows a full page, with a top bar with 10% high.
 
-In the bar there is
+In the bar, aligned to the left:
 
-- the trustable logo 90% height
-- the text returned by the api version
-- a git status indicator (aligned to right, before buttons)
-- the button "Save" (aligned to right)
-- the button (aligned to right) to go back
+- the trustable logo (80% height)
+- the app name in bold
+- the button "Env" (purple, gear icon)
+- the button "Skills" (purple, book icon)
+
+Aligned to the right:
+
+- a git status indicator (dot + text)
+- the button "Commit" (blue, checkmark icon, disabled when no changes)
+- the button "Revert" (orange, undo arrow icon, disabled when no changes)
+- the button "Upload" (green, upload arrow icon)
+- the button "Back" (gray, chevron left icon)
+
+All buttons use inline SVG icons (monochrome white, matching the button text).
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
@@ -72,6 +81,16 @@ Clicking on the button back will:
   - remove the cookie B64DIR
   - invoke the DELETE /api/launch to stop running subprocess
   - navigate to applist.html
+
+# Env (Read-only)
+
+Add an Env button to the toolbar. Clicking it opens a modal showing environment variables (development and production) in a read-only table.
+
+The modal fetches data from `GET /api/appconfig/<name>` and displays a table with columns: VARIABLE, Development, Production.
+
+All values are displayed as plain text (not editable). A note at the bottom says: "To edit environment variables, use the Env button from the app list."
+
+The modal can be closed with the X button, Escape key, or clicking the backdrop.
 
 # Upload
 

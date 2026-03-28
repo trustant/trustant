@@ -25,7 +25,7 @@ You can
 - add applications
 - remove applications
 - edit applications
-- configure application
+- env (configure application environment variables)
 - git push (push code to a production GitHub repository)
 - publish (deploy to a production OpenServerless environment)
 
@@ -126,7 +126,9 @@ If `needs_config` was not returned (already configured), skip the form and show 
 
 Show spinner during the operation and result on completion.
 
-# Configure Application
+# Env (Configure Application Environment)
+
+Each app card has an "Env" button that opens the environment configurator (`appconfig.html`).
 
 The configurator allows to edit `.env` and `.env.production`
 

@@ -8,3 +8,6 @@
 [submodule "support"]
 	path = support
 	url = git@github.com:trustable-ai/.github
+[submodule "skills"]
+	path = skills
+	url = git@github.com:trustable-ai/skills

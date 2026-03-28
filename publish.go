@@ -87,28 +87,28 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check workbench exists
-	workbenchPath := filepath.Join(WorkbenchDir, req.Name)
-	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
+	// Use workspace bare repo to push
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Workbench not found. Please launch (Edit) the app at least once.",
+			"error": "App not found in workspace",
 		})
 		return
 	}
 
-	// Setup production remote
+	// Setup production remote on the bare repo
 	repoURL := fmt.Sprintf("git@github.com:%s.git", opsRepo)
 
 	// Remove existing production remote (ignore errors)
 	removeCmd := exec.Command("git", "remote", "remove", "production")
-	removeCmd.Dir = workbenchPath
+	removeCmd.Dir = workspacePath
 	removeCmd.Run()
 
 	// Add production remote
 	addCmd := exec.Command("git", "remote", "add", "production", repoURL)
-	addCmd.Dir = workbenchPath
+	addCmd.Dir = workspacePath
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -125,7 +125,7 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
 
 	pushCmd := exec.Command("git", "push", "production", "main")
-	pushCmd.Dir = workbenchPath
+	pushCmd.Dir = workspacePath
 	pushCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
 
 	output, err := pushCmd.CombinedOutput()

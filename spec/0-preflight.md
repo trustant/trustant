@@ -19,6 +19,7 @@ WorkbenchDir
 OpenAIBaseUrl
 OpenAIApiKey
 OllamaEndpoint
+OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 
 - Run migration: if the workspace `trustable.json` does not yet have an `apps` section, scan `<WorkspaceDir>/workspace/*/` for existing app directories, retrieve each app's password via `ops util kubeget whiskuser/<name> .spec.password`, build `apps` entries, strip fields that match the base config, and save the updated workspace `trustable.json`.
 
