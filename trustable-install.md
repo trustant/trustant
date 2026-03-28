@@ -1,8 +1,6 @@
-# Trustable - Istruzioni per l'installazione
+# ![](./web/trustable-logo.png){ height=50px } Trustable - Istruzioni per l'installazione
 
-Ciao, grazie per la disponibilità a provare Trustable.
-
-> **Nota:** La release è al momento in versione alpha e contiene certamente errori.
+> **Nota:** La release è al momento in versione alpha ed è possibile che contenga errori. Potete riportarli su `github.com/trustable-ai`
 
 ## Prerequisiti
 
@@ -74,6 +72,16 @@ Una volta installato, Trustable parte in automatico. Altrimenti usare:
 ```bash
 ops trustable signin
 ```
+
+## Logging e Debugging
+
+Per accedere ai log e facilitare il debugging potete vedere cosa succede con il comando
+
+```bash
+ops trustable logs
+```
+
+I log sono continui. Premere Control-C per interropere la visualizzazione.
 
 ## Disinstallazione
 
