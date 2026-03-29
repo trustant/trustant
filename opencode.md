@@ -1,15 +1,25 @@
-This is a serverless applications with a frontend in typescript and a backend in python
-- frontend is in typescript, with react and tailwinds, sources are under src
-- backend is in python  with sources  packages as separate "actions" (serverless functions)
-- the frontend will always use backend available in the same domain as `/api/my/<package>/<action>`
-where <package> is usually `v1`
-- to access an action streaming its output, consider the url <proto>://<user>.<domain> and do always a POST  on <proto>://stream.<domain>/web/<packages>/<action> - the result is a stream of json objects
+# Trustable App Development Guide
 
-# rules
-- never try build or deploy as this is is managed automatically when you edit sources
-- never try to create a backend server, instead create new api endpoints managed by the serverless environment
-- add requirements for the frontend to package.json and execute npn install after modifying
-- add requirements for the backend to packages/<package>/<action>/requirements.txt and never deploy as it happens automatically
+This is a serverless application with a TypeScript/React frontend and a Python backend.
 
+## Architecture
 
+- **Frontend**: TypeScript with React and Tailwind CSS, sources under `src/`
+- **Backend**: Python serverless functions ("actions"), sources under `packages/<package>/<action>/`
+- Functions and actions are synonyms; each produces an API endpoint
 
+## API Endpoints
+
+- Backend APIs are available at `/api/my/<package>/<action>` (package is usually `v1`)
+- To access an action with streaming output, given `<proto>://<user>.<domain>`, POST to `<proto>://stream.<domain>/web/<package>/<action>` (returns a stream of JSON objects)
+
+## Dependencies
+
+- **Frontend**: add to `package.json` and run `npm install`
+- **Backend**: add to `packages/<package>/<action>/requirements.txt` (per-action, do not rebuild)
+
+## Important Rules
+
+- Never try to build or deploy; this is managed automatically when you edit sources
+- Never create a backend server; create new API endpoints using actions
+- Never deploy actions manually; deployment happens automatically
