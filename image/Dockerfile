@@ -45,5 +45,4 @@ COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
 COPY env .env
 COPY trustable.json trustable.json
-COPY opencode.md opencode.md
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable

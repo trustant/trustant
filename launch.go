@@ -306,6 +306,17 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 	log.Printf("ops ide login for %s completed successfully", app)
 
+	// Run ops ide clean
+	log.Printf("Running ops ide clean for %s...", app)
+	cleanCmd := exec.Command("ops", "ide", "clean")
+	cleanCmd.Dir = workbenchPath
+	if output, err := cleanCmd.CombinedOutput(); err != nil {
+		log.Printf("ops ide clean for %s failed: %s, output: %s", app, err, string(output))
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("ops ide clean failed: %s", string(output))})
+		return
+	}
+	log.Printf("ops ide clean for %s completed successfully", app)
+
 	// Run ops ide deploy
 	log.Printf("Running ops ide deploy for %s...", app)
 	deployCmd := exec.Command("ops", "ide", "deploy")
@@ -348,11 +359,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		}
 	} else {
 		log.Printf("Warning: opencode.json not found: %s", readErr)
-	}
-
-	opencodeMdDst := filepath.Join(workbenchPath, "opencode.md")
-	if err := os.WriteFile(opencodeMdDst, []byte(opencodeMd), 0644); err != nil {
-		log.Printf("Warning: failed to write opencode.md: %s", err)
 	}
 
 	// Start opencode

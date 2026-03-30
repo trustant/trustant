@@ -143,7 +143,7 @@
                 </button>
             </div>
             <div id="deleteResult" class="hidden">
-                <p id="deleteResultText" class="mb-4"></p>
+                <div id="deleteResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideDeleteModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
@@ -193,11 +193,30 @@
                 </div>
             </div>
             <div id="gitPushResult" class="hidden">
-                <p id="gitPushResultText" class="mb-4"></p>
-                <button onclick="hideGitPushModal()"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
-                    Continue
-                </button>
+                <div id="gitPushResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <div class="flex gap-3 justify-center">
+                    <button onclick="hideGitPushModal()"
+                        class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                        Continue
+                    </button>
+                    <button id="forcePushBtn" onclick="showForcePushConfirm()" class="hidden px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                        Force Git Push
+                    </button>
+                </div>
+            </div>
+            <div id="forcePushConfirm" class="hidden">
+                <p class="text-red-600 font-semibold mb-2">Are you sure?</p>
+                <p class="text-gray-600 mb-4">Overwriting the existing content of the repo</p>
+                <div class="flex gap-3 justify-center">
+                    <button onclick="hideForcePushConfirm()"
+                        class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button onclick="confirmForcePush()"
+                        class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                        Force Push
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -247,7 +266,7 @@
                 </div>
             </div>
             <div id="publishResult" class="hidden">
-                <p id="publishResultText" class="mb-4"></p>
+                <div id="publishResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hidePublishModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
@@ -268,7 +287,7 @@
             <h3 id="creatingTitle" class="text-lg font-semibold mb-2">Creating Application</h3>
             <p id="creatingMessage" class="text-gray-600 mb-4">Please wait...</p>
             <div id="creatingResult" class="hidden">
-                <p id="creatingResultText" class="mb-4"></p>
+                <div id="creatingResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideCreatingModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     OK
@@ -289,7 +308,7 @@
             <h3 id="launchTitle" class="text-lg font-semibold mb-2">Launching <span id="launchAppName"></span></h3>
             <p id="launchMessage" class="text-gray-600 mb-4">Please wait...</p>
             <div id="launchError" class="hidden">
-                <p id="launchErrorText" class="text-red-600 mb-4"></p>
+                <div id="launchErrorText" class="text-red-600 mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideLaunchModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
@@ -429,10 +448,47 @@
         function showGitPushResult(message, type) {
             document.getElementById('gitPushSpinner').classList.add('hidden');
             document.getElementById('gitPushForm').classList.add('hidden');
+            document.getElementById('forcePushConfirm').classList.add('hidden');
             const textEl = document.getElementById('gitPushResultText');
             textEl.textContent = message;
-            textEl.className = type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-600';
+            textEl.className = (type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-600') + ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+            if (type === 'error') {
+                document.getElementById('forcePushBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('forcePushBtn').classList.add('hidden');
+            }
             document.getElementById('gitPushResult').classList.remove('hidden');
+        }
+
+        function showForcePushConfirm() {
+            document.getElementById('gitPushResult').classList.add('hidden');
+            document.getElementById('forcePushConfirm').classList.remove('hidden');
+        }
+
+        function hideForcePushConfirm() {
+            document.getElementById('forcePushConfirm').classList.add('hidden');
+            document.getElementById('gitPushResult').classList.remove('hidden');
+        }
+
+        async function confirmForcePush() {
+            document.getElementById('forcePushConfirm').classList.add('hidden');
+            document.getElementById('gitPushSpinner').classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/publish/force-push', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: gitPushApp })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showGitPushResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showGitPushResult(data.output || 'Force push completed successfully', 'success');
+                }
+            } catch (error) {
+                showGitPushResult('Failed: ' + error.message, 'error');
+            }
         }
 
         async function confirmGitPush() {
@@ -513,7 +569,7 @@
             document.getElementById('publishForm').classList.add('hidden');
             const textEl = document.getElementById('publishResultText');
             textEl.textContent = message;
-            textEl.className = type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-600';
+            textEl.className = (type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-600') + ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
             document.getElementById('publishResult').classList.remove('hidden');
         }
 
@@ -637,14 +693,15 @@
             document.getElementById('creatingMessage').classList.add('hidden');
             const textEl = document.getElementById('creatingResultText');
             textEl.textContent = message;
+            const baseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
             if (type === 'error') {
-                textEl.className = 'mb-4 text-red-600';
+                textEl.className = 'mb-4 text-red-600' + baseClasses;
                 document.getElementById('creatingTitle').textContent = 'Error';
             } else if (type === 'warning') {
-                textEl.className = 'mb-4 text-yellow-700';
+                textEl.className = 'mb-4 text-yellow-700' + baseClasses;
                 document.getElementById('creatingTitle').textContent = 'Application Created';
             } else {
-                textEl.className = 'mb-4 text-green-600';
+                textEl.className = 'mb-4 text-green-600' + baseClasses;
                 document.getElementById('creatingTitle').textContent = 'Application Created';
             }
             document.getElementById('creatingResult').classList.remove('hidden');
@@ -708,17 +765,17 @@
 
                 if (response.ok) {
                     document.getElementById('deleteResultText').textContent = 'Application deleted successfully';
-                    document.getElementById('deleteResultText').className = 'mb-4 text-green-600';
+                    document.getElementById('deleteResultText').className = 'mb-4 text-green-600 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 } else {
                     const error = await response.text();
                     document.getElementById('deleteResultText').textContent = 'Failed to delete: ' + error;
-                    document.getElementById('deleteResultText').className = 'mb-4 text-red-600';
+                    document.getElementById('deleteResultText').className = 'mb-4 text-red-600 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 }
                 document.getElementById('deleteResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('deleteSpinner').classList.add('hidden');
                 document.getElementById('deleteResultText').textContent = error.message;
-                document.getElementById('deleteResultText').className = 'mb-4 text-red-600';
+                document.getElementById('deleteResultText').className = 'mb-4 text-red-600 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 document.getElementById('deleteResult').classList.remove('hidden');
             }
         }

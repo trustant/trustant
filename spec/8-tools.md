@@ -1,8 +1,8 @@
-Rule: an endpoint maps in an action in folder `packages/<package>/<name>` , functions is a synonym for action.
+Implement the tools as separate tools in folder tools/
+
+Rule: an endpoint maps in an action in folder `packages/<package>/<name>`, functions is a synonym for action.
 
 Rule: assume the packages referenced by the tools are already available and preinstalled.
-
-Rule: always insert the snippet of code at the beginning of the requested sections, unless they are already there (do not add it twice).
 
 Implement the following tools in folder tools/ using this template:
 
@@ -21,20 +21,29 @@ export default tool({
 })
 ```
 
+Generate each tools as standalone scripts,  avoid separate helpers files, duplicate code if needed.
+
 # tool: bash (replaces the default)
 
-this tool execute bash commands  using `/bin/bash -c` using Bun api
+This tool executes bash commands using `/bin/bash -c` using Bun api.
+
+# tool: list (replaces the default)
+
+This tool lists directory contents.
+It accepts glob patterns to filter results.
+Supports `**`.
 
 # tool new-api-endpoint
 
-This tool create a new api endpoint
+This tool creates a new api endpoint.
 
 ## parameters
-Receive an <endpoint> as parameter
-- if there are no  '/' in the <endpoint> use   `v1` as <package> and  the <endpoint> as <name>,
-- if there is one `/` use the part before the `/` as <package> and <name> the part after
--  if there are more than one `/` return error
--  ensure <package> and <name> only contains letters, numbers and '-' and starts with letter
+
+Receive an <endpoint> as parameter:
+- if there are no '/' in the <endpoint>, use `v1` as <package> and the <endpoint> as <name>
+- if there is one `/`, use the part before the `/` as <package> and the part after as <name>
+- if there are more than one `/`, return error
+- ensure <package> and <name> only contain letters, numbers and '-' and start with a letter
 - <module> is the <name> with '-' replaced with '_' (example: 'new-user' becomes 'new_user')
 
 ## generation
@@ -48,14 +57,15 @@ Receive an <endpoint> as parameter
 #--web true
 # Note: this timeout is 5 minutes - 10 minutes is max allowed
 #--timeout 300000
-## begin define-params
-## end define-params
 import types, os, <module>
+
+builder = []
+## build-context ##
+
 def main(args):
-  context = types.SimpleNamespace()
-  ## begin read-params
-  ## end read-params
   try:
+    ctx = types.SimpleNamespace()
+    for fn in builder: fn(args, ctx)
     return { "body": <module>.main(args, ctx=context) }
   except Exception as e:
     import traceback
@@ -70,58 +80,53 @@ def main(args):
 
 ```
 def main(args, ctx=None):
-    inp = args.get("input", "<module>")
-    out = inp
-    return out
+  inp = args.get("input", "<module>")
+  out = inp
+  return out
 ```
 
 ## returns
 
-the resulting api url /api/my/<package>/<name>
+The resulting api url `/api/my/<package>/<name>`.
 
 # tool add-secret
 
 ## parameters
-Receive an <endpoint> as parameter
+
+Receive an <endpoint> and a <secret> name as parameters.
 
 ## generation
 
-This tool add a new secret <MY_SECRET> to an endpoint/action/function
+This tool adds a new secret <MY_SECRET> to an endpoint/action/function.
 
-Requires the endpoint and the secret
+First checks the secret is available in `.env`. If not, warn the user and suggest to add it to the environment.
 
-Fistchecks the secret is available in `.env`, if not warn the user and suggest to add it to the environment
+- adds in `__main__.py` after "## build context ##":
 
-
-- adds in `__main__.py` section "define-params"
 ```
 #--param <MY_SECRET> "$<MY_SECRET>"
-```
-- adds in `__main__.py` section "read-params"
-
-```
-context.<MY_SECRET> = args.get("<MY_SECRET>", os.getenv("<MY_SECRET>"))
+builder.add(lambda args, ctx: ctx.<MY_SECRET> = args.get("<MY_SECRET>", os.getenv("<MY_SECRET>"))
 ```
 
 ## returns
 
-informations on the updated context
-
+Information on the updated context.
 
 # tool add-s3
 
 ## parameters
-Receive an <endpoint> as parameter
+
+Receive an <endpoint> as parameter.
 
 ## generation
 
-This tool add s3 to the context of an endpoint/action/function when you need to use it, making available as
-- context.S3_CLIENT the s3 client
-- context.S3_DATA the s3 data bucket, private
-- context.S3_WEB the s3 web bucket, public
-- context.S3_PUBLIC the public url to use S3
+This tool adds S3 to the context of an endpoint/action/function, making available:
+- `context.S3_CLIENT` — the S3 client
+- `context.S3_DATA` — the S3 data bucket (private)
+- `context.S3_WEB` — the S3 web bucket (public)
+- `context.S3_PUBLIC` — the public URL to access S3
 
-- adds in `__main__.py` section "define-params"
+- adds in `__main__.py` after "## build context ##":
 
 ```
 #--param S3_HOST "$S3_HOST"
@@ -131,111 +136,154 @@ This tool add s3 to the context of an endpoint/action/function when you need to 
 #--param S3_BUCKET_DATA "$S3_BUCKET_DATA"
 #--param S3_BUCKET_STATIC "$S3_BUCKET_STATIC"
 #--param S3_PUBLIC "$OPSDEV_S3"
-```
-
-- adds in `__main__.py` section "read-params"
-
-```
 import boto3
 from botocore.client import Config
-host = args.get("S3_HOST", os.getenv("S3_HOST"))
-port = args.get("S3_PORT", os.getenv("S3_PORT"))
-url = f"http://{host}:{port}"
-key = args.get("S3_ACCESS_KEY", os.getenv("S3_ACCESS_KEY"))
-sec = args.get("S3_SECRET_KEY", os.getenv("S3_SECRET_KEY"))
-cfg = Config(signature_version='s3v4')
-context.S3_CLIENT = boto3.client('s3', region_name='us-east-1', endpoint_url=url, aws_access_key_id=key, aws_secret_access_key=sec )
-context.S3_DATA = args.get("S3_BUCKET_DATA", os.getenv("S3_BUCKET_DATA"))
-context.S3_WEB = args.get("S3_BUCKET_STATIC", os.getenv("S3_BUCKET_STATIC"))
-context.S3_PUBLIC = args.get("S3_PUBLIC", os.getenv("OPSDEV_S3"))
+def init_s3(args, ctx):
+  host = args.get("S3_HOST", os.getenv("S3_HOST"))
+  port = args.get("S3_PORT", os.getenv("S3_PORT"))
+  url = f"http://{host}:{port}"
+  key = args.get("S3_ACCESS_KEY", os.getenv("S3_ACCESS_KEY"))
+  sec = args.get("S3_SECRET_KEY", os.getenv("S3_SECRET_KEY"))
+  cfg = Config(signature_version='s3v4')
+  ctx.S3_CLIENT = boto3.client('s3', region_name='us-east-1', endpoint_url=url, aws_access_key_id=key, aws_secret_access_key=sec, config=cfg)
+  ctx.S3_DATA = args.get("S3_BUCKET_DATA", os.getenv("S3_BUCKET_DATA"))
+  ctx.S3_WEB = args.get("S3_BUCKET_STATIC", os.getenv("S3_BUCKET_STATIC"))
+  ctx.S3_PUBLIC = args.get("S3_PUBLIC", os.getenv("OPSDEV_S3"))
+bulder.add(init_s3)
 ```
 
 ## returns
 
-informations on the updated context
+Information on the updated context.
 
 # tool add-redis
 
 ## parameters
-Receive an <endpoint> as parameter
+
+Receive an <endpoint> as parameter.
 
 ## generation
 
-This tool adds a context.REDIS connection  and a context.REDIS_PREFIX to an endpoint/action/function
+This tool adds a Redis connection to an endpoint/action/function, making available:
+- `context.REDIS` — the Redis client
+- `context.REDIS_PREFIX` — the key prefix
 
-- adds in `__main__.py` section "define-params"
+- adds in `__main__.py` after "## build context ##":
+
 ```
 #--param REDIS_URL "$REDIS_URL"
 #--param REDIS_PREFIX "$REDIS_PREFIX"
-```
-
-- adds in `__main__.py` section "read-params"
-
-```
 import redis
-context.REDIS = redis.from_url(args.get("REDIS_URL", os.getenv("REDIS_URL")))
-context.REDIS_PREFIX = args.get("REDIS_PREFIX", os.getenv("REDIS_PREFIX"))
+def init_redis(args, ctx)
+  ctx.REDIS = redis.from_url(args.get("REDIS_URL", os.getenv("REDIS_URL")))
+  ctx.REDIS_PREFIX = args.get("REDIS_PREFIX", os.getenv("REDIS_PREFIX"))
+buikder.add(init_redis)
 ```
+
 ## returns
 
-informations on the updated context
+Information on the updated context.
 
 # tool add-postgresql
 
 ## parameters
-Receive an <endpoint> as parameter
+
+Receive an <endpoint> as parameter.
 
 ## generation
 
-This tool adds a context.POSTGRESQL connection  to an endpoint/action/function:
+This tool adds a PostgreSQL connection to an endpoint/action/function, making available:
+- `ctx.POSTGRESQL` — the psycopg connection
 
-- adds in `__main__.py` section "define-params"
+- adds in `__main__.py` after "## build context ##":
+
 
 ```
 #--param POSTGRES_URL "$POSTGRES_URL"
-```
-
-- adds in `__main__.py` section "read-params"
-
-```
 import psycopg
-dburl = args.get("POSTGRES_URL", os.getenv("POSTGRES_URL"))
-context.POSTGRESQL = psycopg.connect(dburl)
+def init_postgresql(args, ctx):
+  dburl = args.get("POSTGRES_URL", os.getenv("POSTGRES_URL"))
+  ctx.POSTGRESQL = psycopg.connect(dburl)
+builder.add(init_postgresql)
 ```
+
 ## returns
 
-informations on the updated context
+Information on the updated context.
 
 # tool add-milvus
 
 ## parameters
-Receive an <endpoint> as parameter
+
+Receive an <endpoint> as parameter.
 
 ## generation
 
-This tool adds a context.MILVUS connection   to an endpoint/action/function:
+This tool adds a Milvus vector DB connection to an endpoint/action/function, making available:
+- `context.MILVUS` — the MilvusClient instance
 
-- adds in `__main__.py` section "define-params"
+- adds in `__main__.py` after "## build context ##":
 
 ```
 #--param MILVUS_HOST "$MILVUS_HOST"
 #--param MILVUS_PORT "$MILVUS_PORT"
 #--param MILVUS_DB_NAME "$MILVUS_DB_NAME"
 #--param MILVUS_TOKEN "$MILVUS_TOKEN"
-```
-
-- adds in `__main__.py` section "read-params"
-
-```
 from pymilvus import MilvusClient
-uri = f"http://{args.get('MILVUS_HOST', os.getenv('MILVUS_HOST'))}"
-token = args.get("MILVUS_TOKEN", os.getenv("MILVUS_TOKEN"))
-db_name = args.get("MILVUS_DB_NAME", os.getenv("MILVUS_DB_NAME"))
-context.MILVUS = MilvusClient(uri=uri, token=token, db_name=db_name)
+def init_milvus(args, ctx):
+  host = args.get('MILVUS_HOST', os.getenv('MILVUS_HOST'))
+  port = args.get('MILVUS_PORT', os.getenv('MILVUS_PORT'))
+  uri = f"http://{host}:{port}"
+  token = args.get("MILVUS_TOKEN", os.getenv("MILVUS_TOKEN"))
+  db_name = args.get("MILVUS_DB_NAME", os.getenv("MILVUS_DB_NAME"))
+  ctx.MILVUS = MilvusClient(uri=uri, token=token, db_name=db_name)
+bulder.add(init_milvus)
 ```
+
 ## returns
 
-informations on the updated context
+Information on the updated context.
 
+# tool: ensure-requirements
 
+## parameters
 
+This tool is invoked to add a <library> for for each <endpoint>
+
+## generation
+
+The tool will do nothing when one of the following libraries is required (use the available version), otherwise will add the library to the file
+
+packages/<package>/<name>/requirements.txt
+
+- requests
+- ollama
+- openai
+- pymilvus
+- redis
+- pyyaml
+- boto3
+- psycopg
+- beautifulsoup4
+- pillow
+- nltk
+- httplib2
+- kafka_python
+- python-dateutil
+- scrapy
+- simplejson
+- twisted
+- netifaces
+- pymongo
+- minio
+- langdetect
+- plotly
+- joblib
+- lightgbm
+- feedparser
+- numpy
+- scikit-learn
+- langchain
+- langchain-ollama
+- langchain-openai
+- bcrypt

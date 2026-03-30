@@ -40,6 +40,18 @@ and execute `ops ide login`
 
 If it terminates with 0 continue otherwise return error
 
+## clean
+
+Execute `ops ide clean` in `<workbenchdir>/<app>`.
+
+If it terminates with 0 continue otherwise return error.
+
+## deploy
+
+Execute `ops ide deploy` in `<workbenchdir>/<app>`.
+
+If it terminates with 0 continue otherwise return error.
+
 ## check ports
 
 Assume `opencode` port will be 4096.
@@ -51,13 +63,13 @@ otherwise return error.
 
 ## copy opencode configuration files
 
-Before starting opencode, always copy the opencode configuration files to the workbench directory, overwriting existing files:
+Before starting opencode, copy the opencode JSON config to the workbench directory:
 
-If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()`.
+If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()` (which also writes `opencode.md` to `~/.config/opencode/opencode.md`).
 
 Copy the file `~/.config/opencode/opencode.json` to `<workbenchdir>/<app>/opencode.json`, overwriting existing files.
 
-Write the embedded `opencode.md` to `<workbenchdir>/<app>/opencode.md`, overwriting existing files.
+Note: `opencode.md` is written to `~/.config/opencode/opencode.md` during the configure step and referenced by absolute path in `opencode.json`, so it does not need to be copied to the workbench.
 
 ## start process group
 

@@ -18,6 +18,9 @@ var versionTxt string
 //go:embed opencode.md
 var opencodeMd string
 
+//go:embed tools
+var embeddedTools embed.FS
+
 func main() {
 	// Run preflight checks
 	if err := runPreflight(); err != nil {
@@ -48,6 +51,7 @@ func main() {
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/git/status/", handleGitStatus)
 	http.HandleFunc("/api/git/save", handleGitSave)
+	http.HandleFunc("/api/publish/force-push", handlePublish)
 	http.HandleFunc("/api/sshkey", handleSSHKey)
 	http.HandleFunc("/api/configure", handleConfigure)
 	http.HandleFunc("/api/testmodel", handleTestModel)

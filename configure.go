@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -334,6 +335,34 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendMsg("OK: opencode.json generated")
+
+	// Copy embedded tools folder to ~/.config/opencode/tools
+	toolsDst := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "tools")
+	if err := os.MkdirAll(toolsDst, 0755); err != nil {
+		sendMsg("WARNING: failed to create tools directory: " + err.Error())
+	} else {
+		entries, err := fs.ReadDir(embeddedTools, "tools")
+		if err != nil {
+			sendMsg("WARNING: failed to read embedded tools: " + err.Error())
+		} else {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				data, err := fs.ReadFile(embeddedTools, "tools/"+entry.Name())
+				if err != nil {
+					sendMsg("WARNING: failed to read embedded tool " + entry.Name() + ": " + err.Error())
+					continue
+				}
+				dst := filepath.Join(toolsDst, entry.Name())
+				if err := os.WriteFile(dst, data, 0644); err != nil {
+					sendMsg("WARNING: failed to write tool " + entry.Name() + ": " + err.Error())
+				}
+			}
+			sendMsg("OK: opencode tools installed")
+		}
+	}
+
 	sendMsg("DONE")
 }
 
@@ -400,7 +429,7 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 
 	config := map[string]interface{}{
 		"$schema":           "https://opencode.ai/config.json",
-		"instructions":      []string{"opencode.md"},
+		"instructions":      []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
 		"enabled_providers": []string{"ollama"},
 		"model":             modelDefault,
 		"small_model":       modelSmall,
@@ -438,6 +467,14 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 	}
 
 	log.Printf("  - Written to %s", configPath)
+
+	// Write opencode.md instructions file alongside the config
+	mdPath := filepath.Join(filepath.Dir(configPath), "opencode.md")
+	if err := os.WriteFile(mdPath, []byte(opencodeMd), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", mdPath, err)
+	}
+	log.Printf("  - Written to %s", mdPath)
+
 	return nil
 }
 

@@ -143,6 +143,16 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ops ide clean
+	opsCleanCmd := exec.Command("ops", "ide", "clean")
+	opsCleanCmd.Dir = workbenchPath
+	if output, err := opsCleanCmd.CombinedOutput(); err != nil {
+		log.Printf("ops ide clean failed: %s, output: %s", err, string(output))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "ops ide clean failed: " + string(output)})
+		return
+	}
+
 	// ops ide deploy
 	deployCmd := exec.Command("ops", "ide", "deploy")
 	deployCmd.Dir = workbenchPath
@@ -240,6 +250,24 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Warning: git clean failed: %s, output: %s", cleanErr, string(cleanOutput))
 		} else {
 			output = append(output, cleanOutput...)
+		}
+
+		// Run ops ide clean after revert
+		opsCleanCmd := exec.Command("ops", "ide", "clean")
+		opsCleanCmd.Dir = workbenchPath
+		if opsCleanOutput, opsCleanErr := opsCleanCmd.CombinedOutput(); opsCleanErr != nil {
+			log.Printf("Warning: ops ide clean failed: %s, output: %s", opsCleanErr, string(opsCleanOutput))
+		} else {
+			output = append(output, opsCleanOutput...)
+		}
+
+		// Run ops ide deploy after revert
+		opsDeployCmd := exec.Command("ops", "ide", "deploy")
+		opsDeployCmd.Dir = workbenchPath
+		if opsDeployOutput, opsDeployErr := opsDeployCmd.CombinedOutput(); opsDeployErr != nil {
+			log.Printf("Warning: ops ide deploy failed: %s, output: %s", opsDeployErr, string(opsDeployOutput))
+		} else {
+			output = append(output, opsDeployOutput...)
 		}
 	}
 

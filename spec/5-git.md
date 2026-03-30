@@ -11,7 +11,7 @@ Put the code in the file `git.go`
 
 Change to the folder `<workbenchdir>/<name>`
 and execute the command `git <command>`.
-If the command is `checkout .`, also run `git clean -fd` to remove untracked files.
+If the command is `checkout .`, also run `git clean -fd` to remove untracked files, then run `ops ide clean` followed by `ops ide deploy` (both in `<workbenchdir>/<name>`).
 Return the output.
 
 # GET /api/git/status/<name>
@@ -52,6 +52,9 @@ Execute the following git commands in sequence:
 3. `git commit -m "save from trustable"` to commit all changes
 4. `git push origin` to push changes back to workspace/<name>
    (the origin remote points to workspace/<name> because workbench was cloned from it)
+
+5. `ops ide clean` to clean the IDE state
+6. `ops ide deploy` to deploy updated code
 
 If any step fails, return `{"error": <error message>}`.
 If successful, return `{"message": "saved successfully"}`.

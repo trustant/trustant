@@ -107,7 +107,7 @@ Using information from the merged config and the .env, create the opencode confi
 ```
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": ["opencode.md"],
+  "instructions": ["~/.config/opencode/opencode.md"],
   "enabled_providers": [
     "ollama"
   ],
@@ -164,6 +164,8 @@ Template:
   }
 }
 ```
+
+After generating `opencode.json`, write the embedded `opencode.md` to `~/.config/opencode/opencode.md` (the instructions file referenced by absolute path in the config). Also copy the embedded `tools` folder to `~/.config/opencode/tools`, overwriting existing files.
 
 # Manage configuration: GET /api/configuration
 

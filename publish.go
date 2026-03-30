@@ -24,6 +24,8 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/publish/push":
 		handlePublishPush(w, r)
+	case "/api/publish/force-push":
+		handlePublishForcePush(w, r)
 	case "/api/publish/remote":
 		handlePublishRemote(w, r)
 	default:
@@ -131,6 +133,94 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	output, err := pushCmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Git push to production failed: %s, output: %s", err, string(output))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":  err.Error(),
+			"output": string(output),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"output": string(output),
+	})
+}
+
+// handlePublishForcePush handles POST /api/publish/force-push
+// Force pushes code to the production GitHub repository
+func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if !namePattern.MatchString(req.Name) {
+		http.Error(w, "Invalid name format", http.StatusBadRequest)
+		return
+	}
+
+	// Load config to get OPS_REPO
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config: " + err.Error()})
+		return
+	}
+	if wsCfg.Apps == nil || wsCfg.Apps[req.Name] == nil || wsCfg.Apps[req.Name].Production == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "No production config found"})
+		return
+	}
+
+	opsRepo := wsCfg.Apps[req.Name].Production["OPS_REPO"]
+	if opsRepo == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "No production repository configured"})
+		return
+	}
+
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "App not found in workspace"})
+		return
+	}
+
+	// Setup production remote
+	repoURL := fmt.Sprintf("git@github.com:%s.git", opsRepo)
+
+	removeCmd := exec.Command("git", "remote", "remove", "production")
+	removeCmd.Dir = workspacePath
+	removeCmd.Run()
+
+	addCmd := exec.Command("git", "remote", "add", "production", repoURL)
+	addCmd.Dir = workspacePath
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":  "Failed to add production remote: " + err.Error(),
+			"output": string(output),
+		})
+		return
+	}
+
+	// Force push to production with SSH key
+	homeDir, _ := os.UserHomeDir()
+	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
+	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
+
+	pushCmd := exec.Command("git", "push", "-f", "production", "main")
+	pushCmd.Dir = workspacePath
+	pushCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
+
+	output, err := pushCmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Git force push to production failed: %s, output: %s", err, string(output))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{

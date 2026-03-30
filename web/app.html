@@ -91,7 +91,7 @@
                 </button>
             </div>
             <div id="saveResult" class="hidden">
-                <p id="saveResultText" class="mb-4"></p>
+                <div id="saveResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideSaveModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
@@ -150,7 +150,7 @@
             </div>
             <div id="uploadError" class="hidden">
                 <h3 class="text-lg font-semibold mb-2 text-red-600">Upload Failed</h3>
-                <p id="uploadErrorText" class="text-red-600 mb-4"></p>
+                <div id="uploadErrorText" class="text-red-600 mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideUploadModal()"
                     class="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
                     Close
@@ -181,7 +181,7 @@
                 </button>
             </div>
             <div id="revertResult" class="hidden">
-                <p id="revertResultText" class="mb-4"></p>
+                <div id="revertResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideRevertModal()"
                     class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                     Continue
@@ -204,7 +204,7 @@
                 <div id="skillsBody" class="flex-1 overflow-y-auto p-4"></div>
             </div>
             <div id="skillsEmpty" class="hidden p-8 text-center text-gray-500">No skills found. Click "Update Skills to Latest" to install.</div>
-            <div id="skillsError" class="hidden p-8 text-center text-red-600"></div>
+            <div id="skillsError" class="hidden p-4 text-left text-red-600 text-sm font-mono bg-gray-50 rounded mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
         </div>
     </div>
 
@@ -229,7 +229,7 @@
                 </table>
                 <p class="text-sm text-gray-500 mt-4 italic">To edit environment variables, use the Env button from the app list.</p>
             </div>
-            <div id="envError" class="hidden p-8 text-center text-red-600"></div>
+            <div id="envError" class="hidden p-4 text-left text-red-600 text-sm font-mono bg-gray-50 rounded mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
         </div>
     </div>
 
@@ -256,7 +256,7 @@
                 </button>
             </div>
             <div id="skillsUpdateResult" class="hidden">
-                <p id="skillsUpdateResultText" class="mb-4"></p>
+                <div id="skillsUpdateResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideSkillsUpdateModal(); loadSkills();"
                     class="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
                     Continue
@@ -374,19 +374,20 @@
                 const data = await response.json();
                 document.getElementById('saveSpinner').classList.add('hidden');
 
+                const saveBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 if (data.error) {
                     document.getElementById('saveResultText').textContent = data.error;
-                    document.getElementById('saveResultText').className = 'mb-4 text-red-600';
+                    document.getElementById('saveResultText').className = 'mb-4 text-red-600' + saveBaseClasses;
                 } else {
                     document.getElementById('saveResultText').textContent = data.message || 'Committed successfully';
-                    document.getElementById('saveResultText').className = 'mb-4 text-green-600';
+                    document.getElementById('saveResultText').className = 'mb-4 text-green-600' + saveBaseClasses;
                     refreshGitStatus();
                 }
                 document.getElementById('saveResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('saveSpinner').classList.add('hidden');
                 document.getElementById('saveResultText').textContent = error.message;
-                document.getElementById('saveResultText').className = 'mb-4 text-red-600';
+                document.getElementById('saveResultText').className = 'mb-4 text-red-600 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 document.getElementById('saveResult').classList.remove('hidden');
             }
         }
@@ -424,19 +425,20 @@
                 const data = await response.json();
                 document.getElementById('revertSpinner').classList.add('hidden');
 
+                const revertBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 if (response.ok && !data.error) {
                     document.getElementById('revertResultText').textContent = data.output || 'Revert completed successfully';
-                    document.getElementById('revertResultText').className = 'mb-4 text-green-600';
+                    document.getElementById('revertResultText').className = 'mb-4 text-green-600' + revertBaseClasses;
                     refreshGitStatus();
                 } else {
                     document.getElementById('revertResultText').textContent = data.error || data.output || 'Revert failed';
-                    document.getElementById('revertResultText').className = 'mb-4 text-red-600';
+                    document.getElementById('revertResultText').className = 'mb-4 text-red-600' + revertBaseClasses;
                 }
                 document.getElementById('revertResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('revertSpinner').classList.add('hidden');
                 document.getElementById('revertResultText').textContent = error.message;
-                document.getElementById('revertResultText').className = 'mb-4 text-red-600';
+                document.getElementById('revertResultText').className = 'mb-4 text-red-600' + revertBaseClasses;
                 document.getElementById('revertResult').classList.remove('hidden');
             }
         }
@@ -842,18 +844,19 @@
                 const data = await resp.json();
                 document.getElementById('skillsUpdateSpinner').classList.add('hidden');
 
+                const skillsBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
                 if (data.error) {
                     document.getElementById('skillsUpdateResultText').textContent = data.error;
-                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600';
+                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600' + skillsBaseClasses;
                 } else {
                     document.getElementById('skillsUpdateResultText').textContent = 'Skills updated successfully';
-                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-green-600';
+                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-green-600' + skillsBaseClasses;
                 }
                 document.getElementById('skillsUpdateResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('skillsUpdateSpinner').classList.add('hidden');
                 document.getElementById('skillsUpdateResultText').textContent = error.message;
-                document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600';
+                document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600' + skillsBaseClasses;
                 document.getElementById('skillsUpdateResult').classList.remove('hidden');
             }
         }
