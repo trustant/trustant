@@ -1,13 +1,19 @@
 #!/bin/bash
+
+KEY=trustabledev
+if [[ -n  "$1" ]] && [[ "$1" == "--production" ]]
+then KEY="trustable"
+fi
+
 VERSION=0.3.2-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
-TAG=$(date +%y.%j.%H%S)
+TAG="$VERSION+$(date +%y.%j.%H%S)"
 
 git tag -d $(git tag)
 echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: 2026/06/30\n" >version.txt
 
 OPSROOT="$(dirname "$0")/olaris-trustable/opsroot.json"
-jq --arg img "$IMAGE:$TAG" '.config.images.trustable = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"
+jq --arg img "$IMAGE:$TAG" '.config.images.'$KEY' = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"
 jq  -r '.ollama|keys[]' <trustable.json >olaris-trustable/model.lst
 
 git commit -m "build $TAG" -a
