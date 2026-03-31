@@ -16,7 +16,7 @@ name: Build and Push Images
 on:
   push:
     tags:
-      - '[^_]+_[^_]+_[^_]+'
+      - '*_*_*'
 
 jobs:
   build-and-push:
