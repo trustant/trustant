@@ -2,10 +2,9 @@
 
 KEY=${1:-trustabledev}
 
-
 VERSION=0.3.2-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
-TAG="${VERSION}_$(date +%y.%j.%H%S)"
+TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%S)"
 
 git tag -d $(git tag)
 echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: 2026/06/30\n" >version.txt
