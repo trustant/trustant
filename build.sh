@@ -1,9 +1,7 @@
 #!/bin/bash
 
-KEY=trustabledev
-if [[ -n  "$1" ]] && [[ "$1" == "--production" ]]
-then KEY="trustable"
-fi
+KEY=${1:-trustabledev}
+
 
 VERSION=0.3.2-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
