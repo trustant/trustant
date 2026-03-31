@@ -22,11 +22,10 @@ Copy `.env.dist` to `.env` and fill in the values:
 
 ```
 WORKSPACE_DIR=$HOME/.ops-workspace
+WORKBENCH_DIR=./workbench
 OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=<your api key>
 OLLAMA_ENDPOINT=http://localhost:11434
-OPENCODE_MODEL=qwen3-coder:480b-cloud
-OPENCODE_SMALL_MODEL=qwen3:1.7b
 ```
 
 Ensure `$WORKSPACE_DIR` exists (it should if you installed openserverless)
@@ -52,13 +51,20 @@ Start the app with live reload:
 ## Test
 
 Execute `./build.sh`
-It will build an image, deploy and open the application locally
+It will build a development image `trustabledev`, deploy it and open the application locally
+
+Execute `./build.sh trustable` to build the production image
 
 # Publish
 
-`git push --tags`
-will trigger a build of an image
-once the build is complete
+Execute `./publish.sh` to publish the image, building it on github actions and then updating the plugin
 
-`cd ollama-trustable ; git push origin main --tags`
-will publish the references to the image
+# Deploying
+
+The file trustable-install.txt describe how to install.
+
+By defualt it is installed the production image
+
+Use ops trystable redeploy KEY=trustabledev
+to use the development image.
+
