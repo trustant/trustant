@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -482,25 +481,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			domain = domain[:colonIdx]
 		}
 	}
-
-	// POST to opencode session endpoint to initialize the session
-	// Use localhost since opencode is running on the same machine
-	sessionURL := fmt.Sprintf("http://localhost:%d/session/", leftPort)
-	sessionReq, err := http.NewRequest("POST", sessionURL, nil)
-	if err != nil {
-		log.Printf("Warning: failed to create session request: %s", err)
-	} else {
-		sessionReq.Header.Set("X-Opencode-Directory", absPath)
-		resp, err := http.DefaultClient.Do(sessionReq)
-		if err != nil {
-			log.Printf("Warning: POST %s failed: %s", sessionURL, err)
-		} else {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			log.Printf("POST %s -> %d: %s", sessionURL, resp.StatusCode, string(body))
-		}
-	}
-
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"left":         leftPort,

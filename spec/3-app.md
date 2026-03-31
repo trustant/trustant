@@ -17,13 +17,14 @@ In the bar, aligned to the left:
 - the app name in bold
 - the button "Env" (purple, gear icon)
 - the button "Skills" (purple, book icon)
+- the button "Upload" (green, upload arrow icon)
 
 Aligned to the right:
 
 - a git status indicator (dot + text)
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
 - the button "Revert" (orange, undo arrow icon, disabled when no changes)
-- the button "Upload" (green, upload arrow icon)
+- the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/")
 - the button "Back" (gray, chevron left icon)
 
 All buttons use inline SVG icons (monochrome white, matching the button text).
@@ -34,7 +35,7 @@ Get the URLDIR from the coookie then show the iframe:
 
 They will show:
 - to the left: `<LEFT>/session/?directory=<URLDIR>`
-- to the right `<RIGHT>`
+- to the right: `<RIGHT><ROUTE>#<ROUTE>` where `<ROUTE>` is the value of the ROUTE cookie (defaults to "/")
 
 Write in console.log the values of the cookies B64DIR and URLDIR
 
@@ -103,3 +104,14 @@ passing the current <name> and the uploaded file
 It expects you return a full path name, show the
 uploaded file in a popup allowing the user to copy
 in the clipboard the filename before closing.
+
+# Route
+
+The Route button in the toolbar displays "Route: <route>" where `<route>` is the current value of the ROUTE cookie (defaults to "/").
+
+When clicked, show a popup asking "Enter new route:" with a text input pre-filled with the current route value and buttons "OK" and "Cancel".
+
+If the user confirms:
+- Set the ROUTE cookie to the new value
+- Update the button label to show the new route
+- Reload the right iframe using `<RIGHT><new_route>#<new_route>` as the URL

@@ -26,7 +26,7 @@ cp -v trustable.json image/trustable.json
 
 image/image.sh "$TAG"
 ~/.ops/*-*/bin/kind load docker-image $IMAGE:$TAG -n nuvolaris
-ops trustable trustable redeploy
+ops trustable trustable redeploy KEY=$KEY
 
 cd olaris-trustable
 git commit -m "$TAG" -a
