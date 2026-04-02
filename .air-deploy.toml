@@ -1,0 +1,28 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "sed -i '' 's/^Build: .*/Build: dev_'$(date +%y.%j.%H%M)'/' version.txt && env GOOS=linux GOARCH=arm64 go build -o ./tmp/trustable . && kubectl -n nuvolaris cp -c trustable ./tmp/trustable trustable-0:/usr/local/bin/trustable && kubectl -n nuvolaris exec -c trustable trustable-0 -- supervisorctl restart trustable"
+  bin = "/usr/bin/true"
+  delay = 1000
+  exclude_dir = ["tmp", "workspace", "workbench", "web", "node_modules", "image", "trureact", "truchat"]
+  exclude_regex = ["_test.go"]
+  exclude_unchanged = true
+  follow_symlink = false
+  include_ext = ["go"]
+  kill_delay = "0s"
+  log = "build-errors.log"
+  send_interrupt = false
+  stop_on_error = true
+
+[log]
+  time = false
+
+[color]
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[misc]
+  clean_on_exit = true
