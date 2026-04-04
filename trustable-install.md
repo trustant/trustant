@@ -1,142 +1,152 @@
-# ![](./web/trustable-logo.png){ height=50px } Trustable - Istruzioni per l'installazione
+# ![](./web/trustable-logo.png){ height=50px } Trustable - Installation Instructions
 
-> **Nota:** La release è al momento in versione alpha ed è possibile che contenga errori. Usare il sito  `github.com/trustable-ai` per riportare problemi.
+> **Note:** The release is currently in alpha version and may contain errors.
 
-##  Sicurezza Informatica
+## Support
 
-Trustable è un sistema di vibe coding che genera applicazioni quindi richiede la possibilità di eseguire codice affidato alla AI.
+- You can report issues and read the FAQ
 
-Per ridurre i rischi, agisce solamente all'interno di container Docker e scrive solo su alcune cartelle nella home directory:
+```
+https://github.com/trustable-ai
+```
 
-- `.local/bin`
+- You can join the support group on WhatsApp
+
+ ![](./web/wa-trustable.jpeg){ height=50px }
+
+```
+https://n7s.co/wa-trustable
+```
+
+## Security
+
+Trustable is a vibe coding system that generates applications, therefore it requires the ability to execute code entrusted to the AI.
+
+To reduce risks, it operates only within Docker containers and writes only to specific folders in the home directory:
+
 - `.ops`
 - `.ops-workspace`
+- `.local/bin`
 
-Trustable richiede per l'installazione e l'esecuzione il download di eseguibili binari. Tutti i binari sono scaricati da fonti note e documentate.
+Trustable requires the download of binary executables for installation and execution. All binaries are downloaded from known and documented sources like github.
 
-> **IMPORTANTE** La AI agisce solo all'interno di un container Docker e non ha **mai** accesso diretto al filesystem locale dell'utente. I comandi sono eseguiti all'interno di un docker container.
+> **IMPORTANT** The AI operates only within a Docker container and **never** has full access to the user's local filesystem except for the documented folders. Commands are executed inside a Docker container. However, it is recommended to install Trustable on a machine **THAT DOES NOT CONTAIN SENSITIVE DATA** and for which you have a **complete backup**.
 
-I rischi di danni sono quindi limitati, ma è sempre bene essere cauti e non usare un computer di produzione o con dati sensibili.
+The system is not authenticated but is for local access only. All links point to `http://*.miniops.me` which resolves to `127.0.0.1`.
 
-## Prerequisiti
+If you install on a virtual machine, you need to set up a tunnel to access it:
 
-### Memoria
+```
+ssh -L 80:127.0.0.1:80 <user>@<server>
+```
 
-Trusable richiede un sistema con almeno **16 GB di memoria RAM**. È **molto improbabile** che funzioni accettabilmente con meno memoria.
+## Prerequisites
 
-### Sistemi operativi supportati
+### Memory, Disk and CPU
 
-Trustable è stato testato su:
+Trustable requires a system with at least **16 GB of RAM**. It is **very unlikely** to work acceptably with less memory.
+
+It will use around 60 GB of disk space. If you use it in a virtual machine, you need at least 4 virtual CPUs.
+
+### Supported Operating Systems
+
+Trustable has been tested on:
 
 - Windows 11
 - macOS Sequoia
 - Ubuntu 24.04
 
-Sistemi diversi o meno recenti possono presentare problemi di compatibilità.
-
-
-### Windows Defender
-
-Windows Defender interferisce con Trustable, rallentando l'esecuzione e impedendo il download di librarie.
-
-Per l'esecuzione occorre disabilitare:
-
-- Real TIme Detection (altrimenti rallenta notevolmente l'esecuzione)
-- Network e Firewall protection (altrimenti blocca il download di eseguibili e librerie)
-
-> **Importante**: Si raccomanda di installare Trustable in una macchina **CHE NON CONTIENE DATI SENSIBILI** e di cui si abbia un **completo backup**.
+Different or older systems may present compatibility issues. The installer will set up a firewall rule for local access to `127.0.0.1`.
 
 ### Docker Desktop
 
-Trustable richiede ed utilizza Docker. Occorre scaricare e installare **Docker Desktop** prima di cominciare e averlo in esecuzione.
+Trustable requires and uses Docker. You need to download and install **Docker Desktop** before starting and have it running.
 
-> **Attenzione:** Docker Desktop richiede una login per scaricare le immagini. Effettuare il login prima di procedere.
+> **Warning:** Docker Desktop requires a login to download images. Log in before proceeding.
 
 ### Ollama Cloud
 
-Per i modelli AI, Trustable utilizza **Ollama Cloud**. È disponibile anche la versione free, che fornisce crediti gratuiti (ma limitati) per provare. Occorre registrare un account gratuito.
+For AI models, Trustable uses **Ollama Cloud**. A free version is also available, which provides free (but limited) credits to try. You need to register a free account.
 
-Se si vuole lavorare più intensamente occorre:
+If you want to work more intensively, you need:
 
-- Un **Ollama locale con GPU** (come le nostre BestIA), oppure
-- Un **account Pro** su Ollama Cloud
+- A **local Ollama with GPU** (such as our BestIA), or
+- A **Pro account** on Ollama Cloud
 
+## Installation
 
-È possibile che ci siano problemi su altri sistemi operativi o configurazioni.
-
-## Installazione
-
-### 1. Scaricare Trustable
+### 1. Download Trustable
 
 **Windows**:
 
-Aprire la PowerShell (premere Windows+R e scrivere 'powershell') ed eseguire
+Open PowerShell (press Windows+R and type 'powershell') and run:
 
 ```powershell
 irm n7s.co/get-trustable | iex
 ```
 
-Se ci sono problemi in `ensure prerequisites` occorre disabilitare la real time protection.
+If there are issues with `ensure prerequisites`, you need to temporarily disable real-time protection.
 
-Poi **chiudere e riaprire** il terminale prima di proseguire.
+Then **close and reopen** the terminal before continuing.
 
-**Linux / Mac ** :
+**Linux / Mac**:
 
-Aprire il terminare ed eseguire:
+Open the terminal and run:
 
 ```bash
 curl -sL n7s.co/get-trustable | bash
 ```
 
-Poi **chiudere e riaprire** il terminale prima di proseguire.
+Then **close and reopen** the terminal before continuing.
 
 ### 2. Setup
 
-Per l'installazione eseguire:
+To install, run:
 
 ```bash
 ops trustable setup
 ```
 
-Se il sistema non trova ops, occorre chiudere e riaprire il terminale.
+If the system cannot find ops, you need to close and reopen the terminal.
 
-> **Nota:** L'installazione dura un certo tempo e scarica molti componenti. Se avete una rete lenta e si verifica un timeout, si può riprovare: l'installazione è incrementale e non riparte da zero.
+> **Note:** The installation takes some time and downloads many components. If you have a slow network and a timeout occurs, you can retry: the installation is incremental and does not restart from scratch.
 
-## Utilizzo
+## Usage
 
-Una volta installato, Trustable parte in automatico.
+Once installed, Trustable starts automatically.
 
-Per accedervi le volte successive usare:
+To access it on subsequent occasions, use:
 
 ```bash
 ops trustable signin
 ```
 
-## Risoluzione problemi
+## Troubleshooting
 
-Per verificare lo stato di salute della installazione usare:
+To check the health status of the installation, use:
 
 ```bash
 ops trustable doctor
 ```
 
-Se il dottore  riscontrano problemi, provate auna semplice risoluzione con:
+If the doctor detects issues, try a simple resolution with:
 
 ```bash
 ops trustable restart
 ```
 
-Per accedere ai log e facilitare il debugging potete ispezionare cosa succede con il comando:
+To access logs and facilitate debugging, you can inspect what is happening with the command:
 
 ```bash
 ops trustable logs
 ```
 
-I log sono continui. Premere Control-C per interropere la visualizzazione.
+Logs are continuous. Press Control-C to stop the display.
 
-## Disinstallazione
 
-Per disinstallare tutto:
+## Uninstallation
+
+To remove everything use:
 
 ```bash
 ops trustable uninstall
