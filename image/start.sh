@@ -35,7 +35,7 @@ if test -n "$B64KUBECONFIG"
 then ops -base64 -d "$B64KUBECONFIG" >$HOME/.ops/tmp/kubeconfig
 fi
 
-chown -R node:node $HOME/.ssh $HOME/.env
+chown -R node:node "$HOME/.ssh" "$HOME/.env" "$HOME/.ops"
 
 if [ -n "$USERID" ] && [ "$USERID" != "1000"]
 then
