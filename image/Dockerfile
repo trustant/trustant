@@ -36,6 +36,7 @@ RUN \
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
 
 RUN mkdir /home/node/workspace
+RUN echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
 USER root
 CMD ["/usr/local/bin/start.sh"]
