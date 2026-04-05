@@ -1,4 +1,4 @@
 Version: v0.3.2-alpha
-Build: trustabledev_0.3.2-alpha_26.095.1925
+Build: trustabledev_0.3.2-alpha_26.095.1905
 Expiry: 2026/06/30
 
