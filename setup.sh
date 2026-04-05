@@ -183,11 +183,6 @@ if ! command -v air &>/dev/null; then
 fi
 ok "air is available"
 
-# --- Step 9: Sync model list ---
-echo "--- Syncing model list ---"
-ops trustable ollama models > model.lst
-ok "Model list synced to model.lst"
-
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"
 echo "You may need to restart your shell or run: source ~/.bashrc"

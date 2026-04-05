@@ -61,10 +61,10 @@ Execute `./publish.sh` to publish the image, building it on github actions and t
 
 # Deploying
 
-The file trustable-install.txt describe how to install.
+The file trustable-install.md describe the installation.
 
-By defualt it is installed the production image
+By default it installs the production image.
 
-Use ops trystable redeploy KEY=trustabledev
+Use ops trustable redeploy KEY=trustabledev
 to use the development image.
 

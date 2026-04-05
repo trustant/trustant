@@ -17,7 +17,12 @@ In the bar, aligned to the left:
 - the app name in bold
 - the button "Env" (purple, gear icon)
 - the button "Skills" (purple, book icon)
+- the button "Memory" (purple, brain icon)
 - the button "Upload" (green, upload arrow icon)
+
+Centered
+
+- the button Redeploy with a rocket icon
 
 Aligned to the right:
 
@@ -25,6 +30,7 @@ Aligned to the right:
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
 - the button "Revert" (orange, undo arrow icon, disabled when no changes)
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/")
+- the button "Query" (teal, question mark icon)
 - the button "Back" (gray, chevron left icon)
 
 All buttons use inline SVG icons (monochrome white, matching the button text).
@@ -93,6 +99,14 @@ All values are displayed as plain text (not editable). A note at the bottom says
 
 The modal can be closed with the X button, Escape key, or clicking the backdrop.
 
+# Memory
+
+Add a Memory Button with Brain icon to the toolbar.
+
+Clicking it will show the text editor codejar allowing to edit the file AGENTS.md with a popup centered and the buttons save and cancel
+
+Create the file AGENTS.md if it is not there and add to git when creating.
+
 # Upload
 
 Add an Upload Button to the toolbar.
@@ -105,13 +119,41 @@ It expects you return a full path name, show the
 uploaded file in a popup allowing the user to copy
 in the clipboard the filename before closing.
 
-# Route
+# Query & Route
+
 
 The Route button in the toolbar displays "Route: <route>" where `<route>` is the current value of the ROUTE cookie (defaults to "/").
 
-When clicked, show a popup asking "Enter new route:" with a text input pre-filled with the current route value and buttons "OK" and "Cancel".
+When clicked, show a popup asking "Enter new route:" with a text input pre-filled with the current route value and buttons "OK" and "Cancel", set the cookie ROUTE if ok
+
+
+The Query button shows a query string editor, a sequence of key/values
+
+You can add and remove a couple key var.
+
+Show buttons Ok and Cancel, set the cooke QUERY as url encoded query string of key values set by the editor
 
 If the user confirms:
-- Set the ROUTE cookie to the new value
 - Update the button label to show the new route
-- Reload the right iframe using `<RIGHT><new_route>#<new_route>` as the URL
+- Reload the right iframe using
+`<RIGHT><new_route>?<query>#<new_route>` as the URL
+
+# Redeploy
+
+The Redeploy button (centered in the toolbar, indigo, rocket icon) triggers a server-side redeploy cycle.
+
+When clicked:
+
+- Replace the right iframe content with a spinner and status message "Redeploying..."
+- Open an EventSource to `GET /api/redeploy?name=<NAME>`
+- The API streams SSE events (`event: status`) updating the iframe status text as each step progresses:
+  - Terminating ops ide devel
+  - Waiting for port 5173 to be free
+  - Deploying actions (ops ide deploy)
+  - Getting action list (ops action list)
+  - Starting dev server (ops ide devel --fast)
+  - Waiting for dev server to be ready (HTTP HEAD check)
+- On `event: done`, show "Redeploy complete", the action list in a code block, and an OK link pointing to `<RIGHT><ROUTE>?<QUERY>#<ROUTE>`
+- On `event: error`, stop the spinner and show the error in red
+
+

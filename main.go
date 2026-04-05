@@ -60,6 +60,8 @@ func main() {
 	http.HandleFunc("/api/publish/push", handlePublish)
 	http.HandleFunc("/api/publish/remote", handlePublish)
 	http.HandleFunc("/api/skills/", handleSkills)
+	http.HandleFunc("/api/memory/", handleMemory)
+	http.HandleFunc("/api/redeploy", handleRedeploy)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {

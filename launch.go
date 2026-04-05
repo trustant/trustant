@@ -512,6 +512,220 @@ func handleLaunchDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// findDevelPids finds PIDs in the process group that are ops ide devel or vite related
+func findDevelPids(pgid int) ([]int, error) {
+	// List all PIDs in the process group
+	pgrepCmd := exec.Command("pgrep", "-g", strconv.Itoa(pgid))
+	output, err := pgrepCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("pgrep failed: %w", err)
+	}
+
+	var develPids []int
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			continue
+		}
+
+		// Check command line for this PID
+		psCmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "args=")
+		psOutput, err := psCmd.Output()
+		if err != nil {
+			continue
+		}
+		cmdLine := string(psOutput)
+
+		// Match ops ide devel, vite, or node processes on port 5173
+		if strings.Contains(cmdLine, "ops ide devel") ||
+			strings.Contains(cmdLine, "vite") ||
+			strings.Contains(cmdLine, "5173") {
+			develPids = append(develPids, pid)
+		}
+	}
+	return develPids, nil
+}
+
+// waitForHTTP waits for an HTTP server to respond to HEAD requests
+func waitForHTTP(port int, timeout time.Duration) error {
+	client := &http.Client{Timeout: 1 * time.Second}
+	url := fmt.Sprintf("http://localhost:%d/", port)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := client.Head(url)
+		if err == nil {
+			resp.Body.Close()
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("http://localhost:%d not responding after %v", port, timeout)
+}
+
+// waitForPortFree waits for a port to stop accepting connections
+func waitForPortFree(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !isPortListening(port) {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return fmt.Errorf("port %d still listening after %v", port, timeout)
+}
+
+// handleRedeploy handles GET /api/redeploy?name=<app> - restarts ops ide devel, streaming progress via SSE
+func handleRedeploy(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" || !namePattern.MatchString(name) {
+		http.Error(w, "Invalid app name", http.StatusBadRequest)
+		return
+	}
+
+	req := struct{ Name string }{Name: name}
+
+	workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, req.Name))
+	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
+		http.Error(w, "Workbench not found", http.StatusNotFound)
+		return
+	}
+
+	pgid, err := readPgid()
+	if err != nil {
+		http.Error(w, "No running session found", http.StatusBadRequest)
+		return
+	}
+
+	// Stream progress as text/event-stream
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	send := func(event, data string) {
+		fmt.Fprintf(w, "event: %s\n", event)
+		for _, line := range strings.Split(data, "\n") {
+			fmt.Fprintf(w, "data: %s\n", line)
+		}
+		fmt.Fprintf(w, "\n")
+		flusher.Flush()
+	}
+
+	// Step 1: Terminate ops ide devel
+	send("status", "Terminating ops ide devel...")
+	log.Printf("Redeploy: finding devel PIDs in process group %d...", pgid)
+	develPids, _ := findDevelPids(pgid)
+
+	if len(develPids) > 0 {
+		for _, pid := range develPids {
+			syscall.Kill(pid, syscall.SIGTERM)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			allDead := true
+			for _, pid := range develPids {
+				if err := syscall.Kill(pid, 0); err == nil {
+					allDead = false
+					break
+				}
+			}
+			if allDead {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		for _, pid := range develPids {
+			if err := syscall.Kill(pid, 0); err == nil {
+				syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	}
+
+	// Step 2: Wait for port free
+	send("status", "Waiting for port 5173 to be free...")
+	if err := waitForPortFree(opsdevelPort, 10*time.Second); err != nil {
+		send("error", fmt.Sprintf("Port %d did not free up: %s", opsdevelPort, err))
+		return
+	}
+
+	// Step 3: Deploy actions
+	send("status", "Deploying actions (ops ide deploy)...")
+	log.Printf("Redeploy: running ops ide deploy for %s...", req.Name)
+	deployCmd := exec.Command("ops", "ide", "deploy")
+	deployCmd.Dir = workbenchPath
+	if deployOutput, err := deployCmd.CombinedOutput(); err != nil {
+		send("error", fmt.Sprintf("ops ide deploy failed: %s\n%s", err, string(deployOutput)))
+		return
+	}
+	log.Printf("Redeploy: ops ide deploy completed for %s", req.Name)
+
+	// Step 4: Get action list
+	send("status", "Getting action list...")
+	actionCmd := exec.Command("ops", "action", "list")
+	actionCmd.Dir = workbenchPath
+	actionOutput, err := actionCmd.CombinedOutput()
+	actionList := string(actionOutput)
+	if err != nil {
+		actionList = fmt.Sprintf("(ops action list failed: %s)\n%s", err, actionList)
+	}
+	log.Printf("Redeploy: action list:\n%s", actionList)
+
+	// Step 5: Start ops ide devel --fast
+	send("status", "Starting dev server (ops ide devel --fast)...")
+	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel --fast", workbenchPath))
+	develCmd.Stdout = os.Stdout
+	develCmd.Stderr = os.Stderr
+	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
+
+	if err := develCmd.Start(); err != nil {
+		send("error", fmt.Sprintf("Failed to start ops ide devel: %s", err))
+		return
+	}
+
+	develExited := make(chan error, 1)
+	go func() {
+		develExited <- develCmd.Wait()
+	}()
+
+	select {
+	case err := <-develExited:
+		errMsg := "ops ide devel exited unexpectedly"
+		if err != nil {
+			errMsg = fmt.Sprintf("ops ide devel exited with error: %s", err)
+		}
+		send("error", errMsg)
+		return
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// Step 6: Wait for dev server to respond
+	send("status", "Waiting for dev server to be ready...")
+	log.Printf("Redeploy: waiting for HTTP response on port %d...", opsdevelPort)
+	if err := waitForHTTP(opsdevelPort, 30*time.Second); err != nil {
+		send("error", fmt.Sprintf("Dev server not responding: %s", err))
+		return
+	}
+	log.Printf("Redeploy: dev server on port %d is responding", opsdevelPort)
+
+	// Done - send action list as the data
+	send("done", actionList)
+	log.Printf("Redeploy: completed successfully for %s", req.Name)
+}
+
 // handleLaunch routes launch API requests
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
