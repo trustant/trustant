@@ -49,7 +49,6 @@ ops setup kubernetes create
 ops setup nuvolaris streamer deploy
 ops setup nuvolaris system-api deploy
 
-
 # other terminal
 ssh surf
 wsl -d Ubuntu-24.04
