@@ -1,0 +1,8 @@
+ssh surf
+wsl --unregister Ubuntu-24.04
+wsl --install -d Ubuntu-24.04
+wsl -d Ubuntu-24.04
+
+curl -sL get.docker.com | sed -e 's/sleep 20//' | sudo bash
+curl -sL n7s.co/get-trustable | bash
+

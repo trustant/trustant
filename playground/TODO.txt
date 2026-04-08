@@ -1,0 +1,2 @@
+.trustable
+final _ for packages

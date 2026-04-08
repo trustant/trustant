@@ -4,11 +4,14 @@ image/opencode.md
 workspace
 workbench
 tmp/
-.env
+.env*
 .key
+.ops/
 trustable-app
 .DS_Store
 .vscode/
 appo/
 out.json
 image/Dockerfile.*
+trustable-doctor.txt
+opencode.json

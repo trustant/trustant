@@ -1,0 +1,52 @@
+ssh surf
+wsl --unregister Ubuntu-24.04
+wsl --install -d Ubuntu-24.04 --no-launch
+wsl  -d Ubuntu-24.04
+
+sudo sed -i 's/%sudo   ALL=(ALL:ALL) ALL/%sudo   ALL=(ALL:ALL) NOPASSWD: ALL/' /etc/sudoers
+printf "disable:\n  - traefik\n" | sudo tee /etc/rancher/k3s/traefik.yml
+echo "export OPS_REPO=https://github.com/nuvolaris/bestia" >> ~/.bashrc
+echo "export OPS_BRANCH=bestia" >> ~/.bashrc
+echo "export KUBECONFIG=~/.kube/config" >> ~/.bashrc
+export PATH="$HOME/.local/bin:$HOME/.ops/linux-amd64/bin:$PATH"
+
+source ~/.bashrc
+
+mkdir ~/.kube
+sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config
+
+sudo systemctl start k3s
+sudo systemctl status k3s
+
+kubectl get nodes
+kubectl get ingressclass
+
+curl -sL n7s.co/get-ops | bash
+ops -update
+ops -info
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx \
+  --create-namespace \
+  --set controller.progressDeadlineSeconds=600
+kubectl get ingressclass
+# check nginx
+
+
+ops -t
+ops config slim
+ops config ingress --class=nginx
+ops config apihost miniops.me --protocol=http
+
+ops setup kubernetes create
+ops debug log foperator
+
+
+source ~/.bashrc
+ops setup kubernetes create
+ops trustable setup
+
+
+
