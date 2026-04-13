@@ -48,7 +48,7 @@
             </div>
             <div id="signinWithoutLink" class="mb-6">
                 <p class="text-gray-700 mb-2">You are not logged in to ollama cloud.</p>
-                <p class="text-gray-700">Please execute <code class="bg-gray-100 px-2 py-1 rounded text-sm">ops trustable signin</code></p>
+                <p class="text-gray-700">Please execute <code id="signinCommand" class="bg-gray-100 px-2 py-1 rounded text-sm">ops trustable signin</code></p>
             </div>
             <button onclick="retryOpenAITest()"
                 class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
@@ -75,6 +75,7 @@
 
         function showSigninModal() {
             const qs = window.location.search;
+            document.getElementById('signinCommand').textContent = `ops trustable signin ${window.location.origin}`;
             if (qs && qs.length > 1) {
                 document.getElementById('ollamaConnectLink').href = 'https://ollama.com/connect' + qs;
                 document.getElementById('signinWithLink').classList.remove('hidden');
