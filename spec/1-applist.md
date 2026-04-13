@@ -16,7 +16,12 @@ It will list the applications, using the backend api.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
 
-The Local link points to to `http://<name>.miniops.me`.
+The Local link points to `<protocol>://<name>.<domain>` by replacing the first
+label of the current Trustable host. For example, from
+`http://trustable.192.168.1.124.nip.io` it points to
+`http://<name>.192.168.1.124.nip.io`, and from
+`https://trustable.bestia.opsv.xyz` it points to
+`https://<name>.bestia.opsv.xyz`.
 The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined in `.env.production`. It points to `<protocol>://<opsuser>.<domain>` where `<protocol>://<domain>` comes from OPS_APIHOST and `<opsuser>` comes from OPS_USER.
 The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 

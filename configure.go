@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,13 +39,29 @@ type GitConfig struct {
 
 // trustableConfig represents the structure of trustable.json
 type trustableConfig struct {
-	Ollama    map[string]string    `json:"ollama,omitempty"`
-	TestModel string               `json:"testmodel,omitempty"`
-	Opencode  *opencodeConfig      `json:"opencode,omitempty"`
-	Git       *GitConfig           `json:"git,omitempty"`
-	Env       map[string]string    `json:"env,omitempty"`
+	Ollama    map[string]string     `json:"ollama,omitempty"`
+	TestModel string                `json:"testmodel,omitempty"`
+	Opencode  *opencodeConfig       `json:"opencode,omitempty"`
+	Git       *GitConfig            `json:"git,omitempty"`
+	Env       map[string]string     `json:"env,omitempty"`
 	Apps      map[string]*AppConfig `json:"apps,omitempty"`
-	Current   string               `json:"current,omitempty"`
+	Current   string                `json:"current,omitempty"`
+}
+
+func developmentAPIHost() string {
+	for _, key := range []string{"OPS_APIHOST", "APIHOST", "OPERATOR_CONFIG_APIHOST"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+				proto := strings.TrimSpace(os.Getenv("OPERATOR_CONFIG_HOSTPROTOCOL"))
+				if proto != "https" {
+					proto = "http"
+				}
+				value = proto + "://" + value
+			}
+			return strings.TrimRight(value, "/")
+		}
+	}
+	return "http://miniops.me"
 }
 
 // loadBaseConfig reads the app-root trustable.json (immutable defaults)
@@ -668,7 +684,7 @@ func generateAppEnvFiles(appName string) error {
 	devVars := make(map[string]string)
 	devVars["OPS_USER"] = appName
 	devVars["OPS_PASSWORD"] = appCfg.Password
-	devVars["OPS_APIHOST"] = "http://miniops.me"
+	devVars["OPS_APIHOST"] = developmentAPIHost()
 	devVars["OPS_REPO"] = getAppRepo(appName)
 	devVars["OPS_SKILLS"] = OpsSkills
 
@@ -785,7 +801,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	// Fixed rows (readonly)
 	vars = append(vars, EnvVar{Name: "OPS_USER", DevValue: name, ProdValue: appCfg.Production["OPS_USER"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_PASSWORD", DevValue: appCfg.Password, ProdValue: appCfg.Production["OPS_PASSWORD"], Readonly: true})
-	vars = append(vars, EnvVar{Name: "OPS_APIHOST", DevValue: "http://miniops.me", ProdValue: appCfg.Production["OPS_APIHOST"], Readonly: true})
+	vars = append(vars, EnvVar{Name: "OPS_APIHOST", DevValue: developmentAPIHost(), ProdValue: appCfg.Production["OPS_APIHOST"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_REPO", DevValue: getAppRepo(name), ProdValue: appCfg.Production["OPS_REPO"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_SKILLS", DevValue: OpsSkills, ProdValue: appCfg.Production["OPS_SKILLS"], Readonly: true})
 

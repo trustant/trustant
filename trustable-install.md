@@ -32,7 +32,11 @@ Trustable requires the download of binary executables for installation and execu
 
 > **IMPORTANT** The AI operates only within a Docker container and **never** has full access to the user's local filesystem except for the documented folders. Commands are executed inside a Docker container. However, it is recommended to install Trustable on a machine **THAT DOES NOT CONTAIN SENSITIVE DATA** and for which you have a **complete backup**.
 
-The system is not authenticated but is for local access only. All links point to `http://*.miniops.me` which resolves to `127.0.0.1`.
+The system is not authenticated and follows the Nuvolaris cluster apihost. For
+local installs this can still be `http://*.miniops.me` resolving to
+`127.0.0.1`; for custom domains it should use the same protocol and base
+domain as the cluster, such as `http://*.192.168.1.124.nip.io` or
+`https://*.bestia.opsv.xyz`.
 
 If you install on a virtual machine, you need to set up a tunnel to access it:
 

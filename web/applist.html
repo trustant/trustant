@@ -624,7 +624,7 @@
             }
 
             appList.innerHTML = apps.map(app => {
-                const localLink = `http://${escapeHtml(app.name)}.miniops.me`;
+                const localLink = developmentUrl(app.name);
 
                 return `
                 <div class="p-3 bg-gray-50 rounded-md">
@@ -667,6 +667,22 @@
                     </div>
                 </div>`;
             }).join('');
+        }
+
+        function developmentUrl(appName) {
+            try {
+                const url = new URL(window.location.href);
+                const labels = url.hostname.split('.');
+                if (labels.length > 1) {
+                    labels[0] = appName;
+                    url.hostname = labels.join('.');
+                    url.pathname = '/';
+                    url.search = '';
+                    url.hash = '';
+                    return url.toString();
+                }
+            } catch (e) {}
+            return `http://${appName}.miniops.me/`;
         }
 
         function escapeHtml(text) {

@@ -32,7 +32,7 @@ Loading merges both layers: workspace fields override base fields. Maps (ollama,
             "password": "<ops user password>",
             "development": {
                 "OPS_USER": "<app-name>",
-                "OPS_APIHOST": "http://miniops.me",
+                "OPS_APIHOST": "http://192.168.1.124.nip.io",
                 "CUSTOM_VAR": "dev-value"
             },
             "production": {
@@ -65,7 +65,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 - When global config is saved (`POST /api/configuration`)
 
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
-1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=http://miniops.me`
+1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST, defaulting to http://miniops.me>`
 2. Global `env` defaults from the merged config
 3. Per-app `development` overrides
 
@@ -186,7 +186,7 @@ Tests the AI model connection using the `testmodel` from the merged config.
 Returns the environment variable configuration for a specific app, read from the merged config's `apps` section.
 
 Response contains `EnvVar[]` with:
-- **Readonly rows**: `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed dev values, editable prod values)
+- **Readonly rows**: `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed dev values from the current cluster, editable prod values)
 - **Fixed rows**: keys from the global `env` section (fixed name, editable values)
 - **Custom rows**: any additional per-app development/production variables
 

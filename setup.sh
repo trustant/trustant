@@ -67,9 +67,11 @@ ok "WORKSPACE_DIR exists: ${WORKSPACE_DIR}"
 
 # --- Step 2: Check OpenWhisk ---
 echo "--- Checking OpenWhisk ---"
-WHISK_DESC=$(curl -sf http://miniops.me/api/info | jq -r '.description' 2>/dev/null) || true
+OPS_APIHOST="${OPS_APIHOST:-${APIHOST:-http://miniops.me}}"
+OPS_APIHOST="${OPS_APIHOST%/}"
+WHISK_DESC=$(curl -sf "${OPS_APIHOST}/api/info" | jq -r '.description' 2>/dev/null) || true
 if [[ "$WHISK_DESC" != "OpenWhisk" ]]; then
-  fail "Cannot reach OpenWhisk at http://miniops.me/api/info (got: ${WHISK_DESC:-no response})"
+  fail "Cannot reach OpenWhisk at ${OPS_APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
 fi
 ok "OpenWhisk is reachable"
 
