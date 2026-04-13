@@ -381,13 +381,26 @@
             return new TextDecoder().decode(bytes);
         }
 
+        function base64Encode(value) {
+            const bytes = new TextEncoder().encode(value);
+            let binary = '';
+            bytes.forEach((byte) => binary += String.fromCharCode(byte));
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+
         const leftURL = getCookie('LEFT');
         const rightURL = getCookie('RIGHT');
         const appName = getCookie('NAME');
-        const urlDirectory = getCookie('URLDIR');
+        let urlDirectory = getCookie('B64DIR') || getCookie('URLDIR');
+        if (urlDirectory && urlDirectory.startsWith('/')) {
+            urlDirectory = base64Encode(urlDirectory);
+            document.cookie = `URLDIR=${urlDirectory};path=/`;
+            document.cookie = `B64DIR=${urlDirectory};path=/`;
+        }
         const currentRoute = getCookie('ROUTE') || '/';
 
         console.log('URLDIR:', urlDirectory);
+        console.log('B64DIR:', getCookie('B64DIR'));
 
         // Set app name in title bar
         document.getElementById('appName').textContent = appName || 'Unknown App';

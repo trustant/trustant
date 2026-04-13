@@ -845,7 +845,8 @@
                 document.cookie = `LEFT=${encodeURIComponent(leftURL)};path=/`;
                 document.cookie = `RIGHT=${encodeURIComponent(rightURL)};path=/`;
                 document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
-                document.cookie = `URLDIR=${data.encdir};path=/`;
+                document.cookie = `URLDIR=${data.b64dir};path=/`;
+                document.cookie = `B64DIR=${data.b64dir};path=/`;
 
                 if (data.skills_added) {
                     alert('Added skills');
