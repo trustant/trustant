@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -71,6 +72,27 @@ func handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func ensureGitIdentity(workbenchPath string) error {
+	checks := map[string]string{
+		"user.email": "trustable@localhost",
+		"user.name":  "Trustable",
+	}
+	for key, fallback := range checks {
+		getCmd := exec.Command("git", "config", "--get", key)
+		getCmd.Dir = workbenchPath
+		if output, err := getCmd.Output(); err == nil && strings.TrimSpace(string(output)) != "" {
+			continue
+		}
+
+		setCmd := exec.Command("git", "config", key, fallback)
+		setCmd.Dir = workbenchPath
+		if output, err := setCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git config %s failed: %s", key, string(output))
+		}
+	}
+	return nil
+}
+
 // handleGitSave handles POST /api/git/save
 func handleGitSave(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -122,6 +144,12 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(string(statusOutput)) == "" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"message": "nothing to save"})
+		return
+	}
+
+	if err := ensureGitIdentity(workbenchPath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
