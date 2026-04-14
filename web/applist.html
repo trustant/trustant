@@ -682,7 +682,7 @@
                     return url.toString();
                 }
             } catch (e) {}
-            return `http://${appName}.miniops.me/`;
+            return window.location.origin + '/';
         }
 
         function escapeHtml(text) {
