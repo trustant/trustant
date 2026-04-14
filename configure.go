@@ -62,7 +62,7 @@ type trustableConfig struct {
 }
 
 func developmentAPIHost() string {
-	for _, key := range []string{"OPS_APIHOST", "APIHOST", "OPERATOR_CONFIG_APIHOST"} {
+	for _, key := range []string{"OPS_APIHOST", "APIHOST", "TRUSTABLE_DEFAULT_APIHOST", "OPERATOR_CONFIG_APIHOST"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
 				proto := strings.TrimSpace(os.Getenv("OPERATOR_CONFIG_HOSTPROTOCOL"))
@@ -74,7 +74,7 @@ func developmentAPIHost() string {
 			return strings.TrimRight(value, "/")
 		}
 	}
-	return "http://miniops.me"
+	return "http://localhost"
 }
 
 // loadBaseConfig reads the app-root trustable.json (immutable defaults)

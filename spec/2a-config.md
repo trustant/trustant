@@ -32,7 +32,7 @@ Loading merges both layers: workspace fields override base fields. Maps (ollama,
             "password": "<ops user password>",
             "development": {
                 "OPS_USER": "<app-name>",
-                "OPS_APIHOST": "http://192.168.1.124.nip.io",
+                "OPS_APIHOST": "<cluster-apihost>",
                 "CUSTOM_VAR": "dev-value"
             },
             "production": {
@@ -65,7 +65,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 - When global config is saved (`POST /api/configuration`)
 
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
-1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST, defaulting to http://miniops.me>`
+1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to http://localhost>`
 2. Global `env` defaults from the merged config
 3. Per-app `development` overrides
 
