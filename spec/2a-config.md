@@ -109,7 +109,8 @@ Using information from the merged config and the .env, create the opencode confi
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/opencode.md"],
   "enabled_providers": [
-    "ollama"
+    "ollama",
+    "vllm"
   ],
   "model": <OpencodeModel>,
   "small_model": <OpencodeSmallModel>,
@@ -123,8 +124,55 @@ Using information from the merged config and the .env, create the opencode confi
       "models": {
          <models with capabilities>
       }
+    },
+    "vllm": {
+      "name": "vLLM",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": <vllm.base_url or "http://vllm:8000/v1">
+        "apiKey": <vllm.api_key or "dummy">
+      },
+      "models": {
+        <vllm.served_model_name or vllm.model>: {
+          "name": <model-name>,
+          "tool_call": <vllm.tool_call, default true>,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": <vllm.context or 7000>,
+            "output": <vllm.output or 1024>
+          },
+          "options": {
+            "maxTokens": <vllm.output or 1024>
+          },
+          "variants": {
+            "fast": {
+              "options": { "maxTokens": <vllm.output or 1024> }
+            },
+            "deep": {
+              "options": { "maxTokens": <vllm.output or 1024> }
+            }
+          }
+        }
+      }
     }
   }
+}
+```
+
+When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
+
+```
+"tools": {
+  "task": false,
+  "todowrite": false,
+  "webfetch": false,
+  "skill": false
+},
+"compaction": {
+  "auto": true,
+  "prune": true,
+  "reserved": 1024
 }
 ```
 

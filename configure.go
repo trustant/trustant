@@ -24,6 +24,18 @@ type opencodeConfig struct {
 	Small   string `json:"small"`
 }
 
+// vllmConfig holds the optional vLLM OpenAI-compatible provider settings.
+type vllmConfig struct {
+	Model             string `json:"model"`
+	ServedModelName   string `json:"served_model_name,omitempty"`
+	BaseURL           string `json:"base_url,omitempty"`
+	APIKey            string `json:"api_key,omitempty"`
+	Context           int    `json:"context,omitempty"`
+	Output            int    `json:"output,omitempty"`
+	ToolCall          *bool  `json:"tool_call,omitempty"`
+	DisableHeavyTools *bool  `json:"disable_heavy_tools,omitempty"`
+}
+
 // AppConfig holds per-app configuration within trustable.json
 type AppConfig struct {
 	Password    string            `json:"password"`
@@ -42,6 +54,7 @@ type trustableConfig struct {
 	Ollama    map[string]string     `json:"ollama,omitempty"`
 	TestModel string                `json:"testmodel,omitempty"`
 	Opencode  *opencodeConfig       `json:"opencode,omitempty"`
+	VLLM      *vllmConfig           `json:"vllm,omitempty"`
 	Git       *GitConfig            `json:"git,omitempty"`
 	Env       map[string]string     `json:"env,omitempty"`
 	Apps      map[string]*AppConfig `json:"apps,omitempty"`
@@ -117,6 +130,10 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 
 	if override.Opencode != nil {
 		result.Opencode = override.Opencode
+	}
+
+	if override.VLLM != nil {
+		result.VLLM = override.VLLM
 	}
 
 	if override.Git != nil {
@@ -443,22 +460,105 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		modelSmall = cfg.Opencode.Small
 	}
 
+	enabledProviders := []string{"ollama"}
+	providers := map[string]interface{}{
+		"ollama": map[string]interface{}{
+			"npm": "@ai-sdk/openai-compatible",
+			"options": map[string]interface{}{
+				"baseURL": OpenAIBaseUrl,
+				"apiKey":  OpenAIApiKey,
+			},
+			"models": models,
+		},
+	}
+
+	disableHeavyTools := false
+	if cfg.VLLM != nil && strings.TrimSpace(cfg.VLLM.Model) != "" {
+		vllmModel := strings.TrimSpace(cfg.VLLM.Model)
+		servedModelName := strings.TrimSpace(cfg.VLLM.ServedModelName)
+		if servedModelName == "" {
+			servedModelName = vllmModel
+		}
+		vllmBaseURL := strings.TrimSpace(cfg.VLLM.BaseURL)
+		if vllmBaseURL == "" {
+			vllmBaseURL = "http://vllm:8000/v1"
+		}
+		vllmAPIKey := cfg.VLLM.APIKey
+		if vllmAPIKey == "" {
+			vllmAPIKey = "dummy"
+		}
+		vllmContext := cfg.VLLM.Context
+		if vllmContext <= 0 {
+			vllmContext = 7424
+		}
+		vllmOutput := cfg.VLLM.Output
+		if vllmOutput <= 0 {
+			vllmOutput = 768
+		}
+		vllmToolCall := true
+		if cfg.VLLM.ToolCall != nil {
+			vllmToolCall = *cfg.VLLM.ToolCall
+		}
+		disableHeavyTools = true
+		if cfg.VLLM.DisableHeavyTools != nil {
+			disableHeavyTools = *cfg.VLLM.DisableHeavyTools
+		}
+
+		enabledProviders = append(enabledProviders, "vllm")
+		providers["vllm"] = map[string]interface{}{
+			"name": "vLLM",
+			"npm":  "@ai-sdk/openai-compatible",
+			"options": map[string]interface{}{
+				"baseURL": vllmBaseURL,
+				"apiKey":  vllmAPIKey,
+			},
+			"models": map[string]interface{}{
+				servedModelName: map[string]interface{}{
+					"name":        modelDisplayName(servedModelName),
+					"tool_call":   vllmToolCall,
+					"reasoning":   false,
+					"temperature": true,
+					"limit": map[string]interface{}{
+						"context": vllmContext,
+						"output":  vllmOutput,
+					},
+					"options": map[string]interface{}{
+						"maxTokens": vllmOutput,
+					},
+					"variants": map[string]interface{}{
+						"fast": map[string]interface{}{
+							"options": map[string]interface{}{"maxTokens": vllmOutput},
+						},
+						"deep": map[string]interface{}{
+							"options": map[string]interface{}{"maxTokens": vllmOutput},
+						},
+					},
+				},
+			},
+		}
+	}
+
 	config := map[string]interface{}{
 		"$schema":           "https://opencode.ai/config.json",
 		"instructions":      []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
-		"enabled_providers": []string{"ollama"},
+		"enabled_providers": enabledProviders,
 		"model":             modelDefault,
 		"small_model":       modelSmall,
-		"provider": map[string]interface{}{
-			"ollama": map[string]interface{}{
-				"npm": "@ai-sdk/openai-compatible",
-				"options": map[string]interface{}{
-					"baseURL": OpenAIBaseUrl,
-					"apiKey":  OpenAIApiKey,
-				},
-				"models": models,
-			},
-		},
+		"provider":          providers,
+	}
+
+	if disableHeavyTools {
+		config["tools"] = map[string]interface{}{
+			"task":      false,
+			"todowrite": false,
+			"webfetch":  false,
+			"skill":     false,
+		}
+		config["compaction"] = map[string]interface{}{
+			"auto":     true,
+			"prune":    true,
+			"reserved": 768,
+		}
 	}
 
 	// Write to ~/.config/opencode/opencode.json
