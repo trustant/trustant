@@ -139,18 +139,18 @@ Using information from the merged config and the .env, create the opencode confi
           "reasoning": false,
           "temperature": true,
           "limit": {
-            "context": <vllm.context or 7000>,
-            "output": <vllm.output or 1024>
+            "context": <vllm.context or 7424>,
+            "output": <vllm.output or 768>
           },
           "options": {
-            "maxTokens": <vllm.output or 1024>
+            "maxTokens": <vllm.output or 768>
           },
           "variants": {
             "fast": {
-              "options": { "maxTokens": <vllm.output or 1024> }
+              "options": { "maxTokens": <vllm.output or 768> }
             },
             "deep": {
-              "options": { "maxTokens": <vllm.output or 1024> }
+              "options": { "maxTokens": <vllm.output or 768> }
             }
           }
         }
@@ -172,7 +172,7 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
 "compaction": {
   "auto": true,
   "prune": true,
-  "reserved": 1024
+  "reserved": 768
 }
 ```
 
