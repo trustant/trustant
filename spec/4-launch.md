@@ -107,7 +107,7 @@ then return:
   "left" : <opencode-port>,
   "right": <opsdeve-port>,
   "b64dir": <base64-urlsafe-encoded directory>
-  "encdir": <url-encoded directory>
+  "encdir": <absolute directory>
 }`
 
 Base64-Url-Safe encode is as follows:

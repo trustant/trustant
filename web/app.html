@@ -391,11 +391,31 @@
         const leftURL = getCookie('LEFT');
         const rightURL = getCookie('RIGHT');
         const appName = getCookie('NAME');
-        let urlDirectory = getCookie('B64DIR') || getCookie('URLDIR');
+        let urlDirectory = getCookie('URLDIR');
+        let b64Directory = getCookie('B64DIR');
+        if (!urlDirectory && b64Directory) {
+            try {
+                urlDirectory = base64Decode(b64Directory);
+            } catch (e) {
+                urlDirectory = null;
+            }
+        }
+        if (urlDirectory && !urlDirectory.startsWith('/')) {
+            try {
+                const decodedDirectory = base64Decode(urlDirectory);
+                if (decodedDirectory.startsWith('/')) {
+                    urlDirectory = decodedDirectory;
+                }
+            } catch (e) {
+                urlDirectory = null;
+            }
+        }
         if (urlDirectory && urlDirectory.startsWith('/')) {
-            urlDirectory = base64Encode(urlDirectory);
-            document.cookie = `URLDIR=${urlDirectory};path=/`;
-            document.cookie = `B64DIR=${urlDirectory};path=/`;
+            b64Directory = base64Encode(urlDirectory);
+            document.cookie = `URLDIR=${encodeURIComponent(urlDirectory)};path=/`;
+            document.cookie = `B64DIR=${b64Directory};path=/`;
+        } else {
+            b64Directory = null;
         }
         const currentRoute = getCookie('ROUTE') || '/';
 
@@ -411,8 +431,8 @@
 
         // Configure iframes with LEFT and RIGHT URLs
         if (leftURL) {
-            if (urlDirectory) {
-                document.getElementById('leftFrame').src = `${leftURL}/session/?directory=${urlDirectory}`;
+            if (b64Directory) {
+                document.getElementById('leftFrame').src = `${leftURL}/${b64Directory}/session`;
             } else {
                 document.getElementById('leftFrame').src = `${leftURL}/`;
             }

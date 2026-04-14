@@ -72,7 +72,8 @@ Expect a domain in format `<protocol>://trustable.<domain>[:<port>]`,
 show an error if it is not in this format. Let:
 - LEFT is `<protocol>://opencode.<domain>:<port>`
 - RIGHT is `<protocol>://vite.<domain>:<port>`
-- URLDIR is the base64-url-safe encoded full path for the directory of the application
+- URLDIR is the URL-encoded absolute path for the directory of the application
+- B64DIR is the base64-url-safe encoded absolute path for compatibility
 
 You can click the button `edit` to open an app
 - show a launching dialog with the message `Launching `<name`
@@ -81,7 +82,8 @@ You can click the button `edit` to open an app
 - if it is ok, save in cookies:
   - the LEFT and RIGHT urls
   - the NAME in a cookie
-  - the URLDIR in a cookie using the backend `b64dir` value
+  - the URLDIR in a cookie using the backend `encdir` value
+  - the B64DIR in a cookie using the backend `b64dir` value
   navigate to the page app.html
 
 ## Revert (in app.html)

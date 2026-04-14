@@ -37,12 +37,13 @@ All buttons use inline SVG icons (monochrome white, matching the button text).
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
-Get the URLDIR from the coookie then show the iframe. URLDIR must be the
-base64-url-safe encoded application directory. For compatibility, if URLDIR is a
-raw absolute path, convert it to base64-url-safe before opening opencode:
+Get the URLDIR from the cookie then show the iframe. URLDIR must be the raw or
+URL-encoded absolute application directory. For compatibility, if URLDIR is a
+base64-url-safe path or is missing while B64DIR is present, decode it first.
+Before opening opencode, always regenerate B64DIR from the raw absolute path:
 
 They will show:
-- to the left: `<LEFT>/session/?directory=<URLDIR>`
+- to the left: `<LEFT>/<B64DIR>/session`
 - to the right: `<RIGHT><ROUTE>#<ROUTE>` where `<ROUTE>` is the value of the ROUTE cookie (defaults to "/")
 
 Write in console.log the values of the cookies B64DIR and URLDIR
@@ -157,4 +158,3 @@ When clicked:
   - Waiting for dev server to be ready (HTTP HEAD check)
 - On `event: done`, show "Redeploy complete", the action list in a code block, and an OK link pointing to `<RIGHT><ROUTE>?<QUERY>#<ROUTE>`
 - On `event: error`, stop the spinner and show the error in red
-
