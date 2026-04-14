@@ -65,7 +65,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 - When global config is saved (`POST /api/configuration`)
 
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
-1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to http://localhost>`
+1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to the Nuvolaris mini apihost http://miniops.me>`
 2. Global `env` defaults from the merged config
 3. Per-app `development` overrides
 

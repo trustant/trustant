@@ -74,7 +74,7 @@ func developmentAPIHost() string {
 			return strings.TrimRight(value, "/")
 		}
 	}
-	return "http://localhost"
+	return "http://miniops.me"
 }
 
 // loadBaseConfig reads the app-root trustable.json (immutable defaults)
