@@ -114,6 +114,16 @@ Using information from the merged config and the .env, create the opencode confi
   ],
   "model": <OpencodeModel>,
   "small_model": <OpencodeSmallModel>,
+  "lsp": {
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"],
+      "extensions": [".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"]
+    },
+    "python": {
+      "command": ["pylsp"],
+      "extensions": [".py"]
+    }
+  },
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
@@ -179,6 +189,7 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
   "grep": true,
   "glob": true,
   "list": true,
+  "lsp": true,
   "todoread": true,
   "question": false,
   "task": false,
@@ -207,6 +218,7 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
       "grep": true,
       "glob": true,
       "list": true,
+      "lsp": true,
       "todoread": true,
       "question": false,
       "task": false,
@@ -250,9 +262,16 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
 ```
 
 This vLLM profile intentionally keeps only direct file/code tools on the build
-agent. The Gemma 4/vLLM combination can produce verbose handoff text, malformed
+agent plus the LSP tool. The Gemma 4/vLLM combination can produce verbose handoff text, malformed
 tool argument quoting, and poor compaction behavior when the full OpenCode tool
 set is exposed in a small context window.
+
+The TypeScript/JavaScript and Python LSP servers are installed in the Trustable
+image and configured as local OpenCode LSP commands. OpenCode launches and
+supervises these stdio language server processes when a matching file type is
+used. Do not add `typescript-language-server --stdio` or `pylsp` as long-running
+`supervisord` programs, because stdio language servers need to be attached to
+their OpenCode client process.
 
 For Trustable's default vLLM provider, route OpenCode through the local
 compatibility proxy at `http://localhost:8910/vllm/v1` instead of calling

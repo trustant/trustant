@@ -279,6 +279,7 @@ func vllmBuildAgentTools() map[string]interface{} {
 		"grep":                  true,
 		"glob":                  true,
 		"list":                  true,
+		"lsp":                   true,
 		"todoread":              true,
 		"question":              false,
 		"task":                  false,
@@ -303,6 +304,19 @@ func denyPermissionsForTools(tools map[string]interface{}) map[string]interface{
 		permission[tool] = "deny"
 	}
 	return permission
+}
+
+func defaultOpenCodeLSPConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"typescript": map[string]interface{}{
+			"command":    []string{"typescript-language-server", "--stdio"},
+			"extensions": []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"},
+		},
+		"python": map[string]interface{}{
+			"command":    []string{"pylsp"},
+			"extensions": []string{".py"},
+		},
+	}
 }
 
 // numberWithExtPattern matches a number followed by a size suffix like "480b", "1.7b", "123b"
@@ -622,6 +636,7 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		"model":             modelDefault,
 		"small_model":       modelSmall,
 		"provider":          providers,
+		"lsp":               defaultOpenCodeLSPConfig(),
 	}
 
 	if disableHeavyTools {
@@ -669,6 +684,16 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 					if _, generated := providers[providerName]; !generated {
 						providers[providerName] = providerConfig
 						log.Printf("  - Preserved custom OpenCode provider %s", providerName)
+					}
+				}
+			}
+			if existingLSP, ok := existing["lsp"].(map[string]interface{}); ok {
+				if generatedLSP, ok := config["lsp"].(map[string]interface{}); ok {
+					for serverName, serverConfig := range existingLSP {
+						if _, generated := generatedLSP[serverName]; !generated {
+							generatedLSP[serverName] = serverConfig
+							log.Printf("  - Preserved custom OpenCode LSP %s", serverName)
+						}
 					}
 				}
 			}

@@ -6,8 +6,12 @@ RUN \
     echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc |  apt-key add - && \
     apt update && \
-    apt install -y less man-db sudo vim jq python-is-python3 python3-virtualenv \
+    apt install -y less man-db sudo vim jq python-is-python3 python3-pip python3-virtualenv \
     locales postgresql-client-16 openssh-server tini supervisor ripgrep
+
+RUN \
+    npm install -g typescript-language-server typescript && \
+    python3 -m pip install --break-system-packages --no-cache-dir python-lsp-server
 
 # setup env
 RUN \
