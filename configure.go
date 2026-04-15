@@ -631,8 +631,8 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		config["tools"] = buildTools
 		config["agent"] = map[string]interface{}{
 			"build": map[string]interface{}{
-				"prompt":     "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit, write, or patch; do not answer with a plan or describe edits you have not applied. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
-				"steps":      6,
+				"prompt":     "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit, write, or patch; do not answer with a plan or describe edits you have not applied. If edit fails because oldString has multiple matches, do not repeat the same edit; re-read the file and retry with a larger unique oldString, or use write with the complete updated file. After applying the edit, give a short final answer and stop. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
+				"steps":      12,
 				"tools":      buildTools,
 				"permission": deniedPermissions,
 			},

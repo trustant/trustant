@@ -10,6 +10,11 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 - For code-change requests, after you locate the target file, call `edit`,
   `write`, or `patch` before your final answer. Do not describe an edit unless
   it has already been applied.
+- After applying an edit, give a short final answer and stop. Do not keep
+  re-reading files unless validation is necessary.
+- If `edit` fails because `oldString` has multiple matches, do not repeat the
+  same edit. Re-read the file and use a larger unique `oldString`, or use
+  `write` with the complete updated file content.
 - Never expose internal reasoning, channel markers, handoff summaries, or
   implementation notes as assistant text.
 - Tool arguments must be plain JSON values. For paths and globs, do not wrap the
