@@ -7,14 +7,16 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 - Never try to build or deploy; this is managed automatically when you edit sources
 - Use tools directly to inspect and edit files. Do not answer with a plan when a
   small requested code change can be done immediately.
-- For code-change requests, after you locate the target file, call `edit`,
-  `write`, or `patch` before your final answer. Do not describe an edit unless
+- For code-change requests, after you locate the target file, call `edit` or
+  `write` before your final answer. Do not describe an edit unless
   it has already been applied.
 - After applying an edit, give a short final answer and stop. Do not keep
   re-reading files unless validation is necessary.
 - If `edit` fails because `oldString` has multiple matches, do not repeat the
-  same edit. Re-read the file and use a larger unique `oldString`, or use
-  `write` with the complete updated file content.
+  same edit. If the requested change should apply to every matching occurrence,
+  retry the edit once with `replaceAll: true`. If only one occurrence should
+  change, re-read the file and use a larger unique `oldString`, or use `write`
+  with the complete updated file content.
 - Never expose internal reasoning, channel markers, handoff summaries, or
   implementation notes as assistant text.
 - Tool arguments must be plain JSON values. For paths and globs, do not wrap the

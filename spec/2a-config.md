@@ -184,7 +184,6 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
   "read": true,
   "write": true,
   "edit": true,
-  "patch": true,
   "bash": true,
   "grep": true,
   "glob": true,
@@ -207,13 +206,12 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
 },
 "agent": {
   "build": {
-    "prompt": "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit, write, or patch; do not answer with a plan or describe edits you have not applied. If edit fails because oldString has multiple matches, do not repeat the same edit; re-read the file and retry with a larger unique oldString, or use write with the complete updated file. After applying the edit, give a short final answer and stop. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
+    "prompt": "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit or write; do not answer with a plan or describe edits you have not applied. If edit fails because oldString has multiple matches, do not repeat the same edit. If the requested change should apply to every matching occurrence, retry the edit once with replaceAll: true. If only one occurrence should change, re-read the file and retry with a larger unique oldString, or use write with the complete updated file. After applying the edit, give a short final answer and stop. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
     "steps": 12,
     "tools": {
       "read": true,
       "write": true,
       "edit": true,
-      "patch": true,
       "bash": true,
       "grep": true,
       "glob": true,
@@ -265,6 +263,10 @@ This vLLM profile intentionally keeps only direct file/code tools on the build
 agent plus the LSP tool. The Gemma 4/vLLM combination can produce verbose handoff text, malformed
 tool argument quoting, and poor compaction behavior when the full OpenCode tool
 set is exposed in a small context window.
+
+OpenCode 1.4.6 exposes `edit` and `write` as the practical code-change tools in
+this profile. The `edit` tool supports `replaceAll: true`; use it when a change
+should intentionally apply to every matching repeated block.
 
 The TypeScript/JavaScript and Python LSP servers are installed in the Trustable
 image and configured as local OpenCode LSP commands. OpenCode launches and
