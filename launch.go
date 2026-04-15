@@ -341,15 +341,13 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	// Point the project config at the global OpenCode config so provider edits
-	// saved from the UI are immediately read by the active workbench.
+	// saved from the UI are immediately read by the active workbench. Regenerate
+	// it on every launch because MCP servers need the current app .env values.
 	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
-	if _, err := os.Stat(opencodeConfigSrc); os.IsNotExist(err) {
-		log.Println("opencode.json not found, generating it...")
-		if cfg, err := loadTrustableConfig(); err != nil {
-			log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
-		} else if err := generateOpencodeConfig(cfg); err != nil {
-			log.Printf("Warning: failed to generate opencode.json: %s", err)
-		}
+	if cfg, err := loadTrustableConfig(); err != nil {
+		log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
+	} else if err := generateOpencodeConfigForApp(cfg, app); err != nil {
+		log.Printf("Warning: failed to generate opencode.json: %s", err)
 	}
 	opencodeConfigDst := filepath.Join(workbenchPath, "opencode.json")
 	if removeErr := os.Remove(opencodeConfigDst); removeErr != nil && !os.IsNotExist(removeErr) {
@@ -372,6 +370,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Dir = workbenchPath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
+	opencodeCmd.Env = os.Environ()
+	for key, value := range parseEnvFile(filepath.Join(workbenchPath, ".env")) {
+		opencodeCmd.Env = append(opencodeCmd.Env, key+"="+value)
+	}
 	// Set process group so we can kill all child processes
 	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

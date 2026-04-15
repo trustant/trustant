@@ -124,6 +124,44 @@ Using information from the merged config and the .env, create the opencode confi
       "extensions": [".py"]
     }
   },
+  "mcp": {
+    "postgres": {
+      "type": "local",
+      "command": ["trustable-mcp-postgres"],
+      "environment": {
+        "DATABASE_URI": "<DATABASE_URI or POSTGRES_URL from the launched app .env>"
+      },
+      "enabled": "<true only when database credentials are configured>",
+      "timeout": 30000
+    },
+    "redis": {
+      "type": "local",
+      "command": ["trustable-mcp-redis"],
+      "environment": {
+        "REDIS_URL": "<REDIS_URL from the launched app .env>"
+      },
+      "enabled": "<true only when REDIS_URL or REDIS_HOST is configured>",
+      "timeout": 30000
+    },
+    "milvus": {
+      "type": "local",
+      "command": ["trustable-mcp-milvus"],
+      "environment": {
+        "MILVUS_URI": "<MILVUS_URI or MILVUS_HOST/MILVUS_PORT from the launched app .env>"
+      },
+      "enabled": "<true only when Milvus connection variables are configured>",
+      "timeout": 30000
+    },
+    "s3": {
+      "type": "local",
+      "command": ["trustable-mcp-s3"],
+      "environment": {
+        "S3_ENDPOINT": "<S3_ENDPOINT or S3_HOST/S3_PORT from the launched app .env>"
+      },
+      "enabled": "<true only when S3 or AWS connection variables are configured>",
+      "timeout": 30000
+    }
+  },
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
@@ -177,6 +215,11 @@ Using information from the merged config and the .env, create the opencode confi
 }
 ```
 
+The `mcp` section is regenerated at launch time from the current app `.env`, not
+only during the global configure step. Keep all service hosts, endpoints, tokens,
+passwords, buckets, and credentials as app environment variables. Do not hardcode
+server-specific hostnames or IP addresses in `opencode.json` generation.
+
 When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
 
 ```
@@ -189,6 +232,10 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
   "glob": true,
   "list": true,
   "lsp": true,
+  "postgres_*": true,
+  "redis_*": true,
+  "milvus_*": true,
+  "s3_*": true,
   "todoread": true,
   "question": false,
   "task": false,
@@ -217,6 +264,10 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
       "glob": true,
       "list": true,
       "lsp": true,
+      "postgres_*": true,
+      "redis_*": true,
+      "milvus_*": true,
+      "s3_*": true,
       "todoread": true,
       "question": false,
       "task": false,
