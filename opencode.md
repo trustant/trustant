@@ -5,6 +5,18 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 ## Important Rules
 
 - Never try to build or deploy; this is managed automatically when you edit sources
+- Use tools directly to inspect and edit files. Do not answer with a plan when a
+  small requested code change can be done immediately.
+- For code-change requests, after you locate the target file, call `edit`,
+  `write`, or `patch` before your final answer. Do not describe an edit unless
+  it has already been applied.
+- Never expose internal reasoning, channel markers, handoff summaries, or
+  implementation notes as assistant text.
+- Tool arguments must be plain JSON values. For paths and globs, do not wrap the
+  string value in extra quote characters and do not include channel markers.
+- If a tool call fails because a path or pattern is too narrow, retry with a
+  simpler broader search such as `delete`, `Delete`, `red`, `bg-red`,
+  `text-red`, `destructive`, or the visible button label.
 - To initialize always use `ops ide init` that will execute ALL the private actions in `init` package.
 - Never create a backend server; create new public action providing an endpoint.
 - Never create or edit `__main__.py` files, use the following tools:
@@ -63,4 +75,3 @@ for example:
 - **ALWAYS** use the `action-new` tool to create new API endpoints. Never create `__main__.py` or action directories directly.
 
 - Never edit `__main__.py`. Edit `packages/<package>/<action>/<module>.py` instead (where `<module>` is `<action>` with `-` replaced by `_`). The main function of this module is invoked with the request parameters and a context object to access services.
-

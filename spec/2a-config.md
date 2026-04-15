@@ -129,7 +129,7 @@ Using information from the merged config and the .env, create the opencode confi
       "name": "vLLM",
       "npm": "@ai-sdk/openai-compatible",
       "options": {
-        "baseURL": <vllm.base_url or "http://vllm:8000/v1">
+        "baseURL": <vllm.base_url or "http://localhost:8910/vllm/v1">
         "apiKey": <vllm.api_key or "dummy">
       },
       "models": {
@@ -139,18 +139,25 @@ Using information from the merged config and the .env, create the opencode confi
           "reasoning": false,
           "temperature": true,
           "limit": {
-            "context": <vllm.context or 7424>,
-            "output": <vllm.output or 768>
+            "context": <vllm.context or 6144>,
+            "output": <vllm.output or 2048>
           },
           "options": {
-            "maxTokens": <vllm.output or 768>
+            "maxTokens": <vllm.output or 2048>,
+            "temperature": 0
           },
           "variants": {
             "fast": {
-              "options": { "maxTokens": <vllm.output or 768> }
+              "options": {
+                "maxTokens": <vllm.output or 2048>,
+                "temperature": 0
+              }
             },
             "deep": {
-              "options": { "maxTokens": <vllm.output or 768> }
+              "options": {
+                "maxTokens": <vllm.output or 2048>,
+                "temperature": 0
+              }
             }
           }
         }
@@ -164,17 +171,94 @@ When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
 
 ```
 "tools": {
+  "read": true,
+  "write": true,
+  "edit": true,
+  "patch": true,
+  "bash": true,
+  "grep": true,
+  "glob": true,
+  "list": true,
+  "todoread": true,
+  "question": false,
   "task": false,
   "todowrite": false,
   "webfetch": false,
-  "skill": false
+  "skill": false,
+  "action-add-s3": false,
+  "action-add-postgresql": false,
+  "action-add-redis": false,
+  "action-add-milvus": false,
+  "action-add-secret": false,
+  "action-new": false,
+  "action-requirements": false,
+  "action-invoke": false
+},
+"agent": {
+  "build": {
+    "prompt": "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit, write, or patch; do not answer with a plan or describe edits you have not applied. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
+    "steps": 6,
+    "tools": {
+      "read": true,
+      "write": true,
+      "edit": true,
+      "patch": true,
+      "bash": true,
+      "grep": true,
+      "glob": true,
+      "list": true,
+      "todoread": true,
+      "question": false,
+      "task": false,
+      "todowrite": false,
+      "webfetch": false,
+      "skill": false,
+      "action-add-s3": false,
+      "action-add-postgresql": false,
+      "action-add-redis": false,
+      "action-add-milvus": false,
+      "action-add-secret": false,
+      "action-new": false,
+      "action-requirements": false,
+      "action-invoke": false
+    },
+    "permission": {
+      "question": "deny",
+      "task": "deny",
+      "todowrite": "deny",
+      "webfetch": "deny",
+      "skill": "deny",
+      "action-add-s3": "deny",
+      "action-add-postgresql": "deny",
+      "action-add-redis": "deny",
+      "action-add-milvus": "deny",
+      "action-add-secret": "deny",
+      "action-new": "deny",
+      "action-requirements": "deny",
+      "action-invoke": "deny"
+    }
+  },
+  "compaction": {
+    "disable": true
+  }
 },
 "compaction": {
-  "auto": true,
+  "auto": false,
   "prune": true,
   "reserved": 768
 }
 ```
+
+This vLLM profile intentionally keeps only direct file/code tools on the build
+agent. The Gemma 4/vLLM combination can produce verbose handoff text, malformed
+tool argument quoting, and poor compaction behavior when the full OpenCode tool
+set is exposed in a small context window.
+
+For Trustable's default vLLM provider, route OpenCode through the local
+compatibility proxy at `http://localhost:8910/vllm/v1` instead of calling
+`http://vllm:8000/v1` directly. The proxy forwards to vLLM on the Docker network
+and strips vLLM-specific `reasoning` fields plus stray `<channel|>` markers that
+OpenCode 1.4.3 otherwise displays as user-visible text.
 
 To get the capabilities of a model use the OllamaEndPoint, list the models then show their capabilities.
 

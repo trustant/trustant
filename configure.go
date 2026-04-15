@@ -250,6 +250,61 @@ func appendEnabledProvider(enabled []string, provider string) []string {
 	return append(enabled, provider)
 }
 
+func vllmDisabledOpenCodeTools() map[string]interface{} {
+	disabled := map[string]interface{}{
+		"question":              false,
+		"task":                  false,
+		"todowrite":             false,
+		"webfetch":              false,
+		"skill":                 false,
+		"action-add-s3":         false,
+		"action-add-postgresql": false,
+		"action-add-redis":      false,
+		"action-add-milvus":     false,
+		"action-add-secret":     false,
+		"action-new":            false,
+		"action-requirements":   false,
+		"action-invoke":         false,
+	}
+	return disabled
+}
+
+func vllmBuildAgentTools() map[string]interface{} {
+	tools := map[string]interface{}{
+		"read":                  true,
+		"write":                 true,
+		"edit":                  true,
+		"patch":                 true,
+		"bash":                  true,
+		"grep":                  true,
+		"glob":                  true,
+		"list":                  true,
+		"todoread":              true,
+		"question":              false,
+		"task":                  false,
+		"todowrite":             false,
+		"webfetch":              false,
+		"skill":                 false,
+		"action-add-s3":         false,
+		"action-add-postgresql": false,
+		"action-add-redis":      false,
+		"action-add-milvus":     false,
+		"action-add-secret":     false,
+		"action-new":            false,
+		"action-requirements":   false,
+		"action-invoke":         false,
+	}
+	return tools
+}
+
+func denyPermissionsForTools(tools map[string]interface{}) map[string]interface{} {
+	permission := make(map[string]interface{}, len(tools))
+	for tool := range tools {
+		permission[tool] = "deny"
+	}
+	return permission
+}
+
 // numberWithExtPattern matches a number followed by a size suffix like "480b", "1.7b", "123b"
 var numberWithExtPattern = regexp.MustCompile(`^(\d+\.?\d*[a-zA-Z]+)$`)
 
@@ -496,7 +551,7 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		}
 		vllmBaseURL := strings.TrimSpace(cfg.VLLM.BaseURL)
 		if vllmBaseURL == "" {
-			vllmBaseURL = "http://vllm:8000/v1"
+			vllmBaseURL = "http://localhost:8910/vllm/v1"
 		}
 		vllmAPIKey := cfg.VLLM.APIKey
 		if vllmAPIKey == "" {
@@ -504,11 +559,11 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		}
 		vllmContext := cfg.VLLM.Context
 		if vllmContext <= 0 {
-			vllmContext = 7424
+			vllmContext = 6144
 		}
 		vllmOutput := cfg.VLLM.Output
 		if vllmOutput <= 0 {
-			vllmOutput = 768
+			vllmOutput = 2048
 		}
 		vllmToolCall := true
 		if cfg.VLLM.ToolCall != nil {
@@ -538,14 +593,21 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 						"output":  vllmOutput,
 					},
 					"options": map[string]interface{}{
-						"maxTokens": vllmOutput,
+						"maxTokens":   vllmOutput,
+						"temperature": 0,
 					},
 					"variants": map[string]interface{}{
 						"fast": map[string]interface{}{
-							"options": map[string]interface{}{"maxTokens": vllmOutput},
+							"options": map[string]interface{}{
+								"maxTokens":   vllmOutput,
+								"temperature": 0,
+							},
 						},
 						"deep": map[string]interface{}{
-							"options": map[string]interface{}{"maxTokens": vllmOutput},
+							"options": map[string]interface{}{
+								"maxTokens":   vllmOutput,
+								"temperature": 0,
+							},
 						},
 					},
 				},
@@ -563,14 +625,23 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 	}
 
 	if disableHeavyTools {
-		config["tools"] = map[string]interface{}{
-			"task":      false,
-			"todowrite": false,
-			"webfetch":  false,
-			"skill":     false,
+		disabledTools := vllmDisabledOpenCodeTools()
+		buildTools := vllmBuildAgentTools()
+		deniedPermissions := denyPermissionsForTools(disabledTools)
+		config["tools"] = buildTools
+		config["agent"] = map[string]interface{}{
+			"build": map[string]interface{}{
+				"prompt":     "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit, write, or patch; do not answer with a plan or describe edits you have not applied. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
+				"steps":      6,
+				"tools":      buildTools,
+				"permission": deniedPermissions,
+			},
+			"compaction": map[string]interface{}{
+				"disable": true,
+			},
 		}
 		config["compaction"] = map[string]interface{}{
-			"auto":     true,
+			"auto":     false,
 			"prune":    true,
 			"reserved": 768,
 		}

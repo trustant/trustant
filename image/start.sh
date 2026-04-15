@@ -35,9 +35,10 @@ if test -n "$B64KUBECONFIG"
 then ops -base64 -d "$B64KUBECONFIG" >$HOME/.ops/tmp/kubeconfig
 fi
 
-chown -R node:node "$HOME/.ssh" "$HOME/.env" "$HOME/.ops"
+mkdir -p "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
+chown -R node:node "$HOME/.ssh" "$HOME/.env" "$HOME/.ops" "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
 
-if [ -n "$USERID" ] && [ "$USERID" != "1000"]
+if [ -n "$USERID" ] && [ "$USERID" != "1000" ]
 then
     /usr/sbin/usermod -u $USERID node
     chown -Rf "$USERID" "$HOME"

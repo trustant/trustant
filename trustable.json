@@ -19,10 +19,10 @@
     "vllm": {
         "model": "google/gemma-4-E4B-it",
         "served_model_name": "google/gemma-4-E4B-it",
-        "base_url": "http://vllm:8000/v1",
+        "base_url": "http://localhost:8910/vllm/v1",
         "api_key": "dummy",
-        "context": 7424,
-        "output": 768,
+        "context": 6144,
+        "output": 2048,
         "tool_call": true,
         "disable_heavy_tools": true
     },

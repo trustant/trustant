@@ -63,6 +63,7 @@ func main() {
 	http.HandleFunc("/api/skills/", handleSkills)
 	http.HandleFunc("/api/memory/", handleMemory)
 	http.HandleFunc("/api/redeploy", handleRedeploy)
+	http.HandleFunc("/vllm/", handleVLLMProxy)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {
