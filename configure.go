@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -540,11 +542,83 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the response starts with {"error" or doesn't contain "response"
 	if strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"response"`) {
-		json.NewEncoder(w).Encode(map[string]string{"error": bodyStr})
+		message := ollamaErrorMessage(bodyStr)
+		if isOllamaSigninRequired(message) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":         message,
+				"auth_required": true,
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "warning",
+			"warning": message,
+		})
 		return
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func ollamaErrorMessage(bodyStr string) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(bodyStr), &payload); err == nil && payload.Error != "" {
+		return payload.Error
+	}
+	return strings.TrimSpace(bodyStr)
+}
+
+func isOllamaSigninRequired(message string) bool {
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "usage limit") || strings.Contains(lower, "quota") || strings.Contains(lower, "upgrade") {
+		return false
+	}
+	for _, token := range []string{
+		"not logged in",
+		"not signed in",
+		"sign in",
+		"sign-in",
+		"signin",
+		"unauthorized",
+		"authentication",
+		"401",
+	} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleOllamaConnect returns the browser URL needed to connect the Ollama CLI
+// identity used by Trustable to Ollama Cloud.
+func handleOllamaConnect(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	name := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_NAME"))
+	publicKey := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_PUBLIC_KEY"))
+	if name == "" || publicKey == "" {
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Ollama connect data is not configured",
+		})
+		return
+	}
+
+	values := url.Values{}
+	values.Set("name", name)
+	values.Set("key", base64.RawStdEncoding.EncodeToString([]byte(publicKey)))
+	json.NewEncoder(w).Encode(map[string]string{
+		"url": "https://ollama.com/connect?" + values.Encode(),
+	})
 }
 
 // handleConfiguration handles GET and POST /api/configuration

@@ -55,6 +55,7 @@ func main() {
 	http.HandleFunc("/api/sshkey", handleSSHKey)
 	http.HandleFunc("/api/configure", handleConfigure)
 	http.HandleFunc("/api/testmodel", handleTestModel)
+	http.HandleFunc("/api/ollama-connect", handleOllamaConnect)
 	http.HandleFunc("/api/configuration", handleConfiguration)
 	http.HandleFunc("/api/appconfig/", handleAppConfig)
 	http.HandleFunc("/api/publish/push", handlePublish)

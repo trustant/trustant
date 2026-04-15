@@ -73,7 +73,7 @@
             window.location.href = 'applist.html';
         }
 
-        function showSigninModal() {
+        async function showSigninModal() {
             const qs = window.location.search;
             document.getElementById('signinCommand').textContent = `ops trustable signin ${window.location.origin}`;
             if (qs && qs.length > 1) {
@@ -81,8 +81,21 @@
                 document.getElementById('signinWithLink').classList.remove('hidden');
                 document.getElementById('signinWithoutLink').classList.add('hidden');
             } else {
-                document.getElementById('signinWithLink').classList.add('hidden');
-                document.getElementById('signinWithoutLink').classList.remove('hidden');
+                try {
+                    const resp = await fetch('/api/ollama-connect');
+                    const data = await resp.json();
+                    if (data.url) {
+                        document.getElementById('ollamaConnectLink').href = data.url;
+                        document.getElementById('signinWithLink').classList.remove('hidden');
+                        document.getElementById('signinWithoutLink').classList.add('hidden');
+                    } else {
+                        document.getElementById('signinWithLink').classList.add('hidden');
+                        document.getElementById('signinWithoutLink').classList.remove('hidden');
+                    }
+                } catch {
+                    document.getElementById('signinWithLink').classList.add('hidden');
+                    document.getElementById('signinWithoutLink').classList.remove('hidden');
+                }
             }
             document.getElementById('signinModal').classList.remove('hidden');
             document.getElementById('signinModal').classList.add('flex');
@@ -100,19 +113,39 @@
             if (_openaiTestResolve) _openaiTestResolve();
         }
 
+        function isSigninError(message) {
+            const text = String(message || '').toLowerCase();
+            if (text.includes('usage limit') || text.includes('quota') || text.includes('upgrade')) {
+                return false;
+            }
+            return [
+                'not logged in',
+                'not signed in',
+                'sign in',
+                'sign-in',
+                'signin',
+                'unauthorized',
+                'authentication',
+                '401'
+            ].some(token => text.includes(token));
+        }
+
         async function testOpenAIConnection() {
             while (true) {
                 try {
                     const resp = await fetch('/api/testmodel');
                     const data = await resp.json();
                     if (data.error) {
+                        if (!data.auth_required && !isSigninError(data.error)) {
+                            return data;
+                        }
                         await new Promise(resolve => {
                             _openaiTestResolve = resolve;
                             showSigninModal();
                         });
                         continue;
                     }
-                    return true;
+                    return data;
                 } catch (e) {
                     await new Promise(resolve => {
                         _openaiTestResolve = resolve;
@@ -185,11 +218,16 @@
                 msgEl.appendChild(testDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
 
-                await testOpenAIConnection();
+                const testResult = await testOpenAIConnection();
 
                 const okDiv = document.createElement('div');
-                okDiv.className = 'text-green-600';
-                okDiv.textContent = 'OK: AI model connection successful';
+                if (testResult.warning || testResult.error) {
+                    okDiv.className = 'text-yellow-700';
+                    okDiv.textContent = 'WARNING: AI model test returned: ' + (testResult.warning || testResult.error);
+                } else {
+                    okDiv.className = 'text-green-600';
+                    okDiv.textContent = 'OK: AI model connection successful';
+                }
                 msgEl.appendChild(okDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
 
