@@ -65,7 +65,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 - When global config is saved (`POST /api/configuration`)
 
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
-1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to http://localhost>`
+1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to the Nuvolaris mini apihost http://miniops.me>`
 2. Global `env` defaults from the merged config
 3. Per-app `development` overrides
 
@@ -109,7 +109,8 @@ Using information from the merged config and the .env, create the opencode confi
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/opencode.md"],
   "enabled_providers": [
-    "ollama"
+    "ollama",
+    "vllm"
   ],
   "model": <OpencodeModel>,
   "small_model": <OpencodeSmallModel>,
@@ -123,8 +124,55 @@ Using information from the merged config and the .env, create the opencode confi
       "models": {
          <models with capabilities>
       }
+    },
+    "vllm": {
+      "name": "vLLM",
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": <vllm.base_url or "http://vllm:8000/v1">
+        "apiKey": <vllm.api_key or "dummy">
+      },
+      "models": {
+        <vllm.served_model_name or vllm.model>: {
+          "name": <model-name>,
+          "tool_call": <vllm.tool_call, default true>,
+          "reasoning": false,
+          "temperature": true,
+          "limit": {
+            "context": <vllm.context or 7424>,
+            "output": <vllm.output or 768>
+          },
+          "options": {
+            "maxTokens": <vllm.output or 768>
+          },
+          "variants": {
+            "fast": {
+              "options": { "maxTokens": <vllm.output or 768> }
+            },
+            "deep": {
+              "options": { "maxTokens": <vllm.output or 768> }
+            }
+          }
+        }
+      }
     }
   }
+}
+```
+
+When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
+
+```
+"tools": {
+  "task": false,
+  "todowrite": false,
+  "webfetch": false,
+  "skill": false
+},
+"compaction": {
+  "auto": true,
+  "prune": true,
+  "reserved": 768
 }
 ```
 

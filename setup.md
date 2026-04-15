@@ -7,7 +7,7 @@ If a check fails, abort and warn the user
 1. check there is a .env and that the variables in .env.dist are set, then load them with `source ./.env`
 and check the $WORKSPACE_DIR exists
 
-2. check you can reach OpenWhisk verifying curl ${OPS_APIHOST:-${APIHOST:-http://localhost}}/api/info | jq .description returns OpenWhisk
+2. check you can reach OpenWhisk verifying curl ${OPS_APIHOST:-${APIHOST:-http://miniops.me}}/api/info | jq .description returns OpenWhisk
    and the folder pointed by $WORKSPACE exists
 
 3. check you have administrative power  ensuring `ops admin listuser` does not return error
@@ -27,4 +27,3 @@ and check the $WORKSPACE_DIR exists
 curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash
 and then activating the go version in go.mod
 and then install air
-
