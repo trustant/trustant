@@ -237,6 +237,19 @@ func containsCapability(caps []string, cap string) bool {
 	return false
 }
 
+func appendEnabledProvider(enabled []string, provider string) []string {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return enabled
+	}
+	for _, existing := range enabled {
+		if existing == provider {
+			return enabled
+		}
+	}
+	return append(enabled, provider)
+}
+
 // numberWithExtPattern matches a number followed by a size suffix like "480b", "1.7b", "123b"
 var numberWithExtPattern = regexp.MustCompile(`^(\d+\.?\d*[a-zA-Z]+)$`)
 
@@ -575,6 +588,35 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 	}
 
 	configPath := filepath.Join(configDir, "opencode.json")
+	if existingData, readErr := os.ReadFile(configPath); readErr == nil {
+		var existing map[string]interface{}
+		if err := json.Unmarshal(existingData, &existing); err != nil {
+			log.Printf("  - Warning: could not parse existing opencode.json for provider merge: %s", err)
+		} else {
+			if existingProviders, ok := existing["provider"].(map[string]interface{}); ok {
+				for providerName, providerConfig := range existingProviders {
+					if _, generated := providers[providerName]; !generated {
+						providers[providerName] = providerConfig
+						log.Printf("  - Preserved custom OpenCode provider %s", providerName)
+					}
+				}
+			}
+			if existingEnabled, ok := existing["enabled_providers"].([]interface{}); ok {
+				for _, item := range existingEnabled {
+					providerName, ok := item.(string)
+					if !ok {
+						continue
+					}
+					if _, known := providers[providerName]; known {
+						enabledProviders = appendEnabledProvider(enabledProviders, providerName)
+					}
+				}
+			}
+			config["enabled_providers"] = enabledProviders
+			config["provider"] = providers
+		}
+	}
+
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
