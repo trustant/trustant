@@ -572,11 +572,11 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 		}
 		vllmContext := cfg.VLLM.Context
 		if vllmContext <= 0 {
-			vllmContext = 6144
+			vllmContext = 5120
 		}
 		vllmOutput := cfg.VLLM.Output
 		if vllmOutput <= 0 {
-			vllmOutput = 2048
+			vllmOutput = 1024
 		}
 		vllmToolCall := true
 		if cfg.VLLM.ToolCall != nil {

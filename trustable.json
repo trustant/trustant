@@ -21,8 +21,8 @@
         "served_model_name": "google/gemma-4-E4B-it",
         "base_url": "http://localhost:8910/vllm/v1",
         "api_key": "dummy",
-        "context": 6144,
-        "output": 2048,
+        "context": 5120,
+        "output": 1024,
         "tool_call": true,
         "disable_heavy_tools": true
     },

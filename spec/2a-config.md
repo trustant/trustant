@@ -149,23 +149,23 @@ Using information from the merged config and the .env, create the opencode confi
           "reasoning": false,
           "temperature": true,
           "limit": {
-            "context": <vllm.context or 6144>,
-            "output": <vllm.output or 2048>
+            "context": <vllm.context or 5120>,
+            "output": <vllm.output or 1024>
           },
           "options": {
-            "maxTokens": <vllm.output or 2048>,
+            "maxTokens": <vllm.output or 1024>,
             "temperature": 0
           },
           "variants": {
             "fast": {
               "options": {
-                "maxTokens": <vllm.output or 2048>,
+                "maxTokens": <vllm.output or 1024>,
                 "temperature": 0
               }
             },
             "deep": {
               "options": {
-                "maxTokens": <vllm.output or 2048>,
+                "maxTokens": <vllm.output or 1024>,
                 "temperature": 0
               }
             }
