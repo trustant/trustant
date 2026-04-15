@@ -237,19 +237,6 @@ func containsCapability(caps []string, cap string) bool {
 	return false
 }
 
-func appendEnabledProvider(enabled []string, provider string) []string {
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		return enabled
-	}
-	for _, existing := range enabled {
-		if existing == provider {
-			return enabled
-		}
-	}
-	return append(enabled, provider)
-}
-
 func vllmDisabledOpenCodeTools() map[string]interface{} {
 	disabled := map[string]interface{}{
 		"question":              false,
@@ -692,7 +679,6 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 		modelSmall = cfg.Opencode.Small
 	}
 
-	enabledProviders := []string{"ollama"}
 	providers := map[string]interface{}{
 		"ollama": map[string]interface{}{
 			"npm": "@ai-sdk/openai-compatible",
@@ -736,7 +722,6 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 			disableHeavyTools = *cfg.VLLM.DisableHeavyTools
 		}
 
-		enabledProviders = append(enabledProviders, "vllm")
 		providers["vllm"] = map[string]interface{}{
 			"name": "vLLM",
 			"npm":  "@ai-sdk/openai-compatible",
@@ -778,14 +763,13 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 	}
 
 	config := map[string]interface{}{
-		"$schema":           "https://opencode.ai/config.json",
-		"instructions":      []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
-		"enabled_providers": enabledProviders,
-		"model":             modelDefault,
-		"small_model":       modelSmall,
-		"provider":          providers,
-		"lsp":               defaultOpenCodeLSPConfig(),
-		"mcp":               defaultOpenCodeMCPConfig(appEnv),
+		"$schema":      "https://opencode.ai/config.json",
+		"instructions": []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
+		"model":        modelDefault,
+		"small_model":  modelSmall,
+		"provider":     providers,
+		"lsp":          defaultOpenCodeLSPConfig(),
+		"mcp":          defaultOpenCodeMCPConfig(appEnv),
 	}
 
 	if disableHeavyTools {
@@ -856,18 +840,27 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 					}
 				}
 			}
-			if existingEnabled, ok := existing["enabled_providers"].([]interface{}); ok {
-				for _, item := range existingEnabled {
-					providerName, ok := item.(string)
-					if !ok {
-						continue
-					}
-					if _, known := providers[providerName]; known {
-						enabledProviders = appendEnabledProvider(enabledProviders, providerName)
-					}
-				}
+			if existingModel, ok := existing["model"].(string); ok && strings.TrimSpace(existingModel) != "" {
+				config["model"] = existingModel
+				log.Printf("  - Preserved selected OpenCode model %s", existingModel)
 			}
-			config["enabled_providers"] = enabledProviders
+			if existingSmallModel, ok := existing["small_model"].(string); ok && strings.TrimSpace(existingSmallModel) != "" {
+				config["small_model"] = existingSmallModel
+				log.Printf("  - Preserved selected OpenCode small_model %s", existingSmallModel)
+			}
+			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {
+				config["disabled_providers"] = existingDisabledProviders
+			}
+			for key, value := range existing {
+				if _, generated := config[key]; generated {
+					continue
+				}
+				if key == "enabled_providers" {
+					log.Printf("  - Removed OpenCode enabled_providers whitelist to keep providers user-selectable")
+					continue
+				}
+				config[key] = value
+			}
 			config["provider"] = providers
 		}
 	}

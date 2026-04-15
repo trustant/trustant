@@ -108,10 +108,6 @@ Using information from the merged config and the .env, create the opencode confi
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/opencode.md"],
-  "enabled_providers": [
-    "ollama",
-    "vllm"
-  ],
   "model": <OpencodeModel>,
   "small_model": <OpencodeSmallModel>,
   "lsp": {
@@ -219,6 +215,13 @@ The `mcp` section is regenerated at launch time from the current app `.env`, not
 only during the global configure step. Keep all service hosts, endpoints, tokens,
 passwords, buckets, and credentials as app environment variables. Do not hardcode
 server-specific hostnames or IP addresses in `opencode.json` generation.
+
+Do not emit `enabled_providers`. In OpenCode that field is a whitelist; if it is
+present, providers added by the user from the UI can be saved in `provider` but
+remain unavailable for selection. Preserve custom providers and preserve the
+user-selected `model` and `small_model` from an existing `opencode.json` so a
+launch does not force the default Trustable provider back over the user's
+choice.
 
 When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
 
@@ -369,7 +372,13 @@ Template:
 }
 ```
 
-After generating `opencode.json`, write the embedded `opencode.md` to `~/.config/opencode/opencode.md` (the instructions file referenced by absolute path in the config). Also copy the embedded `tools` folder to `~/.config/opencode/tools`, overwriting existing files.
+OpenCode state must be persistent across pod restarts. At container startup,
+`~/.config/opencode`, `~/.cache/opencode`, and `~/.local/share/opencode` are
+symlinked into the mounted workspace under `.trustable/opencode/`. After
+generating `opencode.json`, write the embedded `opencode.md` to
+`~/.config/opencode/opencode.md` (the instructions file referenced by absolute
+path in the config). Also copy the embedded `tools` folder to
+`~/.config/opencode/tools`, overwriting existing files.
 
 # Manage configuration: GET /api/configuration
 

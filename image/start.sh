@@ -35,8 +35,24 @@ if test -n "$B64KUBECONFIG"
 then ops -base64 -d "$B64KUBECONFIG" >$HOME/.ops/tmp/kubeconfig
 fi
 
-mkdir -p "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
-chown -R node:node "$HOME/.ssh" "$HOME/.env" "$HOME/.ops" "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
+persist_opencode_dir() {
+    local target="$1"
+    local link="$2"
+
+    mkdir -p "$(dirname "$link")" "$target"
+    if [ -e "$link" ] && [ ! -L "$link" ]; then
+        cp -a "$link/." "$target/" 2>/dev/null || true
+        rm -rf "$link"
+    fi
+    ln -sfn "$target" "$link"
+}
+
+mkdir -p "$HOME/workspace/.trustable/opencode"
+persist_opencode_dir "$HOME/workspace/.trustable/opencode/config" "$HOME/.config/opencode"
+persist_opencode_dir "$HOME/workspace/.trustable/opencode/cache" "$HOME/.cache/opencode"
+persist_opencode_dir "$HOME/workspace/.trustable/opencode/share" "$HOME/.local/share/opencode"
+
+chown -R node:node "$HOME/.ssh" "$HOME/.env" "$HOME/.ops" "$HOME/workspace/.trustable/opencode" "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
 
 if [ -n "$USERID" ] && [ "$USERID" != "1000" ]
 then
