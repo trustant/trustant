@@ -5,25 +5,6 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 ## Important Rules
 
 - Never try to build or deploy; this is managed automatically when you edit sources
-- Use tools directly to inspect and edit files. Do not answer with a plan when a
-  small requested code change can be done immediately.
-- For code-change requests, after you locate the target file, call `edit` or
-  `write` before your final answer. Do not describe an edit unless
-  it has already been applied.
-- After applying an edit, give a short final answer and stop. Do not keep
-  re-reading files unless validation is necessary.
-- If `edit` fails because `oldString` has multiple matches, do not repeat the
-  same edit. If the requested change should apply to every matching occurrence,
-  retry the edit once with `replaceAll: true`. If only one occurrence should
-  change, re-read the file and use a larger unique `oldString`, or use `write`
-  with the complete updated file content.
-- Never expose internal reasoning, channel markers, handoff summaries, or
-  implementation notes as assistant text.
-- Tool arguments must be plain JSON values. For paths and globs, do not wrap the
-  string value in extra quote characters and do not include channel markers.
-- If a tool call fails because a path or pattern is too narrow, retry with a
-  simpler broader search such as `delete`, `Delete`, `red`, `bg-red`,
-  `text-red`, `destructive`, or the visible button label.
 - To initialize always use `ops ide init` that will execute ALL the private actions in `init` package.
 - Never create a backend server; create new public action providing an endpoint.
 - Never create or edit `__main__.py` files, use the following tools:

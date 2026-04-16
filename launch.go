@@ -341,8 +341,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	// Point the project config at the global OpenCode config so provider edits
-	// saved from the UI are immediately read by the active workbench. Regenerate
-	// it on every launch because MCP servers need the current app .env values.
+	// saved from the UI are immediately read by the active workbench.
 	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
 	if cfg, err := loadTrustableConfig(); err != nil {
 		log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)

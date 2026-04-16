@@ -16,16 +16,6 @@
         "default": "qwen3-coder-next:cloud",
         "small": "gpt-oss:20b-cloud"
     },
-    "vllm": {
-        "model": "google/gemma-4-E4B-it",
-        "served_model_name": "google/gemma-4-E4B-it",
-        "base_url": "http://localhost:8910/vllm/v1",
-        "api_key": "dummy",
-        "context": 5120,
-        "output": 1024,
-        "tool_call": true,
-        "disable_heavy_tools": true
-    },
     "git": {
         "user": "Trustable User",
         "email": "noreply@example.com"

@@ -101,239 +101,36 @@ Read the merged config (base + workspace), connect to the Ollama endpoint and pu
 
 # Prepare opencode config
 
-Using information from the merged config and the .env, create the opencode config in
-`~/.config/opencode/opencode.json` following the structure:
+Create the OpenCode config in `~/.config/opencode/opencode.json` following the
+structure:
 
 ```
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/opencode.md"],
-  "model": <OpencodeModel>,
-  "small_model": <OpencodeSmallModel>,
-  "lsp": {
-    "typescript": {
-      "command": ["typescript-language-server", "--stdio"],
-      "extensions": [".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"]
-    },
-    "python": {
-      "command": ["pylsp"],
-      "extensions": [".py"]
-    }
-  },
-  "mcp": {
-    "postgres": {
-      "type": "local",
-      "command": ["trustable-mcp-postgres"],
-      "environment": {
-        "DATABASE_URI": "<DATABASE_URI or POSTGRES_URL from the launched app .env>"
-      },
-      "enabled": "<true only when database credentials are configured>",
-      "timeout": 30000
-    },
-    "redis": {
-      "type": "local",
-      "command": ["trustable-mcp-redis"],
-      "environment": {
-        "REDIS_URL": "<REDIS_URL from the launched app .env>"
-      },
-      "enabled": "<true only when REDIS_URL or REDIS_HOST is configured>",
-      "timeout": 30000
-    },
-    "milvus": {
-      "type": "local",
-      "command": ["trustable-mcp-milvus"],
-      "environment": {
-        "MILVUS_URI": "<MILVUS_URI or MILVUS_HOST/MILVUS_PORT from the launched app .env>"
-      },
-      "enabled": "<true only when Milvus connection variables are configured>",
-      "timeout": 30000
-    },
-    "s3": {
-      "type": "local",
-      "command": ["trustable-mcp-s3"],
-      "environment": {
-        "S3_ENDPOINT": "<S3_ENDPOINT or S3_HOST/S3_PORT from the launched app .env>"
-      },
-      "enabled": "<true only when S3 or AWS connection variables are configured>",
-      "timeout": 30000
-    }
-  },
-  "provider": {
-    "ollama": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": <OpenAIBaseUrl>
-        "apiKey": <OpenAIApiKey>
-      },
-      "models": {
-         <models with capabilities>
-      }
-    },
-    "vllm": {
-      "name": "vLLM",
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": <vllm.base_url or "http://localhost:8910/vllm/v1">
-        "apiKey": <vllm.api_key or "dummy">
-      },
-      "models": {
-        <vllm.served_model_name or vllm.model>: {
-          "name": <model-name>,
-          "tool_call": <vllm.tool_call, default true>,
-          "reasoning": false,
-          "temperature": true,
-          "limit": {
-            "context": <vllm.context or 5120>,
-            "output": <vllm.output or 1024>
-          },
-          "options": {
-            "maxTokens": <vllm.output or 1024>,
-            "temperature": 0
-          },
-          "variants": {
-            "fast": {
-              "options": {
-                "maxTokens": <vllm.output or 1024>,
-                "temperature": 0
-              }
-            },
-            "deep": {
-              "options": {
-                "maxTokens": <vllm.output or 1024>,
-                "temperature": 0
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+  "disabled_providers": [<default OpenCode providers>],
+  "provider": {<custom user providers only>}
 }
 ```
 
-The `mcp` section is regenerated at launch time from the current app `.env`, not
-only during the global configure step. Keep all service hosts, endpoints, tokens,
-passwords, buckets, and credentials as app environment variables. Do not hardcode
-server-specific hostnames or IP addresses in `opencode.json` generation.
+Do not generate Trustable-managed default providers such as `ollama` or `vllm`
+in the OpenCode `provider` map. Hide OpenCode's automatic/default providers with
+`disabled_providers`, but remove any ID from that disabled list when the same ID
+is present as a preserved custom provider.
 
 Do not emit `enabled_providers`. In OpenCode that field is a whitelist; if it is
 present, providers added by the user from the UI can be saved in `provider` but
 remain unavailable for selection. Preserve custom providers and preserve the
-user-selected `model` and `small_model` from an existing `opencode.json` so a
-launch does not force the default Trustable provider back over the user's
-choice.
+user-selected `model` and `small_model` from an existing `opencode.json` only
+when the selected model has a `provider/model` prefix and that provider is still
+present after regeneration. Otherwise omit the selection instead of writing an
+orphan model reference.
 
-When vLLM is configured and `disable_heavy_tools` is unset or true, also emit:
-
-```
-"tools": {
-  "read": true,
-  "write": true,
-  "edit": true,
-  "bash": true,
-  "grep": true,
-  "glob": true,
-  "list": true,
-  "lsp": true,
-  "postgres_*": true,
-  "redis_*": true,
-  "milvus_*": true,
-  "s3_*": true,
-  "todoread": true,
-  "question": false,
-  "task": false,
-  "todowrite": false,
-  "webfetch": false,
-  "skill": false,
-  "action-add-s3": false,
-  "action-add-postgresql": false,
-  "action-add-redis": false,
-  "action-add-milvus": false,
-  "action-add-secret": false,
-  "action-new": false,
-  "action-requirements": false,
-  "action-invoke": false
-},
-"agent": {
-  "build": {
-    "prompt": "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit or write; do not answer with a plan or describe edits you have not applied. If edit fails because oldString has multiple matches, do not repeat the same edit. If the requested change should apply to every matching occurrence, retry the edit once with replaceAll: true. If only one occurrence should change, re-read the file and retry with a larger unique oldString, or use write with the complete updated file. After applying the edit, give a short final answer and stop. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
-    "steps": 12,
-    "tools": {
-      "read": true,
-      "write": true,
-      "edit": true,
-      "bash": true,
-      "grep": true,
-      "glob": true,
-      "list": true,
-      "lsp": true,
-      "postgres_*": true,
-      "redis_*": true,
-      "milvus_*": true,
-      "s3_*": true,
-      "todoread": true,
-      "question": false,
-      "task": false,
-      "todowrite": false,
-      "webfetch": false,
-      "skill": false,
-      "action-add-s3": false,
-      "action-add-postgresql": false,
-      "action-add-redis": false,
-      "action-add-milvus": false,
-      "action-add-secret": false,
-      "action-new": false,
-      "action-requirements": false,
-      "action-invoke": false
-    },
-    "permission": {
-      "question": "deny",
-      "task": "deny",
-      "todowrite": "deny",
-      "webfetch": "deny",
-      "skill": "deny",
-      "action-add-s3": "deny",
-      "action-add-postgresql": "deny",
-      "action-add-redis": "deny",
-      "action-add-milvus": "deny",
-      "action-add-secret": "deny",
-      "action-new": "deny",
-      "action-requirements": "deny",
-      "action-invoke": "deny"
-    }
-  },
-  "compaction": {
-    "disable": true
-  }
-},
-"compaction": {
-  "auto": false,
-  "prune": true,
-  "reserved": 768
-}
-```
-
-This vLLM profile intentionally keeps only direct file/code tools on the build
-agent plus the LSP tool. The Gemma 4/vLLM combination can produce verbose handoff text, malformed
-tool argument quoting, and poor compaction behavior when the full OpenCode tool
-set is exposed in a small context window.
-
-OpenCode 1.4.6 exposes `edit` and `write` as the practical code-change tools in
-this profile. The `edit` tool supports `replaceAll: true`; use it when a change
-should intentionally apply to every matching repeated block.
-
-The TypeScript/JavaScript and Python LSP servers are installed in the Trustable
-image and configured as local OpenCode LSP commands. OpenCode launches and
-supervises these stdio language server processes when a matching file type is
-used. Do not add `typescript-language-server --stdio` or `pylsp` as long-running
-`supervisord` programs, because stdio language servers need to be attached to
-their OpenCode client process.
-
-For Trustable's default vLLM provider, route OpenCode through the local
-compatibility proxy at `http://localhost:8910/vllm/v1` instead of calling
-`http://vllm:8000/v1` directly. The proxy forwards to vLLM on the Docker network
-and strips vLLM-specific `reasoning` fields plus stray `<channel|>` markers that
-OpenCode 1.4.3 otherwise displays as user-visible text.
+Generated OpenCode keys that were introduced for experimental provider profiles
+(`lsp`, `mcp`, `tools`, `agent`, `compaction`, `enabled_providers`) are not
+carried forward when regenerating the Trustable config. This keeps the default
+OpenCode flow minimal while still allowing users to add providers from the
+OpenCode UI and keep them persisted across app launches.
 
 To get the capabilities of a model use the OllamaEndPoint, list the models then show their capabilities.
 

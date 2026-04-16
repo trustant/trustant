@@ -64,11 +64,7 @@ otherwise return error.
 ## prepare opencode configuration and environment
 
 Before starting opencode, regenerate the global OpenCode JSON config using the
-current app `.env`, then link it into the workbench directory:
-
-Call `generateOpencodeConfigForApp()` after `.env` generation so local MCP
-servers receive app-specific credentials for PostgreSQL, Redis, Milvus, and S3
-through the generated `mcp` configuration.
+current Trustable config, then link it into the workbench directory:
 
 Symlink `~/.config/opencode/opencode.json` to
 `<workbenchdir>/<app>/opencode.json`, overwriting existing files. If symlink
@@ -77,8 +73,7 @@ creation fails, fall back to copying the file.
 Note: `opencode.md` is written to `~/.config/opencode/opencode.md` during the configure step and referenced by absolute path in `opencode.json`, so it does not need to be copied to the workbench.
 
 Launch `opencode serve` with the variables from the workbench `.env` appended to
-the process environment. This keeps tools and MCP servers aligned with the same
-development service credentials used by the app.
+the process environment.
 
 ## start process group
 

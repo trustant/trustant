@@ -26,18 +26,6 @@ type opencodeConfig struct {
 	Small   string `json:"small"`
 }
 
-// vllmConfig holds the optional vLLM OpenAI-compatible provider settings.
-type vllmConfig struct {
-	Model             string `json:"model"`
-	ServedModelName   string `json:"served_model_name,omitempty"`
-	BaseURL           string `json:"base_url,omitempty"`
-	APIKey            string `json:"api_key,omitempty"`
-	Context           int    `json:"context,omitempty"`
-	Output            int    `json:"output,omitempty"`
-	ToolCall          *bool  `json:"tool_call,omitempty"`
-	DisableHeavyTools *bool  `json:"disable_heavy_tools,omitempty"`
-}
-
 // AppConfig holds per-app configuration within trustable.json
 type AppConfig struct {
 	Password    string            `json:"password"`
@@ -56,7 +44,6 @@ type trustableConfig struct {
 	Ollama    map[string]string     `json:"ollama,omitempty"`
 	TestModel string                `json:"testmodel,omitempty"`
 	Opencode  *opencodeConfig       `json:"opencode,omitempty"`
-	VLLM      *vllmConfig           `json:"vllm,omitempty"`
 	Git       *GitConfig            `json:"git,omitempty"`
 	Env       map[string]string     `json:"env,omitempty"`
 	Apps      map[string]*AppConfig `json:"apps,omitempty"`
@@ -132,10 +119,6 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 
 	if override.Opencode != nil {
 		result.Opencode = override.Opencode
-	}
-
-	if override.VLLM != nil {
-		result.VLLM = override.VLLM
 	}
 
 	if override.Git != nil {
@@ -237,210 +220,248 @@ func containsCapability(caps []string, cap string) bool {
 	return false
 }
 
-func vllmDisabledOpenCodeTools() map[string]interface{} {
-	disabled := map[string]interface{}{
-		"question":              false,
-		"task":                  false,
-		"todowrite":             false,
-		"webfetch":              false,
-		"skill":                 false,
-		"action-add-s3":         false,
-		"action-add-postgresql": false,
-		"action-add-redis":      false,
-		"action-add-milvus":     false,
-		"action-add-secret":     false,
-		"action-new":            false,
-		"action-requirements":   false,
-		"action-invoke":         false,
-	}
-	return disabled
-}
-
-func vllmBuildAgentTools() map[string]interface{} {
-	tools := map[string]interface{}{
-		"read":                  true,
-		"write":                 true,
-		"edit":                  true,
-		"bash":                  true,
-		"grep":                  true,
-		"glob":                  true,
-		"list":                  true,
-		"lsp":                   true,
-		"postgres_*":            true,
-		"redis_*":               true,
-		"milvus_*":              true,
-		"s3_*":                  true,
-		"todoread":              true,
-		"question":              false,
-		"task":                  false,
-		"todowrite":             false,
-		"webfetch":              false,
-		"skill":                 false,
-		"action-add-s3":         false,
-		"action-add-postgresql": false,
-		"action-add-redis":      false,
-		"action-add-milvus":     false,
-		"action-add-secret":     false,
-		"action-new":            false,
-		"action-requirements":   false,
-		"action-invoke":         false,
-	}
-	return tools
-}
-
-func denyPermissionsForTools(tools map[string]interface{}) map[string]interface{} {
-	permission := make(map[string]interface{}, len(tools))
-	for tool := range tools {
-		permission[tool] = "deny"
-	}
-	return permission
-}
-
-func defaultOpenCodeLSPConfig() map[string]interface{} {
-	return map[string]interface{}{
-		"typescript": map[string]interface{}{
-			"command":    []string{"typescript-language-server", "--stdio"},
-			"extensions": []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"},
-		},
-		"python": map[string]interface{}{
-			"command":    []string{"pylsp"},
-			"extensions": []string{".py"},
-		},
-	}
-}
-
-func envValue(env map[string]string, keys ...string) string {
-	if env == nil {
+func providerBaseURL(providerConfig interface{}) string {
+	config, ok := providerConfig.(map[string]interface{})
+	if !ok {
 		return ""
 	}
-	for _, key := range keys {
-		if value := strings.TrimSpace(env[key]); value != "" {
-			return value
-		}
+	options, ok := config["options"].(map[string]interface{})
+	if !ok {
+		return ""
 	}
-	return ""
+	baseURL, _ := options["baseURL"].(string)
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
 }
 
-func selectedEnv(env map[string]string, keys ...string) map[string]string {
-	selected := make(map[string]string)
-	if env == nil {
-		return selected
+func isManagedVLLMProvider(providerName string, providerConfig interface{}) bool {
+	if providerName != "vllm" {
+		return false
 	}
-	for _, key := range keys {
-		if value, ok := env[key]; ok && strings.TrimSpace(value) != "" {
-			selected[key] = value
-		}
-	}
-	return selected
+	baseURL := providerBaseURL(providerConfig)
+	return strings.Contains(baseURL, "localhost:8910/vllm") ||
+		strings.Contains(baseURL, "127.0.0.1:8910/vllm") ||
+		strings.Contains(baseURL, "http://vllm:8000")
 }
 
-func defaultOpenCodeMCPConfig(appEnv map[string]string) map[string]interface{} {
-	postgresEnv := selectedEnv(appEnv, "DATABASE_URI", "POSTGRES_URL", "POSTGRES_MCP_ACCESS_MODE")
-	if postgresEnv["DATABASE_URI"] == "" && postgresEnv["POSTGRES_URL"] != "" {
-		postgresEnv["DATABASE_URI"] = postgresEnv["POSTGRES_URL"]
+func hasGeneratedOllamaModelVariant(providerConfig interface{}) bool {
+	config, ok := providerConfig.(map[string]interface{})
+	if !ok {
+		return false
 	}
-	postgresEnabled := envValue(postgresEnv, "DATABASE_URI") != ""
+	models, ok := config["models"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, modelConfig := range models {
+		model, ok := modelConfig.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		variants, ok := model["variants"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, generated := variants["disabled_variant"]; generated {
+			return true
+		}
+	}
+	return false
+}
 
-	redisEnv := selectedEnv(appEnv,
-		"REDIS_URL",
-		"REDIS_HOST",
-		"REDIS_PORT",
-		"REDIS_DB",
-		"REDIS_USERNAME",
-		"REDIS_PWD",
-		"REDIS_SSL",
-		"REDIS_SSL_CA_PATH",
-		"REDIS_SSL_KEYFILE",
-		"REDIS_SSL_CERTFILE",
-		"REDIS_SSL_CERT_REQS",
-		"REDIS_SSL_CA_CERTS",
-		"REDIS_CLUSTER_MODE",
-		"REDIS_PREFIX",
-	)
-	redisEnabled := envValue(redisEnv, "REDIS_URL", "REDIS_HOST") != ""
+func isTrustableManagedOpenCodeProvider(providerName string, providerConfig interface{}) bool {
+	baseURL := providerBaseURL(providerConfig)
+	switch providerName {
+	case "ollama":
+		isLocalManagedURL := baseURL == strings.TrimRight(OpenAIBaseUrl, "/") ||
+			baseURL == "http://ollama:11434/v1" ||
+			baseURL == "http://localhost:11434/v1" ||
+			baseURL == "http://127.0.0.1:11434/v1"
+		return isLocalManagedURL && hasGeneratedOllamaModelVariant(providerConfig)
+	case "vllm":
+		return isManagedVLLMProvider(providerName, providerConfig)
+	default:
+		return false
+	}
+}
 
-	milvusEnv := selectedEnv(appEnv,
-		"MILVUS_URI",
-		"MILVUS_PROTO",
-		"MILVUS_HOST",
-		"MILVUS_PORT",
-		"MILVUS_TOKEN",
-		"MILVUS_DB",
-		"MILVUS_DB_NAME",
-	)
-	if milvusEnv["MILVUS_DB"] == "" && milvusEnv["MILVUS_DB_NAME"] != "" {
-		milvusEnv["MILVUS_DB"] = milvusEnv["MILVUS_DB_NAME"]
+func dropGeneratedOpenCodeKey(key string) bool {
+	switch key {
+	case "enabled_providers", "lsp", "mcp", "tools", "agent", "compaction":
+		return true
+	default:
+		return false
 	}
-	milvusEnabled := envValue(milvusEnv, "MILVUS_URI", "MILVUS_HOST") != ""
+}
 
-	s3Env := selectedEnv(appEnv,
-		"AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY",
-		"AWS_SESSION_TOKEN",
-		"AWS_PROFILE",
-		"AWS_REGION",
-		"S3_ENDPOINT",
-		"S3_USE_PATH_STYLE",
-		"S3_TIMEOUT",
-		"S3_HOST",
-		"S3_PORT",
-		"S3_PROTO",
-		"S3_ACCESS_KEY",
-		"S3_SECRET_KEY",
-		"S3_REGION",
-		"S3_BUCKET_DATA",
-		"S3_BUCKET_STATIC",
-		"OPSDEV_S3",
-		"MCP_S3_EXT_READONLY",
-		"MCP_S3_EXT_SIZELIMIT",
-		"MCP_S3_MAX_GET_SIZE",
-		"MCP_S3_MAX_PUT_SIZE",
-		"MCP_S3_EXT_LOGGING",
-		"MCP_S3_EXT_AUDIT",
-		"S3_ADDITIONAL_CONNECTIONS",
-		"S3_CONNECTION_NAME",
-	)
-	if s3Env["AWS_ACCESS_KEY_ID"] == "" && s3Env["S3_ACCESS_KEY"] != "" {
-		s3Env["AWS_ACCESS_KEY_ID"] = s3Env["S3_ACCESS_KEY"]
+func shouldPreserveModelSelection(model string, providers map[string]interface{}) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
 	}
-	if s3Env["AWS_SECRET_ACCESS_KEY"] == "" && s3Env["S3_SECRET_KEY"] != "" {
-		s3Env["AWS_SECRET_ACCESS_KEY"] = s3Env["S3_SECRET_KEY"]
+	providerName, _, found := strings.Cut(model, "/")
+	if !found {
+		return false
 	}
-	if s3Env["AWS_REGION"] == "" && s3Env["S3_REGION"] != "" {
-		s3Env["AWS_REGION"] = s3Env["S3_REGION"]
-	}
-	s3Enabled := envValue(s3Env, "S3_ENDPOINT", "S3_HOST", "AWS_ACCESS_KEY_ID", "AWS_PROFILE") != ""
+	_, ok := providers[providerName]
+	return ok
+}
 
-	return map[string]interface{}{
-		"postgres": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-postgres"},
-			"environment": postgresEnv,
-			"enabled":     postgresEnabled,
-			"timeout":     30000,
-		},
-		"redis": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-redis"},
-			"environment": redisEnv,
-			"enabled":     redisEnabled,
-			"timeout":     30000,
-		},
-		"milvus": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-milvus"},
-			"environment": milvusEnv,
-			"enabled":     milvusEnabled,
-			"timeout":     30000,
-		},
-		"s3": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-s3"},
-			"environment": s3Env,
-			"enabled":     s3Enabled,
-			"timeout":     30000,
-		},
+func defaultDisabledOpenCodeProviders() []string {
+	return []string{
+		"302ai",
+		"abacus",
+		"aihubmix",
+		"alibaba",
+		"alibaba-cn",
+		"alibaba-coding-plan",
+		"alibaba-coding-plan-cn",
+		"amazon-bedrock",
+		"anthropic",
+		"azure",
+		"azure-cognitive-services",
+		"bailing",
+		"baseten",
+		"berget",
+		"cerebras",
+		"chutes",
+		"clarifai",
+		"cloudferro-sherlock",
+		"cloudflare-ai-gateway",
+		"cloudflare-workers-ai",
+		"cohere",
+		"cortecs",
+		"deepinfra",
+		"deepseek",
+		"dinference",
+		"drun",
+		"evroc",
+		"fastrouter",
+		"firmware",
+		"fireworks-ai",
+		"friendli",
+		"github-copilot",
+		"github-models",
+		"gitlab",
+		"google",
+		"google-vertex",
+		"google-vertex-anthropic",
+		"groq",
+		"helicone",
+		"hpc-ai",
+		"huggingface",
+		"iflowcn",
+		"inception",
+		"inference",
+		"io-net",
+		"jiekou",
+		"kilo",
+		"kimi-for-coding",
+		"kuae-cloud-coding-plan",
+		"llama",
+		"llmgateway",
+		"lmstudio",
+		"lucidquery",
+		"meganova",
+		"minimax",
+		"minimax-cn",
+		"minimax-cn-coding-plan",
+		"minimax-coding-plan",
+		"mistral",
+		"mixlayer",
+		"moark",
+		"modelscope",
+		"moonshotai",
+		"moonshotai-cn",
+		"morph",
+		"nano-gpt",
+		"nebius",
+		"nova",
+		"novita-ai",
+		"nvidia",
+		"ollama",
+		"ollama-cloud",
+		"ollama2",
+		"ollama_docker",
+		"opencode",
+		"opencode-go",
+		"openai",
+		"openrouter",
+		"ovhcloud",
+		"perplexity",
+		"perplexity-agent",
+		"poe",
+		"privatemode-ai",
+		"qihang-ai",
+		"qiniu-ai",
+		"requesty",
+		"sap-ai-core",
+		"scaleway",
+		"siliconflow",
+		"siliconflow-cn",
+		"stackit",
+		"stepfun",
+		"submodel",
+		"synthetic",
+		"tencent-coding-plan",
+		"the-grid-ai",
+		"togetherai",
+		"upstage",
+		"v0",
+		"venice",
+		"vercel",
+		"vivgrid",
+		"vllm",
+		"vultr",
+		"wandb",
+		"xiaomi",
+		"xiaomi-token-plan-ams",
+		"xiaomi-token-plan-cn",
+		"xiaomi-token-plan-sgp",
+		"xai",
+		"zai",
+		"zai-coding-plan",
+		"zenmux",
+		"zhipuai",
+		"zhipuai-coding-plan",
 	}
+}
+
+func mergeDisabledOpenCodeProviders(existing interface{}, defaults []string) []string {
+	seen := make(map[string]bool, len(defaults))
+	merged := make([]string, 0, len(defaults))
+	appendProvider := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		merged = append(merged, value)
+	}
+	for _, provider := range defaults {
+		appendProvider(provider)
+	}
+	if existingList, ok := existing.([]interface{}); ok {
+		for _, value := range existingList {
+			if provider, ok := value.(string); ok {
+				appendProvider(provider)
+			}
+		}
+	}
+	return merged
+}
+
+func disabledProvidersForCustomConfig(disabled []string, providers map[string]interface{}) []string {
+	if len(providers) == 0 {
+		return disabled
+	}
+	filtered := make([]string, 0, len(disabled))
+	for _, provider := range disabled {
+		if _, custom := providers[provider]; custom {
+			continue
+		}
+		filtered = append(filtered, provider)
+	}
+	return filtered
 }
 
 // numberWithExtPattern matches a number followed by a size suffix like "480b", "1.7b", "123b"
@@ -609,190 +630,18 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 
 // generateOpencodeConfig creates ~/.config/opencode/opencode.json from trustable.json config.
 func generateOpencodeConfig(cfg *trustableConfig) error {
-	return generateOpencodeConfigWithEnv(cfg, nil)
+	return generateOpencodeConfigForApp(cfg, "")
 }
 
-// generateOpencodeConfigForApp creates opencode.json using the launched app's
-// generated .env, so local MCP servers receive app-specific service credentials.
+// generateOpencodeConfigForApp refreshes opencode.json before a workbench launch.
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
-	appEnv := parseEnvFile(filepath.Join(WorkbenchDir, appName, ".env"))
-	return generateOpencodeConfigWithEnv(cfg, appEnv)
-}
-
-func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]string) error {
-	// Build model configs
-	models := make(map[string]interface{})
-	for modelName, ctxStr := range cfg.Ollama {
-		ctxSize, err := parseContextSize(ctxStr)
-		if err != nil {
-			log.Printf("  - Warning: invalid context size for %s: %s", modelName, ctxStr)
-			continue
-		}
-
-		caps, err := getModelCapabilities(modelName)
-		if err != nil {
-			log.Printf("  - Warning: could not get capabilities for %s: %v", modelName, err)
-			continue
-		}
-
-		// Skip embedding-only models (no "completion" capability)
-		if !containsCapability(caps, "completion") {
-			log.Printf("  - Skipping %s (no completion capability)", modelName)
-			continue
-		}
-
-		models[modelName] = map[string]interface{}{
-			"name":        modelDisplayName(modelName),
-			"tool_call":   containsCapability(caps, "tools"),
-			"reasoning":   containsCapability(caps, "thinking"),
-			"temperature": true,
-			"limit": map[string]interface{}{
-				"context": ctxSize,
-				"output":  32768,
-			},
-			"options": map[string]interface{}{
-				"maxTokens": 8192,
-			},
-			"variants": map[string]interface{}{
-				"fast": map[string]interface{}{
-					"options": map[string]interface{}{"maxTokens": 2048},
-				},
-				"deep": map[string]interface{}{
-					"options": map[string]interface{}{"maxTokens": 16000},
-				},
-				"disabled_variant": map[string]interface{}{
-					"disabled": true,
-				},
-			},
-		}
-
-		log.Printf("  - %s: tool_call=%v reasoning=%v context=%d",
-			modelName,
-			containsCapability(caps, "tools"),
-			containsCapability(caps, "thinking"),
-			ctxSize)
-	}
-
-	var modelDefault, modelSmall string
-	if cfg.Opencode != nil {
-		modelDefault = cfg.Opencode.Default
-		modelSmall = cfg.Opencode.Small
-	}
-
-	providers := map[string]interface{}{
-		"ollama": map[string]interface{}{
-			"npm": "@ai-sdk/openai-compatible",
-			"options": map[string]interface{}{
-				"baseURL": OpenAIBaseUrl,
-				"apiKey":  OpenAIApiKey,
-			},
-			"models": models,
-		},
-	}
-
-	disableHeavyTools := false
-	if cfg.VLLM != nil && strings.TrimSpace(cfg.VLLM.Model) != "" {
-		vllmModel := strings.TrimSpace(cfg.VLLM.Model)
-		servedModelName := strings.TrimSpace(cfg.VLLM.ServedModelName)
-		if servedModelName == "" {
-			servedModelName = vllmModel
-		}
-		vllmBaseURL := strings.TrimSpace(cfg.VLLM.BaseURL)
-		if vllmBaseURL == "" {
-			vllmBaseURL = "http://localhost:8910/vllm/v1"
-		}
-		vllmAPIKey := cfg.VLLM.APIKey
-		if vllmAPIKey == "" {
-			vllmAPIKey = "dummy"
-		}
-		vllmContext := cfg.VLLM.Context
-		if vllmContext <= 0 {
-			vllmContext = 5120
-		}
-		vllmOutput := cfg.VLLM.Output
-		if vllmOutput <= 0 {
-			vllmOutput = 1024
-		}
-		vllmToolCall := true
-		if cfg.VLLM.ToolCall != nil {
-			vllmToolCall = *cfg.VLLM.ToolCall
-		}
-		disableHeavyTools = true
-		if cfg.VLLM.DisableHeavyTools != nil {
-			disableHeavyTools = *cfg.VLLM.DisableHeavyTools
-		}
-
-		providers["vllm"] = map[string]interface{}{
-			"name": "vLLM",
-			"npm":  "@ai-sdk/openai-compatible",
-			"options": map[string]interface{}{
-				"baseURL": vllmBaseURL,
-				"apiKey":  vllmAPIKey,
-			},
-			"models": map[string]interface{}{
-				servedModelName: map[string]interface{}{
-					"name":        modelDisplayName(servedModelName),
-					"tool_call":   vllmToolCall,
-					"reasoning":   false,
-					"temperature": true,
-					"limit": map[string]interface{}{
-						"context": vllmContext,
-						"output":  vllmOutput,
-					},
-					"options": map[string]interface{}{
-						"maxTokens":   vllmOutput,
-						"temperature": 0,
-					},
-					"variants": map[string]interface{}{
-						"fast": map[string]interface{}{
-							"options": map[string]interface{}{
-								"maxTokens":   vllmOutput,
-								"temperature": 0,
-							},
-						},
-						"deep": map[string]interface{}{
-							"options": map[string]interface{}{
-								"maxTokens":   vllmOutput,
-								"temperature": 0,
-							},
-						},
-					},
-				},
-			},
-		}
-	}
+	providers := make(map[string]interface{})
 
 	config := map[string]interface{}{
-		"$schema":      "https://opencode.ai/config.json",
-		"instructions": []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
-		"model":        modelDefault,
-		"small_model":  modelSmall,
-		"provider":     providers,
-		"lsp":          defaultOpenCodeLSPConfig(),
-		"mcp":          defaultOpenCodeMCPConfig(appEnv),
-	}
-
-	if disableHeavyTools {
-		disabledTools := vllmDisabledOpenCodeTools()
-		buildTools := vllmBuildAgentTools()
-		deniedPermissions := denyPermissionsForTools(disabledTools)
-		config["tools"] = buildTools
-		config["agent"] = map[string]interface{}{
-			"build": map[string]interface{}{
-				"prompt":     "Use tools directly to inspect and modify files. For code-change requests, after locating the target file you must call edit or write; do not answer with a plan or describe edits you have not applied. If edit fails because oldString has multiple matches, do not repeat the same edit. If the requested change should apply to every matching occurrence, retry the edit once with replaceAll: true. If only one occurrence should change, re-read the file and retry with a larger unique oldString, or use write with the complete updated file. After applying the edit, give a short final answer and stop. Keep tool arguments as plain valid JSON strings without extra embedded quotes. Do not expose internal reasoning, channel markers, summaries, or handoff text.",
-				"steps":      12,
-				"tools":      buildTools,
-				"permission": deniedPermissions,
-			},
-			"compaction": map[string]interface{}{
-				"disable": true,
-			},
-		}
-		config["compaction"] = map[string]interface{}{
-			"auto":     false,
-			"prune":    true,
-			"reserved": 768,
-		}
+		"$schema":            "https://opencode.ai/config.json",
+		"disabled_providers": defaultDisabledOpenCodeProviders(),
+		"instructions":       []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
+		"provider":           providers,
 	}
 
 	// Write to ~/.config/opencode/opencode.json
@@ -814,55 +663,40 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 		} else {
 			if existingProviders, ok := existing["provider"].(map[string]interface{}); ok {
 				for providerName, providerConfig := range existingProviders {
-					if _, generated := providers[providerName]; !generated {
-						providers[providerName] = providerConfig
-						log.Printf("  - Preserved custom OpenCode provider %s", providerName)
+					if isTrustableManagedOpenCodeProvider(providerName, providerConfig) {
+						log.Printf("  - Removed Trustable-managed OpenCode provider %s", providerName)
+						continue
 					}
+					providers[providerName] = providerConfig
+					log.Printf("  - Preserved custom OpenCode provider %s", providerName)
 				}
 			}
-			if existingLSP, ok := existing["lsp"].(map[string]interface{}); ok {
-				if generatedLSP, ok := config["lsp"].(map[string]interface{}); ok {
-					for serverName, serverConfig := range existingLSP {
-						if _, generated := generatedLSP[serverName]; !generated {
-							generatedLSP[serverName] = serverConfig
-							log.Printf("  - Preserved custom OpenCode LSP %s", serverName)
-						}
-					}
-				}
-			}
-			if existingMCP, ok := existing["mcp"].(map[string]interface{}); ok {
-				if generatedMCP, ok := config["mcp"].(map[string]interface{}); ok {
-					for serverName, serverConfig := range existingMCP {
-						if _, generated := generatedMCP[serverName]; !generated {
-							generatedMCP[serverName] = serverConfig
-							log.Printf("  - Preserved custom OpenCode MCP server %s", serverName)
-						}
-					}
-				}
-			}
-			if existingModel, ok := existing["model"].(string); ok && strings.TrimSpace(existingModel) != "" {
+			if existingModel, ok := existing["model"].(string); ok && shouldPreserveModelSelection(existingModel, providers) {
 				config["model"] = existingModel
 				log.Printf("  - Preserved selected OpenCode model %s", existingModel)
 			}
-			if existingSmallModel, ok := existing["small_model"].(string); ok && strings.TrimSpace(existingSmallModel) != "" {
+			if existingSmallModel, ok := existing["small_model"].(string); ok && shouldPreserveModelSelection(existingSmallModel, providers) {
 				config["small_model"] = existingSmallModel
 				log.Printf("  - Preserved selected OpenCode small_model %s", existingSmallModel)
 			}
 			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {
-				config["disabled_providers"] = existingDisabledProviders
+				config["disabled_providers"] = mergeDisabledOpenCodeProviders(existingDisabledProviders, defaultDisabledOpenCodeProviders())
 			}
 			for key, value := range existing {
 				if _, generated := config[key]; generated {
 					continue
 				}
-				if key == "enabled_providers" {
-					log.Printf("  - Removed OpenCode enabled_providers whitelist to keep providers user-selectable")
+				if dropGeneratedOpenCodeKey(key) {
+					log.Printf("  - Removed generated OpenCode %s config to restore the default flow", key)
 					continue
 				}
 				config[key] = value
 			}
 			config["provider"] = providers
 		}
+	}
+	if disabledProviders, ok := config["disabled_providers"].([]string); ok {
+		config["disabled_providers"] = disabledProvidersForCustomConfig(disabledProviders, providers)
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
