@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	opencodePort  = 4096
-	opsdevelPort  = 5173
+	opencodePort = 4096
+	opsdevelPort = 5173
 )
 
 // getPgidFile returns the path to the pgid file inside WorkbenchDir
@@ -62,7 +62,6 @@ func removeCurrentFile() {
 		saveWorkspaceConfig(wsCfg)
 	}
 }
-
 
 // isPortFree checks if a port is available for use
 func isPortFree(port int) bool {
@@ -341,23 +340,27 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	// Always copy opencode.json and opencode.md to workbench (overwriting existing files)
+	// Point the project config at the global OpenCode config so provider edits
+	// saved from the UI are immediately read by the active workbench.
 	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
-	if _, err := os.Stat(opencodeConfigSrc); os.IsNotExist(err) {
-		log.Println("opencode.json not found, generating it...")
-		if cfg, err := loadTrustableConfig(); err != nil {
-			log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
-		} else if err := generateOpencodeConfig(cfg); err != nil {
-			log.Printf("Warning: failed to generate opencode.json: %s", err)
-		}
+	if cfg, err := loadTrustableConfig(); err != nil {
+		log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
+	} else if err := generateOpencodeConfigForApp(cfg, app); err != nil {
+		log.Printf("Warning: failed to generate opencode.json: %s", err)
 	}
 	opencodeConfigDst := filepath.Join(workbenchPath, "opencode.json")
-	if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
-		if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {
-			log.Printf("Warning: failed to copy opencode.json: %s", writeErr)
+	if removeErr := os.Remove(opencodeConfigDst); removeErr != nil && !os.IsNotExist(removeErr) {
+		log.Printf("Warning: failed to replace workbench opencode.json: %s", removeErr)
+	}
+	if linkErr := os.Symlink(opencodeConfigSrc, opencodeConfigDst); linkErr != nil {
+		log.Printf("Warning: failed to link opencode.json, falling back to copy: %s", linkErr)
+		if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
+			if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {
+				log.Printf("Warning: failed to copy opencode.json: %s", writeErr)
+			}
+		} else {
+			log.Printf("Warning: opencode.json not found: %s", readErr)
 		}
-	} else {
-		log.Printf("Warning: opencode.json not found: %s", readErr)
 	}
 
 	// Start opencode
@@ -366,6 +369,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Dir = workbenchPath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
+	opencodeCmd.Env = os.Environ()
+	for key, value := range parseEnvFile(filepath.Join(workbenchPath, ".env")) {
+		opencodeCmd.Env = append(opencodeCmd.Env, key+"="+value)
+	}
 	// Set process group so we can kill all child processes
 	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

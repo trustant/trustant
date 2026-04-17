@@ -61,15 +61,19 @@ Assume `opsdevel`  port will be 5173.
 Check if ports for `opencode` and `opsdevel` are free,
 otherwise return error.
 
-## copy opencode configuration files
+## prepare opencode configuration and environment
 
-Before starting opencode, copy the opencode JSON config to the workbench directory:
+Before starting opencode, regenerate the global OpenCode JSON config using the
+current Trustable config, then link it into the workbench directory:
 
-If the file `~/.config/opencode/opencode.json` does not exist, generate it first by calling `generateOpencodeConfig()` (which also writes `opencode.md` to `~/.config/opencode/opencode.md`).
-
-Copy the file `~/.config/opencode/opencode.json` to `<workbenchdir>/<app>/opencode.json`, overwriting existing files.
+Symlink `~/.config/opencode/opencode.json` to
+`<workbenchdir>/<app>/opencode.json`, overwriting existing files. If symlink
+creation fails, fall back to copying the file.
 
 Note: `opencode.md` is written to `~/.config/opencode/opencode.md` during the configure step and referenced by absolute path in `opencode.json`, so it does not need to be copied to the workbench.
+
+Launch `opencode serve` with the variables from the workbench `.env` appended to
+the process environment.
 
 ## start process group
 
@@ -107,7 +111,7 @@ then return:
   "left" : <opencode-port>,
   "right": <opsdeve-port>,
   "b64dir": <base64-urlsafe-encoded directory>
-  "encdir": <url-encoded directory>
+  "encdir": <absolute directory>
 }`
 
 Base64-Url-Safe encode is as follows:

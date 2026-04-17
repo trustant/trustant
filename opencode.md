@@ -63,4 +63,3 @@ for example:
 - **ALWAYS** use the `action-new` tool to create new API endpoints. Never create `__main__.py` or action directories directly.
 
 - Never edit `__main__.py`. Edit `packages/<package>/<action>/<module>.py` instead (where `<module>` is `<action>` with `-` replaced by `_`). The main function of this module is invoked with the request parameters and a context object to access services.
-

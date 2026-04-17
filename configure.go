@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
-	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,13 +41,29 @@ type GitConfig struct {
 
 // trustableConfig represents the structure of trustable.json
 type trustableConfig struct {
-	Ollama    map[string]string    `json:"ollama,omitempty"`
-	TestModel string               `json:"testmodel,omitempty"`
-	Opencode  *opencodeConfig      `json:"opencode,omitempty"`
-	Git       *GitConfig           `json:"git,omitempty"`
-	Env       map[string]string    `json:"env,omitempty"`
+	Ollama    map[string]string     `json:"ollama,omitempty"`
+	TestModel string                `json:"testmodel,omitempty"`
+	Opencode  *opencodeConfig       `json:"opencode,omitempty"`
+	Git       *GitConfig            `json:"git,omitempty"`
+	Env       map[string]string     `json:"env,omitempty"`
 	Apps      map[string]*AppConfig `json:"apps,omitempty"`
-	Current   string               `json:"current,omitempty"`
+	Current   string                `json:"current,omitempty"`
+}
+
+func developmentAPIHost() string {
+	for _, key := range []string{"OPS_APIHOST", "APIHOST", "TRUSTABLE_DEFAULT_APIHOST", "OPERATOR_CONFIG_APIHOST"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+				proto := strings.TrimSpace(os.Getenv("OPERATOR_CONFIG_HOSTPROTOCOL"))
+				if proto != "https" {
+					proto = "http"
+				}
+				value = proto + "://" + value
+			}
+			return strings.TrimRight(value, "/")
+		}
+	}
+	return "http://miniops.me"
 }
 
 // loadBaseConfig reads the app-root trustable.json (immutable defaults)
@@ -200,6 +218,250 @@ func containsCapability(caps []string, cap string) bool {
 		}
 	}
 	return false
+}
+
+func providerBaseURL(providerConfig interface{}) string {
+	config, ok := providerConfig.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	options, ok := config["options"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	baseURL, _ := options["baseURL"].(string)
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
+func isManagedVLLMProvider(providerName string, providerConfig interface{}) bool {
+	if providerName != "vllm" {
+		return false
+	}
+	baseURL := providerBaseURL(providerConfig)
+	return strings.Contains(baseURL, "localhost:8910/vllm") ||
+		strings.Contains(baseURL, "127.0.0.1:8910/vllm") ||
+		strings.Contains(baseURL, "http://vllm:8000")
+}
+
+func hasGeneratedOllamaModelVariant(providerConfig interface{}) bool {
+	config, ok := providerConfig.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	models, ok := config["models"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, modelConfig := range models {
+		model, ok := modelConfig.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		variants, ok := model["variants"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, generated := variants["disabled_variant"]; generated {
+			return true
+		}
+	}
+	return false
+}
+
+func isTrustableManagedOpenCodeProvider(providerName string, providerConfig interface{}) bool {
+	baseURL := providerBaseURL(providerConfig)
+	switch providerName {
+	case "ollama":
+		isLocalManagedURL := baseURL == strings.TrimRight(OpenAIBaseUrl, "/") ||
+			baseURL == "http://ollama:11434/v1" ||
+			baseURL == "http://localhost:11434/v1" ||
+			baseURL == "http://127.0.0.1:11434/v1"
+		return isLocalManagedURL && hasGeneratedOllamaModelVariant(providerConfig)
+	case "vllm":
+		return isManagedVLLMProvider(providerName, providerConfig)
+	default:
+		return false
+	}
+}
+
+func dropGeneratedOpenCodeKey(key string) bool {
+	switch key {
+	case "enabled_providers", "lsp", "mcp", "tools", "agent", "compaction":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldPreserveModelSelection(model string, providers map[string]interface{}) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	providerName, _, found := strings.Cut(model, "/")
+	if !found {
+		return false
+	}
+	_, ok := providers[providerName]
+	return ok
+}
+
+func defaultDisabledOpenCodeProviders() []string {
+	return []string{
+		"302ai",
+		"abacus",
+		"aihubmix",
+		"alibaba",
+		"alibaba-cn",
+		"alibaba-coding-plan",
+		"alibaba-coding-plan-cn",
+		"amazon-bedrock",
+		"anthropic",
+		"azure",
+		"azure-cognitive-services",
+		"bailing",
+		"baseten",
+		"berget",
+		"cerebras",
+		"chutes",
+		"clarifai",
+		"cloudferro-sherlock",
+		"cloudflare-ai-gateway",
+		"cloudflare-workers-ai",
+		"cohere",
+		"cortecs",
+		"deepinfra",
+		"deepseek",
+		"dinference",
+		"drun",
+		"evroc",
+		"fastrouter",
+		"firmware",
+		"fireworks-ai",
+		"friendli",
+		"github-copilot",
+		"github-models",
+		"gitlab",
+		"google",
+		"google-vertex",
+		"google-vertex-anthropic",
+		"groq",
+		"helicone",
+		"hpc-ai",
+		"huggingface",
+		"iflowcn",
+		"inception",
+		"inference",
+		"io-net",
+		"jiekou",
+		"kilo",
+		"kimi-for-coding",
+		"kuae-cloud-coding-plan",
+		"llama",
+		"llmgateway",
+		"lmstudio",
+		"lucidquery",
+		"meganova",
+		"minimax",
+		"minimax-cn",
+		"minimax-cn-coding-plan",
+		"minimax-coding-plan",
+		"mistral",
+		"mixlayer",
+		"moark",
+		"modelscope",
+		"moonshotai",
+		"moonshotai-cn",
+		"morph",
+		"nano-gpt",
+		"nebius",
+		"nova",
+		"novita-ai",
+		"nvidia",
+		"ollama",
+		"ollama-cloud",
+		"ollama2",
+		"ollama_docker",
+		"opencode",
+		"opencode-go",
+		"openai",
+		"openrouter",
+		"ovhcloud",
+		"perplexity",
+		"perplexity-agent",
+		"poe",
+		"privatemode-ai",
+		"qihang-ai",
+		"qiniu-ai",
+		"requesty",
+		"sap-ai-core",
+		"scaleway",
+		"siliconflow",
+		"siliconflow-cn",
+		"stackit",
+		"stepfun",
+		"submodel",
+		"synthetic",
+		"tencent-coding-plan",
+		"the-grid-ai",
+		"togetherai",
+		"upstage",
+		"v0",
+		"venice",
+		"vercel",
+		"vivgrid",
+		"vllm",
+		"vultr",
+		"wandb",
+		"xiaomi",
+		"xiaomi-token-plan-ams",
+		"xiaomi-token-plan-cn",
+		"xiaomi-token-plan-sgp",
+		"xai",
+		"zai",
+		"zai-coding-plan",
+		"zenmux",
+		"zhipuai",
+		"zhipuai-coding-plan",
+	}
+}
+
+func mergeDisabledOpenCodeProviders(existing interface{}, defaults []string) []string {
+	seen := make(map[string]bool, len(defaults))
+	merged := make([]string, 0, len(defaults))
+	appendProvider := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		merged = append(merged, value)
+	}
+	for _, provider := range defaults {
+		appendProvider(provider)
+	}
+	if existingList, ok := existing.([]interface{}); ok {
+		for _, value := range existingList {
+			if provider, ok := value.(string); ok {
+				appendProvider(provider)
+			}
+		}
+	}
+	return merged
+}
+
+func disabledProvidersForCustomConfig(disabled []string, providers map[string]interface{}) []string {
+	if len(providers) == 0 {
+		return disabled
+	}
+	filtered := make([]string, 0, len(disabled))
+	for _, provider := range disabled {
+		if _, custom := providers[provider]; custom {
+			continue
+		}
+		filtered = append(filtered, provider)
+	}
+	return filtered
 }
 
 // numberWithExtPattern matches a number followed by a size suffix like "480b", "1.7b", "123b"
@@ -366,83 +628,20 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	sendMsg("DONE")
 }
 
-// generateOpencodeConfig creates ~/.config/opencode/opencode.json from trustable.json config
+// generateOpencodeConfig creates ~/.config/opencode/opencode.json from trustable.json config.
 func generateOpencodeConfig(cfg *trustableConfig) error {
-	// Build model configs
-	models := make(map[string]interface{})
-	for modelName, ctxStr := range cfg.Ollama {
-		ctxSize, err := parseContextSize(ctxStr)
-		if err != nil {
-			log.Printf("  - Warning: invalid context size for %s: %s", modelName, ctxStr)
-			continue
-		}
+	return generateOpencodeConfigForApp(cfg, "")
+}
 
-		caps, err := getModelCapabilities(modelName)
-		if err != nil {
-			log.Printf("  - Warning: could not get capabilities for %s: %v", modelName, err)
-			continue
-		}
-
-		// Skip embedding-only models (no "completion" capability)
-		if !containsCapability(caps, "completion") {
-			log.Printf("  - Skipping %s (no completion capability)", modelName)
-			continue
-		}
-
-		models[modelName] = map[string]interface{}{
-			"name":        modelDisplayName(modelName),
-			"tool_call":   containsCapability(caps, "tools"),
-			"reasoning":   containsCapability(caps, "thinking"),
-			"temperature": true,
-			"limit": map[string]interface{}{
-				"context": ctxSize,
-				"output":  32768,
-			},
-			"options": map[string]interface{}{
-				"maxTokens": 8192,
-			},
-			"variants": map[string]interface{}{
-				"fast": map[string]interface{}{
-					"options": map[string]interface{}{"maxTokens": 2048},
-				},
-				"deep": map[string]interface{}{
-					"options": map[string]interface{}{"maxTokens": 16000},
-				},
-				"disabled_variant": map[string]interface{}{
-					"disabled": true,
-				},
-			},
-		}
-
-		log.Printf("  - %s: tool_call=%v reasoning=%v context=%d",
-			modelName,
-			containsCapability(caps, "tools"),
-			containsCapability(caps, "thinking"),
-			ctxSize)
-	}
-
-	var modelDefault, modelSmall string
-	if cfg.Opencode != nil {
-		modelDefault = cfg.Opencode.Default
-		modelSmall = cfg.Opencode.Small
-	}
+// generateOpencodeConfigForApp refreshes opencode.json before a workbench launch.
+func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
+	providers := make(map[string]interface{})
 
 	config := map[string]interface{}{
-		"$schema":           "https://opencode.ai/config.json",
-		"instructions":      []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
-		"enabled_providers": []string{"ollama"},
-		"model":             modelDefault,
-		"small_model":       modelSmall,
-		"provider": map[string]interface{}{
-			"ollama": map[string]interface{}{
-				"npm": "@ai-sdk/openai-compatible",
-				"options": map[string]interface{}{
-					"baseURL": OpenAIBaseUrl,
-					"apiKey":  OpenAIApiKey,
-				},
-				"models": models,
-			},
-		},
+		"$schema":            "https://opencode.ai/config.json",
+		"disabled_providers": defaultDisabledOpenCodeProviders(),
+		"instructions":       []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
+		"provider":           providers,
 	}
 
 	// Write to ~/.config/opencode/opencode.json
@@ -457,6 +656,49 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 	}
 
 	configPath := filepath.Join(configDir, "opencode.json")
+	if existingData, readErr := os.ReadFile(configPath); readErr == nil {
+		var existing map[string]interface{}
+		if err := json.Unmarshal(existingData, &existing); err != nil {
+			log.Printf("  - Warning: could not parse existing opencode.json for provider merge: %s", err)
+		} else {
+			if existingProviders, ok := existing["provider"].(map[string]interface{}); ok {
+				for providerName, providerConfig := range existingProviders {
+					if isTrustableManagedOpenCodeProvider(providerName, providerConfig) {
+						log.Printf("  - Removed Trustable-managed OpenCode provider %s", providerName)
+						continue
+					}
+					providers[providerName] = providerConfig
+					log.Printf("  - Preserved custom OpenCode provider %s", providerName)
+				}
+			}
+			if existingModel, ok := existing["model"].(string); ok && shouldPreserveModelSelection(existingModel, providers) {
+				config["model"] = existingModel
+				log.Printf("  - Preserved selected OpenCode model %s", existingModel)
+			}
+			if existingSmallModel, ok := existing["small_model"].(string); ok && shouldPreserveModelSelection(existingSmallModel, providers) {
+				config["small_model"] = existingSmallModel
+				log.Printf("  - Preserved selected OpenCode small_model %s", existingSmallModel)
+			}
+			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {
+				config["disabled_providers"] = mergeDisabledOpenCodeProviders(existingDisabledProviders, defaultDisabledOpenCodeProviders())
+			}
+			for key, value := range existing {
+				if _, generated := config[key]; generated {
+					continue
+				}
+				if dropGeneratedOpenCodeKey(key) {
+					log.Printf("  - Removed generated OpenCode %s config to restore the default flow", key)
+					continue
+				}
+				config[key] = value
+			}
+			config["provider"] = providers
+		}
+	}
+	if disabledProviders, ok := config["disabled_providers"].([]string); ok {
+		config["disabled_providers"] = disabledProvidersForCustomConfig(disabledProviders, providers)
+	}
+
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -524,11 +766,83 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 
 	// Check if the response starts with {"error" or doesn't contain "response"
 	if strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"response"`) {
-		json.NewEncoder(w).Encode(map[string]string{"error": bodyStr})
+		message := ollamaErrorMessage(bodyStr)
+		if isOllamaSigninRequired(message) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":         message,
+				"auth_required": true,
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "warning",
+			"warning": message,
+		})
 		return
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func ollamaErrorMessage(bodyStr string) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(bodyStr), &payload); err == nil && payload.Error != "" {
+		return payload.Error
+	}
+	return strings.TrimSpace(bodyStr)
+}
+
+func isOllamaSigninRequired(message string) bool {
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "usage limit") || strings.Contains(lower, "quota") || strings.Contains(lower, "upgrade") {
+		return false
+	}
+	for _, token := range []string{
+		"not logged in",
+		"not signed in",
+		"sign in",
+		"sign-in",
+		"signin",
+		"unauthorized",
+		"authentication",
+		"401",
+	} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleOllamaConnect returns the browser URL needed to connect the Ollama CLI
+// identity used by Trustable to Ollama Cloud.
+func handleOllamaConnect(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	name := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_NAME"))
+	publicKey := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_PUBLIC_KEY"))
+	if name == "" || publicKey == "" {
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Ollama connect data is not configured",
+		})
+		return
+	}
+
+	values := url.Values{}
+	values.Set("name", name)
+	values.Set("key", base64.RawStdEncoding.EncodeToString([]byte(publicKey)))
+	json.NewEncoder(w).Encode(map[string]string{
+		"url": "https://ollama.com/connect?" + values.Encode(),
+	})
 }
 
 // handleConfiguration handles GET and POST /api/configuration
@@ -668,7 +982,7 @@ func generateAppEnvFiles(appName string) error {
 	devVars := make(map[string]string)
 	devVars["OPS_USER"] = appName
 	devVars["OPS_PASSWORD"] = appCfg.Password
-	devVars["OPS_APIHOST"] = "http://miniops.me"
+	devVars["OPS_APIHOST"] = developmentAPIHost()
 	devVars["OPS_REPO"] = getAppRepo(appName)
 	devVars["OPS_SKILLS"] = OpsSkills
 
@@ -785,7 +1099,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	// Fixed rows (readonly)
 	vars = append(vars, EnvVar{Name: "OPS_USER", DevValue: name, ProdValue: appCfg.Production["OPS_USER"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_PASSWORD", DevValue: appCfg.Password, ProdValue: appCfg.Production["OPS_PASSWORD"], Readonly: true})
-	vars = append(vars, EnvVar{Name: "OPS_APIHOST", DevValue: "http://miniops.me", ProdValue: appCfg.Production["OPS_APIHOST"], Readonly: true})
+	vars = append(vars, EnvVar{Name: "OPS_APIHOST", DevValue: developmentAPIHost(), ProdValue: appCfg.Production["OPS_APIHOST"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_REPO", DevValue: getAppRepo(name), ProdValue: appCfg.Production["OPS_REPO"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_SKILLS", DevValue: OpsSkills, ProdValue: appCfg.Production["OPS_SKILLS"], Readonly: true})
 

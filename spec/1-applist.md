@@ -16,7 +16,12 @@ It will list the applications, using the backend api.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
 
-The Local link points to to `http://<name>.miniops.me`.
+The Local link points to `<protocol>://<name>.<domain>` by replacing the first
+label of the current Trustable host. For example, from
+`http://trustable.<node-ip>.nip.io` it points to
+`http://<name>.<node-ip>.nip.io`, and from
+`https://trustable.<base-domain>` it points to
+`https://<name>.<base-domain>`.
 The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined in `.env.production`. It points to `<protocol>://<opsuser>.<domain>` where `<protocol>://<domain>` comes from OPS_APIHOST and `<opsuser>` comes from OPS_USER.
 The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 
@@ -67,7 +72,8 @@ Expect a domain in format `<protocol>://trustable.<domain>[:<port>]`,
 show an error if it is not in this format. Let:
 - LEFT is `<protocol>://opencode.<domain>:<port>`
 - RIGHT is `<protocol>://vite.<domain>:<port>`
-- URLDIR is the url encoded full path for the directory of the application
+- URLDIR is the URL-encoded absolute path for the directory of the application
+- B64DIR is the base64-url-safe encoded absolute path for compatibility
 
 You can click the button `edit` to open an app
 - show a launching dialog with the message `Launching `<name`
@@ -76,7 +82,8 @@ You can click the button `edit` to open an app
 - if it is ok, save in cookies:
   - the LEFT and RIGHT urls
   - the NAME in a cookie
-  - the URLDIR in a cookie
+  - the URLDIR in a cookie using the backend `encdir` value
+  - the B64DIR in a cookie using the backend `b64dir` value
   navigate to the page app.html
 
 ## Revert (in app.html)

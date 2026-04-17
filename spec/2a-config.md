@@ -32,7 +32,7 @@ Loading merges both layers: workspace fields override base fields. Maps (ollama,
             "password": "<ops user password>",
             "development": {
                 "OPS_USER": "<app-name>",
-                "OPS_APIHOST": "http://miniops.me",
+                "OPS_APIHOST": "<cluster-apihost>",
                 "CUSTOM_VAR": "dev-value"
             },
             "production": {
@@ -65,7 +65,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 - When global config is saved (`POST /api/configuration`)
 
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
-1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=http://miniops.me`
+1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to the Nuvolaris mini apihost http://miniops.me>`
 2. Global `env` defaults from the merged config
 3. Per-app `development` overrides
 
@@ -101,32 +101,36 @@ Read the merged config (base + workspace), connect to the Ollama endpoint and pu
 
 # Prepare opencode config
 
-Using information from the merged config and the .env, create the opencode config in
-`~/.config/opencode/opencode.json` following the structure:
+Create the OpenCode config in `~/.config/opencode/opencode.json` following the
+structure:
 
 ```
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/opencode.md"],
-  "enabled_providers": [
-    "ollama"
-  ],
-  "model": <OpencodeModel>,
-  "small_model": <OpencodeSmallModel>,
-  "provider": {
-    "ollama": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": {
-        "baseURL": <OpenAIBaseUrl>
-        "apiKey": <OpenAIApiKey>
-      },
-      "models": {
-         <models with capabilities>
-      }
-    }
-  }
+  "disabled_providers": [<default OpenCode providers>],
+  "provider": {<custom user providers only>}
 }
 ```
+
+Do not generate Trustable-managed default providers such as `ollama` or `vllm`
+in the OpenCode `provider` map. Hide OpenCode's automatic/default providers with
+`disabled_providers`, but remove any ID from that disabled list when the same ID
+is present as a preserved custom provider.
+
+Do not emit `enabled_providers`. In OpenCode that field is a whitelist; if it is
+present, providers added by the user from the UI can be saved in `provider` but
+remain unavailable for selection. Preserve custom providers and preserve the
+user-selected `model` and `small_model` from an existing `opencode.json` only
+when the selected model has a `provider/model` prefix and that provider is still
+present after regeneration. Otherwise omit the selection instead of writing an
+orphan model reference.
+
+Generated OpenCode keys that were introduced for experimental provider profiles
+(`lsp`, `mcp`, `tools`, `agent`, `compaction`, `enabled_providers`) are not
+carried forward when regenerating the Trustable config. This keeps the default
+OpenCode flow minimal while still allowing users to add providers from the
+OpenCode UI and keep them persisted across app launches.
 
 To get the capabilities of a model use the OllamaEndPoint, list the models then show their capabilities.
 
@@ -165,7 +169,13 @@ Template:
 }
 ```
 
-After generating `opencode.json`, write the embedded `opencode.md` to `~/.config/opencode/opencode.md` (the instructions file referenced by absolute path in the config). Also copy the embedded `tools` folder to `~/.config/opencode/tools`, overwriting existing files.
+OpenCode state must be persistent across pod restarts. At container startup,
+`~/.config/opencode`, `~/.cache/opencode`, and `~/.local/share/opencode` are
+symlinked into the mounted workspace under `.trustable/opencode/`. After
+generating `opencode.json`, write the embedded `opencode.md` to
+`~/.config/opencode/opencode.md` (the instructions file referenced by absolute
+path in the config). Also copy the embedded `tools` folder to
+`~/.config/opencode/tools`, overwriting existing files.
 
 # Manage configuration: GET /api/configuration
 
@@ -186,7 +196,7 @@ Tests the AI model connection using the `testmodel` from the merged config.
 Returns the environment variable configuration for a specific app, read from the merged config's `apps` section.
 
 Response contains `EnvVar[]` with:
-- **Readonly rows**: `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed dev values, editable prod values)
+- **Readonly rows**: `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed dev values from the current cluster, editable prod values)
 - **Fixed rows**: keys from the global `env` section (fixed name, editable values)
 - **Custom rows**: any additional per-app development/production variables
 

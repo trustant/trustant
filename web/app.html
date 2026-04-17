@@ -381,13 +381,46 @@
             return new TextDecoder().decode(bytes);
         }
 
+        function base64Encode(value) {
+            const bytes = new TextEncoder().encode(value);
+            let binary = '';
+            bytes.forEach((byte) => binary += String.fromCharCode(byte));
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+
         const leftURL = getCookie('LEFT');
         const rightURL = getCookie('RIGHT');
         const appName = getCookie('NAME');
-        const urlDirectory = getCookie('URLDIR');
+        let urlDirectory = getCookie('URLDIR');
+        let b64Directory = getCookie('B64DIR');
+        if (!urlDirectory && b64Directory) {
+            try {
+                urlDirectory = base64Decode(b64Directory);
+            } catch (e) {
+                urlDirectory = null;
+            }
+        }
+        if (urlDirectory && !urlDirectory.startsWith('/')) {
+            try {
+                const decodedDirectory = base64Decode(urlDirectory);
+                if (decodedDirectory.startsWith('/')) {
+                    urlDirectory = decodedDirectory;
+                }
+            } catch (e) {
+                urlDirectory = null;
+            }
+        }
+        if (urlDirectory && urlDirectory.startsWith('/')) {
+            b64Directory = base64Encode(urlDirectory);
+            document.cookie = `URLDIR=${encodeURIComponent(urlDirectory)};path=/`;
+            document.cookie = `B64DIR=${b64Directory};path=/`;
+        } else {
+            b64Directory = null;
+        }
         const currentRoute = getCookie('ROUTE') || '/';
 
         console.log('URLDIR:', urlDirectory);
+        console.log('B64DIR:', getCookie('B64DIR'));
 
         // Set app name in title bar
         document.getElementById('appName').textContent = appName || 'Unknown App';
@@ -398,8 +431,8 @@
 
         // Configure iframes with LEFT and RIGHT URLs
         if (leftURL) {
-            if (urlDirectory) {
-                document.getElementById('leftFrame').src = `${leftURL}/session/?directory=${urlDirectory}`;
+            if (b64Directory) {
+                document.getElementById('leftFrame').src = `${leftURL}/${b64Directory}/session`;
             } else {
                 document.getElementById('leftFrame').src = `${leftURL}/`;
             }
