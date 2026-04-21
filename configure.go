@@ -439,10 +439,157 @@ func isTrustableManagedOpenCodeProvider(providerName string, providerConfig inte
 
 func dropGeneratedOpenCodeKey(key string) bool {
 	switch key {
-	case "enabled_providers", "lsp", "mcp", "tools", "agent", "compaction":
+	case "enabled_providers", "tools", "agent", "compaction":
 		return true
 	default:
 		return false
+	}
+}
+
+func defaultOpenCodeLSPConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"typescript": map[string]interface{}{
+			"command":    []string{"typescript-language-server", "--stdio"},
+			"extensions": []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"},
+		},
+		"python": map[string]interface{}{
+			"command":    []string{"pylsp"},
+			"extensions": []string{".py"},
+		},
+	}
+}
+
+func envValue(env map[string]string, keys ...string) string {
+	if env == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(env[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func selectedEnv(env map[string]string, keys ...string) map[string]string {
+	selected := make(map[string]string)
+	if env == nil {
+		return selected
+	}
+	for _, key := range keys {
+		if value, ok := env[key]; ok && strings.TrimSpace(value) != "" {
+			selected[key] = value
+		}
+	}
+	return selected
+}
+
+func defaultOpenCodeMCPConfig(appEnv map[string]string) map[string]interface{} {
+	postgresEnv := selectedEnv(appEnv, "DATABASE_URI", "POSTGRES_URL", "POSTGRES_MCP_ACCESS_MODE")
+	if postgresEnv["DATABASE_URI"] == "" && postgresEnv["POSTGRES_URL"] != "" {
+		postgresEnv["DATABASE_URI"] = postgresEnv["POSTGRES_URL"]
+	}
+	postgresEnabled := envValue(postgresEnv, "DATABASE_URI") != ""
+
+	redisEnv := selectedEnv(appEnv,
+		"REDIS_URL",
+		"REDIS_HOST",
+		"REDIS_PORT",
+		"REDIS_DB",
+		"REDIS_USERNAME",
+		"REDIS_PWD",
+		"REDIS_SSL",
+		"REDIS_SSL_CA_PATH",
+		"REDIS_SSL_KEYFILE",
+		"REDIS_SSL_CERTFILE",
+		"REDIS_SSL_CERT_REQS",
+		"REDIS_SSL_CA_CERTS",
+		"REDIS_CLUSTER_MODE",
+		"REDIS_PREFIX",
+	)
+	redisEnabled := envValue(redisEnv, "REDIS_URL", "REDIS_HOST") != ""
+
+	milvusEnv := selectedEnv(appEnv,
+		"MILVUS_URI",
+		"MILVUS_PROTO",
+		"MILVUS_HOST",
+		"MILVUS_PORT",
+		"MILVUS_TOKEN",
+		"MILVUS_DB",
+		"MILVUS_DB_NAME",
+	)
+	if milvusEnv["MILVUS_DB"] == "" && milvusEnv["MILVUS_DB_NAME"] != "" {
+		milvusEnv["MILVUS_DB"] = milvusEnv["MILVUS_DB_NAME"]
+	}
+	milvusEnabled := envValue(milvusEnv, "MILVUS_URI", "MILVUS_HOST") != ""
+
+	s3Env := selectedEnv(appEnv,
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_SESSION_TOKEN",
+		"AWS_PROFILE",
+		"AWS_REGION",
+		"S3_ENDPOINT",
+		"S3_USE_PATH_STYLE",
+		"S3_TIMEOUT",
+		"S3_HOST",
+		"S3_PORT",
+		"S3_PROTO",
+		"S3_ACCESS_KEY",
+		"S3_SECRET_KEY",
+		"S3_REGION",
+		"S3_BUCKET_DATA",
+		"S3_BUCKET_STATIC",
+		"OPSDEV_S3",
+		"MCP_S3_EXT_READONLY",
+		"MCP_S3_EXT_SIZELIMIT",
+		"MCP_S3_MAX_GET_SIZE",
+		"MCP_S3_MAX_PUT_SIZE",
+		"MCP_S3_EXT_LOGGING",
+		"MCP_S3_EXT_AUDIT",
+		"S3_ADDITIONAL_CONNECTIONS",
+		"S3_CONNECTION_NAME",
+	)
+	if s3Env["AWS_ACCESS_KEY_ID"] == "" && s3Env["S3_ACCESS_KEY"] != "" {
+		s3Env["AWS_ACCESS_KEY_ID"] = s3Env["S3_ACCESS_KEY"]
+	}
+	if s3Env["AWS_SECRET_ACCESS_KEY"] == "" && s3Env["S3_SECRET_KEY"] != "" {
+		s3Env["AWS_SECRET_ACCESS_KEY"] = s3Env["S3_SECRET_KEY"]
+	}
+	if s3Env["AWS_REGION"] == "" && s3Env["S3_REGION"] != "" {
+		s3Env["AWS_REGION"] = s3Env["S3_REGION"]
+	}
+	s3Enabled := envValue(s3Env, "S3_ENDPOINT", "S3_HOST", "AWS_ACCESS_KEY_ID", "AWS_PROFILE") != ""
+
+	return map[string]interface{}{
+		"postgres": map[string]interface{}{
+			"type":        "local",
+			"command":     []string{"trustable-mcp-postgres"},
+			"environment": postgresEnv,
+			"enabled":     postgresEnabled,
+			"timeout":     30000,
+		},
+		"redis": map[string]interface{}{
+			"type":        "local",
+			"command":     []string{"trustable-mcp-redis"},
+			"environment": redisEnv,
+			"enabled":     redisEnabled,
+			"timeout":     30000,
+		},
+		"milvus": map[string]interface{}{
+			"type":        "local",
+			"command":     []string{"trustable-mcp-milvus"},
+			"environment": milvusEnv,
+			"enabled":     milvusEnabled,
+			"timeout":     30000,
+		},
+		"s3": map[string]interface{}{
+			"type":        "local",
+			"command":     []string{"trustable-mcp-s3"},
+			"environment": s3Env,
+			"enabled":     s3Enabled,
+			"timeout":     30000,
+		},
 	}
 }
 
@@ -822,7 +969,7 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 
 // generateOpencodeConfig creates ~/.config/opencode/opencode.json from trustable.json config.
 func generateOpencodeConfig(cfg *trustableConfig) error {
-	return generateOpencodeConfigForApp(cfg, "")
+	return generateOpencodeConfigWithEnv(cfg, nil)
 }
 
 // buildModelProvider constructs the Trustable-managed OpenCode provider entry
@@ -910,8 +1057,17 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	}
 }
 
-// generateOpencodeConfigForApp refreshes opencode.json before a workbench launch.
+// generateOpencodeConfigForApp refreshes opencode.json before a workbench launch,
+// using the launched app .env for local MCP server credentials.
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
+	appEnv := map[string]string(nil)
+	if strings.TrimSpace(appName) != "" {
+		appEnv = parseEnvFile(filepath.Join(WorkbenchDir, appName, ".env"))
+	}
+	return generateOpencodeConfigWithEnv(cfg, appEnv)
+}
+
+func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]string) error {
 	providers := make(map[string]interface{})
 
 	// The OpenCode provider key tracks the active trustable provider:
@@ -929,6 +1085,8 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 		"disabled_providers": defaultDisabledOpenCodeProviders(),
 		"instructions":       []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
 		"provider":           providers,
+		"lsp":                defaultOpenCodeLSPConfig(),
+		"mcp":                defaultOpenCodeMCPConfig(appEnv),
 	}
 
 	// Always set top-level model/small_model from trustable.json opencode config.
@@ -969,6 +1127,26 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 					}
 					providers[providerName] = providerConfig
 					log.Printf("  - Preserved custom OpenCode provider %s", providerName)
+				}
+			}
+			if existingLSP, ok := existing["lsp"].(map[string]interface{}); ok {
+				if generatedLSP, ok := config["lsp"].(map[string]interface{}); ok {
+					for serverName, serverConfig := range existingLSP {
+						if _, generated := generatedLSP[serverName]; !generated {
+							generatedLSP[serverName] = serverConfig
+							log.Printf("  - Preserved custom OpenCode LSP %s", serverName)
+						}
+					}
+				}
+			}
+			if existingMCP, ok := existing["mcp"].(map[string]interface{}); ok {
+				if generatedMCP, ok := config["mcp"].(map[string]interface{}); ok {
+					for serverName, serverConfig := range existingMCP {
+						if _, generated := generatedMCP[serverName]; !generated {
+							generatedMCP[serverName] = serverConfig
+							log.Printf("  - Preserved custom OpenCode MCP server %s", serverName)
+						}
+					}
 				}
 			}
 			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {

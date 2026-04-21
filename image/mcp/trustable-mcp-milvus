@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+milvus_uri="${MILVUS_URI:-}"
+if [ -z "$milvus_uri" ]; then
+    if [ -z "${MILVUS_HOST:-}" ]; then
+        echo "MILVUS_URI or MILVUS_HOST is required for milvus MCP" >&2
+        exit 1
+    fi
+    milvus_proto="${MILVUS_PROTO:-http}"
+    milvus_port="${MILVUS_PORT:-19530}"
+    milvus_uri="${milvus_proto}://${MILVUS_HOST}:${milvus_port}"
+fi
+
+set -- mcp-server-milvus --milvus-uri "$milvus_uri"
+
+if [ -n "${MILVUS_TOKEN:-}" ]; then
+    set -- "$@" --milvus-token "$MILVUS_TOKEN"
+fi
+
+milvus_db="${MILVUS_DB:-${MILVUS_DB_NAME:-}}"
+if [ -n "$milvus_db" ]; then
+    set -- "$@" --milvus-db "$milvus_db"
+fi
+
+exec "$@"
