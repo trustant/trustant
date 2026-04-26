@@ -20,7 +20,7 @@ and check the $WORKSPACE_DIR exists
 
 6. Add to the path ~/.ops/<os>-<arch>/bin and check bun and uv is in path
 
-7. if it is not there, install opencode in ~/.opencode/bin with `curl -fsSL https://opencode.ai/install | bash`
+7. if it is nt there, install opencode in ~/.opencode/bin with `curl -fsSL https://opencode.ai/install | bash`
 
 8. if go is not in the path installing first g;
 
