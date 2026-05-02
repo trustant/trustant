@@ -11,3 +11,6 @@
 [submodule "skills"]
 	path = skills
 	url = git@github.com:trustable-ai/skills
+[submodule "olaris-bestia"]
+	path = olaris-bestia
+	url = git@github.com:nuvolaris/olaris-bestia

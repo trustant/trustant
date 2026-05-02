@@ -23,9 +23,7 @@ Loading merges both layers: workspace fields override base fields. Maps (ollama,
     },
     "env": {
         "OPENAI_BASE_URL": "...",
-        "OPENAI_API_KEY": "...",
-        "OPENAI_CHAT_MODEL": "...",
-        "OPENAI_EMBEDDING_MODEL": "..."
+        "OPENAI_API_KEY": "..."
     },
     "apps": {
         "<app-name>": {
@@ -65,7 +63,14 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 - When global config is saved (`POST /api/configuration`)
 
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
-1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`, `OPS_APIHOST=<cluster apihost from OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST, defaulting to the Nuvolaris mini apihost http://miniops.me>`
+1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`,
+
+2. The OPS_APIHOST is set in this order
+- by env variables OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST
+- on Mac by the content of file ~/Library/Application Support/Trustable/apihost if the file is present
+- on Windows by the content of %APPDATA%/Trustable/apihost  if it is present
+- defaults to http://miniops.me
+
 2. Global `env` defaults from the merged config
 3. Per-app `development` overrides
 
@@ -108,23 +113,39 @@ structure:
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": ["~/.config/opencode/opencode.md"],
-  "disabled_providers": [<default OpenCode providers>],
-  "provider": {<custom user providers only>}
+  "model": "ollama/<opencode.default>",
+  "small_model": "ollama/<opencode.small>",
+  "disabled_providers": [<default OpenCode providers, minus "ollama">],
+  "provider": {
+    "ollama": {
+      "options": { "baseURL": "<OPENAI_BASE_URL>" },
+      "models": { <one entry per model in trustable.json "ollama" map> }
+    },
+    <preserved custom user providers>
+  }
 }
 ```
 
-Do not generate Trustable-managed default providers such as `ollama` or `vllm`
-in the OpenCode `provider` map. Hide OpenCode's automatic/default providers with
-`disabled_providers`, but remove any ID from that disabled list when the same ID
-is present as a preserved custom provider.
+Always generate the `ollama` provider entry, regardless of any existing
+`opencode.json`. Its `models` map contains one entry per model listed under
+`ollama` in `trustable.json` (built from the template below). The provider's
+`baseURL` is the value of the `OPENAI_BASE_URL` env var
+(e.g. `http://localhost:11434/v1`). Because `ollama` is now a generated
+provider it must not appear in `disabled_providers`.
 
-Do not emit `enabled_providers`. In OpenCode that field is a whitelist; if it is
-present, providers added by the user from the UI can be saved in `provider` but
-remain unavailable for selection. Preserve custom providers and preserve the
-user-selected `model` and `small_model` from an existing `opencode.json` only
-when the selected model has a `provider/model` prefix and that provider is still
-present after regeneration. Otherwise omit the selection instead of writing an
-orphan model reference.
+Always set top-level `model` and `small_model` to `ollama/<opencode.default>`
+and `ollama/<opencode.small>` respectively, using the values from
+`trustable.json`. Any user-selected `model`/`small_model` from a previous
+`opencode.json` is overwritten.
+
+Hide OpenCode's other automatic/default providers via `disabled_providers`,
+but remove any ID from that disabled list when the same ID is present as a
+preserved custom provider.
+
+Preserve custom providers (i.e. anything other than the Trustable-managed
+`ollama` and `vllm` providers) from any existing `opencode.json`. Do not emit
+`enabled_providers`: in OpenCode that field is a whitelist and would prevent
+providers added later from being selectable.
 
 Generated OpenCode keys that were introduced for experimental provider profiles
 (`lsp`, `mcp`, `tools`, `agent`, `compaction`, `enabled_providers`) are not

@@ -35,6 +35,8 @@ RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
 
+COPY ollama ~/.local/bin/ollama
+
 RUN mkdir /home/node/workspace
 RUN echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 

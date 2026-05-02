@@ -1,15 +1,15 @@
 #!/bin/bash
 
-KEY=${1:-trustabledev}
+KEY=${1:-trustable}
 
-VERSION=0.3.2-alpha
+VERSION=0.3.3-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
 TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%S)"
 
 git tag -d $(git tag)
 echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: 2026/06/30\n" >version.txt
 
-OPSROOT="$(dirname "$0")/olaris-trustable/opsroot.json"
+OPSROOT="$(dirname "$0")/olaris-bestia/opsroot.json"
 jq --arg img "$IMAGE:$TAG" '.config.images.'$KEY' = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"
 jq  -r '.ollama|keys[]' <trustable.json >olaris-trustable/model.lst
 

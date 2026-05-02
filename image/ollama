@@ -1,0 +1,2 @@
+#!/bin/bash
+~/.ops/linux-$ARCH/bin/kubectl --kubeconfig ~/.ops/tmp/kubeconfig -n nuvolaris ollama ollama "$@"

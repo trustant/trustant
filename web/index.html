@@ -10,7 +10,8 @@
     <!-- Splash Screen -->
     <div id="splashContent" class="flex flex-col items-center">
         <img src="trustable-logo.svg" alt="Trustable Logo" class="w-32 h-32">
-        <h1 id="versionText" class="text-3xl font-bold text-gray-800 mt-6">Trustable</h1>
+        <h1 class="text-3xl font-bold text-gray-800 mt-6">Trustable</h1>
+        <h2 id="versionText" class="text-2xl font-semibold text-gray-700 mt-2"></h2>
         <p id="expireText" class="text-sm text-gray-500 mt-2"></p>
     </div>
 
@@ -48,7 +49,7 @@
             </div>
             <div id="signinWithoutLink" class="mb-6">
                 <p class="text-gray-700 mb-2">You are not logged in to ollama cloud.</p>
-                <p class="text-gray-700">Please execute <code id="signinCommand" class="bg-gray-100 px-2 py-1 rounded text-sm">ops trustable signin</code></p>
+                <p class="text-gray-700">Please execute <code class="bg-gray-100 px-2 py-1 rounded text-sm">ollama signin</code> and click Retry.</p>
             </div>
             <button onclick="retryOpenAITest()"
                 class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
@@ -75,7 +76,6 @@
 
         async function showSigninModal() {
             const qs = window.location.search;
-            document.getElementById('signinCommand').textContent = `ops trustable signin ${window.location.origin}`;
             if (qs && qs.length > 1) {
                 document.getElementById('ollamaConnectLink').href = 'https://ollama.com/connect' + qs;
                 document.getElementById('signinWithLink').classList.remove('hidden');

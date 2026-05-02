@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -11,22 +10,17 @@ ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
-# Change to script directory
 cd "$(dirname "$0")"
 
-# Detect OS and arch
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64)  ARCH="amd64" ;;
+  x86_64)        ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
 esac
 
-# Determine shell rc files to update
 RC_FILES=("$HOME/.bashrc")
-if [[ "$OS" == "darwin" ]]; then
-  RC_FILES+=("$HOME/.zshrc")
-fi
+[[ "$OS" == "darwin" ]] && RC_FILES+=("$HOME/.zshrc")
 
 add_to_path() {
   local dir="$1"
@@ -39,11 +33,10 @@ add_to_path() {
   export PATH="$dir:$PATH"
 }
 
-# --- Step 1: Check .env ---
+# --- 1. Check .env and .env.dist ---
 echo "--- Checking .env ---"
-if [[ ! -f .env ]]; then
-  fail ".env file not found. Please create it based on .env.dist and fill in the required variables."
-fi
+[[ -f .env ]] || fail ".env file not found. Create it based on .env.dist."
+[[ -f .env.dist ]] || fail ".env.dist not found"
 
 while IFS='=' read -r key _; do
   [[ -z "$key" || "$key" =~ ^# ]] && continue
@@ -55,137 +48,141 @@ while IFS='=' read -r key _; do
 done < .env.dist
 ok ".env is present and all variables from .env.dist are set"
 
-# Source .env for later checks
 set -a
 source ./.env
 set +a
 
-if [[ ! -d "${WORKSPACE_DIR}" ]]; then
-  fail "WORKSPACE_DIR '${WORKSPACE_DIR}' does not exist or is not a directory"
-fi
-ok "WORKSPACE_DIR exists: ${WORKSPACE_DIR}"
+WORKSPACE_DIR_EXPANDED=$(eval echo "${WORKSPACE_DIR}")
+[[ -d "${WORKSPACE_DIR_EXPANDED}" ]] || fail "WORKSPACE_DIR '${WORKSPACE_DIR}' does not exist"
+ok "WORKSPACE_DIR exists: ${WORKSPACE_DIR_EXPANDED}"
 
-# --- Step 2: Check OpenWhisk ---
-echo "--- Checking OpenWhisk ---"
-OPS_APIHOST="${OPS_APIHOST:-${APIHOST:-http://localhost}}"
-OPS_APIHOST="${OPS_APIHOST%/}"
-WHISK_DESC=$(curl -sf "${OPS_APIHOST}/api/info" | jq -r '.description' 2>/dev/null) || true
-if [[ "$WHISK_DESC" != "OpenWhisk" ]]; then
-  fail "Cannot reach OpenWhisk at ${OPS_APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
-fi
-ok "OpenWhisk is reachable"
+WORKBENCH_DIR_EXPANDED=$(eval echo "${WORKBENCH_DIR}")
+[[ -d "${WORKBENCH_DIR_EXPANDED}" ]] || fail "WORKBENCH_DIR '${WORKBENCH_DIR}' does not exist"
+ok "WORKBENCH_DIR exists: ${WORKBENCH_DIR_EXPANDED}"
 
-# --- Step 3: Check admin power on minions ---
-echo "--- Checking admin access ---"
-if ! ops admin listuser &>/dev/null; then
-  fail "You do not have administrative power on minions (ops admin listuser failed)"
-fi
-ok "Admin access confirmed (ops admin listuser)"
-
-# --- Step 4: Check ops ---
+# --- 2. Check ops is in PATH and OPS_REPO/OPS_BRANCH ---
 echo "--- Checking ops ---"
-if ! command -v ops &>/dev/null; then
-  fail "ops is not in the PATH. Install it with: curl -sL n7s.co/get-ops | bash"
-fi
-
 if [[ "${OPS_REPO:-}" != "https://github.com/nuvolaris/bestia" ]]; then
-  fail "OPS_REPO is '${OPS_REPO:-}', expected 'https://github.com/nuvolaris/bestia'"
+  warn "OPS_REPO is '${OPS_REPO:-}', expected 'https://github.com/nuvolaris/bestia'"
+  warn "Set: export OPS_REPO=https://github.com/nuvolaris/bestia"
+  fail "OPS_REPO must be set before installing ops"
 fi
 if [[ "${OPS_BRANCH:-}" != "bestia" ]]; then
-  fail "OPS_BRANCH is '${OPS_BRANCH:-}', expected 'bestia'"
+  warn "OPS_BRANCH is '${OPS_BRANCH:-}', expected 'bestia'"
+  warn "Set: export OPS_BRANCH=bestia"
+  fail "OPS_BRANCH must be set before installing ops"
 fi
+
+if ! command -v ops &>/dev/null; then
+  warn "ops not found, installing..."
+  if [[ "$OS" == "darwin" || "$OS" == "linux" ]]; then
+    curl -sL n7s.co/get-ops | bash || fail "ops install failed"
+  else
+    powershell -c "irm n7s.co/get-ops | iex" || fail "ops install failed"
+  fi
+  add_to_path "$HOME/.ops/${OS}-${ARCH}/bin"
+fi
+command -v ops &>/dev/null || fail "ops still not in PATH after install"
 ok "ops is installed with correct OPS_REPO and OPS_BRANCH"
 
-# --- Step 5: Check OpenAI and Ollama models ---
-echo "--- Checking OpenAI models ---"
-if [[ -z "${OPENAI_BASE_URL:-}" || -z "${OPENAI_API_KEY:-}" ]]; then
-  fail "OPENAI_BASE_URL or OPENAI_API_KEY not set in .env"
-fi
+# --- 3. Add ~/.ops/<os>-<arch>/bin to PATH and check bun, uv ---
+echo "--- Checking ops bin tools (bun, uv) ---"
+add_to_path "$HOME/.ops/${OS}-${ARCH}/bin"
 
-MODELS_JSON=$(curl -sf "${OPENAI_BASE_URL}/models" \
-  -H "Authorization: Bearer ${OPENAI_API_KEY}" 2>/dev/null) || fail "Cannot reach OpenAI endpoint at ${OPENAI_BASE_URL}/models"
-
-AVAILABLE_MODELS=$(echo "$MODELS_JSON" | jq -r '.data[].id' 2>/dev/null) || fail "Failed to parse models response"
-
-echo "$AVAILABLE_MODELS"
-ok "OpenAI endpoint is reachable and models are available"
-
-# Check Ollama models
-echo "--- Checking Ollama models ---"
-if [[ -z "${OLLAMA_ENDPOINT:-}" ]]; then
-  fail "OLLAMA_ENDPOINT not set in .env"
-fi
-
-OLLAMA_MODELS=$(curl -sf "${OLLAMA_ENDPOINT}/api/tags" 2>/dev/null) || fail "Cannot reach Ollama at ${OLLAMA_ENDPOINT}/api/tags"
-OLLAMA_MODEL_LIST=$(echo "$OLLAMA_MODELS" | jq -r '.models[].name' 2>/dev/null) || fail "Failed to parse Ollama models response"
-
-echo "$OLLAMA_MODEL_LIST"
-ok "Ollama endpoint is reachable and models are available"
-
-# --- Step 6: Add ops bin to PATH and check bun ---
-echo "--- Checking bun ---"
-OPS_BIN="$HOME/.ops/${OS}-${ARCH}/bin"
-add_to_path "$OPS_BIN"
-
-if ! command -v bun &>/dev/null; then
-  fail "bun not found in PATH (expected in $OPS_BIN)"
-fi
+command -v bun &>/dev/null || fail "bun not found in PATH"
 ok "bun is available"
 
-# --- Step 7: Check/install opencode ---
-echo "--- Checking opencode ---"
-OPENCODE_BIN="$HOME/.opencode/bin"
-if ! command -v opencode &>/dev/null; then
-  warn "opencode not found, installing..."
-  curl -fsSL https://opencode.ai/install | bash
-  add_to_path "$OPENCODE_BIN"
-fi
-if ! command -v opencode &>/dev/null; then
-  fail "opencode installation failed"
-fi
-ok "opencode is available"
+command -v uv &>/dev/null || fail "uv not found in PATH"
+ok "uv is available"
 
-# --- Step 8: Check/install Go via g ---
+# --- 4. Check Go (install via g if missing), activate version from go.mod, install air ---
 echo "--- Checking Go ---"
 GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
 
 if ! command -v go &>/dev/null; then
   warn "go not found, installing g (Go version manager)..."
-  curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash
-  add_to_path "$HOME/go/bin"
-  add_to_path "$HOME/.g/go/bin"
-fi
-
-if ! command -v g &>/dev/null; then
-  add_to_path "$HOME/.g"
+  curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash || fail "g install failed"
+  add_to_path "$HOME/.g/bin"
   export GOROOT="$HOME/.g/go"
-  export PATH="$GOROOT/bin:$PATH"
+  add_to_path "$GOROOT/bin"
 fi
 
-if ! command -v g &>/dev/null; then
-  fail "g (Go version manager) not found after installation"
-fi
+command -v g &>/dev/null || fail "g not found after installation"
 
-# Install the Go version from go.mod
 if ! go version 2>/dev/null | grep -qF "go${GO_VERSION}"; then
-  warn "Installing Go ${GO_VERSION}..."
-  g install "$GO_VERSION"
+  warn "Activating Go ${GO_VERSION}..."
+  g install "$GO_VERSION" || fail "g install ${GO_VERSION} failed"
+  g use "$GO_VERSION" || fail "g use ${GO_VERSION} failed"
 fi
+go version 2>/dev/null | grep -qF "go${GO_VERSION}" || fail "Go ${GO_VERSION} not active after g use"
 ok "Go ${GO_VERSION} is available"
 
-# Install air
 echo "--- Checking air ---"
 if ! command -v air &>/dev/null; then
   warn "air not found, installing..."
   go install github.com/air-verse/air@latest
   add_to_path "$(go env GOPATH)/bin"
 fi
-if ! command -v air &>/dev/null; then
-  fail "air installation failed"
-fi
+command -v air &>/dev/null || fail "air installation failed"
 ok "air is available"
+
+# --- 5. Reach OpenWhisk ---
+echo "--- Locating OpenWhisk apihost ---"
+APIHOST_ENV="${APIHOST:-}"
+APIHOST=""
+if [[ -n "${OPS_APIHOST:-}" ]]; then
+  APIHOST="$OPS_APIHOST"
+elif [[ -n "$APIHOST_ENV" ]]; then
+  APIHOST="$APIHOST_ENV"
+elif [[ -n "${TRUSTABLE_DEFAULT_APIHOST:-}" ]]; then
+  APIHOST="$TRUSTABLE_DEFAULT_APIHOST"
+elif [[ "$OS" == "darwin" && -f "$HOME/Library/Application Support/Trustable/apihost" ]]; then
+  APIHOST="$(cat "$HOME/Library/Application Support/Trustable/apihost")"
+elif [[ "$OS" == "msys" || "$OS" == "cygwin" || "$OS" == mingw* ]] && [[ -f "${APPDATA:-}/Trustable/apihost" ]]; then
+  APIHOST="$(cat "${APPDATA}/Trustable/apihost")"
+else
+  APIHOST="http://miniops.me"
+fi
+APIHOST="${APIHOST%/}"
+
+echo "Using apihost: $APIHOST"
+WHISK_DESC=$(curl -sf "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) || true
+[[ "$WHISK_DESC" == "OpenWhisk" ]] || fail "Cannot reach OpenWhisk at ${APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
+ok "OpenWhisk reachable at ${APIHOST}"
+
+# --- 6. Extract kubeconfig (mac only, when id_ed25519 is present) ---
+if [[ "$OS" == "darwin" ]]; then
+  ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
+  IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
+  if [[ -f "$ID_FILE" && -f "$IP_FILE" ]]; then
+    echo "--- Extracting kubeconfig ---"
+    mkdir -p "$HOME/.ops/tmp"
+    IP="$(cat "$IP_FILE")"
+    ssh -i "$ID_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      "trustable@$IP" sudo cat /etc/rancher/k3s/k3s.yaml \
+      | sed -e "/server:/ s/127.0.0.1/$IP/" \
+      > "$HOME/.ops/tmp/kubeconfig" \
+      || fail "Failed to extract kubeconfig from trustable@$IP"
+    ok "kubeconfig written to ~/.ops/tmp/kubeconfig"
+  fi
+fi
+
+# --- 7. Check admin power ---
+echo "--- Checking admin access ---"
+ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
+ok "Admin access confirmed"
+
+# --- 8. Install opencode if missing ---
+echo "--- Checking opencode ---"
+if ! command -v opencode &>/dev/null; then
+  warn "opencode not found, installing..."
+  curl -fsSL https://opencode.ai/install | bash
+  add_to_path "$HOME/.opencode/bin"
+fi
+command -v opencode &>/dev/null || fail "opencode installation failed"
+ok "opencode is available"
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"
-echo "You may need to restart your shell or run: source ~/.bashrc"
+echo "Restart your shell or run: source ~/.bashrc"
 [[ "$OS" == "darwin" ]] && echo "  or: source ~/.zshrc"

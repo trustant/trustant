@@ -28,7 +28,8 @@ Otherwise, clone the workspace into the workbench:
 
 Then set up the workbench:
 
-- Generate `.env` and `.env.production` in `<workbenchdir>/<name>` from the merged config using `generateAppEnvFiles(<name>)`. The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global env defaults, and per-app development overrides. The `.env.production` contains per-app production values.
+- Generate `.env` and `.env.production` in `<workbenchdir>/<name>` from the merged config using `generateAppEnvFiles(<name>)`.
+The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global env defaults, and per-app development overrides. The `.env.production` contains per-app production values.
 - If `<workbenchdir>/<name>/package.json` exists, run `npm install` in `<workbenchdir>/<name>`
 
 When the workbench already exists (reuse path), also regenerate the `.env` files to keep them in sync with the current config.
@@ -103,7 +104,7 @@ If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`
 
 Wait that both the processes are up and running and ports are listening.
 
-When ok, execute a POST to <domain>:4006/session/ with header "X-Opencode-Directory: <directory>" and log the result of this invocation,
+When ok, execute a POST to <domain>:4096/session/ with header "X-Opencode-Directory: <directory>" and log the result of this invocation,
 
 then return:
 

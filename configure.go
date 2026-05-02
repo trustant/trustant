@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -63,7 +64,35 @@ func developmentAPIHost() string {
 			return strings.TrimRight(value, "/")
 		}
 	}
+	if path := apihostFilePath(); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			if value := strings.TrimSpace(string(data)); value != "" {
+				return strings.TrimRight(value, "/")
+			}
+		}
+	}
 	return "http://miniops.me"
+}
+
+// apihostFilePath returns the OS-specific path to the user-level apihost file,
+// or "" if the platform has no defined location.
+func apihostFilePath() string {
+	switch runtime.GOOS {
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		return filepath.Join(home, "Library", "Application Support", "Trustable", "apihost")
+	case "windows":
+		appData := strings.TrimSpace(os.Getenv("APPDATA"))
+		if appData == "" {
+			return ""
+		}
+		return filepath.Join(appData, "Trustable", "apihost")
+	default:
+		return ""
+	}
 }
 
 // loadBaseConfig reads the app-root trustable.json (immutable defaults)
@@ -291,19 +320,6 @@ func dropGeneratedOpenCodeKey(key string) bool {
 	default:
 		return false
 	}
-}
-
-func shouldPreserveModelSelection(model string, providers map[string]interface{}) bool {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return false
-	}
-	providerName, _, found := strings.Cut(model, "/")
-	if !found {
-		return false
-	}
-	_, ok := providers[providerName]
-	return ok
 }
 
 func defaultDisabledOpenCodeProviders() []string {
@@ -633,15 +649,85 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 	return generateOpencodeConfigForApp(cfg, "")
 }
 
+// buildOllamaProvider constructs the Trustable-managed `ollama` OpenCode
+// provider entry: one model per cfg.Ollama key, baseURL from OPENAI_BASE_URL,
+// capabilities (tool_call, reasoning) discovered via Ollama's /api/show.
+func buildOllamaProvider(cfg *trustableConfig) map[string]interface{} {
+	models := make(map[string]interface{})
+	for modelID, ctxSize := range cfg.Ollama {
+		ctx, err := parseContextSize(ctxSize)
+		if err != nil || ctx == 0 {
+			ctx = 32768
+		}
+
+		toolCall := false
+		reasoning := false
+		if caps, err := getModelCapabilities(modelID); err == nil {
+			toolCall = containsCapability(caps, "tools")
+			reasoning = containsCapability(caps, "thinking")
+		} else {
+			log.Printf("  - Warning: could not fetch capabilities for %s: %s", modelID, err)
+		}
+
+		models[modelID] = map[string]interface{}{
+			"name":        modelDisplayName(modelID),
+			"tool_call":   toolCall,
+			"reasoning":   reasoning,
+			"temperature": true,
+			"limit": map[string]interface{}{
+				"context": ctx,
+				"output":  32768,
+			},
+			"options": map[string]interface{}{
+				"maxTokens": 8192,
+			},
+			"variants": map[string]interface{}{
+				"fast": map[string]interface{}{
+					"options": map[string]interface{}{"maxTokens": 2048},
+				},
+				"deep": map[string]interface{}{
+					"options": map[string]interface{}{"maxTokens": 16000},
+				},
+				"disabled_variant": map[string]interface{}{
+					"disabled": true,
+				},
+			},
+		}
+	}
+
+	baseURL := strings.TrimRight(OpenAIBaseUrl, "/")
+	if baseURL == "" {
+		baseURL = "http://localhost:11434/v1"
+	}
+
+	return map[string]interface{}{
+		"options": map[string]interface{}{"baseURL": baseURL},
+		"models":  models,
+	}
+}
+
 // generateOpencodeConfigForApp refreshes opencode.json before a workbench launch.
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	providers := make(map[string]interface{})
+
+	// Always generate the Trustable-managed `ollama` provider.
+	providers["ollama"] = buildOllamaProvider(cfg)
 
 	config := map[string]interface{}{
 		"$schema":            "https://opencode.ai/config.json",
 		"disabled_providers": defaultDisabledOpenCodeProviders(),
 		"instructions":       []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
 		"provider":           providers,
+	}
+
+	// Always set top-level model/small_model from trustable.json opencode config.
+	if cfg.Opencode != nil {
+		if cfg.Opencode.Default != "" {
+			config["model"] = "ollama/" + cfg.Opencode.Default
+		}
+		if cfg.Opencode.Small != "" {
+			config["small_model"] = "ollama/" + cfg.Opencode.Small
+		}
 	}
 
 	// Write to ~/.config/opencode/opencode.json
@@ -663,6 +749,9 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 		} else {
 			if existingProviders, ok := existing["provider"].(map[string]interface{}); ok {
 				for providerName, providerConfig := range existingProviders {
+					if providerName == "ollama" {
+						continue // always regenerated above
+					}
 					if isTrustableManagedOpenCodeProvider(providerName, providerConfig) {
 						log.Printf("  - Removed Trustable-managed OpenCode provider %s", providerName)
 						continue
@@ -670,14 +759,6 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 					providers[providerName] = providerConfig
 					log.Printf("  - Preserved custom OpenCode provider %s", providerName)
 				}
-			}
-			if existingModel, ok := existing["model"].(string); ok && shouldPreserveModelSelection(existingModel, providers) {
-				config["model"] = existingModel
-				log.Printf("  - Preserved selected OpenCode model %s", existingModel)
-			}
-			if existingSmallModel, ok := existing["small_model"].(string); ok && shouldPreserveModelSelection(existingSmallModel, providers) {
-				config["small_model"] = existingSmallModel
-				log.Printf("  - Preserved selected OpenCode small_model %s", existingSmallModel)
 			}
 			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {
 				config["disabled_providers"] = mergeDisabledOpenCodeProviders(existingDisabledProviders, defaultDisabledOpenCodeProviders())
@@ -830,19 +911,39 @@ func handleOllamaConnect(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	name := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_NAME"))
 	publicKey := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_PUBLIC_KEY"))
-	if name == "" || publicKey == "" {
+	if name != "" && publicKey != "" {
+		values := url.Values{}
+		values.Set("name", name)
+		values.Set("key", base64.RawStdEncoding.EncodeToString([]byte(publicKey)))
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Ollama connect data is not configured",
+			"url": "https://ollama.com/connect?" + values.Encode(),
 		})
 		return
 	}
 
-	values := url.Values{}
-	values.Set("name", name)
-	values.Set("key", base64.RawStdEncoding.EncodeToString([]byte(publicKey)))
+	// Fallback: execute `ollama signin` and parse its output for an
+	// https://ollama.com/connect URL.
+	if connectURL := runOllamaSignin(); connectURL != "" {
+		json.NewEncoder(w).Encode(map[string]string{"url": connectURL})
+		return
+	}
+
 	json.NewEncoder(w).Encode(map[string]string{
-		"url": "https://ollama.com/connect?" + values.Encode(),
+		"error": "Ollama connect data is not configured",
 	})
+}
+
+// runOllamaSignin executes `ollama signin` and returns the first
+// https://ollama.com/connect URL it finds in the output, or "" if none.
+var ollamaConnectURLPattern = regexp.MustCompile(`https://ollama\.com/connect\S*`)
+
+func runOllamaSignin() string {
+	cmd := exec.Command("ollama", "signin")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	_ = cmd.Run()
+	return ollamaConnectURLPattern.FindString(out.String())
 }
 
 // handleConfiguration handles GET and POST /api/configuration

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -163,6 +164,29 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 		// Process is still running after the duration - success
 		return nil
 	}
+}
+
+// createOpencodeSession POSTs to opencode's /session/ endpoint with the
+// workbench directory header so the running opencode server scopes its session
+// to the launched app. Failures are logged but non-fatal.
+func createOpencodeSession(port int, directory string) {
+	url := fmt.Sprintf("http://localhost:%d/session/", port)
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		log.Printf("opencode session POST: failed to build request: %s", err)
+		return
+	}
+	req.Header.Set("X-Opencode-Directory", directory)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("opencode session POST %s failed: %s", url, err)
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("opencode session POST %s -> %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
 // handleLaunchGet handles GET /api/launch/<app>
@@ -480,6 +504,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
+
+	// Notify opencode of the workbench directory so it scopes the session correctly.
+	createOpencodeSession(leftPort, absPath)
 
 	// Log the opencode session URLs
 	domain := r.Host
