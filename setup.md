@@ -38,11 +38,11 @@ locate the <apihost>:
 
 verify  curl -sL <apihost>/api/info | jq .description returns OpenWhisk
 
-6. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519, ext@ract the kubeconfig with the command:
+6. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519,
 
 ID=~/Library/Application\ Support/Trustable/id_ed25519
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
-ssh -i "$ID" trustable@$IP sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
+ssh -i "$ID" trustable@$IP "$@" sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
 
 7. check you have administrative power
 ensuring `ops admin listuser` does not return error
