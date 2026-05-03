@@ -1,10 +1,11 @@
 FROM node:24 as builder
-RUN sudo apt-get update && apt-get install -y zstd
+USER root
+RUN apt-get update && apt-get install -y zstd
 RUN curl -sL https://ollama.com/install.sh | bash
 
 FROM node:24
 ARG TARGETARCH
-
+USER root
 COPY --from=builder /usr/local/lib/ollama /usr/local/lib/ollama
 COPY --from=builder /usr/local/lib/ollama/libggml-base.so.0 /usr/local/lib/ollama/libggml-base.so.0
 COPY --from=builder /usr/local/lib/ollama/libggml-base.so /usr/local/lib/ollama/libggml-base.so
