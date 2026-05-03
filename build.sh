@@ -38,13 +38,11 @@ docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images impor
 echo "Listing Images"
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
 
-exit 1
 
-#ops trustable trustable redeploy KEY=$KEY
+ops trustable trustable redeploy 
 
-#cd olaris-trustable
-#git commit -m "$TAG" -a
-#git tag $TAG
-#sleep 3
+cd olaris-trustable
+git commit -m "$TAG" -a
+git tag $TAG
 
 

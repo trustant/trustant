@@ -45,7 +45,6 @@ RUN \
     curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
-
 RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc

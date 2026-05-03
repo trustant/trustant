@@ -1,5 +1,5 @@
 #!/bin/bash
-# Publish: push tag, watch CI build, then push olaris-trustable
+# Publish: push tag, watch CI build, then push olaris-bestia
 set -euo pipefail
 
 # Ensure gh is authenticated
@@ -48,7 +48,7 @@ if [ "$STATUS" != "success" ]; then
 fi
 
 echo "CI passed. Pushing olaris-trustable..."
-cd olaris-trustable
+cd olaris-bestia
 git push origin main --tags
 
 echo "Done. Published $TAG successfully."
