@@ -12,8 +12,7 @@ and the folder pointed by $WORKBENCH_DIR exists
 - OPS_REPO=https://github.com/nuvolaris/bestia
 - OPS_BRANCH=bestia
 
-If not, recommend to set the variables
-then install ops with:
+If not, recommend to set the variables, then install ops with:
 
 curl -sL n7s.co/get-ops (mac/win)
 powershell -c "irm n7s.co/get-ops | iex" (win)
@@ -40,14 +39,20 @@ verify  curl -sL <apihost>/api/info | jq .description returns OpenWhisk
 
 6. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519,
 
-ID=~/Library/Application\ Support/Trustable/id_ed25519
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
-ssh -i "$ID" trustable@$IP "$@" sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
+./ssh.sh sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
 
 7. check you have administrative power
 ensuring `ops admin listuser` does not return error
 
-8. if it is nt there, install opencode in ~/.opencode/bin with `curl -fsSL https://opencode.ai/install | bash`
+8. if it is not there, install opencode in ~/.opencode/bin with `curl -fsSL https://opencode.ai/install | bash`
 
 9. Check you have a local ollama running with http://localhost:11434 returning Ollama is Running
 
+10. preload the ollama image if it is not yet in the vm:
+
+if ! ./ssh.sh sudo k3s images list | grep ollama
+then
+    OLLAMA=$(jq .config.images.ollama -r  olaris-bestia/opsroot.json)
+    docker pull $OLLAMA
+fi

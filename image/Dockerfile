@@ -7,7 +7,15 @@ RUN \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc |  apt-key add - && \
     apt update && \
     apt install -y less man-db sudo vim jq python-is-python3 python3-virtualenv \
-    locales postgresql-client-16 openssh-server tini supervisor ripgrep
+    locales postgresql-client-16 openssh-server tini supervisor ripgrep zstd
+
+RUN \
+    curl -sL https://ollama.com/install.sh | bash
+
+RUN \
+    rm -Rvf /usr/local/lib/ollama/cuda_* \
+    /var/lib/apt/lists/* \
+    /var/cache/apt/*
 
 # setup env
 RUN \
@@ -22,6 +30,7 @@ ENV HOME=/home/node
 ENV OPS_BRANCH=bestia
 ENV OPS_REPO=https://github.com/nuvolaris/bestia
 
+
 USER node
 WORKDIR /home/node
 
@@ -31,11 +40,10 @@ RUN \
     curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
+
 RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
-
-COPY ollama ~/.local/bin/ollama
 
 RUN mkdir /home/node/workspace
 RUN echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
