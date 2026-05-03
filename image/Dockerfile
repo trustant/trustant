@@ -7,10 +7,7 @@ FROM node:24
 ARG TARGETARCH
 USER root
 COPY --from=builder /usr/local/bin/ollama /usr/local/bin/ollama
-COPY --from=builder /usr/local/lib/ollama/libggml-base.so.0 /usr/local/lib/ollama/libggml-base.so.0
-COPY --from=builder /usr/local/lib/ollama/libggml-base.so /usr/local/lib/ollama/libggml-base.so
-COPY --from=builder /usr/local/lib/ollama/libggml-cpu.so /usr/local/lib/ollama/libggml-cpu.so
-COPY --from=builder /usr/local/lib/ollama/libggml-base.so.0.0.0 /usr/local/lib/ollama/libggml-base.so.0.0.0
+COPY --from=builder /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
 
 # Install basic development tools
 RUN \
