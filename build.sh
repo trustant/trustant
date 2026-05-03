@@ -12,6 +12,7 @@ KEY=${1:-trustable}
 VERSION=0.3.3-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
 TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%S)"
+echo "New Tag: $TAG"
 
 git tag -d $(git tag)
 echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: 2026/06/30\n" >version.txt
@@ -21,6 +22,7 @@ OPSROOT="./olaris-bestia/opsroot.json"
 jq --arg img "$IMAGE:$TAG" '.config.images.'$KEY' = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"
 # reread tag
 TAG=$(jq .config.images.$KEY <$OPSROOT -r | awk -F: '{print $2}')
+echo "Stored Tag: $TAG"
 
 git commit -m "build $TAG" -a
 
@@ -31,7 +33,9 @@ cp -v trustable.json image/trustable.json
 
 image/image.sh "$TAG"
 
+echo "Saving $IMAGE:$TAG"
 docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
+echo "Listing Images"
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep $TAG
 
 exit 1
