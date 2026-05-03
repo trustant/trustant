@@ -8,7 +8,7 @@ fi
 ID=~/Library/Application\ Support/Trustable/id_ed25519
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
 
-KEY=${1:-trustabledev}
+KEY=${1:-trustable}
 VERSION=0.3.3-alpha
 IMAGE=ghcr.io/trustable-ai/trustable-app
 TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%S)"
