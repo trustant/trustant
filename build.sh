@@ -37,7 +37,6 @@ echo "Saving $IMAGE:$TAG"
 docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
 echo "Listing Images"
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
- grep $TAG
 
 exit 1
 

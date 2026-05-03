@@ -1,5 +1,15 @@
+FROM node:24 as builder
+RUN sudo apt-get update && apt-get install -y zstd
+RUN curl -sL https://ollama.com/install.sh | bash
+
 FROM node:24
 ARG TARGETARCH
+
+COPY --from=builder /usr/local/lib/ollama /usr/local/lib/ollama
+COPY --from=builder /usr/local/lib/ollama/libggml-base.so.0 /usr/local/lib/ollama/libggml-base.so.0
+COPY --from=builder /usr/local/lib/ollama/libggml-base.so /usr/local/lib/ollama/libggml-base.so
+COPY --from=builder /usr/local/lib/ollama/libggml-cpu.so /usr/local/lib/ollama/libggml-cpu.so
+COPY --from=builder /usr/local/lib/ollama/libggml-base.so.0.0.0 /usr/local/lib/ollama/libggml-base.so.0.0.0
 
 # Install basic development tools
 RUN \
@@ -7,15 +17,10 @@ RUN \
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc |  apt-key add - && \
     apt update && \
     apt install -y less man-db sudo vim jq python-is-python3 python3-virtualenv \
-    locales postgresql-client-16 openssh-server tini supervisor ripgrep zstd
+    locales postgresql-client-16 openssh-server tini supervisor ripgrep
 
 RUN \
-    curl -sL https://ollama.com/install.sh | bash
-
-RUN \
-    rm -Rvf /usr/local/lib/ollama/cuda_* \
-    /var/lib/apt/lists/* \
-    /var/cache/apt/*
+    rm -Rvf /var/lib/apt/lists/* /var/cache/apt/*
 
 # setup env
 RUN \
@@ -29,7 +34,6 @@ RUN \
 ENV HOME=/home/node
 ENV OPS_BRANCH=bestia
 ENV OPS_REPO=https://github.com/nuvolaris/bestia
-
 
 USER node
 WORKDIR /home/node
