@@ -39,9 +39,9 @@ echo "Listing Images"
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
 
 
-ops trustable trustable redeploy 
+ops bestia trustable redeploy
 
-cd olaris-trustable
+cd olaris-bestia
 git commit -m "$TAG" -a
 git tag $TAG
 
