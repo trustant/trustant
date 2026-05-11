@@ -15,6 +15,60 @@
         <p id="expireText" class="text-sm text-gray-500 mt-2"></p>
     </div>
 
+    <!-- Provider Choice Modal -->
+    <div id="providerModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl mx-4">
+            <h3 class="text-xl font-semibold mb-4 text-center">Choose your AI provider</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 items-stretch">
+                <div class="flex flex-col items-center h-full">
+                    <img src="ollama-head.png" alt="Ollama" class="h-24 w-auto mb-3">
+                    <button onclick="selectOllama()"
+                        class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                        <div class="font-semibold text-lg mb-2">Ollama</div>
+                        <div class="text-sm text-gray-600">Free for private use without publishing.</div>
+                        <div class="text-sm text-gray-600 mt-2">Use our embedded ollama server or your own local server.</div>
+                        <div class="text-sm text-gray-600">Only HTTP without authentication.</div>
+                    </button>
+                </div>
+                <div class="flex flex-col items-center h-full">
+                    <img src="trustable-head.png" alt="Trustable" class="h-24 w-auto mb-3">
+                    <button onclick="selectTrustable()"
+                        class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                        <div class="font-semibold text-lg mb-2">Trustable</div>
+                        <div class="text-sm text-gray-600">Free while in beta,</div>
+                        <div class="text-sm text-gray-600">then $20/month.</div>
+                        <div class="text-sm text-gray-600 mt-2">Includes:</div>
+                        <div class="text-sm text-gray-600">1000 credits/month.</div>
+                        <div class="text-sm text-gray-600">1 app for publishing.</div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-6 pt-6 border-t border-gray-200 flex items-center gap-4">
+                <img src="bestia-head.png" alt="Bestia" class="h-16 w-auto flex-shrink-0">
+                <p class="flex-1 text-sm text-gray-700">
+                    For Private AI infrastructure with dedicated GPUs and unlimited apps.
+                </p>
+                <button onclick="window.open('https://nuvolaris.io/bestia', '_blank')"
+                    class="flex-shrink-0 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors">
+                    Contact Us
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trustable Register Iframe Overlay -->
+    <div id="registerOverlay" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl flex flex-col" style="width:80%;height:80%;">
+            <div class="flex items-center justify-between px-4 py-2 border-b">
+                <span class="text-sm font-medium">Trustable Cloud sign-up</span>
+                <button onclick="cancelRegister()"
+                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+            </div>
+            <iframe id="registerIframe" class="flex-1 w-full" src="about:blank"></iframe>
+        </div>
+    </div>
+
     <!-- Configuring Modal -->
     <div id="configModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
@@ -59,6 +113,161 @@
     </div>
 
     <script>
+        let currentConfig = null;
+        let bootStatus = null;
+
+        function showProviderModal() {
+            document.getElementById('providerModal').classList.remove('hidden');
+            document.getElementById('providerModal').classList.add('flex');
+        }
+
+        function hideProviderModal() {
+            document.getElementById('providerModal').classList.add('hidden');
+            document.getElementById('providerModal').classList.remove('flex');
+        }
+
+        function showRegisterOverlay(url) {
+            document.getElementById('registerIframe').src = url;
+            document.getElementById('registerOverlay').classList.remove('hidden');
+            document.getElementById('registerOverlay').classList.add('flex');
+        }
+
+        function hideRegisterOverlay() {
+            document.getElementById('registerOverlay').classList.add('hidden');
+            document.getElementById('registerOverlay').classList.remove('flex');
+            document.getElementById('registerIframe').src = 'about:blank';
+        }
+
+        function cancelRegister() {
+            hideRegisterOverlay();
+            showProviderModal();
+        }
+
+        async function fetchStatus() {
+            try {
+                const resp = await fetch('/api/status');
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                if (data && typeof data === 'object' && !data.error) return data;
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function selectOllama() {
+            hideProviderModal();
+            if (!bootStatus || !bootStatus.ollama || !bootStatus.ollama.models) {
+                alert('Status response is not available. Cannot configure Ollama.');
+                showProviderModal();
+                return;
+            }
+            const sec = bootStatus.ollama;
+            const cfg = Object.assign({}, currentConfig || {}, {
+                provider: 'ollama',
+                models: sec.models,
+                opencode: { default: sec.default || '', small: sec.small || '' },
+                base_url: 'http://localhost:11434/v1',
+                api_key: 'dummy'
+            });
+            cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
+            if (typeof sec.modelsVersion === 'number') {
+                cfg.model_versions.ollama = sec.modelsVersion;
+            }
+            // Drop legacy fields if present.
+            delete cfg.model_version;
+            delete cfg.env;
+            await saveAndRunConfiguration(cfg);
+        }
+
+        async function selectTrustable() {
+            hideProviderModal();
+            const url = (currentConfig && currentConfig.register_url) || '';
+            if (!url) {
+                alert('REGISTER_URL environment variable is not set');
+                showProviderModal();
+                return;
+            }
+            if (!bootStatus || !bootStatus.trustable || !bootStatus.trustable.models) {
+                alert('Status response is not available. Cannot configure Trustable.');
+                showProviderModal();
+                return;
+            }
+            showRegisterOverlay(url);
+        }
+
+        function isAcceptableRegisterPayload(data) {
+            return data && typeof data === 'object'
+                && typeof data.base_url === 'string' && data.base_url.length > 0
+                && typeof data.api_key === 'string' && data.api_key.length > 0;
+        }
+
+        window.addEventListener('message', async (event) => {
+            // Only react when the iframe overlay is open.
+            const overlay = document.getElementById('registerOverlay');
+            if (overlay.classList.contains('hidden')) return;
+            const data = event.data;
+            if (!isAcceptableRegisterPayload(data)) return;
+
+            if (!bootStatus || !bootStatus.trustable || !bootStatus.trustable.models) {
+                alert('Status response is not available. Cannot configure Trustable.');
+                hideRegisterOverlay();
+                showProviderModal();
+                return;
+            }
+
+            const sec = bootStatus.trustable;
+            const statusOpencode = { default: sec.default || '', small: sec.small || '' };
+
+            const cfg = Object.assign({}, currentConfig || {}, {
+                provider: 'trustable',
+                models: sec.models,
+                base_url: data.base_url,
+                api_key: data.api_key
+            });
+            // OpenCode defaults: prefer the iframe payload (the proxy may
+            // have user-specific suggestions), fall back to the status block.
+            if (data.opencode && typeof data.opencode === 'object') {
+                cfg.opencode = Object.assign({}, statusOpencode, data.opencode);
+            } else {
+                cfg.opencode = statusOpencode;
+            }
+            cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
+            if (typeof sec.modelsVersion === 'number') {
+                cfg.model_versions.trustable = sec.modelsVersion;
+            }
+            // Drop legacy fields if present.
+            delete cfg.model_version;
+            delete cfg.env;
+            hideRegisterOverlay();
+            await saveAndRunConfiguration(cfg);
+        });
+
+        async function saveAndRunConfiguration(cfg) {
+            try {
+                const resp = await fetch('/api/configuration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cfg)
+                });
+                if (!resp.ok) {
+                    alert('Failed to save configuration: ' + (await resp.text()));
+                    showProviderModal();
+                    return;
+                }
+            } catch (e) {
+                alert('Failed to save configuration: ' + e.message);
+                showProviderModal();
+                return;
+            }
+            // Refresh in-memory config so subsequent flows see the new provider.
+            try {
+                const fresh = await fetch('/api/configuration');
+                currentConfig = await fresh.json();
+            } catch (e) {}
+            await runConfiguration();
+        }
+
         function showConfigModal() {
             document.getElementById('configMessages').innerHTML = '';
             document.getElementById('configSpinner').classList.remove('hidden');
@@ -131,26 +340,31 @@
         }
 
         async function testOpenAIConnection() {
+            const isOllama = !currentConfig || currentConfig.provider !== 'trustable';
             while (true) {
                 try {
                     const resp = await fetch('/api/testmodel');
                     const data = await resp.json();
                     if (data.error) {
-                        if (!data.auth_required && !isSigninError(data.error)) {
-                            return data;
+                        if (isOllama && (data.auth_required || isSigninError(data.error))) {
+                            await new Promise(resolve => {
+                                _openaiTestResolve = resolve;
+                                showSigninModal();
+                            });
+                            continue;
                         }
+                        return data;
+                    }
+                    return data;
+                } catch (e) {
+                    if (isOllama) {
                         await new Promise(resolve => {
                             _openaiTestResolve = resolve;
                             showSigninModal();
                         });
                         continue;
                     }
-                    return data;
-                } catch (e) {
-                    await new Promise(resolve => {
-                        _openaiTestResolve = resolve;
-                        showSigninModal();
-                    });
+                    return { error: e.message };
                 }
             }
         }
@@ -236,7 +450,7 @@
             document.getElementById('configDone').classList.remove('hidden');
         }
 
-        // Check version and expiry, then run configuration
+        // Boot: version check, then either provider choice or configuration.
         (async function() {
             try {
                 const resp = await fetch('/api/version');
@@ -251,11 +465,68 @@
                 if (data.expire) {
                     document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
                 }
-
-                // Always run configuration on page load
-                await runConfiguration();
             } catch (e) {
                 console.error('Failed to check version:', e);
+            }
+
+            try {
+                const resp = await fetch('/api/configuration');
+                currentConfig = await resp.json();
+            } catch (e) {
+                currentConfig = {};
+            }
+
+            // STATUS_URL is the single source of truth for the per-provider
+            // catalog (models + default + small + modelsVersion). On each
+            // splash we compare the active provider's saved snapshot against
+            // the live response; any drift (modelsVersion bump OR a changed
+            // default/small) persists the new values and routes the user
+            // through configure.html?reselect=1.
+            bootStatus = await fetchStatus();
+
+            const params = new URLSearchParams(window.location.search);
+            const forceChoose = params.get('choose') === '1';
+            const provider = currentConfig && currentConfig.provider;
+
+            if (provider && !forceChoose && bootStatus && bootStatus[provider]) {
+                const sec = bootStatus[provider];
+                const savedVer = (currentConfig.model_versions && currentConfig.model_versions[provider]) || 0;
+                const savedOpencode = currentConfig.opencode || {};
+                const versionChanged = typeof sec.modelsVersion === 'number'
+                    && sec.modelsVersion > 0
+                    && sec.modelsVersion !== savedVer;
+                const defaultsChanged =
+                    (sec.default && sec.default !== savedOpencode.default) ||
+                    (sec.small   && sec.small   !== savedOpencode.small);
+
+                if ((versionChanged || defaultsChanged) && sec.models) {
+                    const newVersions = Object.assign({}, currentConfig.model_versions || {});
+                    if (typeof sec.modelsVersion === 'number') {
+                        newVersions[provider] = sec.modelsVersion;
+                    }
+                    const cfg = Object.assign({}, currentConfig, {
+                        models: sec.models,
+                        opencode: { default: sec.default || '', small: sec.small || '' },
+                        model_versions: newVersions
+                    });
+                    delete cfg.model_version;
+                    delete cfg.env;
+                    try {
+                        await fetch('/api/configuration', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(cfg)
+                        });
+                    } catch (e) {}
+                    window.location.href = 'configure.html?reselect=1';
+                    return;
+                }
+            }
+
+            if (forceChoose || !provider) {
+                showProviderModal();
+            } else {
+                await runConfiguration();
             }
         })();
     </script>

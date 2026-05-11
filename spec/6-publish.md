@@ -1,6 +1,21 @@
 This file describes the publish APIs.
 Put the code in the file `publish.go`
 
+# Publishing authorization
+
+Every publish endpoint below (`/api/publish/push`, `/api/publish/force-push`, `/api/publish/remote`) **must** validate that the user's ai-proxy API key authorizes publishing **before** doing any work. This is a server-side check; the frontend does not gate these calls.
+
+The check:
+
+1. Load the merged config and read `env.OPENAI_API_KEY` (the `aip_...` bearer) and `env.OPENAI_BASE_URL`.
+2. Derive the proxy origin by stripping a trailing `/v1` from `OPENAI_BASE_URL`. The well-known is then `<origin>/.well-known/ai-proxy-pubkey`.
+3. Fetch the public key once and cache it in process memory for the lifetime of the process. Do not re-fetch on verification failure.
+4. Verify the key signature per [10-validate_key.md](10-validate_key.md) (Ed25519 over `id_bytes`).
+
+If any step fails — missing key, missing/unparseable base URL, well-known fetch error, malformed key, signature mismatch — return HTTP 403 with `{"error": "Publishing not authorized: <reason>"}` and **do not** perform any publish action. There is no `needs_config` fallback for an authorization failure; the user must reconfigure to a publishing-capable provider.
+
+The legacy `publishing` flag in the workspace config is removed. Whether publishing is allowed is determined entirely by signature verification at request time.
+
 # POST /api/publish/push
 
 Push code to a production GitHub repository.

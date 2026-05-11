@@ -44,6 +44,7 @@ func main() {
 
 	// API routes
 	http.HandleFunc("/api/version", handleVersion)
+	http.HandleFunc("/api/status", handleStatus)
 	http.HandleFunc("/api/repo", handleRepo)
 	http.HandleFunc("/api/upload", handleUpload)
 	http.HandleFunc("/api/launch/", handleLaunch)
@@ -63,6 +64,8 @@ func main() {
 	http.HandleFunc("/api/skills/", handleSkills)
 	http.HandleFunc("/api/memory/", handleMemory)
 	http.HandleFunc("/api/redeploy", handleRedeploy)
+	http.HandleFunc("/api/credits", handleCredits)
+	http.HandleFunc("/api/topup", handleTopUp)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {

@@ -15,25 +15,42 @@ In the bar, aligned to the left:
 
 - the trustable logo (80% height)
 - the app name in bold
-- the button "Env" (purple, gear icon)
-- the button "Skills" (purple, book icon)
-- the button "Memory" (purple, brain icon)
-- the button "Upload" (green, upload arrow icon)
-
-Centered
-
-- the button Redeploy with a rocket icon
+- the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
+- the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
 
 Aligned to the right:
 
 - a git status indicator (dot + text)
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
-- the button "Revert" (orange, undo arrow icon, disabled when no changes)
-- the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/")
-- the button "Query" (teal, question mark icon)
+- the **"Utils" pulldown** (orange, chevron-down icon) — see "Utils Pulldown" below
+- the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
 - the button "Back" (gray, chevron left icon)
 
 All buttons use inline SVG icons (monochrome white, matching the button text).
+
+# Config Pulldown
+
+The **Config** pulldown groups the three configuration entries (Env, Skills, Memory) under a single button on the left side of the toolbar, immediately after the Credits box (or after the app name when the Credits box is not shown).
+
+The button shows a gear icon, the label "Config", and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
+
+1. **Env** (gear icon) — opens the read-only environment-variables modal described in "Env (Read-only)".
+2. **Skills** (book icon) — opens the Skills modal described in "Skills" ([7-skills.md](7-skills.md)).
+3. **Memory** (brain icon) — opens the AGENTS.md editor described in "Memory".
+
+The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+
+# Utils Pulldown
+
+Replace the previous standalone "Revert", "Redeploy", and "Upload" toolbar buttons with a single **Utils** pulldown menu placed to the right of the Commit button.
+
+The button shows the label "Utils" and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
+
+1. **Revert** (orange undo-arrow icon) — disabled when there are no uncommitted changes (same condition as Commit).
+2. **Redeploy** (indigo rocket icon) — always enabled.
+3. **Upload** (green upload-arrow icon) — always enabled.
+
+Each item triggers the same behavior previously documented in the "Revert", "Redeploy", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
@@ -110,40 +127,52 @@ Clicking it will show the text editor codejar allowing to edit the file AGENTS.m
 
 Create the file AGENTS.md if it is not there and add to git when creating.
 
+# Revert
+
+The **Revert** entry in the Utils pulldown is disabled when there are no uncommitted changes (same condition as Commit).
+
+When selected, ask for confirmation: "Are you sure you want to revert all uncommitted changes?".
+
+If confirmed, execute `POST /api/git` with body:
+
+```
+{
+  "name": <current app>,
+  "cmd":  "checkout ."
+}
+```
+
+The backend handles `checkout .` by also running `git clean -fd` to remove untracked files.
+
+Show ok or error result. After a successful revert, refresh the git status.
+
 # Upload
 
-Add an Upload Button to the toolbar.
+The **Upload** entry in the Utils pulldown lets the user select a file to upload and then invokes `POST /api/upload`, passing the current `<name>` and the uploaded file.
 
-It will allow to select a file to upload
-and then invoke the api `/api/upload`
-passing the current <name> and the uploaded file
-
-It expects you return a full path name, show the
-uploaded file in a popup allowing the user to copy
-in the clipboard the filename before closing.
+It expects the backend to return a full path name; show the uploaded file in a popup allowing the user to copy the filename to the clipboard before closing.
 
 # Query & Route
 
-
 The Route button in the toolbar displays "Route: <route>" where `<route>` is the current value of the ROUTE cookie (defaults to "/").
 
-When clicked, show a popup asking "Enter new route:" with a text input pre-filled with the current route value and buttons "OK" and "Cancel", set the cookie ROUTE if ok
+When clicked, show a single combined popup titled "Route & Query" that lets the user edit both the route and the query string in one place:
 
+- A text input labelled **Route**, pre-filled with the current ROUTE cookie value (defaults to "/").
+- A list of **Query Parameters** as key/value pairs, pre-populated from the current QUERY cookie. The user can add new pairs (an "Add parameter" button) and remove existing ones (a × button on each row).
+- Buttons "OK" and "Cancel".
 
-The Query button shows a query string editor, a sequence of key/values
+If the user confirms (OK):
+- Set the cookie `ROUTE` to the new route value.
+- Set the cookie `QUERY` as the URL-encoded query string of the key/value pairs (skip rows whose key is empty).
+- Update the toolbar button label to show the new route.
+- Reload the right iframe using `<RIGHT><new_route>?<query>#<new_route>` as the URL (omit the `?<query>` segment if the query string is empty).
 
-You can add and remove a couple key var.
-
-Show buttons Ok and Cancel, set the cooke QUERY as url encoded query string of key values set by the editor
-
-If the user confirms:
-- Update the button label to show the new route
-- Reload the right iframe using
-`<RIGHT><new_route>?<query>#<new_route>` as the URL
+If the user cancels, the cookies and iframe are left unchanged.
 
 # Redeploy
 
-The Redeploy button (centered in the toolbar, indigo, rocket icon) triggers a server-side redeploy cycle.
+The **Redeploy** entry in the Utils pulldown triggers a server-side redeploy cycle.
 
 When clicked:
 
@@ -158,3 +187,85 @@ When clicked:
   - Waiting for dev server to be ready (HTTP HEAD check)
 - On `event: done`, show "Redeploy complete", the action list in a code block, and an OK link pointing to `<RIGHT><ROUTE>?<QUERY>#<ROUTE>`
 - On `event: error`, stop the spinner and show the error in red
+
+# Credits
+
+A small **Credits box** is rendered in the toolbar immediately after the app name, but **only when the merged configuration's `provider` field equals `"trustable"`**. For Ollama (or any other provider) neither the box nor the Top-up button are rendered.
+
+The box is a compact pill (rounded border, light background) showing the label `Credits:` followed by the current credit value (e.g. `Credits: 873`). While the value has not yet been fetched, show `Credits: …`. On error, show `Credits: —` and put the error text in the element's `title` attribute (tooltip).
+
+If the proxy returns `credits: null` (server-side gate disabled — see [credit_check.md](credit_check.md) §`GET /api/v2/credits` "Notes for clients"), display `Credits: ∞` and treat the user as having unlimited credit; the Top-up button described below is hidden in that case.
+
+Immediately to the right of the Credits box, render a **Top-up** button (yellow/amber, plus icon, label `Top-up`). Clicking it opens the Top-up modal described under "Top-up" below.
+
+## AIP base URLs
+
+The Trustable provider configuration always exposes a top-level `base_url` (also surfaced as the `AIP_BASE_URL` env var). It **must end with `/v1`** — that is the OpenAI-compatible inference base used for `/v1/chat/completions` etc. All other Trustable URLs used by this app are derived from it:
+
+| Symbol | Definition | Example (when `AIP_BASE_URL = "https://ai.trustable.ai/v1"`) |
+|---|---|---|
+| `$AIP_BASE_URL` | The configured value, ending in `/v1`. | `https://ai.trustable.ai/v1` |
+| `$AIP_API_BASE` | `$AIP_BASE_URL` with the trailing `/v1` swapped for `/v2`. The credit-management JSON API lives here. | `https://ai.trustable.ai/v2` |
+| `$AIP_ORIGIN` | The origin only (scheme + host[:port]). The user-facing registration site lives here. | `https://ai.trustable.ai` |
+
+If the configured `base_url` does not end with `/v1`, the backend MUST treat the configuration as invalid and return an error from the credit endpoints (the same `502` shape used for other proxy errors).
+
+URL summary:
+
+- **Credits balance (JSON):** `GET $AIP_API_BASE/credits`
+- **Top-up (JSON):** `POST $AIP_API_BASE/top-up`
+- **Registration page (HTML):** `$AIP_ORIGIN/_register`
+- **Top-up form (HTML, used as the fallback link in the modal):** `$AIP_ORIGIN/_register/top-up`
+
+Both JSON endpoints are authenticated with the configured `api_key` as a Bearer token. Response shapes and error semantics are documented in [credit_check.md](credit_check.md) — note that this app uses the `/v2/...` paths derived above rather than the `/api/v2/...` paths shown in the older client examples; the Trustable proxy serves the credit endpoints at both prefixes.
+
+## Credits API
+
+The frontend MUST NOT call the proxy directly (the API key must stay server-side). The backend exposes two local proxy endpoints that forward to `$AIP_API_BASE` with `Authorization: Bearer <api_key>`:
+
+### `GET /api/credits`
+
+Proxies `GET $AIP_API_BASE/credits` (response shape: see [credit_check.md](credit_check.md) — at minimum `credits`, `credit_total`, `currency`, `credit_value`, `out_of_credit`).
+
+- If `provider != "trustable"`, return HTTP 404.
+- If `base_url` is missing or does not end with `/v1`, return HTTP 502 with `{"error": "invalid base_url: must end with /v1"}`.
+- Otherwise issue `GET $AIP_API_BASE/credits` with the bearer key and return the JSON body verbatim on 2xx.
+- On non-2xx from the proxy, return `{"error": "<status>: <body>"}` with HTTP 502.
+
+### `POST /api/topup`
+
+Proxies `POST $AIP_API_BASE/top-up` (see [credit_check.md](credit_check.md) §`POST /api/v2/top-up` for the response shape).
+
+- If `provider != "trustable"`, return HTTP 404.
+- If `base_url` is missing or does not end with `/v1`, return HTTP 502 with `{"error": "invalid base_url: must end with /v1"}`.
+- Request body: `{"amount": <integer>}`. The amount must be one of `1000`, `5000`, `10000` (the default `TOPUP_AMOUNTS` whitelist documented in [credit_check.md](credit_check.md)). The backend forwards the body unchanged.
+- Forward the request as `POST $AIP_API_BASE/top-up` with `Authorization: Bearer <api_key>` and `Content-Type: application/json`.
+- On 2xx return the proxy's JSON body verbatim (`status`, `credits`, `credit_total`, `out_of_credit`).
+- On `400 invalid_amount` from the proxy, return HTTP 400 with body `{"error": "invalid_amount"}` so the frontend can surface a precise message.
+- On any other non-2xx, return `{"error": "<status>: <body>"}` with HTTP 502.
+
+## Refresh cadence
+
+When the page loads (and the provider is Trustable), the frontend calls `GET /api/credits`, populates the box from the `credits` field of the response, and then re-fetches **every 60 seconds** using `setInterval`. The interval is cleared when the user navigates away (Back button or page unload).
+
+In addition, the Credits box must be re-fetched immediately after a successful top-up (see "Top-up" below).
+
+## Top-up
+
+Clicking the Top-up button opens a modal titled "Top up credits" containing:
+
+- A short description: *"Add credits to your Trustable account. Each credit is worth `<credit_value> <currency>` (taken from the most recent `/api/credits` response — fall back to the literal text "—" if unknown)."*
+- Three radio buttons / amount tiles: **1000**, **5000**, **10000** credits. Default-select `1000`.
+- An "OK" button (yellow/amber, label `Top up`) and a "Cancel" button.
+
+When the user confirms:
+
+1. Disable the buttons and show a spinner.
+2. `POST /api/topup` with body `{"amount": <selected>}`.
+3. On 2xx response:
+   - Replace the modal content with a success message including the new `credits` and `credit_total` from the response (e.g. *"Topped up. New balance: 1900 credits."*) and a single **Continue** button that closes the modal.
+   - Immediately re-fetch `GET /api/credits` so the toolbar pill reflects the new balance (do not wait for the 60s interval).
+4. On a `400 invalid_amount` response, show *"That amount is not allowed. Pick one of the listed options."* and re-enable the buttons (no modal close).
+5. On any other error, show the error text in red and re-enable the buttons; do not close the modal automatically. Provide a fallback link at the bottom of the modal: *"Or top up via the web form: `<$AIP_ORIGIN/_register/top-up>`"* (rendered as an `<a target="_blank">`).
+
+The modal can be closed with the X button, the Cancel button, the Escape key, or by clicking the backdrop (only when no request is in flight).

@@ -14,16 +14,46 @@
                 <img src="trustable-logo.svg" alt="Trustable Logo" class="w-12 h-12">
                 <h1 class="text-2xl font-bold text-gray-800">Configuration</h1>
             </div>
-            <a href="applist.html" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">Back</a>
+            <div class="flex gap-2">
+                <a href="index.html?choose=1" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Change Provider</a>
+                <a href="applist.html" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">Back</a>
+            </div>
+        </div>
+        <div class="mb-4 text-sm text-gray-600">
+            Current provider: <span id="currentProvider" class="font-semibold">—</span>
         </div>
 
-        <!-- Ollama Models -->
+        <!-- Reselect banner (shown when ?reselect=1 or version mismatch detected) -->
+        <div id="reselectBanner" class="hidden mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-900">
+            Model catalog updated. Please re-select the default and small OpenCode models below, then click <strong>Save &amp; Configure</strong>.
+        </div>
+
+        <!-- Ollama Host (only when provider == "ollama") -->
+        <div id="ollamaHostSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
+            <h2 class="text-xl font-semibold mb-4">Ollama Host</h2>
+            <div class="flex items-center gap-1 font-mono text-sm">
+                <span class="text-gray-700">http://</span>
+                <input type="text" id="ollamaHost" placeholder="hostname"
+                    class="flex-1 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <span class="text-gray-700">:</span>
+                <input type="text" id="ollamaPort" placeholder="port" inputmode="numeric"
+                    class="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <span class="text-gray-700">/v1</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">Specify hostname and port for your local Ollama host (HTTP only, no auth).</p>
+        </div>
+
+        <!-- Provider Models -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-xl font-semibold">Ollama Models</h2>
-                <button onclick="showAddModelModal()"
+                <h2 id="modelsHeading" class="text-xl font-semibold">Models</h2>
+                <button id="addModelBtn" onclick="showAddModelModal()"
                     class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
                     Add Model
+                </button>
+                <button id="refreshModelsBtn" onclick="refreshModelsFromStatus()"
+                    class="hidden px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    Refresh
                 </button>
             </div>
             <table class="w-full text-sm">
@@ -46,13 +76,15 @@
             <div class="space-y-3">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Default Model</label>
-                    <input type="text" id="opencodeDefault"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <select id="opencodeDefault"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
+                    </select>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Small Model</label>
-                    <input type="text" id="opencodeSmall"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                    <select id="opencodeSmall"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
+                    </select>
                 </div>
             </div>
         </div>
@@ -113,15 +145,32 @@
     </div>
 
     <script>
-        let config = { ollama: {}, opencode: { default: '', small: '' } };
+        let config = { models: {}, opencode: { default: '', small: '' } };
+
+        function providerLabel(name) {
+            if (name === 'trustable') return 'Trustable Cloud';
+            if (name === 'ollama') return 'Ollama Cloud';
+            return 'not set';
+        }
+
+        function modelsHeading(name) {
+            if (name === 'trustable') return 'Trustable Models';
+            if (name === 'ollama') return 'Ollama Models';
+            return 'Models';
+        }
 
         async function loadConfig() {
             try {
                 const resp = await fetch('/api/configuration');
                 config = await resp.json();
+                if (!config.models) config.models = {};
+                if (!config.opencode) config.opencode = { default: '', small: '' };
+
+                document.getElementById('currentProvider').textContent = providerLabel(config.provider);
+                document.getElementById('modelsHeading').textContent = modelsHeading(config.provider);
+                renderOllamaHost();
                 renderModels();
-                document.getElementById('opencodeDefault').value = config.opencode?.default || '';
-                document.getElementById('opencodeSmall').value = config.opencode?.small || '';
+                renderOpencodeSelects();
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
             } catch (e) {
@@ -129,10 +178,34 @@
             }
         }
 
+        function parseOllamaBaseURL(url) {
+            const m = /^http:\/\/([^:/]+):(\d+)\/v1\/?$/.exec(String(url || ''));
+            if (m) return { host: m[1], port: m[2] };
+            return { host: 'localhost', port: '11434' };
+        }
+
+        function renderOllamaHost() {
+            const section = document.getElementById('ollamaHostSection');
+            if (config.provider !== 'ollama') {
+                section.classList.add('hidden');
+                return;
+            }
+            section.classList.remove('hidden');
+            const { host, port } = parseOllamaBaseURL(config.base_url);
+            document.getElementById('ollamaHost').value = host;
+            document.getElementById('ollamaPort').value = port;
+        }
+
         function renderModels() {
             const tbody = document.getElementById('modelTableBody');
-            const models = config.ollama || {};
+            const models = config.models || {};
             const keys = Object.keys(models);
+            const editable = config.provider === 'ollama';
+
+            // Toggle header buttons: Add for Ollama (manual model entry), Refresh for any provider.
+            document.getElementById('addModelBtn').classList.toggle('hidden', !editable);
+            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider);
+
             if (keys.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No models configured</td></tr>';
                 return;
@@ -140,15 +213,104 @@
             tbody.innerHTML = keys.map(name => `
                 <tr class="border-b">
                     <td class="py-2 px-2 font-mono text-xs">${escapeHtml(name)}</td>
-                    <td class="py-2 px-2">${escapeHtml(models[name])}</td>
+                    <td class="py-2 px-2">${escapeHtml(formatContextSize(models[name]))}</td>
                     <td class="py-2 px-2 text-right">
-                        <button onclick="removeModel('${escapeAttr(name)}')"
-                            class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">
-                            Remove
-                        </button>
+                        ${editable ? `
+                            <button onclick="removeModel('${escapeAttr(name)}')"
+                                class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">
+                                Remove
+                            </button>
+                        ` : ''}
                     </td>
                 </tr>
             `).join('');
+        }
+
+        async function refreshModelsFromStatus() {
+            const btn = document.getElementById('refreshModelsBtn');
+            const orig = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Refreshing…';
+            try {
+                const resp = await fetch('/api/status');
+                if (!resp.ok) {
+                    alert('Failed to refresh models: ' + (await resp.text()));
+                    return;
+                }
+                const status = await resp.json();
+                if (status && status.error) {
+                    alert('Failed to refresh models: ' + status.error);
+                    return;
+                }
+                const sec = status && status[config.provider];
+                if (!sec || !sec.models) {
+                    alert('Status response has no models for provider: ' + config.provider);
+                    return;
+                }
+                config.models = sec.models;
+                config.opencode = { default: sec.default || '', small: sec.small || '' };
+                if (typeof sec.modelsVersion === 'number') {
+                    if (!config.model_versions) config.model_versions = {};
+                    config.model_versions[config.provider] = sec.modelsVersion;
+                }
+                renderModels();
+                renderOpencodeSelects();
+            } catch (e) {
+                alert('Error refreshing models: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = orig;
+            }
+        }
+
+        function formatContextSize(entry) {
+            if (entry == null) return '';
+            if (typeof entry === 'string') return entry; // legacy "256K" form
+            const n = entry.maxToken || entry.maxInput || 0;
+            if (!n) return '';
+            if (n >= 1024 && n % 1024 === 0) return (n / 1024) + 'K';
+            return String(n);
+        }
+
+        function renderOpencodeSelects() {
+            const keys = Object.keys(config.models || {});
+            const def = config.opencode?.default || '';
+            const small = config.opencode?.small || '';
+            populateSelect('opencodeDefault', keys, def);
+            populateSelect('opencodeSmall', keys, small);
+        }
+
+        function populateSelect(id, options, selected) {
+            const el = document.getElementById(id);
+            el.innerHTML = '';
+            if (options.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = '(no models available)';
+                el.appendChild(opt);
+                return;
+            }
+            // If the previously selected value is not in the new list, surface it
+            // as a stale option so the user can see they must reselect.
+            const stale = selected && !options.includes(selected);
+            if (stale) {
+                const opt = document.createElement('option');
+                opt.value = selected;
+                opt.textContent = selected + ' (no longer available — please re-select)';
+                opt.disabled = true;
+                opt.selected = true;
+                el.appendChild(opt);
+            }
+            for (const o of options) {
+                const opt = document.createElement('option');
+                opt.value = o;
+                opt.textContent = o;
+                if (!stale && o === selected) opt.selected = true;
+                el.appendChild(opt);
+            }
+            if (!selected && options.length > 0) {
+                el.selectedIndex = 0;
+            }
         }
 
         function escapeHtml(text) {
@@ -181,23 +343,42 @@
                 alert('Both model name and context size are required');
                 return;
             }
-            if (!config.ollama) config.ollama = {};
-            config.ollama[name] = ctx;
+            const upper = ctx.toUpperCase();
+            let n = upper.endsWith('K')
+                ? parseInt(upper.slice(0, -1), 10) * 1024
+                : parseInt(ctx, 10);
+            if (!Number.isFinite(n) || n <= 0) {
+                alert('Invalid context size (use e.g. 256K or 262144)');
+                return;
+            }
+            if (!config.models) config.models = {};
+            config.models[name] = { maxToken: n };
             renderModels();
+            renderOpencodeSelects();
             hideAddModelModal();
         }
 
         function removeModel(name) {
-            if (config.ollama) {
-                delete config.ollama[name];
+            if (config.models) {
+                delete config.models[name];
                 renderModels();
+                renderOpencodeSelects();
             }
         }
 
         function buildConfig() {
+            let baseURL = config.base_url || '';
+            if (config.provider === 'ollama') {
+                const host = document.getElementById('ollamaHost').value.trim();
+                const port = document.getElementById('ollamaPort').value.trim();
+                baseURL = `http://${host}:${port}/v1`;
+            }
             return {
-                ollama: config.ollama || {},
-                testmodel: config.testmodel || '',
+                provider: config.provider || '',
+                base_url: baseURL,
+                api_key: config.api_key || '',
+                model_versions: config.model_versions || {},
+                models: config.models || {},
                 opencode: {
                     default: document.getElementById('opencodeDefault').value.trim(),
                     small: document.getElementById('opencodeSmall').value.trim()
@@ -206,14 +387,29 @@
                     user: document.getElementById('gitUser').value.trim(),
                     email: document.getElementById('gitEmail').value.trim()
                 },
-                env: config.env || {},
                 apps: config.apps || {}
             };
         }
 
+        function validateOllamaHost() {
+            if (config.provider !== 'ollama') return null;
+            const host = document.getElementById('ollamaHost').value.trim();
+            const port = document.getElementById('ollamaPort').value.trim();
+            if (!host) return 'Ollama hostname is required';
+            if (!/^[a-zA-Z0-9.\-]+$/.test(host)) return 'Ollama hostname contains invalid characters';
+            if (!/^\d+$/.test(port)) return 'Ollama port must be a number';
+            const p = parseInt(port, 10);
+            if (p < 1 || p > 65535) return 'Ollama port must be between 1 and 65535';
+            return null;
+        }
+
         async function saveAndConfigure() {
+            const err = validateOllamaHost();
+            if (err) {
+                alert(err);
+                return;
+            }
             const cfg = buildConfig();
-            // Save first
             try {
                 const resp = await fetch('/api/configuration', {
                     method: 'POST',
@@ -229,12 +425,9 @@
                 alert('Error saving: ' + e.message);
                 return;
             }
-
-            // Redirect to index.html which runs the full configuration flow
             window.location.href = 'index.html';
         }
 
-        // Close modals on escape
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 hideAddModelModal();
@@ -245,8 +438,22 @@
             if (e.target === e.currentTarget) hideAddModelModal();
         });
 
-        // Check version
+        // Boot: version check, then load config; show reselect banner if requested
+        // by query string or if the cached catalog version differs from the saved one.
         (async function() {
+            // Guard: no provider configured -> send user to provider selection
+            try {
+                const cfgResp = await fetch('/api/configuration');
+                const cfg = await cfgResp.json();
+                if (!cfg || !cfg.provider) {
+                    window.location.href = 'index.html?choose=1';
+                    return;
+                }
+            } catch (e) {
+                window.location.href = 'index.html?choose=1';
+                return;
+            }
+
             try {
                 const resp = await fetch('/api/version');
                 const data = await resp.json();
@@ -257,7 +464,12 @@
             } catch (e) {
                 console.error('Failed to check version:', e);
             }
-            loadConfig();
+            await loadConfig();
+
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('reselect') === '1') {
+                document.getElementById('reselectBanner').classList.remove('hidden');
+            }
         })();
     </script>
 </body>

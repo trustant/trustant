@@ -15,12 +15,14 @@ import (
 
 // Environment configuration loaded from .env
 var (
-	WorkspaceDir   string
-	WorkbenchDir   string
-	OpenAIBaseUrl  string
-	OpenAIApiKey   string
-	OllamaEndpoint string
-	OpsSkills      string
+	WorkspaceDir    string
+	WorkbenchDir    string
+	OpenAIBaseUrl   string
+	OpenAIApiKey    string
+	OllamaEndpoint  string
+	AIPRegisterURL  string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
+	AIPBaseURL      string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
+	OpsSkills       string
 )
 
 // loadEnv reads .env from the current directory and sets the config variables,
@@ -60,6 +62,8 @@ func loadEnv() error {
 	OpenAIBaseUrl = os.Getenv("OPENAI_BASE_URL")
 	OpenAIApiKey = os.Getenv("OPENAI_API_KEY")
 	OllamaEndpoint = os.Getenv("OLLAMA_ENDPOINT")
+	AIPRegisterURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AIP_REGISTER_URL")), "/")
+	AIPBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AIP_BASE_URL")), "/")
 	OpsSkills = os.Getenv("OPS_SKILLS")
 	if OpsSkills == "" {
 		OpsSkills = "trustable-ai/skills"
@@ -74,6 +78,12 @@ func loadEnv() error {
 	}
 	if OllamaEndpoint == "" {
 		return fmt.Errorf("OLLAMA_ENDPOINT is not set")
+	}
+	if AIPRegisterURL == "" {
+		return fmt.Errorf("AIP_REGISTER_URL is not set")
+	}
+	if AIPBaseURL == "" {
+		return fmt.Errorf("AIP_BASE_URL is not set")
 	}
 
 	return nil
@@ -94,6 +104,8 @@ func runPreflight() error {
 	log.Printf("  WorkbenchDir:       %s", WorkbenchDir)
 	log.Printf("  OllamaEndpoint:     %s", OllamaEndpoint)
 	log.Printf("  OpenAIBaseUrl:      %s", OpenAIBaseUrl)
+	log.Printf("  AIPRegisterURL:     %s", AIPRegisterURL)
+	log.Printf("  AIPBaseURL:         %s", AIPBaseURL)
 	log.Printf("  OpsSkills:          %s", OpsSkills)
 	log.Println("✓ Environment loaded")
 
@@ -193,19 +205,13 @@ func migrateToLayeredConfig() error {
 	// Strip fields from workspace config that match base (keep only overrides + apps)
 	baseCfg, baseErr := loadBaseConfig()
 	if baseErr == nil {
-		if mapsEqual(wsCfg.Ollama, baseCfg.Ollama) {
-			wsCfg.Ollama = nil
-		}
-		if wsCfg.TestModel == baseCfg.TestModel {
-			wsCfg.TestModel = ""
+		if modelLimitsEqual(wsCfg.Models, baseCfg.Models) {
+			wsCfg.Models = nil
 		}
 		if wsCfg.Opencode != nil && baseCfg.Opencode != nil &&
 			wsCfg.Opencode.Default == baseCfg.Opencode.Default &&
 			wsCfg.Opencode.Small == baseCfg.Opencode.Small {
 			wsCfg.Opencode = nil
-		}
-		if mapsEqual(wsCfg.Env, baseCfg.Env) {
-			wsCfg.Env = nil
 		}
 	}
 

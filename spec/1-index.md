@@ -12,14 +12,66 @@ The page shows centered the Trustable logo (`trustable-logo.svg`) in large size,
 
 Show also in smaller font "Expiration date: <date>"
 
+# Provider choice
+
+After the version check, fetch the merged config via `GET /api/configuration`, then refresh the model catalog (see [2a-config.md](2a-config.md) "Model catalog"):
+
+1. `GET <ai_proxy_register origin>/.well-known/models.json`. On success write the body to `<WorkspaceDir>/models.json`. On failure, fall back to the cached copy if any; if there's no cache, surface a fatal error and stop.
+2. Compare the new `version` field against the cached one. If it changed, redirect immediately to `configure.html?reselect=1` (the configure UI shows a "Model catalog updated" banner and forces the user to re-pick the OpenCode default and small models). The flow below does not run on this turn — it resumes after the user saves on the configure screen.
+
+Then:
+
+- If the merged config has no `provider` set, show the **Provider Choice** modal. This is the first-run / unconfigured state — Configuration cannot run without a provider.
+- If the URL contains `?choose=1`, show the **Provider Choice** modal regardless of the current provider (used by configure.html's "Change Provider" button).
+- Otherwise (provider is set and `?choose=1` is absent), skip the choice screen and go straight to the **Configuration** flow below.
+
+The Provider Choice modal is centered and shows two cards:
+
+- **Ollama Cloud** — "Free forever. Publishing not available."
+- **Trustable Cloud** — "Free until 30 June 2026, then \$20/month. Includes 1000 credits/month and one app published on nuvolaris.dev."
+
+## Ollama Cloud selected
+
+1. `POST /api/configuration` with the merged config plus:
+   - `provider: "ollama"`
+   - `models` and `opencode` copied verbatim from `<cached models.json>.ollama.models` and `<cached models.json>.ollama.opencode` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
+   - `env.OPENAI_BASE_URL = http://localhost:11434/v1`
+   - `env.OPENAI_API_KEY = "dummy"`
+
+   The dummy `OPENAI_API_KEY` will fail Ed25519 verification at the publish endpoints, which is the intended behavior for Ollama Cloud — see [6-publish.md](6-publish.md).
+2. Hide the modal and run the **full** Configuration flow (connectivity check + model pull + say-hello test).
+
+## Trustable Cloud selected
+
+1. Open a centered iframe overlay covering 80% of the viewport (width and height, centered on the page) loading the URL from `ai_proxy_register` on the merged config (sourced from the `AI_PROXY_REGISTER` env var; see [2a-config.md](2a-config.md)). The overlay has a "Cancel" button that closes the iframe and returns to the choice modal without saving anything.
+2. Listen for `message` events from the iframe. Expected payload (matches what ai-proxy `success.html` posts today):
+
+   ```json
+   {
+     "opencode": { "default": "...", "small": "..." },
+     "env":      { "OPENAI_BASE_URL": "...", "OPENAI_API_KEY": "aip_..." }
+   }
+   ```
+
+3. On message: close the iframe and merge into the workspace config:
+   - `provider: "trustable"`
+   - `models` from `<cached models.json>.trustable.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
+   - `opencode` from the iframe payload if present, else from `<cached models.json>.trustable.opencode`
+   - `env.OPENAI_BASE_URL` and `env.OPENAI_API_KEY` from the iframe payload
+
+   then `POST /api/configuration`.
+4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-hello test runs.
+
 # Configuration
 
-Every time the index page is opened, invoke the configuration api.
+Every time the index page is opened (after a provider has been chosen), invoke the configuration api.
 Expect a streamed answer and show the messages with a modal while it is configuring.
 
-Then invoke the openai ai api using informations in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.default model, asking hello.
+When `provider == "trustable"` the backend skips the Ollama connectivity check and model-pull steps and streams a single `OK: Skipping Ollama setup (Trustable Cloud)` line — see [2a-config.md](2a-config.md).
 
-If you get "error", show a sign-in required popup:
+Then invoke the openai ai api using informations in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.small model, asking hello.
+
+If you get "error" **and** `provider == "ollama"`, show a sign-in required popup:
 
 - If the page URL has a query string, show "Click here to login to Ollama Cloud" as a link pointing to `https://ollama.com/connect?<query_string>` and a Retry button.
 
@@ -28,5 +80,7 @@ If you get "error", show a sign-in required popup:
 - if  there is not a login message, show "you are not logged in ollama cloud.\nPlease execute `ollama signin` and click Retry button.
 
 Repeat until the test succeeded.
+
+When `provider == "trustable"`, an error from `/api/testmodel` is shown as a generic error with a Retry button (no Ollama-signin flow).
 
 Once configuration completes successfully, navigate to `applist.html`.

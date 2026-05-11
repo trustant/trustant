@@ -5,7 +5,7 @@ This file describes the prefligth.go module with the checks to execute
 # Setup Env
 When starting, before anything else:
 
-- Read the .env  in current dir and set the variables
+- Read the .env in current dir and set the variables. If `.env` is missing, the app fails to start.
 
 show in the log the variables set
 

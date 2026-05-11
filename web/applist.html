@@ -20,6 +20,8 @@
             </div>
         </div>
 
+        <div id="statusMessage" class="hidden bg-blue-50 border border-blue-200 text-blue-900 rounded-md px-4 py-2 mb-4 text-sm text-center"></div>
+
         <!-- Applications List -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center justify-between mb-4">
@@ -921,6 +923,78 @@
 
         // Load version and apps
         (async function() {
+            // Guard: no provider configured -> send user to provider selection
+            let bootProvider = '';
+            let bootConfig = null;
+            try {
+                const cfgResp = await fetch('/api/configuration');
+                const cfg = await cfgResp.json();
+                if (!cfg || !cfg.provider) {
+                    window.location.href = 'index.html';
+                    return;
+                }
+                bootProvider = cfg.provider;
+                bootConfig = cfg;
+            } catch (e) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            // Status check (every applist load): show the operator message
+            // banner AND, for the active provider, detect a modelsVersion or
+            // default/small drift and route the user through
+            // configure.html?reselect=1 to confirm or change their defaults.
+            try {
+                const sresp = await fetch('/api/status');
+                if (sresp.ok) {
+                    const sdata = await sresp.json();
+                    if (sdata && !sdata.error) {
+                        // 1) Operator message banner.
+                        if (typeof sdata.message === 'string' && sdata.message.trim()) {
+                            const banner = document.getElementById('statusMessage');
+                            banner.textContent = sdata.message;
+                            banner.classList.remove('hidden');
+                        }
+                        // 2) Per-provider catalog drift -> reselect.
+                        const sec = sdata[bootProvider];
+                        if (sec && sec.models) {
+                            const savedVer = (bootConfig.model_versions && bootConfig.model_versions[bootProvider]) || 0;
+                            const savedOpencode = bootConfig.opencode || {};
+                            const versionChanged = typeof sec.modelsVersion === 'number'
+                                && sec.modelsVersion > 0
+                                && sec.modelsVersion !== savedVer;
+                            const defaultsChanged =
+                                (sec.default && sec.default !== savedOpencode.default) ||
+                                (sec.small   && sec.small   !== savedOpencode.small);
+                            if (versionChanged || defaultsChanged) {
+                                const newVersions = Object.assign({}, bootConfig.model_versions || {});
+                                if (typeof sec.modelsVersion === 'number') {
+                                    newVersions[bootProvider] = sec.modelsVersion;
+                                }
+                                const updated = Object.assign({}, bootConfig, {
+                                    models: sec.models,
+                                    opencode: { default: sec.default || '', small: sec.small || '' },
+                                    model_versions: newVersions
+                                });
+                                delete updated.model_version;
+                                delete updated.env;
+                                try {
+                                    await fetch('/api/configuration', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(updated)
+                                    });
+                                } catch (e) {}
+                                window.location.href = 'configure.html?reselect=1';
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // Status unreachable: leave banner hidden, no redirect.
+            }
+
             try {
                 const resp = await fetch('/api/version');
                 const data = await resp.json();

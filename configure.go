@@ -27,6 +27,41 @@ type opencodeConfig struct {
 	Small   string `json:"small"`
 }
 
+// ModelLimits is the per-model hint block from /api/v2/status and what we
+// persist in trustable.json under the active provider's `models` map.
+// All three fields are optional (omitempty); zero values are dropped.
+type ModelLimits struct {
+	MaxToken  int `json:"maxToken,omitempty"`
+	MaxInput  int `json:"maxInput,omitempty"`
+	MaxOutput int `json:"maxOutput,omitempty"`
+}
+
+// UnmarshalJSON accepts the new object form AND the legacy "256K" string form
+// so workspace trustable.json files written by older builds keep loading.
+func (m *ModelLimits) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		n, err := parseContextSize(s)
+		if err != nil || n == 0 {
+			*m = ModelLimits{}
+			return nil
+		}
+		*m = ModelLimits{MaxToken: n}
+		return nil
+	}
+	type raw ModelLimits
+	var r raw
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	*m = ModelLimits(r)
+	return nil
+}
+
 // AppConfig holds per-app configuration within trustable.json
 type AppConfig struct {
 	Password    string            `json:"password"`
@@ -42,13 +77,55 @@ type GitConfig struct {
 
 // trustableConfig represents the structure of trustable.json
 type trustableConfig struct {
-	Ollama    map[string]string     `json:"ollama,omitempty"`
-	TestModel string                `json:"testmodel,omitempty"`
-	Opencode  *opencodeConfig       `json:"opencode,omitempty"`
-	Git       *GitConfig            `json:"git,omitempty"`
-	Env       map[string]string     `json:"env,omitempty"`
-	Apps      map[string]*AppConfig `json:"apps,omitempty"`
-	Current   string                `json:"current,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// BaseURL and APIKey are the top-level provider credentials.
+	// Ollama: BaseURL="http://localhost:11434/v1", APIKey="dummy".
+	// Trustable: posted by the ai-proxy registration iframe.
+	BaseURL string `json:"base_url,omitempty"`
+	APIKey  string `json:"api_key,omitempty"`
+	// ModelVersions is keyed by provider name ("ollama", "trustable", ...) and
+	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
+	// On every splash boot and every applist load the frontend compares the
+	// live value against this map; a mismatch (or differing default/small)
+	// routes the user through configure.html?reselect=1.
+	ModelVersions map[string]int          `json:"model_versions,omitempty"`
+	Models        map[string]*ModelLimits `json:"models,omitempty"`
+	Opencode      *opencodeConfig         `json:"opencode,omitempty"`
+	Git           *GitConfig              `json:"git,omitempty"`
+	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
+	Current       string                  `json:"current,omitempty"`
+
+	// RegisterURL is populated at GET-time from the AIP_REGISTER_URL env var
+	// (mandatory at startup). It points at the proxy's registration UI; the
+	// top-up form lives at <register_url>/top-up. Not persisted.
+	RegisterURL string `json:"register_url,omitempty"`
+}
+
+// UnmarshalJSON tolerates the legacy singular `model_version` field by
+// folding it into ModelVersions under the active provider key. Lets existing
+// workspace trustable.json files written by older builds load cleanly.
+func (c *trustableConfig) UnmarshalJSON(data []byte) error {
+	type alias trustableConfig
+	aux := &struct {
+		LegacyModelVersion *int `json:"model_version,omitempty"`
+		*alias
+	}{alias: (*alias)(c)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.LegacyModelVersion != nil && *aux.LegacyModelVersion != 0 {
+		if c.ModelVersions == nil {
+			c.ModelVersions = map[string]int{}
+		}
+		key := c.Provider
+		if key == "" {
+			key = "_legacy"
+		}
+		if _, ok := c.ModelVersions[key]; !ok {
+			c.ModelVersions[key] = *aux.LegacyModelVersion
+		}
+	}
+	return nil
 }
 
 func developmentAPIHost() string {
@@ -131,19 +208,38 @@ func loadWorkspaceConfig() (*trustableConfig, error) {
 func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 	result := *base // shallow copy
 
-	if len(override.Ollama) > 0 {
-		merged := make(map[string]string)
-		for k, v := range base.Ollama {
-			merged[k] = v
-		}
-		for k, v := range override.Ollama {
-			merged[k] = v
-		}
-		result.Ollama = merged
+	if override.Provider != "" {
+		result.Provider = override.Provider
 	}
 
-	if override.TestModel != "" {
-		result.TestModel = override.TestModel
+	if override.BaseURL != "" {
+		result.BaseURL = override.BaseURL
+	}
+
+	if override.APIKey != "" {
+		result.APIKey = override.APIKey
+	}
+
+	if len(override.ModelVersions) > 0 {
+		merged := make(map[string]int)
+		for k, v := range base.ModelVersions {
+			merged[k] = v
+		}
+		for k, v := range override.ModelVersions {
+			merged[k] = v
+		}
+		result.ModelVersions = merged
+	}
+
+	if len(override.Models) > 0 {
+		merged := make(map[string]*ModelLimits)
+		for k, v := range base.Models {
+			merged[k] = v
+		}
+		for k, v := range override.Models {
+			merged[k] = v
+		}
+		result.Models = merged
 	}
 
 	if override.Opencode != nil {
@@ -154,17 +250,6 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 		result.Git = override.Git
 	}
 
-	if len(override.Env) > 0 {
-		merged := make(map[string]string)
-		for k, v := range base.Env {
-			merged[k] = v
-		}
-		for k, v := range override.Env {
-			merged[k] = v
-		}
-		result.Env = merged
-	}
-
 	if override.Apps != nil {
 		result.Apps = override.Apps
 	}
@@ -172,7 +257,9 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 	return &result
 }
 
-// loadTrustableConfig loads merged config (base + workspace overrides)
+// loadTrustableConfig loads merged config (base + workspace overrides).
+// The AIP_REGISTER_URL env var (mandatory at startup) is exposed on the
+// returned config as RegisterURL; it is not persisted.
 func loadTrustableConfig() (*trustableConfig, error) {
 	base, err := loadBaseConfig()
 	if err != nil {
@@ -182,7 +269,9 @@ func loadTrustableConfig() (*trustableConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mergeConfigs(base, ws), nil
+	cfg := mergeConfigs(base, ws)
+	cfg.RegisterURL = AIPRegisterURL
+	return cfg, nil
 }
 
 // saveWorkspaceConfig writes only the workspace trustable.json
@@ -196,6 +285,32 @@ func saveWorkspaceConfig(cfg *trustableConfig) error {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
 	return os.WriteFile(configPath, formatted, 0644)
+}
+
+// modelLimitsEqual reports whether two map[string]*ModelLimits values have
+// identical key sets and identical per-model hint blocks. Nil pointers compare
+// equal to nil pointers. Used by the preflight migration to detect whether a
+// workspace `models` override is just a copy of the base config.
+func modelLimitsEqual(a, b map[string]*ModelLimits) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok {
+			return false
+		}
+		if av == nil && bv == nil {
+			continue
+		}
+		if av == nil || bv == nil {
+			return false
+		}
+		if *av != *bv {
+			return false
+		}
+	}
+	return true
 }
 
 // parseContextSize parses a context size string like "256K" or "512"
@@ -306,6 +421,10 @@ func isTrustableManagedOpenCodeProvider(providerName string, providerConfig inte
 			baseURL == "http://localhost:11434/v1" ||
 			baseURL == "http://127.0.0.1:11434/v1"
 		return isLocalManagedURL && hasGeneratedOllamaModelVariant(providerConfig)
+	case "trustable":
+		// Always Trustable-managed: any prior `trustable` provider entry
+		// must be regenerated when switching providers.
+		return true
 	case "vllm":
 		return isManagedVLLMProvider(providerName, providerConfig)
 	default:
@@ -531,41 +650,21 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	// Step 1: Check Ollama connectivity with retries
-	sendMsg("Checking Ollama connection at " + OllamaEndpoint + "...")
-	ollamaOK := false
-	maxAttempts := 12 // 2 minutes at 10-second intervals
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Get(OllamaEndpoint)
-		if err == nil {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if strings.Contains(string(body), "Ollama is running") {
-				sendMsg("OK: Ollama is running")
-				ollamaOK = true
-				break
-			}
-		}
-		if attempt < maxAttempts {
-			sendMsg(fmt.Sprintf("Attempt %d/%d: Cannot reach Ollama at %s - retrying in 10 seconds...", attempt, maxAttempts, OllamaEndpoint))
-			time.Sleep(10 * time.Second)
-		} else {
-			sendMsg(fmt.Sprintf("ERROR: Cannot connect to Ollama at %s after 2 minutes. Please check that Ollama is running and try again.", OllamaEndpoint))
-		}
-	}
-	if !ollamaOK {
-		return
-	}
-
-	// Step 2: Load trustable.json config
+	// Load trustable.json config first so we can branch on provider.
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		sendMsg("ERROR: " + err.Error())
 		return
 	}
 
-	// Step 3: Configure git user
+	// Provider must already be chosen (handled by the splash flow). Do not
+	// prompt for provider here; just refuse to configure if it's missing.
+	if cfg.Provider == "" {
+		sendMsg("ERROR: provider not set; choose a provider on the splash page first")
+		return
+	}
+
+	// Configure git user (provider-independent)
 	if cfg.Git != nil {
 		if cfg.Git.User != "" {
 			if err := exec.Command("git", "config", "--global", "user.name", cfg.Git.User).Run(); err != nil {
@@ -583,27 +682,58 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Step 4: Pull each model
-	client := &http.Client{Timeout: 600 * time.Second}
-	for modelName := range cfg.Ollama {
-		sendMsg("Pulling model " + modelName)
-		log.Printf("  - Pulling %s...", modelName)
+	if cfg.Provider == "trustable" {
+		sendMsg("OK: Skipping Ollama setup (Trustable Cloud)")
+	} else {
+		// Step 1: Check Ollama connectivity with retries
+		sendMsg("Checking Ollama connection at " + OllamaEndpoint + "...")
+		ollamaOK := false
+		maxAttempts := 12 // 2 minutes at 10-second intervals
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Get(OllamaEndpoint)
+			if err == nil {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if strings.Contains(string(body), "Ollama is running") {
+					sendMsg("OK: Ollama is running")
+					ollamaOK = true
+					break
+				}
+			}
+			if attempt < maxAttempts {
+				sendMsg(fmt.Sprintf("Attempt %d/%d: Cannot reach Ollama at %s - retrying in 10 seconds...", attempt, maxAttempts, OllamaEndpoint))
+				time.Sleep(10 * time.Second)
+			} else {
+				sendMsg(fmt.Sprintf("ERROR: Cannot connect to Ollama at %s after 2 minutes. Please check that Ollama is running and try again.", OllamaEndpoint))
+			}
+		}
+		if !ollamaOK {
+			return
+		}
 
-		reqBody, _ := json.Marshal(map[string]string{"name": modelName})
-		resp, err := client.Post(OllamaEndpoint+"/api/pull", "application/json", bytes.NewReader(reqBody))
-		if err != nil {
-			sendMsg("ERROR: Failed to pull " + modelName + ": " + err.Error())
-			return
+		// Step 2: Pull each model
+		client := &http.Client{Timeout: 600 * time.Second}
+		for modelName := range cfg.Models {
+			sendMsg("Pulling model " + modelName)
+			log.Printf("  - Pulling %s...", modelName)
+
+			reqBody, _ := json.Marshal(map[string]string{"name": modelName})
+			resp, err := client.Post(OllamaEndpoint+"/api/pull", "application/json", bytes.NewReader(reqBody))
+			if err != nil {
+				sendMsg("ERROR: Failed to pull " + modelName + ": " + err.Error())
+				return
+			}
+			// Read through the streaming response to completion
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				sendMsg(fmt.Sprintf("ERROR: Pull %s returned status %d", modelName, resp.StatusCode))
+				return
+			}
+			sendMsg("OK: " + modelName + " pulled")
+			log.Printf("  - ✓ %s pulled", modelName)
 		}
-		// Read through the streaming response to completion
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			sendMsg(fmt.Sprintf("ERROR: Pull %s returned status %d", modelName, resp.StatusCode))
-			return
-		}
-		sendMsg("OK: " + modelName + " pulled")
-		log.Printf("  - ✓ %s pulled", modelName)
 	}
 
 	// Generate opencode config
@@ -649,24 +779,44 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 	return generateOpencodeConfigForApp(cfg, "")
 }
 
-// buildOllamaProvider constructs the Trustable-managed `ollama` OpenCode
-// provider entry: one model per cfg.Ollama key, baseURL from OPENAI_BASE_URL,
-// capabilities (tool_call, reasoning) discovered via Ollama's /api/show.
-func buildOllamaProvider(cfg *trustableConfig) map[string]interface{} {
+// buildModelProvider constructs the Trustable-managed OpenCode provider entry
+// for the active provider: one model per cfg.Models key, baseURL/apiKey from
+// the top-level cfg.BaseURL / cfg.APIKey. In Ollama mode capabilities
+// (tool_call, reasoning) are discovered via Ollama's /api/show; in Trustable
+// mode they default to {tool_call: true, reasoning: false} (the user can
+// override later via the OpenCode UI).
+func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	models := make(map[string]interface{})
-	for modelID, ctxSize := range cfg.Ollama {
-		ctx, err := parseContextSize(ctxSize)
-		if err != nil || ctx == 0 {
+	for modelID, limits := range cfg.Models {
+		ctx, out := 0, 0
+		if limits != nil {
+			if limits.MaxToken > 0 {
+				ctx = limits.MaxToken
+			} else if limits.MaxInput > 0 {
+				ctx = limits.MaxInput
+			}
+			if limits.MaxOutput > 0 {
+				out = limits.MaxOutput
+			}
+		}
+		if ctx == 0 {
 			ctx = 32768
+		}
+		if out == 0 {
+			out = 32768
 		}
 
 		toolCall := false
 		reasoning := false
-		if caps, err := getModelCapabilities(modelID); err == nil {
-			toolCall = containsCapability(caps, "tools")
-			reasoning = containsCapability(caps, "thinking")
+		if cfg.Provider == "ollama" {
+			if caps, err := getModelCapabilities(modelID); err == nil {
+				toolCall = containsCapability(caps, "tools")
+				reasoning = containsCapability(caps, "thinking")
+			} else {
+				log.Printf("  - Warning: could not fetch capabilities for %s: %s", modelID, err)
+			}
 		} else {
-			log.Printf("  - Warning: could not fetch capabilities for %s: %s", modelID, err)
+			toolCall = true
 		}
 
 		models[modelID] = map[string]interface{}{
@@ -676,7 +826,7 @@ func buildOllamaProvider(cfg *trustableConfig) map[string]interface{} {
 			"temperature": true,
 			"limit": map[string]interface{}{
 				"context": ctx,
-				"output":  32768,
+				"output":  out,
 			},
 			"options": map[string]interface{}{
 				"maxTokens": 8192,
@@ -695,14 +845,21 @@ func buildOllamaProvider(cfg *trustableConfig) map[string]interface{} {
 		}
 	}
 
-	baseURL := strings.TrimRight(OpenAIBaseUrl, "/")
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	if baseURL == "" {
 		baseURL = "http://localhost:11434/v1"
 	}
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if apiKey == "" {
+		apiKey = "dummy"
+	}
 
 	return map[string]interface{}{
-		"options": map[string]interface{}{"baseURL": baseURL},
-		"models":  models,
+		"options": map[string]interface{}{
+			"baseURL": baseURL,
+			"apiKey":  apiKey,
+		},
+		"models": models,
 	}
 }
 
@@ -710,8 +867,15 @@ func buildOllamaProvider(cfg *trustableConfig) map[string]interface{} {
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	providers := make(map[string]interface{})
 
-	// Always generate the Trustable-managed `ollama` provider.
-	providers["ollama"] = buildOllamaProvider(cfg)
+	// The OpenCode provider key tracks the active trustable provider:
+	// "ollama" or "trustable". Default to "ollama" if unset.
+	providerKey := cfg.Provider
+	if providerKey != "ollama" && providerKey != "trustable" {
+		providerKey = "ollama"
+	}
+
+	// Always generate the Trustable-managed provider entry.
+	providers[providerKey] = buildModelProvider(cfg)
 
 	config := map[string]interface{}{
 		"$schema":            "https://opencode.ai/config.json",
@@ -723,10 +887,10 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	// Always set top-level model/small_model from trustable.json opencode config.
 	if cfg.Opencode != nil {
 		if cfg.Opencode.Default != "" {
-			config["model"] = "ollama/" + cfg.Opencode.Default
+			config["model"] = providerKey + "/" + cfg.Opencode.Default
 		}
 		if cfg.Opencode.Small != "" {
-			config["small_model"] = "ollama/" + cfg.Opencode.Small
+			config["small_model"] = providerKey + "/" + cfg.Opencode.Small
 		}
 	}
 
@@ -749,7 +913,7 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 		} else {
 			if existingProviders, ok := existing["provider"].(map[string]interface{}); ok {
 				for providerName, providerConfig := range existingProviders {
-					if providerName == "ollama" {
+					if providerName == providerKey {
 						continue // always regenerated above
 					}
 					if isTrustableManagedOpenCodeProvider(providerName, providerConfig) {
@@ -813,29 +977,46 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	// Load config to get the testmodel
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	if cfg.TestModel == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "no testmodel defined in trustable.json"})
+	if cfg.Opencode == nil || strings.TrimSpace(cfg.Opencode.Small) == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "opencode.small not defined in trustable.json"})
+		return
+	}
+	model := cfg.Opencode.Small
+
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if baseURL == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "base_url not defined in trustable.json"})
 		return
 	}
 
-	// Call /api/generate with the testmodel asking "hello"
-	log.Printf("Testing model %s...", cfg.TestModel)
+	log.Printf("Testing model %s at %s...", model, baseURL)
 	client := &http.Client{Timeout: 60 * time.Second}
 	reqBody, _ := json.Marshal(map[string]interface{}{
-		"model":  cfg.TestModel,
-		"prompt": "hello",
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
 		"stream": false,
 	})
-	resp, err := client.Post(OllamaEndpoint+"/api/generate", "application/json", bytes.NewReader(reqBody))
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
-		log.Printf("Test model %s error: %s", cfg.TestModel, err)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Test model %s error: %s", model, err)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
@@ -843,12 +1024,11 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
-	log.Printf("Test model %s response: %s", cfg.TestModel, bodyStr)
+	log.Printf("Test model %s response: %s", model, bodyStr)
 
-	// Check if the response starts with {"error" or doesn't contain "response"
-	if strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"response"`) {
+	if resp.StatusCode != http.StatusOK || strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"choices"`) {
 		message := ollamaErrorMessage(bodyStr)
-		if isOllamaSigninRequired(message) {
+		if cfg.Provider != "trustable" && isOllamaSigninRequired(message) {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":         message,
 				"auth_required": true,
@@ -1087,11 +1267,7 @@ func generateAppEnvFiles(appName string) error {
 	devVars["OPS_REPO"] = getAppRepo(appName)
 	devVars["OPS_SKILLS"] = OpsSkills
 
-	// Global env defaults
-	for k, v := range cfg.Env {
-		devVars[k] = v
-	}
-	// Per-app development overrides
+	// Per-app development overrides (no global env section)
 	for k, v := range appCfg.Development {
 		devVars[k] = v
 	}
@@ -1186,14 +1362,6 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		appCfg.Production = make(map[string]string)
 	}
 
-	// Collect global env keys
-	var envKeys []string
-	if cfg.Env != nil {
-		for k := range cfg.Env {
-			envKeys = append(envKeys, k)
-		}
-	}
-
 	fixedKeys := []string{"OPS_APIHOST", "OPS_USER", "OPS_PASSWORD", "OPS_REPO", "OPS_SKILLS"}
 	var vars []EnvVar
 
@@ -1204,26 +1372,9 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	vars = append(vars, EnvVar{Name: "OPS_REPO", DevValue: getAppRepo(name), ProdValue: appCfg.Production["OPS_REPO"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_SKILLS", DevValue: OpsSkills, ProdValue: appCfg.Production["OPS_SKILLS"], Readonly: true})
 
-	// Env rows from global config (fixed name, editable values)
-	for _, k := range envKeys {
-		devVal := appCfg.Development[k]
-		if devVal == "" {
-			devVal = cfg.Env[k]
-		}
-		vars = append(vars, EnvVar{
-			Name:      k,
-			DevValue:  devVal,
-			ProdValue: appCfg.Production[k],
-			Fixed:     true,
-		})
-	}
-
-	// Custom vars (in development or production but not in fixed or env keys)
+	// Custom vars (per-app development/production only — there is no global env section)
 	seen := make(map[string]bool)
 	for _, k := range fixedKeys {
-		seen[k] = true
-	}
-	for _, k := range envKeys {
 		seen[k] = true
 	}
 
@@ -1250,7 +1401,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AppEnvConfig{
 		Vars:     vars,
-		LocalEnv: envKeys,
+		LocalEnv: nil,
 	})
 }
 

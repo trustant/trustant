@@ -6,9 +6,15 @@ When the page loads invoke the version api.
 
 If it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
 
+# Provider guard
+
+Before rendering, fetch `GET /api/configuration` and check the merged config's `provider` field. If absent (or the call fails), redirect to `index.html` so the user goes through the **Provider Choice** flow (see [1-index.md](1-index.md)). The same guard applies to all pages that assume a configured provider: `applist.html`, `app.html`, `appconfig.html`, `configure.html`.
+
 # App List Page
 
 The page shows centered the Trustable logo (`trustable-logo.svg`) and the text returned by the version api in large font.
+
+Immediately **after the title** (below the version line, above the Applications card), show a **Credits box** — but only when the merged configuration's `provider` field equals `"trustable"`. For any other provider the box is not rendered. See "Credits" below.
 
 Show also in smaller font at the end of the page "Expiration date: <date>"
 
@@ -26,13 +32,17 @@ The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined 
 The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 
 You can
-- configure (general)
+- configure (general) — opens `index.html?choose=1`, which forces the **Provider Choice** modal so the user can switch between Ollama Cloud and Trustable Cloud (see [1-index.md](1-index.md)). It does **not** open `configure.html` directly.
 - add applications
 - remove applications
 - edit applications
 - env (configure application environment variables)
-- git push (push code to a production GitHub repository)
-- publish (deploy to a production OpenServerless environment)
+- git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
+- publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
+
+## Publishing gate
+
+The Git Push and Publish buttons are always rendered and always call their respective backend APIs. The backend verifies the user's ai-proxy API key signature (see [6-publish.md](6-publish.md) and [10-validate_key.md](10-validate_key.md)) and returns HTTP 403 with `{"error": "Publishing not authorized: ..."}` when the key cannot be verified. The frontend surfaces that error verbatim in the existing result modal — no separate "publishing disabled" UI.
 
 ## Adding an application
 
@@ -86,21 +96,9 @@ You can click the button `edit` to open an app
   - the B64DIR in a cookie using the backend `b64dir` value
   navigate to the page app.html
 
-## Revert (in app.html)
+## Revert
 
-In the application screen (app.html), next to the Commit button, show a Revert button. The button is disabled when there are no uncommitted changes (same condition as Commit).
-
-When clicked, ask for confirmation "Are you sure you want to revert all uncommitted changes?"
-If ok execute POST /api/git with value
-
-`{
-   "name": <current app>,
-    "cmd":  "checkout ."
-}`
-
-The backend handles `checkout .` by also running `git clean -fd` to remove untracked files.
-
-Show ok or error result. After a successful revert, refresh the git status.
+The Revert action is part of the **Utils** pulldown in the application screen (`app.html`). See "Utils Pulldown" and "Revert" in [3-app.md](3-app.md) for the full behavior.
 
 # Git Push
 
@@ -171,3 +169,11 @@ There are the buttons:
 
 The Save button will save both `.env` and `.env.production`
 The Close will come back, warning if there are unsaved changes.
+
+# Credits
+
+A compact **Credits box** is shown on this page right after the title (below the version, above the Applications card), but **only when the merged configuration's `provider` field equals `"trustable"`**. For Ollama (or any other provider) the box is not rendered.
+
+The box is a rounded pill (light background, border) showing the label `Credits:` followed by the current credit value (e.g. `Credits: 873`). While the value has not yet been fetched, show `Credits: …`. On error, show `Credits: —` and put the error text in the element's `title` attribute (tooltip).
+
+The frontend fetches credits from the local backend endpoint `GET /api/credits` (which proxies the ai-proxy's `GET /api/v2/credits` — see [3-app.md](3-app.md) "Credits" for the endpoint contract and [10-validate_key.md](10-validate_key.md) for the upstream API). It calls the endpoint when the page loads and then re-fetches **every 60 seconds** with `setInterval`. Clear the interval on page unload.
