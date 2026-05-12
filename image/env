@@ -7,4 +7,5 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_API_KEY=dummy
 WORKSPACE_DIR=/home/node/workspace
 WORKBENCH_DIR=/home/node/workbench
-
+AIP_REGISTER_URL=https://api.nuvolaris.io/_register
+AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
