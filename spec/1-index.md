@@ -4,7 +4,7 @@ This file describes the index splash screen page, put the code in file `index.ht
 
 When the page loads invoke the version api.
 
-If it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
+If it expired show a page with only a centered message saying "This version expired. Please Update. For info email: info@nuvolaris.io"
 
 # Splash Screen
 
@@ -16,7 +16,7 @@ Show also in smaller font "Expiration date: <date>"
 
 After the version check, fetch the merged config via `GET /api/configuration`, then refresh the model catalog (see [2a-config.md](2a-config.md) "Model catalog"):
 
-1. `GET <ai_proxy_register origin>/.well-known/models.json`. On success write the body to `<WorkspaceDir>/models.json`. On failure, fall back to the cached copy if any; if there's no cache, surface a fatal error and stop.
+1. `GET <AIP_REGISTER_URL origin>/.well-known/models.json`. On success write the body to `<WorkspaceDir>/models.json`. On failure, fall back to the cached copy if any; if there's no cache, surface a fatal error and stop.
 2. Compare the new `version` field against the cached one. If it changed, redirect immediately to `configure.html?reselect=1` (the configure UI shows a "Model catalog updated" banner and forces the user to re-pick the OpenCode default and small models). The flow below does not run on this turn — it resumes after the user saves on the configure screen.
 
 Then:
@@ -43,7 +43,7 @@ The Provider Choice modal is centered and shows two cards:
 
 ## Trustable Cloud selected
 
-1. Open a centered iframe overlay covering 80% of the viewport (width and height, centered on the page) loading the URL from `ai_proxy_register` on the merged config (sourced from the `AI_PROXY_REGISTER` env var; see [2a-config.md](2a-config.md)). The overlay has a "Cancel" button that closes the iframe and returns to the choice modal without saving anything.
+1. Open a centered iframe overlay covering 80% of the viewport (width and height, centered on the page) loading the URL from `register_url` on the merged config (sourced from the `AIP_REGISTER_URL` env var; see [2a-config.md](2a-config.md)). The overlay has a "Cancel" button that closes the iframe and returns to the choice modal without saving anything.
 2. Listen for `message` events from the iframe. Expected payload (matches what ai-proxy `success.html` posts today):
 
    ```json
@@ -71,7 +71,7 @@ When `provider == "trustable"` the backend skips the Ollama connectivity check a
 
 Then invoke the openai ai api using informations in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.small model, asking hello.
 
-If you get "error" **and** `provider == "ollama"`, show a sign-in required popup:
+If `/api/testmodel` returns an error **and** `provider == "ollama"`, show a sign-in required popup. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
 
 - If the page URL has a query string, show "Click here to login to Ollama Cloud" as a link pointing to `https://ollama.com/connect?<query_string>` and a Retry button.
 
@@ -81,6 +81,15 @@ If you get "error" **and** `provider == "ollama"`, show a sign-in required popup
 
 Repeat until the test succeeded.
 
-When `provider == "trustable"`, an error from `/api/testmodel` is shown as a generic error with a Retry button (no Ollama-signin flow).
+When `provider == "trustable"` and `/api/testmodel` returns an error, run the **Trustable sign-in recovery**:
+
+1. Re-open the registration iframe overlay (the same one used by the initial Trustable Cloud selection) pointing at `register_url`.
+2. Wait for the iframe's `postMessage` payload `{ env: { OPENAI_BASE_URL, OPENAI_API_KEY }, opencode?: { default, small } }`.
+3. On message, merge the new `base_url` and `api_key` into the workspace config, `POST /api/configuration`, then **re-run the health check** (`/api/testmodel`).
+4. If the user closes the overlay with **Cancel**, show a generic error with a Retry button and stop the loop until the user clicks Retry (which re-opens the iframe).
+
+Repeat until the test succeeds.
+
+If the user cancels the recovery flow (closes the signin modal without retrying, or clicks **Cancel** in the Trustable iframe), or the test still fails after recovery, the splash **returns to the Provider Choice modal** rather than proceeding to `applist.html`. A failed health check always sends the user back to provider selection — the app is unusable without a working model.
 
 Once configuration completes successfully, navigate to `applist.html`.

@@ -50,21 +50,13 @@ Start the app with live reload:
 
 ## Test
 
-Execute `./build.sh`
-It will build a development image `trustabledev`, deploy it and open the application locally
-
-Execute `./build.sh trustable` to build the production image
+Execute `./build.sh` to build the single image, import it into the running local Trustable VM, and update the image reference in `olaris-bestia/opsroot.json`.
 
 # Publish
 
-Execute `./publish.sh` to publish the image, building it on github actions and then updating the plugin
+Execute `./publish.sh` to push the tag, watch the GitHub Actions build, and push the `olaris-bestia` submodule (which is what ships the new version to the deployment plugin).
 
 # Deploying
 
-The file trustable-install.md describe the installation.
-
-By default it installs the production image.
-
-Use ops trustable redeploy KEY=trustabledev
-to use the development image.
+The file trustable-install.md describes the installation.
 

@@ -1069,6 +1069,7 @@ func isOllamaSigninRequired(message string) bool {
 		"unauthorized",
 		"authentication",
 		"401",
+		"internal service error",
 	} {
 		if strings.Contains(lower, token) {
 			return true

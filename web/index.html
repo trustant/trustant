@@ -202,12 +202,37 @@
                 && typeof data.api_key === 'string' && data.api_key.length > 0;
         }
 
+        let _trustableReauthResolve = null;
+
         window.addEventListener('message', async (event) => {
             // Only react when the iframe overlay is open.
             const overlay = document.getElementById('registerOverlay');
             if (overlay.classList.contains('hidden')) return;
             const data = event.data;
             if (!isAcceptableRegisterPayload(data)) return;
+
+            // Reauth path: only refresh base_url/api_key, then resume the
+            // health-check loop. No full Configuration re-run.
+            if (_trustableReauthResolve) {
+                const cfg = Object.assign({}, currentConfig || {}, {
+                    base_url: data.base_url,
+                    api_key: data.api_key
+                });
+                hideRegisterOverlay();
+                try {
+                    await fetch('/api/configuration', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cfg)
+                    });
+                    const fresh = await fetch('/api/configuration');
+                    currentConfig = await fresh.json();
+                } catch (e) {}
+                const resolve = _trustableReauthResolve;
+                _trustableReauthResolve = null;
+                resolve(true);
+                return;
+            }
 
             if (!bootStatus || !bootStatus.trustable || !bootStatus.trustable.models) {
                 alert('Status response is not available. Cannot configure Trustable.');
@@ -242,6 +267,25 @@
             hideRegisterOverlay();
             await saveAndRunConfiguration(cfg);
         });
+
+        async function trustableReauth() {
+            const url = (currentConfig && currentConfig.register_url) || '';
+            if (!url) return false;
+            return await new Promise(resolve => {
+                _trustableReauthResolve = resolve;
+                const overlay = document.getElementById('registerOverlay');
+                // Patch cancelRegister for this reauth: pressing Cancel resolves false.
+                const prevCancel = window.cancelRegister;
+                window.cancelRegister = function() {
+                    hideRegisterOverlay();
+                    window.cancelRegister = prevCancel;
+                    const r = _trustableReauthResolve;
+                    _trustableReauthResolve = null;
+                    if (r) r(false);
+                };
+                showRegisterOverlay(url);
+            });
+        }
 
         async function saveAndRunConfiguration(cfg) {
             try {
@@ -342,30 +386,32 @@
         async function testOpenAIConnection() {
             const isOllama = !currentConfig || currentConfig.provider !== 'trustable';
             while (true) {
+                let result;
                 try {
                     const resp = await fetch('/api/testmodel');
-                    const data = await resp.json();
-                    if (data.error) {
-                        if (isOllama && (data.auth_required || isSigninError(data.error))) {
-                            await new Promise(resolve => {
-                                _openaiTestResolve = resolve;
-                                showSigninModal();
-                            });
-                            continue;
-                        }
-                        return data;
-                    }
-                    return data;
+                    result = await resp.json();
                 } catch (e) {
-                    if (isOllama) {
+                    result = { error: e.message };
+                }
+
+                if (!result.error) return result;
+
+                if (isOllama) {
+                    if (result.auth_required || isSigninError(result.error)) {
                         await new Promise(resolve => {
                             _openaiTestResolve = resolve;
                             showSigninModal();
                         });
                         continue;
                     }
-                    return { error: e.message };
+                    return result;
                 }
+
+                // Trustable: re-open the registration iframe so the user can
+                // sign in again. On postMessage we merge {base_url, api_key}
+                // into the workspace config and retry the health check.
+                const reauthed = await trustableReauth();
+                if (!reauthed) return result;
             }
         }
 
@@ -436,15 +482,21 @@
 
                 const okDiv = document.createElement('div');
                 if (testResult.warning || testResult.error) {
-                    okDiv.className = 'text-yellow-700';
-                    okDiv.textContent = 'WARNING: AI model test returned: ' + (testResult.warning || testResult.error);
-                } else {
-                    okDiv.className = 'text-green-600';
-                    okDiv.textContent = 'OK: AI model connection successful';
+                    okDiv.className = 'text-red-600';
+                    okDiv.textContent = 'ERROR: AI model test failed: ' + (testResult.warning || testResult.error);
+                    msgEl.appendChild(okDiv);
+                    msgEl.scrollTop = msgEl.scrollHeight;
+                    // Health check could not be recovered — bounce back to provider choice.
+                    document.getElementById('configModal').classList.add('hidden');
+                    document.getElementById('configModal').classList.remove('flex');
+                    alert('AI model test failed: ' + (testResult.warning || testResult.error) + '\n\nPlease pick a provider again.');
+                    showProviderModal();
+                    return;
                 }
+                okDiv.className = 'text-green-600';
+                okDiv.textContent = 'OK: AI model connection successful';
                 msgEl.appendChild(okDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
-
             }
 
             document.getElementById('configDone').classList.remove('hidden');
@@ -456,7 +508,7 @@
                 const resp = await fetch('/api/version');
                 const data = await resp.json();
                 if (data.expired) {
-                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please get an updated version. For info email: info@nuvolaris.io</p></div>';
+                    document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please Update. For info email: info@nuvolaris.io</p></div>';
                     return;
                 }
                 if (data.version) {

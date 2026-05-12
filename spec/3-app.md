@@ -2,7 +2,7 @@ This file describe the code for the application page, put the code in `app.html`
 
 # check the version
 
-Invoke the version api at the end of the page and if it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
+Invoke the version api at the end of the page and if it expired show a page with only a centered message saying "This version expired. Please Update. For info email: info@nuvolaris.io"
 
 # Application
 
@@ -200,46 +200,45 @@ Immediately to the right of the Credits box, render a **Top-up** button (yellow/
 
 ## AIP base URLs
 
-The Trustable provider configuration always exposes a top-level `base_url` (also surfaced as the `AIP_BASE_URL` env var). It **must end with `/v1`** — that is the OpenAI-compatible inference base used for `/v1/chat/completions` etc. All other Trustable URLs used by this app are derived from it:
+Two environment variables drive all ai-proxy URLs. They are read at process startup, validated by preflight, and used directly — there is no URL rewriting, no `/v1` ↔ `/v2` swap, and no derived `AIP_API_BASE`/`AIP_ORIGIN`. The historical `/v1`-suffix contract on the proxy `base_url` is **removed**.
 
-| Symbol | Definition | Example (when `AIP_BASE_URL = "https://ai.trustable.ai/v1"`) |
+| Env var | Purpose | Example |
 |---|---|---|
-| `$AIP_BASE_URL` | The configured value, ending in `/v1`. | `https://ai.trustable.ai/v1` |
-| `$AIP_API_BASE` | `$AIP_BASE_URL` with the trailing `/v1` swapped for `/v2`. The credit-management JSON API lives here. | `https://ai.trustable.ai/v2` |
-| `$AIP_ORIGIN` | The origin only (scheme + host[:port]). The user-facing registration site lives here. | `https://ai.trustable.ai` |
+| `AIP_BASE_URL` | JSON API base. `/api/credits`, `/api/topup`, and `/api/status` all forward directly under this URL. | `https://api.nuvolaris.io/api/v2/` |
+| `AIP_REGISTER_URL` | Registration UI base. The splash page loads it in an iframe; the top-up form lives at `<this>/top-up`. Exposed to the frontend as `register_url` on `GET /api/configuration`. | `https://api.nuvolaris.io/_register` |
 
-If the configured `base_url` does not end with `/v1`, the backend MUST treat the configuration as invalid and return an error from the credit endpoints (the same `502` shape used for other proxy errors).
+The Trustable provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by opencode and any model client — but it is **not** what the credit/top-up/status endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
 
 URL summary:
 
-- **Credits balance (JSON):** `GET $AIP_API_BASE/credits`
-- **Top-up (JSON):** `POST $AIP_API_BASE/top-up`
-- **Registration page (HTML):** `$AIP_ORIGIN/_register`
-- **Top-up form (HTML, used as the fallback link in the modal):** `$AIP_ORIGIN/_register/top-up`
+- **Credits balance (JSON):** `GET $AIP_BASE_URL/credits`
+- **Top-up (JSON):** `POST $AIP_BASE_URL/top-up`
+- **Registration page (HTML):** `$AIP_REGISTER_URL`
+- **Top-up form (HTML, used as the fallback link in the modal):** `$AIP_REGISTER_URL/top-up`
 
-Both JSON endpoints are authenticated with the configured `api_key` as a Bearer token. Response shapes and error semantics are documented in [credit_check.md](credit_check.md) — note that this app uses the `/v2/...` paths derived above rather than the `/api/v2/...` paths shown in the older client examples; the Trustable proxy serves the credit endpoints at both prefixes.
+Both JSON endpoints are authenticated with the workspace config's `api_key` as a Bearer token. Response shapes and error semantics are documented in [credit_check.md](credit_check.md).
 
 ## Credits API
 
-The frontend MUST NOT call the proxy directly (the API key must stay server-side). The backend exposes two local proxy endpoints that forward to `$AIP_API_BASE` with `Authorization: Bearer <api_key>`:
+The frontend MUST NOT call the proxy directly (the API key must stay server-side). The backend exposes two local proxy endpoints that forward to `$AIP_BASE_URL` with `Authorization: Bearer <api_key>`:
 
 ### `GET /api/credits`
 
-Proxies `GET $AIP_API_BASE/credits` (response shape: see [credit_check.md](credit_check.md) — at minimum `credits`, `credit_total`, `currency`, `credit_value`, `out_of_credit`).
+Proxies `GET $AIP_BASE_URL/credits` (response shape: see [credit_check.md](credit_check.md) — at minimum `credits`, `credit_total`, `currency`, `credit_value`, `out_of_credit`).
 
 - If `provider != "trustable"`, return HTTP 404.
-- If `base_url` is missing or does not end with `/v1`, return HTTP 502 with `{"error": "invalid base_url: must end with /v1"}`.
-- Otherwise issue `GET $AIP_API_BASE/credits` with the bearer key and return the JSON body verbatim on 2xx.
+- If `AIP_BASE_URL` is not set, return HTTP 502 with `{"error": "AIP_BASE_URL is not set"}` (preflight should have already aborted startup; this is the defense-in-depth path).
+- Otherwise issue `GET $AIP_BASE_URL/credits` with the bearer key and return the JSON body verbatim on 2xx.
 - On non-2xx from the proxy, return `{"error": "<status>: <body>"}` with HTTP 502.
 
 ### `POST /api/topup`
 
-Proxies `POST $AIP_API_BASE/top-up` (see [credit_check.md](credit_check.md) §`POST /api/v2/top-up` for the response shape).
+Proxies `POST $AIP_BASE_URL/top-up` (see [credit_check.md](credit_check.md) §`POST /api/v2/top-up` for the response shape).
 
 - If `provider != "trustable"`, return HTTP 404.
-- If `base_url` is missing or does not end with `/v1`, return HTTP 502 with `{"error": "invalid base_url: must end with /v1"}`.
+- If `AIP_BASE_URL` is not set, return HTTP 502 with `{"error": "AIP_BASE_URL is not set"}`.
 - Request body: `{"amount": <integer>}`. The amount must be one of `1000`, `5000`, `10000` (the default `TOPUP_AMOUNTS` whitelist documented in [credit_check.md](credit_check.md)). The backend forwards the body unchanged.
-- Forward the request as `POST $AIP_API_BASE/top-up` with `Authorization: Bearer <api_key>` and `Content-Type: application/json`.
+- Forward the request as `POST $AIP_BASE_URL/top-up` with `Authorization: Bearer <api_key>` and `Content-Type: application/json`.
 - On 2xx return the proxy's JSON body verbatim (`status`, `credits`, `credit_total`, `out_of_credit`).
 - On `400 invalid_amount` from the proxy, return HTTP 400 with body `{"error": "invalid_amount"}` so the frontend can surface a precise message.
 - On any other non-2xx, return `{"error": "<status>: <body>"}` with HTTP 502.
@@ -266,6 +265,6 @@ When the user confirms:
    - Replace the modal content with a success message including the new `credits` and `credit_total` from the response (e.g. *"Topped up. New balance: 1900 credits."*) and a single **Continue** button that closes the modal.
    - Immediately re-fetch `GET /api/credits` so the toolbar pill reflects the new balance (do not wait for the 60s interval).
 4. On a `400 invalid_amount` response, show *"That amount is not allowed. Pick one of the listed options."* and re-enable the buttons (no modal close).
-5. On any other error, show the error text in red and re-enable the buttons; do not close the modal automatically. Provide a fallback link at the bottom of the modal: *"Or top up via the web form: `<$AIP_ORIGIN/_register/top-up>`"* (rendered as an `<a target="_blank">`).
+5. On any other error, show the error text in red and re-enable the buttons; do not close the modal automatically. Provide a fallback link at the bottom of the modal: *"Or top up via the web form: `<$AIP_REGISTER_URL/top-up>`"* (rendered as an `<a target="_blank">`).
 
 The modal can be closed with the X button, the Cancel button, the Escape key, or by clicking the backdrop (only when no request is in flight).

@@ -47,7 +47,8 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   There is **no** global `env` section in `trustable.json`. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
 - `opencode.default` / `opencode.small` — must be names that exist as keys in `models`. The configurator UI (see "Configuration UI") presents these as dropdowns populated from `models`, not free-text fields.
-- `AI_PROXY_REGISTER` (environment variable, **mandatory** at startup; preflight fails if unset) — URL the splash page loads in an iframe when the user picks Trustable Cloud. The proxy registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `ai_proxy_register` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
+- `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustable Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
+- `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
 
 The base config has no `apps` or `provider` section. Those live only in the workspace config.
 
@@ -57,7 +58,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 
 ## Model catalog
 
-The proxy publishes a per-provider model catalog at `<AI_PROXY_REGISTER origin>/.well-known/models.json` (see ai-proxy [SPEC §8](../../ai-proxy/spec/SPEC.md)). Shape:
+The proxy publishes a per-provider model catalog at `<AIP_REGISTER_URL origin>/.well-known/models.json` (see ai-proxy [SPEC §8](../../ai-proxy/spec/SPEC.md)). Shape:
 
 ```json
 {
@@ -312,7 +313,7 @@ Sections (rendered top to bottom in this order):
 
 If the URL has `?reselect=1` (set by the splash page when the catalog version changed — see "Model catalog → Version check"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
 
-The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `ai_proxy_register` field is exposed read-only by `loadTrustableConfig` from the `AI_PROXY_REGISTER` env var and must not be sent back on save.)
+The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
 Read the configuration with `GET /api/configuration`, save with `POST /api/configuration`, then execute `GET /api/configure` showing the progress downloading models.
 

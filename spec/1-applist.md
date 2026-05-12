@@ -4,7 +4,7 @@ This file describes the application list page, put the code in file `applist.htm
 
 When the page loads invoke the version api.
 
-If it expired show a page with only a centered message saying "This version expired. Please get an updated version. For info email: info@nuvolaris.io"
+If it expired show a page with only a centered message saying "This version expired. Please Update. For info email: info@nuvolaris.io"
 
 # Provider guard
 
