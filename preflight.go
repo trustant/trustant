@@ -302,7 +302,8 @@ func killProcessOnPort(port string) error {
 // sshKeyAvailable indicates whether the SSH key was found during preflight
 var sshKeyAvailable bool
 
-// checkSSHKey checks if ~/.ssh/id_ed25519 exists and sets sshKeyAvailable accordingly
+// checkSSHKey ensures ~/.ssh/id_ed25519 exists, generating one if missing,
+// and sets sshKeyAvailable accordingly. The key is used for publishing git pushes.
 func checkSSHKey() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -310,14 +311,37 @@ func checkSSHKey() {
 		sshKeyAvailable = false
 		return
 	}
-	keyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
+	sshDir := filepath.Join(homeDir, ".ssh")
+	keyPath := filepath.Join(sshDir, "id_ed25519")
+	pubPath := keyPath + ".pub"
+
 	if _, err := os.Stat(keyPath); err == nil {
+		if _, err := os.Stat(pubPath); err != nil {
+			if out, perr := exec.Command("ssh-keygen", "-y", "-f", keyPath).Output(); perr == nil {
+				_ = os.WriteFile(pubPath, out, 0o600)
+			}
+		}
 		log.Printf("  - SSH key found at %s", keyPath)
 		sshKeyAvailable = true
-	} else {
-		log.Printf("  - Warning: SSH key not found at %s - SSH key notice will be hidden", keyPath)
-		sshKeyAvailable = false
+		return
 	}
+
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		log.Printf("  - Warning: cannot create %s: %v", sshDir, err)
+		sshKeyAvailable = false
+		return
+	}
+	log.Printf("  - SSH key not found, generating new ed25519 keypair at %s", keyPath)
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "trustable", "-f", keyPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("  - Warning: ssh-keygen failed: %v: %s", err, strings.TrimSpace(string(out)))
+		sshKeyAvailable = false
+		return
+	}
+	_ = os.Chmod(keyPath, 0o600)
+	_ = os.Chmod(pubPath, 0o600)
+	log.Printf("  - SSH key generated at %s", keyPath)
+	sshKeyAvailable = true
 }
 
 // handleSSHKey serves the SSH public key via GET /api/sshkey

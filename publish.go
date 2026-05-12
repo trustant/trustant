@@ -34,11 +34,9 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePublishPush handles POST /api/publish/push
-// Pushes code to a production GitHub repository
+// Pushes code to a production GitHub repository. Git push is always allowed —
+// publishing-auth gating applies only to /api/publish/remote (OpenServerless deploy).
 func handlePublishPush(w http.ResponseWriter, r *http.Request) {
-	if !requirePublishingAuth(w) {
-		return
-	}
 	var req struct {
 		Name string `json:"name"`
 		Repo string `json:"repo"`
@@ -152,11 +150,9 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePublishForcePush handles POST /api/publish/force-push
-// Force pushes code to the production GitHub repository
+// Force pushes code to the production GitHub repository. Git push is always allowed —
+// publishing-auth gating applies only to /api/publish/remote (OpenServerless deploy).
 func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
-	if !requirePublishingAuth(w) {
-		return
-	}
 	var req struct {
 		Name string `json:"name"`
 	}

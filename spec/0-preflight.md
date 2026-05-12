@@ -31,7 +31,7 @@ OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 
 # check ssh key
 
-Check if `~/.ssh/id_ed25519` exists. If found, set `sshKeyAvailable` to true. If not found, log a warning that the SSH key is missing and set `sshKeyAvailable` to false. Do not generate any keys.
+Ensure `~/.ssh/id_ed25519` exists. If it does, set `sshKeyAvailable` to true (and derive the matching `.pub` via `ssh-keygen -y` when missing). If it does not, generate a passphrase-less ed25519 keypair at that path (`ssh-keygen -t ed25519 -N "" -C "trustable" -f ~/.ssh/id_ed25519`), chmod 600 both files, and set `sshKeyAvailable` to true. Set `sshKeyAvailable` to false only if directory creation or key generation fails.
 
 # web server
 

@@ -1,0 +1,134 @@
+# CLAUDE.md
+
+Be brief. Update the specs under spec/*.md when change code.
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+`trustable-app` is a Go single-binary web server that hosts a "Lovable-like" development environment on top of OpenServerless. It serves the local UI (`web/`), proxies the user's running app (Vite/opencode), drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
+
+The binary embeds `web/`, `version.txt`, `opencode.md`, and `tools/` (see [main.go](main.go)) so a production build is a single executable.
+
+## Prerequisite: a running Trustable VM
+
+Development and `build.sh` both require a **running Trustable VM** on the local machine — the macOS app from `https://trustable.ai` provisions a k3s VM and writes its credentials to `~/Library/Application Support/Trustable/` (`id_ed25519`, `current.ip`, `apihost`). Without these files, `setup.sh`, `build.sh`, `ssh.sh`, and `publish.sh` all fail.
+
+`setup.sh` connects to that running VM and extracts its kubeconfig (rewriting `127.0.0.1` → the VM's IP) into `~/.ops/tmp/kubeconfig` so `ops` can talk to k3s directly. It also installs/verifies ops, go (via `g`), air, bun, uv, opencode, and checks `ops admin listuser` works against the apihost.
+
+## Common commands
+
+```bash
+./setup.sh       # One-time bootstrap: verifies running VM, extracts kubeconfig, installs ops/go/air/opencode
+./run.sh         # Dev loop: kills ports 8910/5173/4096, runs `air` for hot reload, opens via `ops trustable signin`
+./build.sh       # Builds the single image, imports it into the local k3s VM (via SSH+ctr), and updates the image reference in olaris-bestia/opsroot.json
+./publish.sh     # Pushes the latest git tag, watches CI, then pushes the olaris-bestia submodule
+go test ./...    # Unit tests (currently only configure_test.go)
+go test -run TestManagedOllamaDetectionRequiresGeneratedModelMarker  # Single test
+```
+
+`air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
+
+`build.sh` produces a single image. The image tag is written into `olaris-bestia/opsroot.json` via `jq` and committed in that submodule; `publish.sh` pushes the submodule, which is what actually ships the new version to the deployment plugin.
+
+## Required environment
+
+`.env` is mandatory — preflight fails at startup if absent. Copy [.env.dist](.env.dist):
+
+- `WORKSPACE_DIR` — must exist (created by `ops setup mini`); per-app bare repos live in `$WORKSPACE_DIR/workspace/<name>`
+- `WORKBENCH_DIR` — checkout area for the currently-launched app
+- `OPENAI_BASE_URL`, `OPENAI_API_KEY` — provider credentials (overwritten when user picks a provider in the UI)
+- `OLLAMA_ENDPOINT` — local Ollama for the Ollama provider
+- `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustable Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
+- `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
+- `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
+
+
+## Architecture
+
+### One Go package, file-per-feature
+
+Everything is `package main`. Each `*.go` file owns a feature surface that maps 1:1 with a spec doc under [spec/](spec/):
+
+| File | Spec | Responsibility |
+|---|---|---|
+| [main.go](main.go) | — | Embeds `web/`, registers `/api/*` routes, starts `:8910` with `hostnameMiddleware` |
+| [preflight.go](preflight.go) | [0-preflight.md](spec/0-preflight.md) | Loads `.env`, kills leftover processes on 8910/5173/4096, checks ssh key, runs the workspace `trustable.json` migration |
+| [middleware.go](middleware.go) | [0-preflight.md](spec/0-preflight.md) | **Host-based routing** — the same `:8910` handles three apps by hostname prefix |
+| [repo.go](repo.go) | [2-repo.md](spec/2-repo.md) | `/api/repo`, `/api/upload`, `/api/git*` — manages per-app bare git repos under `$WORKSPACE_DIR/workspace/<name>` |
+| [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config (base `trustable.json` + workspace `trustable.json`), `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` — also writes per-app `.env`/`.env.production` files |
+| [launch.go](launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clones workspace → workbench, runs `ops ide login/clean/deploy`, owns the pgid file for orderly shutdown |
+| [git.go](git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
+| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — **every endpoint calls `requirePublishingAuth` first** |
+| [validate_key.go](validate_key.go) | [10-validate_key.md](spec/10-validate_key.md) | Ed25519 verification of the `aip_<id>.<sig>` API key against the proxy's `/.well-known/ai-proxy-pubkey` |
+| [skills.go](skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones the skills repo into the app's `.agents/skills/` |
+| [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
+| [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog (powers the splash screen) |
+| [memory.go](memory.go) | — | `/api/memory/` |
+
+When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.
+
+### Host-based routing (the non-obvious bit)
+
+[middleware.go](middleware.go) inspects the request hostname and routes by the first label:
+
+- `trustable.<domain>` → serves static `web/` + Go APIs (`http.DefaultServeMux`)
+- `opencode.<domain>` → reverse-proxies to `localhost:4096` (the AI coding assistant)
+- `vite.<domain>` → reverse-proxies to `localhost:5173` (the running user app)
+- Any other prefix → 400 with the corrected URL
+
+Bare `localhost` or IP requests are 307-redirected to `trustable.<ip>.nip.io:<port>` so the FQDN form is always used. **Every test must be against an FQDN** — plain `localhost:8910` will redirect.
+
+### Workspace vs. workbench (the other non-obvious bit)
+
+- `$WORKSPACE_DIR/workspace/<name>/` — the **bare git repo** for each app (durable state, what gets published)
+- `$WORKBENCH_DIR/<name>/` — the **active checkout** of whichever app the user is editing (regenerated on launch, holds `.env`/`.env.production`, `node_modules`, `.agents/skills/`)
+
+Launching an app clones workspace → workbench when missing and regenerates env files every time so config edits propagate. `pgid` in workbench tracks the running ops process group for clean teardown.
+
+### Frontend (`web/`)
+
+Plain HTML + Tailwind (via [web/tailwind.js](web/tailwind.js)) — **no build step**, no React. Each page corresponds to a spec doc:
+
+- [index.html](web/index.html) → splash + provider choice ([spec/1-index.md](spec/1-index.md))
+- [applist.html](web/applist.html) → app list ([spec/1-applist.md](spec/1-applist.md))
+- [app.html](web/app.html) → per-app workbench/editor ([spec/3-app.md](spec/3-app.md))
+- [appconfig.html](web/appconfig.html) → env editor
+- [configure.html](web/configure.html) → provider/model config
+
+Pages talk to the backend only through `/api/*` JSON endpoints.
+
+### Configuration layering
+
+Config is loaded by merging two `trustable.json` files (see [spec/2a-config.md](spec/2a-config.md)):
+
+1. **Base** (`./trustable.json`) — immutable defaults shipped with the binary
+2. **Workspace** (`$WORKSPACE_DIR/trustable.json`) — user overrides + `apps` + `provider`
+
+Maps merge key-by-key. The workspace file uses `omitempty` so it stays small. `provider`, `apps`, and chosen models live only in the workspace layer. There is no global `env` block — per-app env vars live under `apps.<name>.development` / `apps.<name>.production`.
+
+### Publishing authorization (server-side, signature-based)
+
+There is **no client-side gate** on publishing. The frontend always renders Git Push / Publish and always calls the backend. Every `/api/publish/*` handler calls `requirePublishingAuth` ([validate_key.go:122](validate_key.go#L122)), which:
+
+1. Reads the merged config's `api_key` and `base_url`
+2. Fetches `<origin>/.well-known/ai-proxy-pubkey` (cached for the process lifetime)
+3. Validates the Ed25519 signature embedded in the `aip_<id>.<sig>` key
+4. On any failure, returns HTTP 403 `{"error": "Publishing not authorized: <reason>"}`
+
+The frontend recognizes the `"Publishing not authorized"` prefix and shows a friendly modal (see `showPublishAuthModal` in [web/applist.html](web/applist.html)). When changing the error wording in `writePublishAuthError`, keep the prefix intact or the frontend gate breaks.
+
+## Submodules
+
+Five git submodules in [.gitmodules](.gitmodules) — `olaris`, `olaris-bestia`, `olaris-trustable`, `support`, `skills`. `build.sh` writes the new image tag into `olaris-bestia/opsroot.json` and commits there too, so the submodule push in `publish.sh` is what actually ships the new version to the deployment plugin.
+
+## Tests
+
+- `go test ./...` runs Go unit tests (`*_test.go`) — coverage is minimal; mostly `configure_test.go`.
+- [tests/](tests/) holds **manual end-to-end test scenarios** (spec markdown + a runnable script per scenario, e.g. `1-reset.sh` wipes miniops users and workspace, then runs `air`). These are not part of `go test`.
+
+## Conventions worth knowing
+
+- Adding a new API: register the route in [main.go](main.go), add a handler in the matching feature file, and update the spec doc under [spec/](spec/) — the spec is what's iterated on first.
+- `opencode.md` at the repo root is **embedded into the binary** and shown to the AI assistant running inside *user-created* apps. It is not guidance for editing this repo — do not confuse it with this file.
+- Long-running subprocesses (`ops ide deploy`, `npm install`, `git push`) are spawned with their own process group; the `pgid` file in `$WORKBENCH_DIR` is how cleanup finds them.

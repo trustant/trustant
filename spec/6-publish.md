@@ -3,7 +3,9 @@ Put the code in the file `publish.go`
 
 # Publishing authorization
 
-Every publish endpoint below (`/api/publish/push`, `/api/publish/force-push`, `/api/publish/remote`) **must** validate that the user's ai-proxy API key authorizes publishing **before** doing any work. This is a server-side check; the frontend does not gate these calls.
+Only `/api/publish/remote` (OpenServerless deploy) is gated by publishing authorization. The Git-push endpoints `/api/publish/push` and `/api/publish/force-push` are always allowed — pushing to a user-owned GitHub repository requires no proxy entitlement, only the user's SSH key.
+
+For `/api/publish/remote` the server-side check below runs **before** doing any work; the frontend does not gate this call.
 
 The check:
 
