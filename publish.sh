@@ -47,7 +47,7 @@ if [ "$STATUS" != "success" ]; then
     exit 1
 fi
 
-echo "CI passed. Pushing olaris-trustable..."
+echo "CI passed. Pushing olaris-bestia..."
 cd olaris-bestia
 git push origin main --tags
 

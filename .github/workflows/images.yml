@@ -1,12 +1,12 @@
 # a github workflow triggered by tags in format XXXX.XXXX.XXXX with X a digit
 # the workflow should checkout the sources build the binaries
-# fpr gp and copy the configuration in folder image
+# and copy the configuration in folder image
 #
 # env GOOS=linux GOARCH=amd64 go build -o image/trustable-amd64
 # env GOOS=linux GOARCH=arm64 go build -o image/trustable-arm64
 # cp -v trustable.json image/trustable.json
 #
-# then build and push in the ghcr.io registri an image for linux/adm64 and linux/arm64
+# then build and push in the ghcr.io registry an image for linux/adm64 and linux/arm64
 # named ghcr.io/<user>/<repo>:<tag> in ghcr.io with buildx
 #
 # use the GITHUB_TOKEN provided for authentication
@@ -55,5 +55,9 @@ jobs:
           env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
           cp -v trustable.json image/trustable.json
           cp -v opencode.md image/opencode.md
-          bash image/image.sh ${GITHUB_REF#refs/tags/}
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="$(cat version.txt)"
+          EXPIRY="$(cat expiry.txt)"
+          echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
+          bash image/image.sh $TAG
 
