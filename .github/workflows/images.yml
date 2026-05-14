@@ -51,13 +51,13 @@ jobs:
       - name: Build binaries
         run: |
           mkdir -p image/bin
-          env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
-          env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
-          cp -v trustable.json image/trustable.json
-          cp -v opencode.md image/opencode.md
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="$(cat version.txt)"
           EXPIRY="$(cat expiry.txt)"
           echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
+          env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
+          env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
+          cp -v trustable.json image/trustable.json
+          cp -v opencode.md image/opencode.md
           bash image/image.sh $TAG
 
