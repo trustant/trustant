@@ -31,16 +31,30 @@
         <!-- Ollama Host (only when provider == "ollama") -->
         <div id="ollamaHostSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
             <h2 class="text-xl font-semibold mb-4">Ollama Host</h2>
-            <div class="flex items-center gap-1 font-mono text-sm">
-                <span class="text-gray-700">http://</span>
-                <input type="text" id="ollamaHost" placeholder="hostname"
-                    class="flex-1 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <span class="text-gray-700">:</span>
-                <input type="text" id="ollamaPort" placeholder="port" inputmode="numeric"
-                    class="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <span class="text-gray-700">/v1</span>
+            <p id="ollamaInternalNote" class="text-sm text-gray-700 hidden">
+                Using internal Ollama — click <strong>Change Provider</strong> if you want to use your own.
+            </p>
+            <div id="ollamaOwnHostBody" class="hidden">
+                <div class="flex items-center gap-1 font-mono text-sm">
+                    <span class="text-gray-700">http://</span>
+                    <input type="text" id="ollamaHost" placeholder="hostname"
+                        class="flex-1 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <span class="text-gray-700">:</span>
+                    <input type="text" id="ollamaPort" placeholder="port" inputmode="numeric"
+                        class="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <span class="text-gray-700">/v1</span>
+                    <button id="ollamaTestBtn" onclick="testOllamaHost()"
+                        class="ml-2 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                        Test
+                    </button>
+                </div>
+                <ul id="ollamaOwnHostHelp" class="text-xs text-gray-600 mt-3 list-disc list-inside space-y-1">
+                    <li>Provide the IP of your local machine or intranet server (NOT 127.0.0.1).</li>
+                    <li>Enable network access on that machine so Trustable can reach it.</li>
+                    <li>It must be accessible via HTTP without authentication.</li>
+                </ul>
+                <p id="ollamaTestStatus" class="text-sm mt-3 hidden"></p>
             </div>
-            <p class="text-xs text-gray-500 mt-2">Specify hostname and port for your local Ollama host (HTTP only, no auth).</p>
         </div>
 
         <!-- Provider Models -->
@@ -148,8 +162,8 @@
         let config = { models: {}, opencode: { default: '', small: '' } };
 
         function providerLabel(name) {
-            if (name === 'trustable') return 'Trustable Cloud';
-            if (name === 'ollama') return 'Ollama Cloud';
+            if (name === 'trustable') return 'Trustable';
+            if (name === 'ollama') return 'Ollama';
             return 'not set';
         }
 
@@ -184,16 +198,91 @@
             return { host: 'localhost', port: '11434' };
         }
 
+        function isOwnHostMode() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('ollama') === 'own') return true;
+            const base = String(config.base_url || '').trim();
+            if (!base) return true;
+            return !/^http:\/\/(localhost|127\.0\.0\.1|ollama)(:|\/)/i.test(base);
+        }
+
         function renderOllamaHost() {
             const section = document.getElementById('ollamaHostSection');
+            const ownBody = document.getElementById('ollamaOwnHostBody');
+            const internalNote = document.getElementById('ollamaInternalNote');
             if (config.provider !== 'ollama') {
                 section.classList.add('hidden');
                 return;
             }
             section.classList.remove('hidden');
-            const { host, port } = parseOllamaBaseURL(config.base_url);
-            document.getElementById('ollamaHost').value = host;
-            document.getElementById('ollamaPort').value = port;
+            if (isOwnHostMode()) {
+                ownBody.classList.remove('hidden');
+                internalNote.classList.add('hidden');
+                const base = String(config.base_url || '').trim();
+                if (base) {
+                    const { host, port } = parseOllamaBaseURL(base);
+                    document.getElementById('ollamaHost').value = host;
+                    document.getElementById('ollamaPort').value = port;
+                } else {
+                    document.getElementById('ollamaHost').value = '';
+                    document.getElementById('ollamaPort').value = '11434';
+                }
+            } else {
+                ownBody.classList.add('hidden');
+                internalNote.classList.remove('hidden');
+            }
+        }
+
+        function setTestStatus(msg, kind) {
+            const el = document.getElementById('ollamaTestStatus');
+            el.textContent = msg;
+            el.classList.remove('hidden', 'text-red-600', 'text-green-600', 'text-gray-600');
+            if (kind === 'error') el.classList.add('text-red-600');
+            else if (kind === 'ok') el.classList.add('text-green-600');
+            else el.classList.add('text-gray-600');
+        }
+
+        async function testOllamaHost() {
+            const host = document.getElementById('ollamaHost').value.trim();
+            const port = document.getElementById('ollamaPort').value.trim();
+            if (!host || !port) {
+                setTestStatus('Host and port are required.', 'error');
+                return;
+            }
+            const btn = document.getElementById('ollamaTestBtn');
+            const origLabel = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Testing…';
+            setTestStatus('Contacting ' + host + ':' + port + '…', 'info');
+            try {
+                const url = '/api/ollama-tags?host=' + encodeURIComponent(host) + '&port=' + encodeURIComponent(port);
+                const resp = await fetch(url);
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || data.error) {
+                    setTestStatus(data.error || ('HTTP ' + resp.status), 'error');
+                    return;
+                }
+                const models = Array.isArray(data.models) ? data.models : [];
+                if (models.length === 0) {
+                    setTestStatus('Connected, but no models are installed on that host.', 'error');
+                    return;
+                }
+                config.base_url = 'http://' + host + ':' + port + '/v1';
+                config.api_key = 'dummy';
+                config.models = {};
+                for (const name of models) {
+                    config.models[name] = { maxToken: 131072, maxOutput: 32768 };
+                }
+                config.opencode = { default: '', small: '' };
+                renderModels();
+                renderOpencodeSelects();
+                setTestStatus('Found ' + models.length + ' model(s). Pick a Default and Small model below, then Save & Configure.', 'ok');
+            } catch (e) {
+                setTestStatus('Error: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = origLabel;
+            }
         }
 
         function renderModels() {
@@ -202,9 +291,11 @@
             const keys = Object.keys(models);
             const editable = config.provider === 'ollama';
 
-            // Toggle header buttons: Add for Ollama (manual model entry), Refresh for any provider.
+            // Toggle header buttons: Add for Ollama (manual model entry); Refresh
+            // for non-Ollama providers only (Ollama model lists must never be
+            // overwritten automatically — see also splash boot logic).
             document.getElementById('addModelBtn').classList.toggle('hidden', !editable);
-            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider);
+            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama');
 
             if (keys.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No models configured</td></tr>';
@@ -368,7 +459,10 @@
 
         function buildConfig() {
             let baseURL = config.base_url || '';
-            if (config.provider === 'ollama') {
+            // Only rebuild base_url from inputs in own-host mode. Internal mode
+            // shows a read-only note instead of inputs, so we keep whatever
+            // base_url is already in config.
+            if (config.provider === 'ollama' && isOwnHostMode()) {
                 const host = document.getElementById('ollamaHost').value.trim();
                 const port = document.getElementById('ollamaPort').value.trim();
                 baseURL = `http://${host}:${port}/v1`;
@@ -393,6 +487,7 @@
 
         function validateOllamaHost() {
             if (config.provider !== 'ollama') return null;
+            if (!isOwnHostMode()) return null;
             const host = document.getElementById('ollamaHost').value.trim();
             const port = document.getElementById('ollamaPort').value.trim();
             if (!host) return 'Ollama hostname is required';
@@ -466,8 +561,11 @@
             }
             await loadConfig();
 
+            // The reselect banner only makes sense for catalog-backed providers
+            // (Trustable). For Ollama the model list is user-controlled, so the
+            // prompt is wrong even if ?reselect=1 leaks in via a stale URL.
             const params = new URLSearchParams(window.location.search);
-            if (params.get('reselect') === '1') {
+            if (params.get('reselect') === '1' && config.provider !== 'ollama') {
                 document.getElementById('reselectBanner').classList.remove('hidden');
             }
         })();

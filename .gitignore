@@ -15,3 +15,4 @@ out.json
 image/Dockerfile.*
 trustable-doctor.txt
 opencode.json
+_build.txt

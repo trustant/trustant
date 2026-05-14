@@ -14,14 +14,14 @@ import (
 	"time"
 )
 
-// Version and expiry info parsed from version.txt
+// Version and expiry info parsed from _build.txt
 var (
 	appVersion string
 	appBuild   string
 	expiryDate time.Time
 )
 
-// parseVersion parses the embedded version.txt content
+// parseVersion parses the embedded _build.txt content
 func parseVersion(content string) {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {

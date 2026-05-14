@@ -56,6 +56,39 @@
         </div>
     </div>
 
+    <!-- Ollama Mode Sub-Modal -->
+    <div id="ollamaModeModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-semibold mb-4 text-center">Choose Ollama mode</h3>
+            <div class="space-y-3">
+                <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input type="radio" name="ollamaMode" value="internal" class="mt-1" checked>
+                    <span>
+                        <span class="block font-semibold">Use internal Ollama with recommended cloud models</span>
+                        <span class="block text-sm text-gray-600">Embedded Ollama server bundled with Trustable.</span>
+                    </span>
+                </label>
+                <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input type="radio" name="ollamaMode" value="own" class="mt-1">
+                    <span>
+                        <span class="block font-semibold">Use my own Ollama with currently installed models</span>
+                        <span class="block text-sm text-gray-600">Point Trustable at an Ollama server on your network. You'll be asked for its host on the next screen.</span>
+                    </span>
+                </label>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button onclick="cancelOllamaMode()"
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    Back
+                </button>
+                <button onclick="confirmOllamaMode()"
+                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Trustable Register Iframe Overlay -->
     <div id="registerOverlay" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl flex flex-col" style="width:80%;height:80%;">
@@ -154,8 +187,34 @@
             }
         }
 
-        async function selectOllama() {
+        function selectOllama() {
             hideProviderModal();
+            const modal = document.getElementById('ollamaModeModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function cancelOllamaMode() {
+            const modal = document.getElementById('ollamaModeModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            showProviderModal();
+        }
+
+        async function confirmOllamaMode() {
+            const choice = document.querySelector('input[name="ollamaMode"]:checked');
+            const mode = choice ? choice.value : 'internal';
+            const modal = document.getElementById('ollamaModeModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            if (mode === 'own') {
+                await selectOllamaOwnHost();
+            } else {
+                await selectOllamaInternal();
+            }
+        }
+
+        async function selectOllamaInternal() {
             if (!bootStatus || !bootStatus.ollama || !bootStatus.ollama.models) {
                 alert('Status response is not available. Cannot configure Ollama.');
                 showProviderModal();
@@ -177,6 +236,40 @@
             delete cfg.model_version;
             delete cfg.env;
             await saveAndRunConfiguration(cfg);
+        }
+
+        // "Own host" mode: persist a minimal ollama config (empty base_url,
+        // empty models) and route the user to configure.html where they
+        // enter the LAN host, test it, and pull /api/tags.
+        async function selectOllamaOwnHost() {
+            const cfg = Object.assign({}, currentConfig || {}, {
+                provider: 'ollama',
+                base_url: '',
+                api_key: 'dummy',
+                models: {},
+                opencode: { default: '', small: '' }
+            });
+            cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
+            // Drop legacy fields if present.
+            delete cfg.model_version;
+            delete cfg.env;
+            try {
+                const resp = await fetch('/api/configuration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cfg)
+                });
+                if (!resp.ok) {
+                    alert('Failed to save configuration: ' + (await resp.text()));
+                    showProviderModal();
+                    return;
+                }
+            } catch (e) {
+                alert('Failed to save configuration: ' + e.message);
+                showProviderModal();
+                return;
+            }
+            window.location.href = 'configure.html?ollama=own';
         }
 
         async function selectTrustable() {
@@ -539,7 +632,11 @@
             const forceChoose = params.get('choose') === '1';
             const provider = currentConfig && currentConfig.provider;
 
-            if (provider && !forceChoose && bootStatus && bootStatus[provider]) {
+            // Once provider=ollama is set, Trustable never auto-updates the
+            // saved model list. The user is in charge — they re-pick Ollama
+            // from "Change Provider" to refresh recommended models, or edit
+            // models manually in configure.html.
+            if (provider && provider !== 'ollama' && !forceChoose && bootStatus && bootStatus[provider]) {
                 const sec = bootStatus[provider];
                 const savedVer = (currentConfig.model_versions && currentConfig.model_versions[provider]) || 0;
                 const savedOpencode = currentConfig.opencode || {};

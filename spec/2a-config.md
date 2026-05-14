@@ -42,7 +42,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 
 - `provider` — `ollama` or `trustable`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by verifying the Ed25519 signature on `api_key` (see [6-publish.md](6-publish.md) and [10-validate_key.md](10-validate_key.md)) — there is no separate `publishing` flag.
 - `base_url` and `api_key` — top-level provider credentials. Set when a provider is chosen:
-  - **Ollama** — `api_key = "dummy"`. `base_url` defaults to `http://localhost:11434/v1` but the user can change the hostname and port via the configure UI (see "Configuration UI"). Scheme is fixed to `http://` and path is fixed to `/v1`; only host and port are editable. The Ollama `base_url` must always parse as `http://<host>:<port>/v1` — no HTTPS, no auth, no other paths.
+  - **Ollama** — `api_key = "dummy"`. `base_url` depends on the Ollama mode picked on the splash sub-modal (see "Ollama mode selection"). For **internal** Ollama it is fixed to `http://localhost:11434/v1`; for **own host** the user enters host and port and `base_url` becomes `http://<host>:<port>/v1`. Scheme is always `http://` and path is always `/v1` — no HTTPS, no auth, no other paths.
   - **Trustable** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
   There is **no** global `env` section in `trustable.json`. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
@@ -80,6 +80,8 @@ After each successful fetch, compare `version` against the version in the previo
 - **Version changed** — overwrite the cache with the new file, then redirect the user to `configure.html?reselect=1` so they can re-pick `opencode.default` / `opencode.small` from the (possibly changed) model list. The redirect happens *before* the splash configuration flow runs.
 - **First run / no cached version** — write the cache and proceed; the provider-choice screen seeds `models` and `opencode` from the catalog automatically when the user picks a provider, so no reselect screen is needed.
 
+**Exception — `provider == "ollama"`:** the version check / reselect routing is suppressed when the saved provider is Ollama, regardless of mode (internal or own host). Once the user is on Ollama, Trustable never auto-overwrites the saved model list — the user controls it via **Change Provider → Ollama → internal** (to re-seed from the catalog) or via the Test button on the Ollama host section (to re-discover models on their own host). The `Refresh` button in the configure UI is also hidden whenever `provider == "ollama"`.
+
 ### Per-provider seeding
 
 When the user picks a provider on the choice screen (or when the configure UI's "Change Provider" button completes a switch), the workspace `trustable.json` is rewritten with:
@@ -89,6 +91,26 @@ When the user picks a provider on the choice screen (or when the configure UI's 
 - `opencode` — `<catalog>.<provider>.opencode` verbatim (defaults; the user can override via the dropdowns in the configure UI)
 
 This is what the user means by "change the OpenCode models to the Ollama models when switching back to Ollama" — switching provider replaces the model list **and** the opencode defaults from the catalog.
+
+## Ollama mode selection
+
+When the user picks **Ollama** on the splash provider-choice modal, a sub-modal asks them to pick between two modes:
+
+- **Use internal Ollama with recommended cloud models** — the existing behavior: `base_url = "http://localhost:11434/v1"`, `models` and `opencode` are seeded from `<catalog>.ollama` (see "Per-provider seeding"), and `GET /api/configure` proceeds to check connectivity and pull each model.
+- **Use my own Ollama with currently installed models** — a minimal workspace config is persisted (`provider="ollama"`, `base_url=""`, `models={}`, `opencode={default:"", small:""}`) and the user is routed to `configure.html?ollama=own` to enter their LAN host. No model pull runs at this stage.
+
+On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** calls `GET /api/ollama-tags?host=<host>&port=<port>`; on success the frontend rewrites `config.base_url = "http://<host>:<port>/v1"`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.opencode` so the user picks default/small from the discovered list.
+
+After **Save & Configure**, `GET /api/configure` reaches the user's host (via `cfg.base_url` stripped of `/v1`) for the connectivity check and for capability discovery via `/api/show`. The model-pull loop (Step 2) is **skipped** when the resolved host is not localhost — the user's host already has the models installed locally; pulling them again would be wasteful. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)` instead.
+
+## GET /api/ollama-tags
+
+Server-side proxy that lets the splash/configure flow discover the models installed on an arbitrary Ollama host without browser CORS or mixed-content issues.
+
+- Query parameters: `host` (required, must NOT be `127.0.0.1` or `localhost` — rejected with HTTP 400 because Trustable runs inside a VM and a loopback there is not the user's loopback), `port` (required, numeric).
+- Backend issues `GET http://<host>:<port>/v1/models` (Ollama's OpenAI-compatible model-list endpoint) with a short timeout, parses the `{object:"list", data:[{id, ...}, ...]}` response, and returns `{models: ["id1", "id2", ...]}` sorted alphabetically. On any failure it returns `{error: "..."}` with an HTTP status reflecting the cause.
+
+The endpoint is purely a read — it does not write to `trustable.json`. The frontend takes the returned model list, builds the new `models` map with default limits, and saves via `POST /api/configuration` as usual.
 
 ## Config loading functions
 
@@ -144,7 +166,7 @@ In both cases the frontend separately calls `GET /api/testmodel` after the confi
 
 ## Step 1: Check Ollama connectivity (with retries) — Ollama only
 
-Before anything else, verify that Ollama is reachable. Try up to 12 times (2 minutes total) with 10-second intervals between attempts. Each attempt is streamed to the client:
+Before anything else, verify that Ollama is reachable. The probe is `GET <root>/v1/models` (the OpenAI-compatible model-list endpoint, considered successful on any 2xx status). The root is derived from `cfg.base_url` (stripped of the `/v1` suffix); if `base_url` points at the embedded server (localhost / 127.0.0.1 / "ollama"), the `OLLAMA_ENDPOINT` env var is used instead. Try up to 12 times (2 minutes total) with 10-second intervals between attempts. Each attempt is streamed to the client:
 
 - On success: `OK: Ollama is running`
 - On retry: `Attempt N/12: Cannot reach Ollama at <endpoint> - retrying in 10 seconds...`
@@ -152,9 +174,11 @@ Before anything else, verify that Ollama is reachable. Try up to 12 times (2 min
 
 If Ollama cannot be reached, stop here — do not proceed to pull models. The frontend shows a **Retry** button so the user can fix the issue and try again.
 
-## Step 2: Pull models — Ollama only
+## Step 2: Pull models — Ollama, internal mode only
 
-Read the merged config (base + workspace), connect to the Ollama endpoint and pull every model listed under `models`, returning in streaming mode messages "Pulling model XXX".
+For **internal** Ollama, connect to the resolved Ollama endpoint and pull every model listed under `models`, returning in streaming mode messages `Pulling model <name>`.
+
+For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this step is skipped — the models were discovered via `/api/tags` on that host and are already installed there. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)`.
 
 # Prepare opencode config
 
@@ -304,7 +328,9 @@ The page header shows a "Current provider: <Ollama|Trustable>" line and a **Chan
 
 Sections (rendered top to bottom in this order):
 
-- **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the local Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`. Below the row, show the help text: *"Specify hostname and port for your local Ollama host (HTTP only, no auth)."* On load, parse the existing `base_url` as `http://<host>:<port>/v1` and populate the two inputs from it; if parsing fails, fall back to host `localhost` and port `11434`. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"` (Trustable's `base_url` is fixed by the registration payload).
+- **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
+    - In **internal** mode (or when `base_url` parses as `http://(localhost|127.0.0.1|ollama):...`) the inputs are pre-filled from the existing `base_url`. The Test button is still available for re-validation but is not required.
+    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `GET /api/ollama-tags?host=...&port=...`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.opencode` so the user picks default/small from the new list.
 - **`<Provider> Models`** — a table of the currently selected provider's models with context size. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the cached `models.json` for the active provider. Switching provider via **Change Provider** reseeds this section from the catalog (see "Per-provider seeding" above).
   - **Ollama** — editable. The user can add or remove rows; adds/removes only edit the workspace `models` map (they do not change the catalog). The header shows an **Add Model** button and each row has a **Remove** button.
   - **Trustable** — read-only. The model list is authoritative from the proxy catalog and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that calls `POST /api/models/refresh` to re-fetch the catalog from the proxy and rewrite the workspace `models` map (and `opencode` defaults) from `<catalog>.trustable`. The dropdowns repopulate from the new list.

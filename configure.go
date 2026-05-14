@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -332,11 +333,16 @@ type ollamaShowResponse struct {
 	Capabilities []string `json:"capabilities"`
 }
 
-// getModelCapabilities queries Ollama for a model's capabilities
-func getModelCapabilities(modelName string) ([]string, error) {
+// getModelCapabilities queries Ollama for a model's capabilities. The root
+// argument is the Ollama HTTP root (e.g. "http://192.168.1.10:11434"); pass
+// the empty string to use OllamaEndpoint (the embedded server).
+func getModelCapabilities(modelName, root string) ([]string, error) {
+	if root == "" {
+		root = OllamaEndpoint
+	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	reqBody, _ := json.Marshal(map[string]string{"name": modelName})
-	resp, err := client.Post(OllamaEndpoint+"/api/show", "application/json", bytes.NewReader(reqBody))
+	resp, err := client.Post(root+"/api/show", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}
@@ -625,6 +631,32 @@ func modelDisplayName(modelID string) string {
 	return strings.Join(result, " ")
 }
 
+// resolveOllamaRoot returns the HTTP root for talking to Ollama (i.e. the
+// base used to build /api/show, /api/pull, /api/tags) and a flag indicating
+// whether the user has pointed Trustable at their own remote host.
+//
+// "Own host" means cfg.BaseURL is set AND its host is neither the in-VM
+// embedded Ollama (localhost / 127.0.0.1 / "ollama") at port 11434. In that
+// case we return cfg.BaseURL stripped of its /v1 suffix. Otherwise we fall
+// back to the OLLAMA_ENDPOINT loaded by preflight.
+func resolveOllamaRoot(cfg *trustableConfig) (root string, isOwnHost bool) {
+	base := strings.TrimSpace(cfg.BaseURL)
+	if base == "" {
+		return OllamaEndpoint, false
+	}
+	stripped := strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+	parsed, err := url.Parse(stripped)
+	if err != nil || parsed.Host == "" {
+		return OllamaEndpoint, false
+	}
+	host := parsed.Hostname()
+	switch host {
+	case "localhost", "127.0.0.1", "ollama":
+		return OllamaEndpoint, false
+	}
+	return stripped, true
+}
+
 // handleConfigure handles GET /api/configure - pulls models and generates opencode config, streaming progress
 func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -685,54 +717,65 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	if cfg.Provider == "trustable" {
 		sendMsg("OK: Skipping Ollama setup (Trustable Cloud)")
 	} else {
-		// Step 1: Check Ollama connectivity with retries
-		sendMsg("Checking Ollama connection at " + OllamaEndpoint + "...")
+		ollamaRoot, isOwnHost := resolveOllamaRoot(cfg)
+
+		// Step 1: Check connectivity with retries by hitting the OpenAI-
+		// compatible /v1/models endpoint. This matches the Test button and
+		// works against any OpenAI-compatible server (Ollama, vLLM, etc.).
+		probe := strings.TrimRight(ollamaRoot, "/") + "/v1/models"
+		sendMsg("Checking Ollama connection at " + probe + "...")
 		ollamaOK := false
 		maxAttempts := 12 // 2 minutes at 10-second intervals
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
 			client := &http.Client{Timeout: 5 * time.Second}
-			resp, err := client.Get(OllamaEndpoint)
+			resp, err := client.Get(probe)
 			if err == nil {
-				body, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				if strings.Contains(string(body), "Ollama is running") {
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 					sendMsg("OK: Ollama is running")
 					ollamaOK = true
 					break
 				}
 			}
 			if attempt < maxAttempts {
-				sendMsg(fmt.Sprintf("Attempt %d/%d: Cannot reach Ollama at %s - retrying in 10 seconds...", attempt, maxAttempts, OllamaEndpoint))
+				sendMsg(fmt.Sprintf("Attempt %d/%d: Cannot reach Ollama at %s - retrying in 10 seconds...", attempt, maxAttempts, probe))
 				time.Sleep(10 * time.Second)
 			} else {
-				sendMsg(fmt.Sprintf("ERROR: Cannot connect to Ollama at %s after 2 minutes. Please check that Ollama is running and try again.", OllamaEndpoint))
+				sendMsg(fmt.Sprintf("ERROR: Cannot connect to Ollama at %s after 2 minutes. Please check that Ollama is running and try again.", probe))
 			}
 		}
 		if !ollamaOK {
 			return
 		}
 
-		// Step 2: Pull each model
-		client := &http.Client{Timeout: 600 * time.Second}
-		for modelName := range cfg.Models {
-			sendMsg("Pulling model " + modelName)
-			log.Printf("  - Pulling %s...", modelName)
+		// Step 2: Pull each model — only for internal Ollama. When the user
+		// points at their own host, the models were discovered there via
+		// /api/tags and are already present; pulling them again would be
+		// redundant and slow.
+		if isOwnHost {
+			sendMsg("OK: Skipping model pull (using your own Ollama host — models are already installed there)")
+		} else {
+			client := &http.Client{Timeout: 600 * time.Second}
+			for modelName := range cfg.Models {
+				sendMsg("Pulling model " + modelName)
+				log.Printf("  - Pulling %s...", modelName)
 
-			reqBody, _ := json.Marshal(map[string]string{"name": modelName})
-			resp, err := client.Post(OllamaEndpoint+"/api/pull", "application/json", bytes.NewReader(reqBody))
-			if err != nil {
-				sendMsg("ERROR: Failed to pull " + modelName + ": " + err.Error())
-				return
+				reqBody, _ := json.Marshal(map[string]string{"name": modelName})
+				resp, err := client.Post(ollamaRoot+"/api/pull", "application/json", bytes.NewReader(reqBody))
+				if err != nil {
+					sendMsg("ERROR: Failed to pull " + modelName + ": " + err.Error())
+					return
+				}
+				// Read through the streaming response to completion
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					sendMsg(fmt.Sprintf("ERROR: Pull %s returned status %d", modelName, resp.StatusCode))
+					return
+				}
+				sendMsg("OK: " + modelName + " pulled")
+				log.Printf("  - ✓ %s pulled", modelName)
 			}
-			// Read through the streaming response to completion
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				sendMsg(fmt.Sprintf("ERROR: Pull %s returned status %d", modelName, resp.StatusCode))
-				return
-			}
-			sendMsg("OK: " + modelName + " pulled")
-			log.Printf("  - ✓ %s pulled", modelName)
 		}
 	}
 
@@ -786,6 +829,7 @@ func generateOpencodeConfig(cfg *trustableConfig) error {
 // mode they default to {tool_call: true, reasoning: false} (the user can
 // override later via the OpenCode UI).
 func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
+	ollamaRoot, _ := resolveOllamaRoot(cfg)
 	models := make(map[string]interface{})
 	for modelID, limits := range cfg.Models {
 		ctx, out := 0, 0
@@ -809,7 +853,7 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 		toolCall := false
 		reasoning := false
 		if cfg.Provider == "ollama" {
-			if caps, err := getModelCapabilities(modelID); err == nil {
+			if caps, err := getModelCapabilities(modelID, ollamaRoot); err == nil {
 				toolCall = containsCapability(caps, "tools")
 				reasoning = containsCapability(caps, "thinking")
 			} else {
@@ -1120,11 +1164,92 @@ var ollamaConnectURLPattern = regexp.MustCompile(`https://ollama\.com/connect\S*
 
 func runOllamaSignin() string {
 	cmd := exec.Command("ollama", "signin")
+	log.Printf("ollama signin: running %s", strings.Join(cmd.Args, " "))
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	_ = cmd.Run()
-	return ollamaConnectURLPattern.FindString(out.String())
+	err := cmd.Run()
+	output := out.String()
+	if err != nil {
+		log.Printf("ollama signin: exited with error: %s; output:\n%s", err, output)
+	} else {
+		log.Printf("ollama signin: output:\n%s", output)
+	}
+	return ollamaConnectURLPattern.FindString(output)
+}
+
+// handleOllamaTags proxies GET http://<host>:<port>/v1/models (the
+// OpenAI-compatible model list endpoint Ollama exposes) so the browser can
+// discover models on a user-supplied host without CORS issues. The host MUST
+// be a routable LAN address — 127.0.0.1 / localhost are rejected because the
+// trustable-app binary runs inside a k3s VM and a loopback there is not the
+// user's loopback.
+func handleOllamaTags(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	host := strings.TrimSpace(r.URL.Query().Get("host"))
+	port := strings.TrimSpace(r.URL.Query().Get("port"))
+	if host == "" || port == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "host and port are required"})
+		return
+	}
+	if host == "127.0.0.1" || strings.EqualFold(host, "localhost") {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Use the LAN IP of your machine, not 127.0.0.1 / localhost — Trustable runs inside a VM and cannot reach your loopback.",
+		})
+		return
+	}
+	if _, err := strconv.Atoi(port); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "port must be numeric"})
+		return
+	}
+
+	target := "http://" + host + ":" + port + "/v1/models"
+	log.Printf("ollama tags: GET %s", target)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(target)
+	if err != nil {
+		log.Printf("ollama tags: %s failed: %s", target, err)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Cannot reach " + target + ": " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("ollama tags: %s returned %d: %s", target, resp.StatusCode, strings.TrimSpace(string(body)))
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Ollama at %s returned status %d", target, resp.StatusCode),
+		})
+		return
+	}
+
+	// OpenAI-compatible shape: {"object": "list", "data": [{"id": "...", ...}, ...]}
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		log.Printf("ollama tags: parse error: %s; body: %s", err, strings.TrimSpace(string(body)))
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid response from Ollama: " + err.Error()})
+		return
+	}
+	names := make([]string, 0, len(parsed.Data))
+	for _, m := range parsed.Data {
+		if id := strings.TrimSpace(m.ID); id != "" {
+			names = append(names, id)
+		}
+	}
+	sort.Strings(names)
+	log.Printf("ollama tags: %s returned %d models", target, len(names))
+	json.NewEncoder(w).Encode(map[string]interface{}{"models": names})
 }
 
 // handleConfiguration handles GET and POST /api/configuration

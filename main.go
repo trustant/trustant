@@ -12,8 +12,8 @@ import (
 //go:embed web
 var embeddedWeb embed.FS
 
-//go:embed version.txt
-var versionTxt string
+//go:embed _build.txt
+var buildTxt string
 
 //go:embed opencode.md
 var opencodeMd string
@@ -40,7 +40,7 @@ func main() {
 	terminateLeftoverProcesses()
 
 	// Parse version info
-	parseVersion(versionTxt)
+	parseVersion(buildTxt)
 
 	// API routes
 	http.HandleFunc("/api/version", handleVersion)
@@ -57,6 +57,7 @@ func main() {
 	http.HandleFunc("/api/configure", handleConfigure)
 	http.HandleFunc("/api/testmodel", handleTestModel)
 	http.HandleFunc("/api/ollama-connect", handleOllamaConnect)
+	http.HandleFunc("/api/ollama-tags", handleOllamaTags)
 	http.HandleFunc("/api/configuration", handleConfiguration)
 	http.HandleFunc("/api/appconfig/", handleAppConfig)
 	http.HandleFunc("/api/publish/push", handlePublish)
