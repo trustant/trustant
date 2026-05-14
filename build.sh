@@ -16,7 +16,7 @@ TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%M)"
 echo "New Tag: $TAG"
 
 git tag -d $(git tag)
-echo -e "Version: v${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
+echo -e "Version: ${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
 git tag $TAG
 
 OPSROOT="./olaris-bestia/opsroot.json"
@@ -44,5 +44,3 @@ ops bestia trustable redeploy
 cd olaris-bestia
 git commit -m "$TAG" -a
 git tag $TAG
-
-
