@@ -420,27 +420,20 @@
         }
 
         async function showSigninModal() {
-            const qs = window.location.search;
-            if (qs && qs.length > 1) {
-                document.getElementById('ollamaConnectLink').href = 'https://ollama.com/connect' + qs;
-                document.getElementById('signinWithLink').classList.remove('hidden');
-                document.getElementById('signinWithoutLink').classList.add('hidden');
-            } else {
-                try {
-                    const resp = await fetch('/api/ollama-connect');
-                    const data = await resp.json();
-                    if (data.url) {
-                        document.getElementById('ollamaConnectLink').href = data.url;
-                        document.getElementById('signinWithLink').classList.remove('hidden');
-                        document.getElementById('signinWithoutLink').classList.add('hidden');
-                    } else {
-                        document.getElementById('signinWithLink').classList.add('hidden');
-                        document.getElementById('signinWithoutLink').classList.remove('hidden');
-                    }
-                } catch {
+            try {
+                const resp = await fetch('/api/ollama-connect');
+                const data = await resp.json();
+                if (data.url) {
+                    document.getElementById('ollamaConnectLink').href = data.url;
+                    document.getElementById('signinWithLink').classList.remove('hidden');
+                    document.getElementById('signinWithoutLink').classList.add('hidden');
+                } else {
                     document.getElementById('signinWithLink').classList.add('hidden');
                     document.getElementById('signinWithoutLink').classList.remove('hidden');
                 }
+            } catch {
+                document.getElementById('signinWithLink').classList.add('hidden');
+                document.getElementById('signinWithoutLink').classList.remove('hidden');
             }
             document.getElementById('signinModal').classList.remove('hidden');
             document.getElementById('signinModal').classList.add('flex');
@@ -632,11 +625,16 @@
             const forceChoose = params.get('choose') === '1';
             const provider = currentConfig && currentConfig.provider;
 
-            // Once provider=ollama is set, Trustable never auto-updates the
-            // saved model list. The user is in charge — they re-pick Ollama
-            // from "Change Provider" to refresh recommended models, or edit
-            // models manually in configure.html.
-            if (provider && provider !== 'ollama' && !forceChoose && bootStatus && bootStatus[provider]) {
+            // Own-host Ollama is exempt from the reselect redirect: those
+            // users discover their model list via /api/discover-models on
+            // their own machine, so the proxy catalog can drift freely.
+            // Internal Ollama (localhost base_url) and Trustable both stay
+            // catalog-backed and DO redirect on a modelsVersion bump.
+            const baseURL = String((currentConfig && currentConfig.base_url) || '').trim();
+            const ownHostOllama = provider === 'ollama' && baseURL !== ''
+                && !/^http:\/\/(localhost|127\.0\.0\.1|ollama)(:|\/)/i.test(baseURL);
+
+            if (provider && !ownHostOllama && !forceChoose && bootStatus && bootStatus[provider]) {
                 const sec = bootStatus[provider];
                 const savedVer = (currentConfig.model_versions && currentConfig.model_versions[provider]) || 0;
                 const savedOpencode = currentConfig.opencode || {};

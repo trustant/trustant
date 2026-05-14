@@ -75,15 +75,22 @@
                 </div>
                 <!-- SSH Key Notice (hidden if key not available) -->
                 <div id="sshKeyNotice" class="bg-yellow-50 border border-yellow-200 rounded-md p-3 hidden">
-                    <p class="text-sm text-yellow-800 mb-2">To read private GitHub repositories and write back your changes, add this SSH public key to your GitHub account:</p>
-                    <textarea id="addAppSshKey" readonly rows="3"
-                        class="w-full px-2 py-1 border border-yellow-300 rounded bg-white text-xs font-mono resize-none"></textarea>
-                    <div class="flex items-center gap-2 mt-2">
-                        <button type="button" onclick="copyAddAppSshKey()"
-                            class="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
-                            Copy Key
-                        </button>
-                        <span id="addAppSshCopied" class="text-green-700 text-xs hidden">Copied!</span>
+                    <p class="text-sm text-yellow-800">
+                        To save and read private repo add this
+                        <a href="#" id="sshKeyToggle" onclick="toggleAddAppSshKey();return false"
+                            class="text-yellow-900 underline hover:text-yellow-700">ssh key</a>
+                        to your GitHub account.
+                    </p>
+                    <div id="sshKeyReveal" class="hidden mt-2">
+                        <textarea id="addAppSshKey" readonly rows="3"
+                            class="w-full px-2 py-1 border border-yellow-300 rounded bg-white text-xs font-mono resize-none"></textarea>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button type="button" onclick="copyAddAppSshKey()"
+                                class="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 transition-colors">
+                                Copy Key
+                            </button>
+                            <span id="addAppSshCopied" class="text-green-700 text-xs hidden">Copied!</span>
+                        </div>
                     </div>
                 </div>
                 <div class="flex gap-3">
@@ -382,6 +389,8 @@
             document.getElementById('addModal').classList.add('hidden');
             document.getElementById('addModal').classList.remove('flex');
             document.getElementById('addAppForm').reset();
+            const reveal = document.getElementById('sshKeyReveal');
+            if (reveal) reveal.classList.add('hidden');
         }
 
         // SSH key helpers — the key is rendered inline in the Git Push and Add App panels.
@@ -424,6 +433,11 @@
 
         function copyAddAppSshKey() {
             copyKeyFromTextarea('addAppSshKey', 'addAppSshCopied');
+        }
+
+        function toggleAddAppSshKey() {
+            const el = document.getElementById('sshKeyReveal');
+            el.classList.toggle('hidden');
         }
 
         function showDeleteModal(name) {
@@ -1009,8 +1023,14 @@
                             banner.classList.remove('hidden');
                         }
                         // 2) Per-provider catalog drift -> reselect.
+                        // Own-host Ollama is exempt: its model list comes
+                        // from /api/discover-models on the user's machine,
+                        // not from the proxy catalog.
+                        const bootBaseURL = String((bootConfig && bootConfig.base_url) || '').trim();
+                        const ownHostOllama = bootProvider === 'ollama' && bootBaseURL !== ''
+                            && !/^http:\/\/(localhost|127\.0\.0\.1|ollama)(:|\/)/i.test(bootBaseURL);
                         const sec = sdata[bootProvider];
-                        if (sec && sec.models) {
+                        if (!ownHostOllama && sec && sec.models) {
                             const savedVer = (bootConfig.model_versions && bootConfig.model_versions[bootProvider]) || 0;
                             const savedOpencode = bootConfig.opencode || {};
                             const versionChanged = typeof sec.modelsVersion === 'number'

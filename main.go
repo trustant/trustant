@@ -57,7 +57,7 @@ func main() {
 	http.HandleFunc("/api/configure", handleConfigure)
 	http.HandleFunc("/api/testmodel", handleTestModel)
 	http.HandleFunc("/api/ollama-connect", handleOllamaConnect)
-	http.HandleFunc("/api/ollama-tags", handleOllamaTags)
+	http.HandleFunc("/api/discover-models", handleDiscoverModels)
 	http.HandleFunc("/api/configuration", handleConfiguration)
 	http.HandleFunc("/api/appconfig/", handleAppConfig)
 	http.HandleFunc("/api/publish/push", handlePublish)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1010,6 +1009,74 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 }
 
 // handleTestModel handles GET /api/testmodel - tests the OpenAI API connection
+// testModelResult is the outcome of a hello-prompt connectivity probe against
+// the configured small model. Exactly one of OK / Warning / AuthRequired is
+// true (Error is set when the request itself failed before we could classify
+// the upstream response).
+type testModelResult struct {
+	OK           bool
+	Warning      string
+	AuthRequired bool
+	Error        string
+}
+
+// runTestModel sends a "hello" prompt to cfg.Opencode.Small using cfg.BaseURL
+// / cfg.APIKey and classifies the response. Shared by GET /api/testmodel and
+// the testmodel step of POST /api/configuration.
+func runTestModel(cfg *trustableConfig) testModelResult {
+	if cfg == nil {
+		return testModelResult{Error: "configuration not loaded"}
+	}
+	if cfg.Opencode == nil || strings.TrimSpace(cfg.Opencode.Small) == "" {
+		return testModelResult{Error: "opencode.small not defined in trustable.json"}
+	}
+	model := cfg.Opencode.Small
+
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if baseURL == "" {
+		return testModelResult{Error: "base_url not defined in trustable.json"}
+	}
+
+	log.Printf("Testing model %s at %s...", model, baseURL)
+	client := &http.Client{Timeout: 60 * time.Second}
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "hello"},
+		},
+		"stream": false,
+	})
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(reqBody))
+	if err != nil {
+		return testModelResult{Error: err.Error()}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Test model %s error: %s", model, err)
+		return testModelResult{Error: err.Error()}
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	log.Printf("Test model %s response: %s", model, bodyStr)
+
+	if resp.StatusCode != http.StatusOK || strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"choices"`) {
+		message := ollamaErrorMessage(bodyStr)
+		if cfg.Provider != "trustable" && isOllamaSigninRequired(message) {
+			return testModelResult{AuthRequired: true, Warning: message}
+		}
+		return testModelResult{Warning: message}
+	}
+
+	return testModelResult{OK: true}
+}
+
 func handleTestModel(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
 		return
@@ -1027,66 +1094,23 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cfg.Opencode == nil || strings.TrimSpace(cfg.Opencode.Small) == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "opencode.small not defined in trustable.json"})
-		return
-	}
-	model := cfg.Opencode.Small
-
-	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if baseURL == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "base_url not defined in trustable.json"})
-		return
-	}
-
-	log.Printf("Testing model %s at %s...", model, baseURL)
-	client := &http.Client{Timeout: 60 * time.Second}
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": "hello"},
-		},
-		"stream": false,
-	})
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(reqBody))
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Test model %s error: %s", model, err)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	bodyStr := string(body)
-	log.Printf("Test model %s response: %s", model, bodyStr)
-
-	if resp.StatusCode != http.StatusOK || strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"choices"`) {
-		message := ollamaErrorMessage(bodyStr)
-		if cfg.Provider != "trustable" && isOllamaSigninRequired(message) {
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"error":         message,
-				"auth_required": true,
-			})
-			return
-		}
+	res := runTestModel(cfg)
+	switch {
+	case res.Error != "":
+		json.NewEncoder(w).Encode(map[string]string{"error": res.Error})
+	case res.AuthRequired:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":         res.Warning,
+			"auth_required": true,
+		})
+	case res.OK:
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	default:
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "warning",
-			"warning": message,
+			"warning": res.Warning,
 		})
-		return
 	}
-
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func ollamaErrorMessage(bodyStr string) string {
@@ -1123,7 +1147,9 @@ func isOllamaSigninRequired(message string) bool {
 }
 
 // handleOllamaConnect returns the browser URL needed to connect the Ollama CLI
-// identity used by Trustable to Ollama Cloud.
+// identity used by Trustable to Ollama Cloud. The backend always invokes
+// `ollama signin` and scrapes its output for the first https://ollama.com/connect
+// URL — query strings from the calling page are not forwarded.
 func handleOllamaConnect(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
 		return
@@ -1134,27 +1160,13 @@ func handleOllamaConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	name := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_NAME"))
-	publicKey := strings.TrimSpace(os.Getenv("OLLAMA_CONNECT_PUBLIC_KEY"))
-	if name != "" && publicKey != "" {
-		values := url.Values{}
-		values.Set("name", name)
-		values.Set("key", base64.RawStdEncoding.EncodeToString([]byte(publicKey)))
-		json.NewEncoder(w).Encode(map[string]string{
-			"url": "https://ollama.com/connect?" + values.Encode(),
-		})
-		return
-	}
-
-	// Fallback: execute `ollama signin` and parse its output for an
-	// https://ollama.com/connect URL.
 	if connectURL := runOllamaSignin(); connectURL != "" {
 		json.NewEncoder(w).Encode(map[string]string{"url": connectURL})
 		return
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
-		"error": "Ollama connect data is not configured",
+		"error": "Could not obtain an Ollama Cloud sign-in URL — run `ollama signin` in a terminal.",
 	})
 }
 
@@ -1178,77 +1190,107 @@ func runOllamaSignin() string {
 	return ollamaConnectURLPattern.FindString(output)
 }
 
-// handleOllamaTags proxies GET http://<host>:<port>/v1/models (the
-// OpenAI-compatible model list endpoint Ollama exposes) so the browser can
-// discover models on a user-supplied host without CORS issues. The host MUST
-// be a routable LAN address — 127.0.0.1 / localhost are rejected because the
-// trustable-app binary runs inside a k3s VM and a loopback there is not the
-// user's loopback.
-func handleOllamaTags(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+// handleDiscoverModels proxies GET <base_url>/models against any
+// OpenAI-compatible provider so the browser can list available models without
+// CORS or mixed-content issues. Body shape: {"base_url": "...", "api_key": "..."}.
+// When the saved provider is Ollama the host must be a routable LAN address —
+// 127.0.0.1 / localhost are rejected because trustable-app runs inside a k3s VM
+// and a loopback there is not the user's loopback.
+func handleDiscoverModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 
-	host := strings.TrimSpace(r.URL.Query().Get("host"))
-	port := strings.TrimSpace(r.URL.Query().Get("port"))
-	if host == "" || port == "" {
+	var req struct {
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "host and port are required"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON: " + err.Error()})
 		return
 	}
-	if host == "127.0.0.1" || strings.EqualFold(host, "localhost") {
+	baseURL := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
+	if baseURL == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Use the LAN IP of your machine, not 127.0.0.1 / localhost — Trustable runs inside a VM and cannot reach your loopback.",
-		})
+		json.NewEncoder(w).Encode(map[string]string{"error": "base_url is required"})
 		return
 	}
-	if _, err := strconv.Atoi(port); err != nil {
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "port must be numeric"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "base_url must be a parseable URL with scheme and host"})
 		return
 	}
 
-	target := "http://" + host + ":" + port + "/v1/models"
-	log.Printf("ollama tags: GET %s", target)
+	// Ollama-mode loopback guard: Trustable runs in a VM and cannot reach the
+	// host's loopback. Only enforce for Ollama (other providers may legitimately
+	// route via localhost from within the VM, e.g. side-cars).
+	cfg, cfgErr := loadTrustableConfig()
+	if cfgErr == nil && cfg.Provider == "ollama" {
+		host := parsed.Hostname()
+		if host == "127.0.0.1" || strings.EqualFold(host, "localhost") {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Use the LAN IP of your machine, not 127.0.0.1 / localhost — Trustable runs inside a VM and cannot reach your loopback.",
+			})
+			return
+		}
+	}
+
+	target := baseURL + "/models"
+	apiKey := strings.TrimSpace(req.APIKey)
+	log.Printf("discover-models: GET %s", target)
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(target)
+	httpReq, err := http.NewRequest(http.MethodGet, target, nil)
 	if err != nil {
-		log.Printf("ollama tags: %s failed: %s", target, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	if apiKey != "" && apiKey != "dummy" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		log.Printf("discover-models: %s failed: %s", target, err)
+		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Cannot reach " + target + ": " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("ollama tags: %s returned %d: %s", target, resp.StatusCode, strings.TrimSpace(string(body)))
+		log.Printf("discover-models: %s returned %d: %s", target, resp.StatusCode, strings.TrimSpace(string(body)))
+		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("Ollama at %s returned status %d", target, resp.StatusCode),
+			"error": fmt.Sprintf("Provider at %s returned status %d", target, resp.StatusCode),
 		})
 		return
 	}
 
 	// OpenAI-compatible shape: {"object": "list", "data": [{"id": "...", ...}, ...]}
-	var parsed struct {
+	var parsedBody struct {
 		Data []struct {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		log.Printf("ollama tags: parse error: %s; body: %s", err, strings.TrimSpace(string(body)))
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid response from Ollama: " + err.Error()})
+	if err := json.Unmarshal(body, &parsedBody); err != nil {
+		log.Printf("discover-models: parse error: %s; body: %s", err, strings.TrimSpace(string(body)))
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid response: " + err.Error()})
 		return
 	}
-	names := make([]string, 0, len(parsed.Data))
-	for _, m := range parsed.Data {
+	names := make([]string, 0, len(parsedBody.Data))
+	for _, m := range parsedBody.Data {
 		if id := strings.TrimSpace(m.ID); id != "" {
 			names = append(names, id)
 		}
 	}
 	sort.Strings(names)
-	log.Printf("ollama tags: %s returned %d models", target, len(names))
+	log.Printf("discover-models: %s returned %d models", target, len(names))
 	json.NewEncoder(w).Encode(map[string]interface{}{"models": names})
 }
 
@@ -1308,11 +1350,45 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Regenerate .env files for all apps
+	// Regenerate per-app .env files.
 	regenerateAllAppEnvFiles()
 
+	// Regenerate ~/.config/opencode/opencode.json from the merged config so
+	// the next launch / opencode invocation sees the new model defaults
+	// without requiring a separate /api/configure run.
+	merged, mergedErr := loadTrustableConfig()
+	if mergedErr != nil {
+		http.Error(w, "Failed to reload merged configuration: "+mergedErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := generateOpencodeConfig(merged); err != nil {
+		http.Error(w, "Failed to regenerate opencode.json: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Connectivity probe with opencode.small. Failures here are reported
+	// as testmodel.ok=false (HTTP 200) — the save itself succeeded.
+	test := runTestModel(merged)
+	result := map[string]interface{}{"ok": test.OK}
+	if !test.OK {
+		msg := test.Error
+		if msg == "" {
+			msg = test.Warning
+		}
+		if msg == "" {
+			msg = "connection test failed"
+		}
+		result["error"] = msg
+		if test.AuthRequired {
+			result["auth_required"] = true
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "saved",
+		"testmodel": result,
+	})
 }
 
 // EnvVar represents a single environment variable with dev and prod values

@@ -58,59 +58,96 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 
 ## Model catalog
 
-The proxy publishes a per-provider model catalog at `<AIP_REGISTER_URL origin>/.well-known/models.json` (see ai-proxy [SPEC §8](../../ai-proxy/spec/SPEC.md)). Shape:
+The trustable-app fetches the per-provider model catalog via `GET /api/status`, which proxies the ai-proxy's `/api/v2/status` response (see [status_check.md](status_check.md)). Shape (one block per provider):
 
 ```json
 {
-    "version": <integer>,
-    "ollama":    { "models": { "<id>": "<ctx>", ... }, "opencode": { "default": "...", "small": "..." } },
-    "trustable": { "models": { "<id>": "<ctx>", ... }, "opencode": { "default": "...", "small": "..." } }
+    "trustable": { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } },
+    "ollama":    { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } }
 }
 ```
 
-### Fetching and caching
+There is no longer a top-level `version` field driving reselect — the previous `<WorkspaceDir>/models.json` cache and the catalog-level version check have been retired in favor of the per-provider `modelsVersion` mechanism below.
 
-On startup the trustable-app fetches `models.json` from the proxy and caches it as `<WorkspaceDir>/models.json`. If the fetch fails the cached copy is used; if there is no cached copy and the fetch fails, startup fails (the choice screen cannot render meaningful dropdowns without a catalog).
+### Version tracking (per provider)
 
-### Version check
+The workspace `trustable.json` carries a `model_versions` map: `{ "ollama"?: int, "trustable"?: int }`. Each entry caches the `modelsVersion` that was current when the user last saved (or first seeded) that provider's models.
 
-After each successful fetch, compare `version` against the version in the previously cached file:
+On every page load that depends on a chosen provider (splash, applist), the frontend fetches `/api/status` and compares `status[provider].modelsVersion` against `config.model_versions[provider]`:
 
+- **First run / no recorded version** — write the value into `model_versions` on first save and proceed.
 - **Same version** — proceed normally.
-- **Version changed** — overwrite the cache with the new file, then redirect the user to `configure.html?reselect=1` so they can re-pick `opencode.default` / `opencode.small` from the (possibly changed) model list. The redirect happens *before* the splash configuration flow runs.
-- **First run / no cached version** — write the cache and proceed; the provider-choice screen seeds `models` and `opencode` from the catalog automatically when the user picks a provider, so no reselect screen is needed.
+- **Version changed** — persist the new value to `model_versions[provider]` and redirect to `configure.html?reselect=1` so the user re-picks `opencode.default` / `opencode.small` from the refreshed catalog. The redirect happens *before* the splash configuration flow runs.
 
-**Exception — `provider == "ollama"`:** the version check / reselect routing is suppressed when the saved provider is Ollama, regardless of mode (internal or own host). Once the user is on Ollama, Trustable never auto-overwrites the saved model list — the user controls it via **Change Provider → Ollama → internal** (to re-seed from the catalog) or via the Test button on the Ollama host section (to re-discover models on their own host). The `Refresh` button in the configure UI is also hidden whenever `provider == "ollama"`.
+### Exception — own-host Ollama
+
+When `provider == "ollama"` **and** `base_url` resolves to a non-localhost host (see "Detecting own-host Ollama" below), the reselect redirect is suppressed. Own-host Ollama gets its models by calling `POST /api/discover-models` against the user's machine; the proxy catalog never appears in their UI, so catalog drift cannot invalidate their choices. `model_versions.ollama` is still recorded but never used to trigger a reselect for this mode.
+
+Internal Ollama (localhost `base_url`) and Trustable are catalog-backed and **do** trigger the redirect when `modelsVersion` bumps. This is a deliberate change from the previous "all-Ollama is exempt" rule.
+
+The `Refresh` button in the configure UI is also hidden whenever the active config is own-host Ollama (it re-fetches the catalog and would otherwise overwrite the user's discovered model list).
+
+### Detecting own-host Ollama
+
+The runtime distinguishes the two Ollama modes from `cfg.base_url` alone (no separate flag is stored on disk):
+
+- **Internal** — `base_url` is empty, or its host is `localhost`, `127.0.0.1`, or `ollama` (the embedded-server hostname).
+- **Own host** — `base_url` parses as a URL with any other host.
+
+This single rule is reused by:
+
+- the modelsVersion reselect-suppression check above,
+- Step 2 of `GET /api/configure` (skip model-pull on non-localhost),
+- `POST /api/discover-models`, which explicitly rejects `localhost` / `127.0.0.1` for Ollama mode (Trustable runs inside a VM and a loopback there is not the user's loopback).
 
 ### Per-provider seeding
 
 When the user picks a provider on the choice screen (or when the configure UI's "Change Provider" button completes a switch), the workspace `trustable.json` is rewritten with:
 
 - `provider` — the chosen value
-- `models` — `<catalog>.<provider>.models` verbatim
-- `opencode` — `<catalog>.<provider>.opencode` verbatim (defaults; the user can override via the dropdowns in the configure UI)
+- `models` — `status.<provider>.models` verbatim
+- `opencode.default` / `opencode.small` — `status.<provider>.default` / `.small` (defaults; the user can override via the dropdowns in the configure UI)
+- `model_versions[provider]` — `status.<provider>.modelsVersion`
 
 This is what the user means by "change the OpenCode models to the Ollama models when switching back to Ollama" — switching provider replaces the model list **and** the opencode defaults from the catalog.
+
+**Own-host Ollama is the seeding exception:** an empty `models` map and empty `opencode` defaults are persisted; the user populates both via the Test button on `configure.html?ollama=own`. `model_versions.ollama` is still seeded from the current `status.ollama.modelsVersion`.
 
 ## Ollama mode selection
 
 When the user picks **Ollama** on the splash provider-choice modal, a sub-modal asks them to pick between two modes:
 
-- **Use internal Ollama with recommended cloud models** — the existing behavior: `base_url = "http://localhost:11434/v1"`, `models` and `opencode` are seeded from `<catalog>.ollama` (see "Per-provider seeding"), and `GET /api/configure` proceeds to check connectivity and pull each model.
-- **Use my own Ollama with currently installed models** — a minimal workspace config is persisted (`provider="ollama"`, `base_url=""`, `models={}`, `opencode={default:"", small:""}`) and the user is routed to `configure.html?ollama=own` to enter their LAN host. No model pull runs at this stage.
+- **Use internal Ollama with recommended cloud models** — the existing behavior: `base_url = "http://localhost:11434/v1"`, `models` and `opencode` are seeded from `status.ollama` (see "Per-provider seeding"), and `GET /api/configure` proceeds to check connectivity and pull each model.
+- **Use my own Ollama with currently installed models** — a minimal workspace config is persisted (`provider="ollama"`, `base_url=""`, `models={}`, `opencode={default:"", small:""}`, `model_versions.ollama = status.ollama.modelsVersion`) and the user is routed to `configure.html?ollama=own` to enter their LAN host. No model pull runs at this stage. The recorded `modelsVersion` is never used as a reselect trigger for this mode (own-host is exempt).
 
-On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** calls `GET /api/ollama-tags?host=<host>&port=<port>`; on success the frontend rewrites `config.base_url = "http://<host>:<port>/v1"`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.opencode` so the user picks default/small from the discovered list.
+On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** builds `base_url = "http://<host>:<port>/v1"` from the inputs and calls `POST /api/discover-models` with that `base_url` and `api_key = "dummy"`. On success the frontend writes the same `base_url` into `config.base_url`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.opencode` so the user picks default/small from the discovered list.
 
 After **Save & Configure**, `GET /api/configure` reaches the user's host (via `cfg.base_url` stripped of `/v1`) for the connectivity check and for capability discovery via `/api/show`. The model-pull loop (Step 2) is **skipped** when the resolved host is not localhost — the user's host already has the models installed locally; pulling them again would be wasteful. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)` instead.
 
-## GET /api/ollama-tags
+## POST /api/discover-models
 
-Server-side proxy that lets the splash/configure flow discover the models installed on an arbitrary Ollama host without browser CORS or mixed-content issues.
+Server-side proxy that lets the configure UI discover the models a given OpenAI-compatible provider exposes, without browser CORS or mixed-content issues. The endpoint is **provider-agnostic** — it hits `<base_url>/models` on whatever the caller passes. (The Test button in the UI is currently shown only for own-host Ollama; the endpoint itself does not enforce that.)
 
-- Query parameters: `host` (required, must NOT be `127.0.0.1` or `localhost` — rejected with HTTP 400 because Trustable runs inside a VM and a loopback there is not the user's loopback), `port` (required, numeric).
-- Backend issues `GET http://<host>:<port>/v1/models` (Ollama's OpenAI-compatible model-list endpoint) with a short timeout, parses the `{object:"list", data:[{id, ...}, ...]}` response, and returns `{models: ["id1", "id2", ...]}` sorted alphabetically. On any failure it returns `{error: "..."}` with an HTTP status reflecting the cause.
+Request body (JSON):
 
-The endpoint is purely a read — it does not write to `trustable.json`. The frontend takes the returned model list, builds the new `models` map with default limits, and saves via `POST /api/configuration` as usual.
+```json
+{ "base_url": "http://<host>:<port>/v1", "api_key": "..." }
+```
+
+- `base_url` — required. Must be a parseable URL. When the in-progress config indicates Ollama mode (`provider == "ollama"` on the saved config), the host must NOT be `127.0.0.1` / `localhost` — rejected with HTTP 400 because Trustable runs inside a VM and a loopback there is not the user's loopback. For non-Ollama providers any host is accepted.
+- `api_key` — optional. If non-empty and not the literal string `"dummy"`, the backend sends `Authorization: Bearer <api_key>` on the upstream request. Otherwise no auth header is sent (matches the current Ollama-on-LAN behavior).
+
+Backend behavior:
+
+1. Issue `GET <base_url>/models` with a short timeout (5 seconds).
+2. Parse the OpenAI-compatible response `{ "object": "list", "data": [{ "id": "<model>", ... }, ...] }`.
+3. Return `{ "models": ["<id1>", "<id2>", ...] }` sorted alphabetically.
+
+On any failure return `{ "error": "<message>" }` with an HTTP status reflecting the cause (400 for bad input, 502/504 for upstream failures, 500 for parse errors).
+
+The endpoint is purely a read — it does not write to `trustable.json`. The frontend takes the returned model list, builds the new `config.models` map with default limits, resets `config.opencode`, and saves via `POST /api/configuration` as usual.
+
+This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which was Ollama-specific in name only — it already hit the OpenAI-compatible `/v1/models` endpoint). The old route is removed; callers must use `POST /api/discover-models`.
 
 ## Config loading functions
 
@@ -157,6 +194,8 @@ Passwords are stored in `apps.<name>.password` in the workspace `trustable.json`
 
 This endpoint streams progress to the client. It assumes a provider has already been chosen (`provider`, `base_url`, and `api_key` are set in the workspace `trustable.json`); it does **not** prompt for provider selection. Provider selection happens once on the splash page (see [1-index.md](1-index.md)) and is changed only via the **Change Provider** button in the configure UI. If `provider` is empty, the splash flow handles the choice — `/api/configure` is only invoked afterwards.
 
+`/api/configure` is the streamed path used by the splash after a provider is freshly chosen: it runs the Ollama connectivity check and the model-pull loop. It is **not** invoked by the configure UI's Save & Configure button — that path is now `POST /api/configuration` (see below), which persists, regenerates `opencode.json`, and runs testmodel in a single call. The two paths share the opencode-regen helper.
+
 The behaviour depends on the merged config's `provider`:
 
 - **`provider == "ollama"`** — run Step 1 and Step 2 below.
@@ -178,7 +217,7 @@ If Ollama cannot be reached, stop here — do not proceed to pull models. The fr
 
 For **internal** Ollama, connect to the resolved Ollama endpoint and pull every model listed under `models`, returning in streaming mode messages `Pulling model <name>`.
 
-For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this step is skipped — the models were discovered via `/api/tags` on that host and are already installed there. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)`.
+For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this step is skipped — the models were discovered via `POST /api/discover-models` against `<base_url>/models` on that host and are already installed there. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)`.
 
 # Prepare opencode config
 
@@ -290,9 +329,29 @@ Returns the merged configuration (base + workspace overrides) as JSON.
 
 # POST /api/configuration
 
-Saves the configuration to the workspace `trustable.json`. Preserves the existing `apps` section if not included in the request. After saving, regenerates `.env` files for all apps that have a workbench directory.
+The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs three steps in order and returns a single JSON result:
 
-Does not execute the configuration — you need to do a `GET /api/configure` for that.
+1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
+2. **Regenerate `~/.config/opencode/opencode.json`** — rebuild the OpenCode config from the merged `trustable.json` using the rules in "Prepare opencode config". This was previously triggered only from `/api/configure`, app launch, and appconfig save; it now also runs on every `POST /api/configuration` so a model-defaults change takes effect without forcing a full reconfigure.
+3. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `opencode.small` using the top-level `base_url` / `api_key` of the just-saved merged config).
+
+Response shape on success:
+
+```json
+{ "status": "saved", "testmodel": { "ok": true } }
+```
+
+On testmodel failure (still HTTP 200 — the save succeeded, only the connectivity check failed):
+
+```json
+{ "status": "saved", "testmodel": { "ok": false, "error": "<message>" } }
+```
+
+Persist / opencode-regen failures return HTTP 5xx with `{ "error": "..." }`. The frontend distinguishes a save failure (non-2xx) from a connection failure (2xx with `testmodel.ok == false`).
+
+Rationale for the single endpoint: testmodel must see the just-persisted config, and `opencode.json` must reflect the new model choice before the small model is exercised. A single endpoint guarantees ordering and gives the caller one network round-trip and one error path to render.
+
+`GET /api/configure` (the streamed splash flow) is unchanged — it remains the path for the Ollama connectivity check and the model-pull loop after a provider is freshly chosen.
 
 # GET /api/testmodel
 
@@ -330,18 +389,31 @@ Sections (rendered top to bottom in this order):
 
 - **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
     - In **internal** mode (or when `base_url` parses as `http://(localhost|127.0.0.1|ollama):...`) the inputs are pre-filled from the existing `base_url`. The Test button is still available for re-validation but is not required.
-    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `GET /api/ollama-tags?host=...&port=...`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.opencode` so the user picks default/small from the new list.
-- **`<Provider> Models`** — a table of the currently selected provider's models with context size. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the cached `models.json` for the active provider. Switching provider via **Change Provider** reseeds this section from the catalog (see "Per-provider seeding" above).
+    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.opencode` so the user picks default/small from the new list.
+- **`<Provider> Models`** — a table of the currently selected provider's models with context size. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
   - **Ollama** — editable. The user can add or remove rows; adds/removes only edit the workspace `models` map (they do not change the catalog). The header shows an **Add Model** button and each row has a **Remove** button.
-  - **Trustable** — read-only. The model list is authoritative from the proxy catalog and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that calls `POST /api/models/refresh` to re-fetch the catalog from the proxy and rewrite the workspace `models` map (and `opencode` defaults) from `<catalog>.trustable`. The dropdowns repopulate from the new list.
+  - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map (and `opencode` defaults) from `status.trustable`. The dropdowns repopulate from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
 - **OpenCode Models** — two `<select>` dropdowns labelled "Default Model" and "Small Model". Both are populated from the keys of the active provider's `models` map. Selected values are written to `opencode.default` and `opencode.small`. Free-text input is no longer accepted.
 - **Git User** — name and email (unchanged).
 
-If the URL has `?reselect=1` (set by the splash page when the catalog version changed — see "Model catalog → Version check"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
+If the URL has `?reselect=1` (set by the splash or applist when `status[provider].modelsVersion` bumped — see "Model catalog → Version tracking (per provider)"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
 
 The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
-Read the configuration with `GET /api/configuration`, save with `POST /api/configuration`, then execute `GET /api/configure` showing the progress downloading models.
+Read the configuration with `GET /api/configuration`. **Save & Configure** calls `POST /api/configuration`, which persists, regenerates `opencode.json`, and runs testmodel in a single call (see "POST /api/configuration" above). The button does **not** invoke `GET /api/configure` — the streamed connectivity-check + model-pull flow runs only on the splash, after a provider is freshly chosen. Subsequent edits on `configure.html` are model-defaults edits and do not require re-pulling models.
+
+On `testmodel.ok == true` → navigate to `applist.html`. On `testmodel.ok == false` → stay on `configure.html` and surface the error inline (see "Save & Configure UX" below). Do **not** bounce back to `index.html` on failure — the splash would just re-run configure with the same broken settings.
+
+## Save & Configure UX
+
+Clicking **Save & Configure** disables the button and renders an inline status strip that progresses through:
+
+- `Saving configuration…`
+- `Regenerating OpenCode config…`
+- `Testing connection…`
+- `Success` (brief, green) → navigate to `applist.html`
+
+On any error: replace the strip with a red error box containing the error text and a **Retry** button that re-runs the same `POST /api/configuration` call. The page stays open; the user can edit the form and retry. No automatic redirect on failure.
 
 # App config UI (appconfig.html)
 

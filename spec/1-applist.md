@@ -10,6 +10,10 @@ If it expired show a page with only a centered message saying "This version expi
 
 Before rendering, fetch `GET /api/configuration` and check the merged config's `provider` field. If absent (or the call fails), redirect to `index.html` so the user goes through the **Provider Choice** flow (see [1-index.md](1-index.md)). The same guard applies to all pages that assume a configured provider: `applist.html`, `app.html`, `appconfig.html`, `configure.html`.
 
+## modelsVersion guard
+
+After the provider guard passes, fetch `GET /api/status` and apply the same per-provider `modelsVersion` reselect check as the splash (see [1-index.md](1-index.md) §"Provider choice"). When `status[provider].modelsVersion` differs from `config.model_versions[provider]`, persist the new value and redirect to `configure.html?reselect=1`. Own-host Ollama is exempt — see §"Detecting own-host Ollama" in [2a-config.md](2a-config.md).
+
 # App List Page
 
 The page shows centered the Trustable logo (`trustable-logo.svg`) and the text returned by the version api in large font.
@@ -32,7 +36,7 @@ The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined 
 The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 
 You can
-- configure (general) — opens `index.html?choose=1`, which forces the **Provider Choice** modal so the user can switch between Ollama Cloud and Trustable Cloud (see [1-index.md](1-index.md)). It does **not** open `configure.html` directly.
+- configure (general) — opens `index.html?choose=1`, which forces the **Provider Choice** modal so the user can switch between Ollama (internal or own-host) and Trustable Cloud (see [1-index.md](1-index.md)). It does **not** open `configure.html` directly.
 - add applications
 - remove applications
 - edit applications
@@ -57,13 +61,18 @@ with a button "Create" and "Cancel"
 Show "Use our starter:" followed by a clickable link: trureact.
 Clicking the link fills the form: Name with "trureact", Password with "trureact", and Repo with "trustable-ai/trureact".
 
-If the SSH key is available (GET /api/sshkey returns 200), show a message:
+If the SSH key is available (GET /api/sshkey returns 200), show a yellow notice inside the Add Application modal with the text:
 
-"To read private GitHub repositories and write back your changes, you need to add our ssh public key to your GitHub account." and a button "Show key".
+"To save and read private repo add this **ssh key** to your GitHub account."
 
-If you click the button, a popup showing the `~/.ssh/id_ed25519.pub` content (fetched from /api/sshkey) will be shown, with a message "A local copy of the private key is in ~/.ssh/id_trustable", a button to copy on clipboard and a button to close the popup.
+The phrase "ssh key" is an inline link. Clicking it toggles a reveal area inside the same notice that contains:
 
-If the SSH key is not available, do not show this message.
+- a read-only textarea with the `~/.ssh/id_ed25519.pub` content (fetched from `/api/sshkey`),
+- a **Copy Key** button that copies the value to the clipboard.
+
+The reveal is collapsed by default and reset to collapsed every time the Add Application modal is closed and reopened.
+
+If the SSH key is not available, do not show this notice.
 
 ## SSH Key link
 

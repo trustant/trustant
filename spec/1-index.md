@@ -14,10 +14,14 @@ Show also in smaller font "Expiration date: <date>"
 
 # Provider choice
 
-After the version check, fetch the merged config via `GET /api/configuration`, then refresh the model catalog (see [2a-config.md](2a-config.md) "Model catalog"):
+After the version check, fetch the merged config via `GET /api/configuration`, then fetch `GET /api/status` (the backend's pass-through of the ai-proxy `/api/v2/status` response — see [status_check.md](status_check.md)). The response carries a per-provider `modelsVersion` integer plus the canonical `models`, `default`, and `small` for each provider.
 
-1. `GET <AIP_REGISTER_URL origin>/.well-known/models.json`. On success write the body to `<WorkspaceDir>/models.json`. On failure, fall back to the cached copy if any; if there's no cache, surface a fatal error and stop.
-2. Compare the new `version` field against the cached one. If it changed, redirect immediately to `configure.html?reselect=1` (the configure UI shows a "Model catalog updated" banner and forces the user to re-pick the OpenCode default and small models). The flow below does not run on this turn — it resumes after the user saves on the configure screen.
+Per-provider model-list freshness is tracked on the workspace config in `model_versions: { ollama?: int, trustable?: int }`. When `provider` is set, compare `status[provider].modelsVersion` against `config.model_versions[provider]`:
+
+- **Bumped** — persist the new value via `POST /api/configuration` and redirect to `configure.html?reselect=1` so the user re-picks `opencode.default` / `opencode.small` from the refreshed catalog. The configuration flow below does not run on this turn — it resumes after the user saves on the configure screen.
+- **Same / first run** — proceed to the provider-choice / configuration flow below.
+
+**Exception — own-host Ollama:** the reselect redirect is suppressed when the saved provider is Ollama **and** `base_url` is not a localhost URL (see "Detecting own-host Ollama" in [2a-config.md](2a-config.md)). On own-host the model list is discovered via `POST /api/discover-models` against the user's machine, not from the proxy catalog, so catalog drift is irrelevant. Internal Ollama (localhost `base_url`) and Trustable are both catalog-backed and **do** trigger the redirect.
 
 Then:
 
@@ -27,19 +31,35 @@ Then:
 
 The Provider Choice modal is centered and shows two cards:
 
-- **Ollama Cloud** — "Free forever. Publishing not available."
+- **Ollama** — "Free forever. Publishing not available." Picking this card opens a second sub-modal that asks the user to pick between **Use internal Ollama with recommended cloud models** and **Use my own Ollama with currently installed models** (see "Ollama mode selection" in [2a-config.md](2a-config.md)).
 - **Trustable Cloud** — "Free until 30 June 2026, then \$20/month. Includes 1000 credits/month and one app published on nuvolaris.dev."
 
-## Ollama Cloud selected
+## Ollama selected
+
+After the user picks one of the two Ollama-mode cards, branch:
+
+### Internal selected
 
 1. `POST /api/configuration` with the merged config plus:
    - `provider: "ollama"`
-   - `models` and `opencode` copied verbatim from `<cached models.json>.ollama.models` and `<cached models.json>.ollama.opencode` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
-   - `env.OPENAI_BASE_URL = http://localhost:11434/v1`
-   - `env.OPENAI_API_KEY = "dummy"`
+   - `base_url: "http://localhost:11434/v1"`
+   - `api_key: "dummy"`
+   - `models` and `opencode` seeded from `status.ollama.models` and `status.ollama` (`default` / `small`) — see "Per-provider seeding" in [2a-config.md](2a-config.md)
+   - `model_versions.ollama = status.ollama.modelsVersion`
 
-   The dummy `OPENAI_API_KEY` will fail Ed25519 verification at the publish endpoints, which is the intended behavior for Ollama Cloud — see [6-publish.md](6-publish.md).
+   The dummy `api_key` will fail Ed25519 verification at the publish endpoints, which is the intended behavior for Ollama — see [6-publish.md](6-publish.md).
 2. Hide the modal and run the **full** Configuration flow (connectivity check + model pull + say-hello test).
+
+### My own selected
+
+1. `POST /api/configuration` with the merged config plus:
+   - `provider: "ollama"`
+   - `base_url: ""`
+   - `api_key: "dummy"`
+   - `models: {}`
+   - `opencode: { "default": "", "small": "" }`
+   - `model_versions.ollama = status.ollama.modelsVersion` (recorded so a future bump doesn't trigger a reselect — own-host is exempt regardless)
+2. Navigate to `configure.html?ollama=own`. The splash Configuration flow does **not** run; the user completes setup on the configure screen by entering their LAN host, clicking Test to discover models, picking default/small, and clicking Save & Configure.
 
 ## Trustable Cloud selected
 
@@ -55,9 +75,10 @@ The Provider Choice modal is centered and shows two cards:
 
 3. On message: close the iframe and merge into the workspace config:
    - `provider: "trustable"`
-   - `models` from `<cached models.json>.trustable.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
-   - `opencode` from the iframe payload if present, else from `<cached models.json>.trustable.opencode`
-   - `env.OPENAI_BASE_URL` and `env.OPENAI_API_KEY` from the iframe payload
+   - `models` from `status.trustable.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
+   - `opencode` from the iframe payload if present, else from `status.trustable` (`default` / `small`)
+   - `base_url` and `api_key` from the iframe payload's `env.OPENAI_BASE_URL` and `env.OPENAI_API_KEY`
+   - `model_versions.trustable = status.trustable.modelsVersion`
 
    then `POST /api/configuration`.
 4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-hello test runs.
@@ -73,11 +94,11 @@ Then invoke the openai ai api using informations in trustable.json, env.OPENAI_B
 
 If `/api/testmodel` returns an error **and** `provider == "ollama"`, show a sign-in required popup. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
 
-- If the page URL has a query string, show "Click here to login to Ollama Cloud" as a link pointing to `https://ollama.com/connect?<query_string>` and a Retry button.
+- The backend executes `ollama signin` as a subprocess and scrapes its output for the first URL starting with `https://ollama.com/connect`. The current page's query string is **not** forwarded — the URL returned by `ollama signin` is used verbatim.
 
-- If no query string, try execute `ollama signin` and parse the output, looking for a string starting with `https://ollama.com/connect`, and show  "Click here to login to Ollama Cloud" with a link pointing to the found url
+- If a URL is found, show **"Click here to login to Ollama Cloud"** as a link pointing to that URL with `target="_blank"` (opens in a new tab) and a Retry button.
 
-- if  there is not a login message, show "you are not logged in ollama cloud.\nPlease execute `ollama signin` and click Retry button.
+- If `ollama signin` produces no recognizable URL, show **"You are not logged in to Ollama Cloud. Please execute `ollama signin` in your terminal and click Retry."**
 
 Repeat until the test succeeded.
 

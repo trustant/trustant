@@ -121,11 +121,14 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex gap-3">
-            <button onclick="saveAndConfigure()"
-                class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
-                Save &amp; Configure
-            </button>
+        <div class="flex flex-col gap-3">
+            <div class="flex gap-3">
+                <button id="saveBtn" onclick="saveAndConfigure()"
+                    class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors">
+                    Save &amp; Configure
+                </button>
+            </div>
+            <div id="saveStatus" class="hidden text-sm"></div>
         </div>
     </div>
 
@@ -255,8 +258,12 @@
             btn.textContent = 'Testing…';
             setTestStatus('Contacting ' + host + ':' + port + '…', 'info');
             try {
-                const url = '/api/ollama-tags?host=' + encodeURIComponent(host) + '&port=' + encodeURIComponent(port);
-                const resp = await fetch(url);
+                const baseUrl = 'http://' + host + ':' + port + '/v1';
+                const resp = await fetch('/api/discover-models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: baseUrl, api_key: 'dummy' })
+                });
                 const data = await resp.json().catch(() => ({}));
                 if (!resp.ok || data.error) {
                     setTestStatus(data.error || ('HTTP ' + resp.status), 'error');
@@ -267,7 +274,7 @@
                     setTestStatus('Connected, but no models are installed on that host.', 'error');
                     return;
                 }
-                config.base_url = 'http://' + host + ':' + port + '/v1';
+                config.base_url = baseUrl;
                 config.api_key = 'dummy';
                 config.models = {};
                 for (const name of models) {
@@ -498,6 +505,30 @@
             return null;
         }
 
+        function setSaveStatus(msg, kind) {
+            const el = document.getElementById('saveStatus');
+            el.classList.remove('hidden', 'text-gray-600', 'text-green-700', 'text-red-700', 'bg-red-50', 'border', 'border-red-200', 'rounded-md', 'p-3');
+            if (kind === 'error') {
+                el.classList.add('text-red-700', 'bg-red-50', 'border', 'border-red-200', 'rounded-md', 'p-3');
+                el.innerHTML = '';
+                const span = document.createElement('span');
+                span.textContent = msg;
+                el.appendChild(span);
+                el.appendChild(document.createTextNode(' '));
+                const retry = document.createElement('button');
+                retry.textContent = 'Retry';
+                retry.className = 'ml-2 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700';
+                retry.onclick = saveAndConfigure;
+                el.appendChild(retry);
+            } else if (kind === 'ok') {
+                el.classList.add('text-green-700');
+                el.textContent = msg;
+            } else {
+                el.classList.add('text-gray-600');
+                el.textContent = msg;
+            }
+        }
+
         async function saveAndConfigure() {
             const err = validateOllamaHost();
             if (err) {
@@ -505,6 +536,9 @@
                 return;
             }
             const cfg = buildConfig();
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true;
+            setSaveStatus('Saving configuration…', 'info');
             try {
                 const resp = await fetch('/api/configuration', {
                     method: 'POST',
@@ -513,14 +547,24 @@
                 });
                 if (!resp.ok) {
                     const text = await resp.text();
-                    alert('Failed to save: ' + text);
+                    setSaveStatus('Failed to save: ' + text, 'error');
+                    btn.disabled = false;
                     return;
                 }
+                setSaveStatus('Testing connection…', 'info');
+                const data = await resp.json().catch(() => ({}));
+                const tm = data.testmodel || {};
+                if (tm.ok) {
+                    setSaveStatus('Success — opening app list…', 'ok');
+                    window.location.href = 'applist.html';
+                    return;
+                }
+                setSaveStatus('Connection test failed: ' + (tm.error || 'unknown error'), 'error');
+                btn.disabled = false;
             } catch (e) {
-                alert('Error saving: ' + e.message);
-                return;
+                setSaveStatus('Error saving: ' + e.message, 'error');
+                btn.disabled = false;
             }
-            window.location.href = 'index.html';
         }
 
         document.addEventListener('keydown', (e) => {
