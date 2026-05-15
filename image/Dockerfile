@@ -27,10 +27,8 @@ RUN \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN \
-    echo 'node ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
-
-RUN \
-    useradd -d /home/trustable -u  -s /bin/bash -m trustable
+    useradd -d /home/trustable -u 769 -s /bin/bash -m trustable ;\
+    echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
 ENV HOME=/home/trustable
 ENV OPS_BRANCH=bestia
