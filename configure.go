@@ -713,8 +713,12 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if cfg.Provider == "trustable" {
-		sendMsg("OK: Skipping Ollama setup (Trustable Cloud)")
+	if cfg.Provider == "trustable" || cfg.Provider == "bestia" {
+		if cfg.Provider == "bestia" {
+			sendMsg("OK: Skipping Ollama setup (BestIA)")
+		} else {
+			sendMsg("OK: Skipping Ollama setup (Trustable Cloud)")
+		}
 	} else {
 		ollamaRoot, isOwnHost := resolveOllamaRoot(cfg)
 
@@ -911,9 +915,9 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	providers := make(map[string]interface{})
 
 	// The OpenCode provider key tracks the active trustable provider:
-	// "ollama" or "trustable". Default to "ollama" if unset.
+	// "ollama", "trustable", or "bestia". Default to "ollama" if unset.
 	providerKey := cfg.Provider
-	if providerKey != "ollama" && providerKey != "trustable" {
+	if providerKey != "ollama" && providerKey != "trustable" && providerKey != "bestia" {
 		providerKey = "ollama"
 	}
 

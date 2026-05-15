@@ -34,6 +34,8 @@ The Provider Choice modal is centered and shows two cards:
 - **Ollama** — "Free forever. Publishing not available." Picking this card opens a second sub-modal that asks the user to pick between **Use internal Ollama with recommended cloud models** and **Use my own Ollama with currently installed models** (see "Ollama mode selection" in [2a-config.md](2a-config.md)).
 - **Trustable Cloud** — "Free until 30 June 2026, then \$20/month. Includes 1000 credits/month and one app published on nuvolaris.dev."
 
+Below the two cards, a third full-width **BestIA** card is shown for dedicated-GPU customers. Its body reads "For our BestIA customers with dedicated GPU and unlimited app publishing." and it has a **Contact Us for our Deployment Solutions** button. The button opens `https://nuvolaris.io/bestia` in a new tab and does **not** trigger card selection (it stops event propagation); clicking anywhere else on the card starts the BestIA flow (see "## BestIA selected").
+
 ## Ollama selected
 
 After the user picks one of the two Ollama-mode cards, branch:
@@ -83,12 +85,21 @@ After the user picks one of the two Ollama-mode cards, branch:
    then `POST /api/configuration`.
 4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-hello test runs.
 
+## BestIA selected
+
+1. Open the same centered register iframe overlay used by Trustable, loading `register_url` with `bestia=1` appended to the query string (e.g. `<register_url>?bestia=1`, or `&bestia=1` if the URL already has a query) so the proxy can tailor the BestIA sign-up. The Cancel button closes the iframe and returns to the choice modal without saving.
+2. Listen for the `message` event. For BestIA **only `api_key` (non-empty string) is required**; any `base_url` the proxy posts is **ignored** — BestIA inference is always the fixed internal host.
+3. On message: merge into the workspace config `provider: "bestia"`, `base_url: "http://bestia:11434/v1"`, `api_key` from the payload, empty `models`, empty `opencode` (`{default:"", small:""}`); `POST /api/configuration`; then navigate to `configure.html?bestia=1`. The splash Configuration flow does **not** run on this turn — like own-host Ollama, setup completes on the configure screen where the model list is discovered.
+4. The configure screen displays the locked host as `http://bestia:11434` while the stored `base_url` is `http://bestia:11434/v1` (the `/v1` suffix is required so `/models` and `/chat/completions` resolve).
+
 # Configuration
 
 Every time the index page is opened (after a provider has been chosen), invoke the configuration api.
 Expect a streamed answer and show the messages with a modal while it is configuring.
 
 When `provider == "trustable"` the backend skips the Ollama connectivity check and model-pull steps and streams a single `OK: Skipping Ollama setup (Trustable Cloud)` line — see [2a-config.md](2a-config.md).
+
+The same applies when `provider == "bestia"`: the backend skips the Ollama connectivity check and model-pull and streams `OK: Skipping Ollama setup (BestIA)`. The BestIA model list is supplied by `POST /api/discover-models` (run on `configure.html?bestia=1`), not the status catalog.
 
 Then invoke the openai ai api using informations in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.small model, asking hello.
 

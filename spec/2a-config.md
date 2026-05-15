@@ -13,7 +13,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 
 ```json
 {
-    "provider": "ollama" | "trustable",
+    "provider": "ollama" | "trustable" | "bestia",
     "base_url": "<provider base URL>",
     "api_key": "<provider API key>",
     "models": {
@@ -40,10 +40,11 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 }
 ```
 
-- `provider` — `ollama` or `trustable`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by verifying the Ed25519 signature on `api_key` (see [6-publish.md](6-publish.md) and [10-validate_key.md](10-validate_key.md)) — there is no separate `publishing` flag.
+- `provider` — `ollama`, `trustable`, or `bestia`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by verifying the Ed25519 signature on `api_key` (see [6-publish.md](6-publish.md) and [10-validate_key.md](10-validate_key.md)) — there is no separate `publishing` flag.
 - `base_url` and `api_key` — top-level provider credentials. Set when a provider is chosen:
   - **Ollama** — `api_key = "dummy"`. `base_url` depends on the Ollama mode picked on the splash sub-modal (see "Ollama mode selection"). For **internal** Ollama it is fixed to `http://localhost:11434/v1`; for **own host** the user enters host and port and `base_url` becomes `http://<host>:<port>/v1`. Scheme is always `http://` and path is always `/v1` — no HTTPS, no auth, no other paths.
   - **Trustable** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
+  - **BestIA** — `base_url` is fixed to `http://bestia:11434/v1` (the dedicated GPU inference host; the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve). The configure UI displays and **locks** it as `http://bestia:11434` (not editable). `api_key` is the proxy-signed `aip_` key taken from the BestIA registration iframe message; any `base_url` the proxy posts is ignored. **Publishing note:** the BestIA `base_url` is the GPU box, not the ai-proxy, so the publish-key pubkey origin is derived from `AIP_BASE_URL` instead of `base_url` — see [6-publish.md](6-publish.md).
   There is **no** global `env` section in `trustable.json`. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
 - `opencode.default` / `opencode.small` — must be names that exist as keys in `models`. The configurator UI (see "Configuration UI") presents these as dropdowns populated from `models`, not free-text fields.
@@ -124,6 +125,12 @@ On `configure.html?ollama=own` the Ollama Host section is shown with empty input
 
 After **Save & Configure**, `GET /api/configure` reaches the user's host (via `cfg.base_url` stripped of `/v1`) for the connectivity check and for capability discovery via `/api/show`. The model-pull loop (Step 2) is **skipped** when the resolved host is not localhost — the user's host already has the models installed locally; pulling them again would be wasteful. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)` instead.
 
+## BestIA host
+
+When the user clicks the **BestIA** card on the splash, the register iframe runs with `?bestia=1` and posts back an `api_key`. A minimal workspace config is persisted (`provider="bestia"`, `base_url="http://bestia:11434/v1"`, `api_key=<from message>`, `models={}`, `opencode={default:"", small:""}`) and the user is routed to `configure.html?bestia=1`.
+
+On that screen the **BestIA Host** section shows the fixed address `http://bestia:11434` as read-only text (no input, cannot be changed — mirrors the internal-Ollama read-only note). On load the screen calls `POST /api/discover-models` with `base_url = "http://bestia:11434/v1"` and the stored `api_key` (the real proxy key — sent as `Authorization: Bearer`), populating `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}` while preserving any previously-saved limits/opencode selection. The model table is **editable** (Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is hidden (there is no `status.bestia` catalog). `model_versions` and the `?reselect=1` redirect do not apply to BestIA (discover-models-backed, like own-host Ollama). **Save & Configure** runs the say-hello test against `http://bestia:11434/v1/chat/completions`.
+
 ## POST /api/discover-models
 
 Server-side proxy that lets the configure UI discover the models a given OpenAI-compatible provider exposes, without browser CORS or mixed-content issues. The endpoint is **provider-agnostic** — it hits `<base_url>/models` on whatever the caller passes. (The Test button in the UI is currently shown only for own-host Ollama; the endpoint itself does not enforce that.)
@@ -200,6 +207,7 @@ The behaviour depends on the merged config's `provider`:
 
 - **`provider == "ollama"`** — run Step 1 and Step 2 below.
 - **`provider == "trustable"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustable Cloud)` so the UI shows progress, then proceed to "Prepare opencode config".
+- **`provider == "bestia"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (BestIA)`, then proceed to "Prepare opencode config".
 
 In both cases the frontend separately calls `GET /api/testmodel` after the configure stream ends to run the say-hello connection test.
 
@@ -223,7 +231,7 @@ For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this st
 
 Create the OpenCode config in `~/.config/opencode/opencode.json` following the
 structure (where `<provider>` is the active `provider` from `trustable.json` —
-either `ollama` or `trustable`):
+`ollama`, `trustable`, or `bestia`):
 
 ```
 {
@@ -251,6 +259,9 @@ from the top-level `base_url` and `api_key` fields** of `trustable.json`:
 - Ollama → `baseURL = "http://localhost:11434/v1"`, `apiKey = "dummy"`.
 - Trustable → `baseURL` and `apiKey` are the values posted by the ai-proxy
   registration iframe and stored in `trustable.json` (see [1-index.md](1-index.md)).
+- BestIA → `baseURL = "http://bestia:11434/v1"` (fixed); `apiKey` is the
+  proxy-signed key stored in `trustable.json`. The OpenCode provider key is its
+  own dedicated `bestia` (parallel to `trustable`), not the `ollama` fallback.
 
 Because `<provider>` is now a generated provider it must not appear in
 `disabled_providers`.

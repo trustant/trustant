@@ -57,6 +57,15 @@
             </div>
         </div>
 
+        <!-- BestIA Host (only when provider == "bestia") -->
+        <div id="bestiaHostSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
+            <h2 class="text-xl font-semibold mb-4">BestIA Host</h2>
+            <p class="text-sm text-gray-700">
+                Using BestIA dedicated infrastructure at
+                <span class="font-mono">http://bestia:11434</span>
+            </p>
+        </div>
+
         <!-- Provider Models -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center justify-between mb-4">
@@ -167,12 +176,14 @@
         function providerLabel(name) {
             if (name === 'trustable') return 'Trustable';
             if (name === 'ollama') return 'Ollama';
+            if (name === 'bestia') return 'BestIA';
             return 'not set';
         }
 
         function modelsHeading(name) {
             if (name === 'trustable') return 'Trustable Models';
             if (name === 'ollama') return 'Ollama Models';
+            if (name === 'bestia') return 'BestIA Models';
             return 'Models';
         }
 
@@ -186,12 +197,51 @@
                 document.getElementById('currentProvider').textContent = providerLabel(config.provider);
                 document.getElementById('modelsHeading').textContent = modelsHeading(config.provider);
                 renderOllamaHost();
+                renderBestiaHost();
                 renderModels();
                 renderOpencodeSelects();
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
+                if (config.provider === 'bestia') {
+                    await loadBestiaModels();
+                }
             } catch (e) {
                 console.error('Failed to load config:', e);
+            }
+        }
+
+        function renderBestiaHost() {
+            const section = document.getElementById('bestiaHostSection');
+            section.classList.toggle('hidden', config.provider !== 'bestia');
+        }
+
+        // BestIA: discover the model list from the fixed GPU host using the
+        // proxy-issued api_key (sent as Authorization: Bearer because it is not
+        // the literal "dummy"). Preserve any previously-saved per-model limits
+        // so a returning user keeps their opencode default/small selection.
+        async function loadBestiaModels() {
+            try {
+                const resp = await fetch('/api/discover-models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: config.base_url, api_key: config.api_key })
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || data.error) {
+                    setSaveStatus('Could not load BestIA models: ' + (data.error || ('HTTP ' + resp.status)), 'error');
+                    return;
+                }
+                const models = Array.isArray(data.models) ? data.models : [];
+                const prev = config.models || {};
+                const next = {};
+                for (const name of models) {
+                    next[name] = prev[name] || { maxToken: 131072, maxOutput: 32768 };
+                }
+                config.models = next;
+                renderModels();
+                renderOpencodeSelects();
+            } catch (e) {
+                setSaveStatus('Could not load BestIA models: ' + e.message, 'error');
             }
         }
 
@@ -296,13 +346,15 @@
             const tbody = document.getElementById('modelTableBody');
             const models = config.models || {};
             const keys = Object.keys(models);
-            const editable = config.provider === 'ollama';
+            const editable = config.provider === 'ollama' || config.provider === 'bestia';
 
-            // Toggle header buttons: Add for Ollama (manual model entry); Refresh
-            // for non-Ollama providers only (Ollama model lists must never be
-            // overwritten automatically — see also splash boot logic).
+            // Toggle header buttons: Add for Ollama/BestIA (manual model entry);
+            // Refresh for catalog-backed providers only. Ollama and BestIA model
+            // lists must never be overwritten from /api/status (Ollama is
+            // user-controlled; BestIA is discover-models-backed and has no
+            // status.bestia catalog) — see also splash boot logic.
             document.getElementById('addModelBtn').classList.toggle('hidden', !editable);
-            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama');
+            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama' || config.provider === 'bestia');
 
             if (keys.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No models configured</td></tr>';
@@ -606,10 +658,11 @@
             await loadConfig();
 
             // The reselect banner only makes sense for catalog-backed providers
-            // (Trustable). For Ollama the model list is user-controlled, so the
-            // prompt is wrong even if ?reselect=1 leaks in via a stale URL.
+            // (Trustable). For Ollama and BestIA the model list is user-controlled
+            // / discover-models-backed, so the prompt is wrong even if
+            // ?reselect=1 leaks in via a stale URL.
             const params = new URLSearchParams(window.location.search);
-            if (params.get('reselect') === '1' && config.provider !== 'ollama') {
+            if (params.get('reselect') === '1' && config.provider !== 'ollama' && config.provider !== 'bestia') {
                 document.getElementById('reselectBanner').classList.remove('hidden');
             }
         })();

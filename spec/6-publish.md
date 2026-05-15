@@ -10,7 +10,7 @@ For `/api/publish/remote` the server-side check below runs **before** doing any 
 The check:
 
 1. Load the merged config and read `env.OPENAI_API_KEY` (the `aip_...` bearer) and `env.OPENAI_BASE_URL`.
-2. Derive the proxy origin by stripping a trailing `/v1` from `OPENAI_BASE_URL`. The well-known is then `<origin>/.well-known/ai-proxy-pubkey`.
+2. Derive the proxy origin. For `provider == "trustable"` this is `OPENAI_BASE_URL` reduced to `scheme://host` (a trailing `/v1` is stripped). For `provider == "bestia"` the inference `base_url` (`http://bestia:11434/v1`) is the dedicated GPU box, **not** the ai-proxy, and does not serve the well-known; the proxy origin is instead `AIP_BASE_URL` reduced to `scheme://host`. The well-known is then `<origin>/.well-known/ai-proxy-pubkey`. In both cases the `aip_` key is the one issued by the ai-proxy and verifies against that proxy's public key.
 3. Fetch the public key once and cache it in process memory for the lifetime of the process. Do not re-fetch on verification failure.
 4. Verify the key signature per [10-validate_key.md](10-validate_key.md) (Ed25519 over `id_bytes`).
 

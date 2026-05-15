@@ -130,7 +130,21 @@ func requirePublishingAuth(w http.ResponseWriter) bool {
 		writePublishAuthError(w, "api_key is not set")
 		return false
 	}
-	origin, err := proxyOriginFromBaseURL(cfg.BaseURL)
+	// The publish key is the proxy-issued aip_ token and must be verified
+	// against the ai-proxy's public key. For trustable, cfg.BaseURL *is* the
+	// proxy. For bestia, cfg.BaseURL points at the dedicated GPU inference box
+	// (http://bestia:11434/v1), which is NOT the proxy and does not serve the
+	// well-known — so derive the origin from AIPBaseURL instead (the same
+	// cfg.base_url-independent source credits.go uses). See spec/6-publish.md.
+	originSource := cfg.BaseURL
+	if cfg.Provider == "bestia" {
+		if AIPBaseURL == "" {
+			writePublishAuthError(w, "AIP_BASE_URL is not set")
+			return false
+		}
+		originSource = AIPBaseURL
+	}
+	origin, err := proxyOriginFromBaseURL(originSource)
 	if err != nil {
 		writePublishAuthError(w, err.Error())
 		return false

@@ -44,6 +44,8 @@ Response:
 
 `<PROXY_BASE_URL>` here is the proxy origin without the `/v1` suffix. If `PROXY_BASE_URL=https://ai.trustable.ai/v1`, the well-known is at `https://ai.trustable.ai/.well-known/ai-proxy-pubkey`.
 
+`<PROXY_BASE_URL>` is always the **ai-proxy** origin — the service that signed the key. When a provider's inference `base_url` is not the proxy itself (e.g. BestIA, whose inference host is a dedicated GPU box), the validator must use the configured ai-proxy base (`AIP_BASE_URL`) to locate the well-known, not the inference URL.
+
 ## Validation algorithm
 
 Given:

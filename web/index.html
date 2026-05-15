@@ -43,14 +43,15 @@
                 </div>
             </div>
 
-            <div class="mt-6 pt-6 border-t border-gray-200 flex items-center gap-4">
+            <div onclick="selectBestia()" role="button"
+                class="mt-6 pt-6 border-t border-gray-200 flex items-center gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors cursor-pointer">
                 <img src="bestia-head.png" alt="Bestia" class="h-16 w-auto flex-shrink-0">
                 <p class="flex-1 text-sm text-gray-700">
-                    For Private AI infrastructure with dedicated GPUs and unlimited apps.
+                    For our BestIA customers with dedicated GPU and unlimited app publishing.
                 </p>
-                <button onclick="window.open('https://nuvolaris.io/bestia', '_blank')"
+                <button onclick="event.stopPropagation(); window.open('https://nuvolaris.io/bestia', '_blank')"
                     class="flex-shrink-0 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors">
-                    Contact Us
+                    Contact Us for our Deployment Solutions
                 </button>
             </div>
         </div>
@@ -171,6 +172,7 @@
         }
 
         function cancelRegister() {
+            _bestiaPending = false;
             hideRegisterOverlay();
             showProviderModal();
         }
@@ -288,6 +290,19 @@
             showRegisterOverlay(url);
         }
 
+        async function selectBestia() {
+            hideProviderModal();
+            const url = (currentConfig && currentConfig.register_url) || '';
+            if (!url) {
+                alert('REGISTER_URL environment variable is not set');
+                showProviderModal();
+                return;
+            }
+            _bestiaPending = true;
+            const sep = url.includes('?') ? '&' : '?';
+            showRegisterOverlay(url + sep + 'bestia=1');
+        }
+
         function isAcceptableRegisterPayload(data) {
             return data && typeof data === 'object'
                 && typeof data.base_url === 'string' && data.base_url.length > 0
@@ -295,12 +310,55 @@
         }
 
         let _trustableReauthResolve = null;
+        let _bestiaPending = false;
 
         window.addEventListener('message', async (event) => {
             // Only react when the iframe overlay is open.
             const overlay = document.getElementById('registerOverlay');
             if (overlay.classList.contains('hidden')) return;
             const data = event.data;
+
+            // BestIA branch — MUST run before isAcceptableRegisterPayload (the
+            // proxy may omit base_url for BestIA) and before the reauth /
+            // Trustable branches. Only api_key is required; base_url is forced
+            // to the fixed internal host.
+            if (_bestiaPending) {
+                if (!data || typeof data !== 'object'
+                    || typeof data.api_key !== 'string' || data.api_key.length === 0) {
+                    return; // keep waiting for a well-formed payload
+                }
+                _bestiaPending = false;
+                const cfg = Object.assign({}, currentConfig || {}, {
+                    provider: 'bestia',
+                    base_url: 'http://bestia:11434/v1',
+                    api_key: data.api_key,
+                    models: {},
+                    opencode: { default: '', small: '' }
+                });
+                cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
+                delete cfg.model_version;
+                delete cfg.env;
+                hideRegisterOverlay();
+                try {
+                    const resp = await fetch('/api/configuration', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(cfg)
+                    });
+                    if (!resp.ok) {
+                        alert('Failed to save configuration: ' + (await resp.text()));
+                        showProviderModal();
+                        return;
+                    }
+                } catch (e) {
+                    alert('Failed to save configuration: ' + e.message);
+                    showProviderModal();
+                    return;
+                }
+                window.location.href = 'configure.html?bestia=1';
+                return;
+            }
+
             if (!isAcceptableRegisterPayload(data)) return;
 
             // Reauth path: only refresh base_url/api_key, then resume the
