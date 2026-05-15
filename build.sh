@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 cd "$(dirname $0)"
 if ! test -e ~/Library/Application\ Support/Trustable/id_ed25519
 then echo "This script must be run on Mac after installing Trustable"
