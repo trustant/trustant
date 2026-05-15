@@ -27,7 +27,7 @@ jq --arg img "$IMAGE:$TAG" '.config.images.'$KEY' = $img' "$OPSROOT" > "$OPSROOT
 TAG=$(jq .config.images.$KEY <$OPSROOT -r | awk -F: '{print $2}')
 echo "Stored Tag: $TAG"
 
-git commit -m "build $TAG" -a
+git commit -m "build $TAG" -a || true
 
 mkdir -p image/bin
 env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
