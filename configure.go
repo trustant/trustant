@@ -1298,6 +1298,27 @@ func handleDiscoverModels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"models": names})
 }
 
+// handleBestiaCheck handles GET /api/bestia-check. It probes the fixed BestIA
+// inference host (http://bestia:11434) server-side — the browser cannot reach
+// it because the GPU box is only routable from inside the VM. Reachability,
+// not authorization, is what we test: any HTTP response (even 401/403, since
+// we have no api_key yet) means a BestIA is running; only a connection /
+// timeout error means the user is not running a BestIA.
+func handleBestiaCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	const target = "http://bestia:11434/v1/models"
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(target)
+	if err != nil {
+		log.Printf("bestia-check: %s unreachable: %s", target, err)
+		json.NewEncoder(w).Encode(map[string]interface{}{"available": false})
+		return
+	}
+	resp.Body.Close()
+	log.Printf("bestia-check: %s answered %d", target, resp.StatusCode)
+	json.NewEncoder(w).Encode(map[string]interface{}{"available": true})
+}
+
 // handleConfiguration handles GET and POST /api/configuration
 func handleConfiguration(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {

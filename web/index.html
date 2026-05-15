@@ -10,7 +10,8 @@
     <!-- Splash Screen -->
     <div id="splashContent" class="flex flex-col items-center">
         <img src="trustable-logo.svg" alt="Trustable Logo" class="w-32 h-32">
-        <h1 class="text-3xl font-bold text-gray-800 mt-6">Trustable</h1>
+        <h1 class="text-3xl font-bold text-gray-800 mt-6">Trustable Cloud</h1>
+        <p class="text-sm text-gray-500 mt-1">powered by Regolo.AI</p>
         <h2 id="versionText" class="text-2xl font-semibold text-gray-700 mt-2"></h2>
         <p id="expireText" class="text-sm text-gray-500 mt-2"></p>
     </div>
@@ -31,10 +32,10 @@
                     </button>
                 </div>
                 <div class="flex flex-col items-center h-full">
-                    <img src="trustable-head.png" alt="Trustable" class="h-24 w-auto mb-3">
+                    <img src="regolo-head.png" alt="Trustable Cloud powered by Regolo.AI" class="h-24 w-auto mb-3">
                     <button onclick="selectTrustable()"
                         class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                        <div class="font-semibold text-lg mb-2">Trustable</div>
+                        <div class="font-semibold text-lg mb-2">Trustable Cloud <br> powered by Regolo.AI</div>
                         <div class="text-sm text-gray-600">100 credits FREE when registering</div>
                         <div class="text-sm text-gray-600 mt-2">Free while in beta then $20/month including:</div>
                         <div class="text-sm text-gray-600">- 1000 credits/month</div>
@@ -295,6 +296,21 @@
             const url = (currentConfig && currentConfig.register_url) || '';
             if (!url) {
                 alert('REGISTER_URL environment variable is not set');
+                showProviderModal();
+                return;
+            }
+            // Before anything else, verify the dedicated BestIA host is
+            // reachable (server-side probe — the browser cannot reach it).
+            let available = false;
+            try {
+                const resp = await fetch('/api/bestia-check');
+                const data = await resp.json();
+                available = !!(data && data.available);
+            } catch (e) {
+                available = false;
+            }
+            if (!available) {
+                alert('You are not running a BestIA');
                 showProviderModal();
                 return;
             }

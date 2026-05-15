@@ -8,7 +8,7 @@ If it expired show a page with only a centered message saying "This version expi
 
 # Splash Screen
 
-The page shows centered the Trustable logo (`trustable-logo.svg`) in large size, the text "Trustable" in large font, and below it the version (e.g. "v1.2.3") in large font.
+The page shows centered the Trustable logo (`trustable-logo.svg`) in large size, the text "Trustable Cloud" in large font, the subtitle "powered by Regolo.AI" in smaller font, and below it the version (e.g. "v1.2.3") in large font.
 
 Show also in smaller font "Expiration date: <date>"
 
@@ -87,10 +87,11 @@ After the user picks one of the two Ollama-mode cards, branch:
 
 ## BestIA selected
 
+0. **Availability pre-check.** Before opening the registration iframe, call `GET /api/bestia-check` (a server-side reachability probe of the fixed BestIA host — the browser cannot reach it directly). If the response is not `{ "available": true }`, show an alert "You are not running a BestIA", return to the Provider Choice modal, and do **not** proceed. Only if the host is reachable continue with step 1.
 1. Open the same centered register iframe overlay used by Trustable, loading `register_url` with `bestia=1` appended to the query string (e.g. `<register_url>?bestia=1`, or `&bestia=1` if the URL already has a query) so the proxy can tailor the BestIA sign-up. The Cancel button closes the iframe and returns to the choice modal without saving.
 2. Listen for the `message` event. For BestIA **only `api_key` (non-empty string) is required**; any `base_url` the proxy posts is **ignored** — BestIA inference is always the fixed internal host.
 3. On message: merge into the workspace config `provider: "bestia"`, `base_url: "http://bestia:11434/v1"`, `api_key` from the payload, empty `models`, empty `opencode` (`{default:"", small:""}`); `POST /api/configuration`; then navigate to `configure.html?bestia=1`. The splash Configuration flow does **not** run on this turn — like own-host Ollama, setup completes on the configure screen where the model list is discovered.
-4. The configure screen displays the locked host as `http://bestia:11434` while the stored `base_url` is `http://bestia:11434/v1` (the `/v1` suffix is required so `/models` and `/chat/completions` resolve).
+4. The configure screen shows a fixed read-only "Using BestIA dedicated infrastructure" note (no editable host field) while the stored `base_url` is `http://bestia:11434/v1` (the `/v1` suffix is required so `/models` and `/chat/completions` resolve).
 
 # Configuration
 

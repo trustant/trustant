@@ -61,8 +61,7 @@
         <div id="bestiaHostSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
             <h2 class="text-xl font-semibold mb-4">BestIA Host</h2>
             <p class="text-sm text-gray-700">
-                Using BestIA dedicated infrastructure at
-                <span class="font-mono">http://bestia:11434</span>
+                Using BestIA dedicated infrastructure
             </p>
         </div>
 
@@ -174,7 +173,7 @@
         let config = { models: {}, opencode: { default: '', small: '' } };
 
         function providerLabel(name) {
-            if (name === 'trustable') return 'Trustable';
+            if (name === 'trustable') return 'Trustable Cloud <br> powered by Regolo.AI';
             if (name === 'ollama') return 'Ollama';
             if (name === 'bestia') return 'BestIA';
             return 'not set';
@@ -194,7 +193,7 @@
                 if (!config.models) config.models = {};
                 if (!config.opencode) config.opencode = { default: '', small: '' };
 
-                document.getElementById('currentProvider').textContent = providerLabel(config.provider);
+                document.getElementById('currentProvider').innerHTML = providerLabel(config.provider);
                 document.getElementById('modelsHeading').textContent = modelsHeading(config.provider);
                 renderOllamaHost();
                 renderBestiaHost();
