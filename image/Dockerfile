@@ -29,12 +29,15 @@ RUN \
 RUN \
     echo 'node ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
-ENV HOME=/home/node
+RUN \
+    useradd -d /home/trustable -u  -s /bin/bash -m trustable
+
+ENV HOME=/home/trustable
 ENV OPS_BRANCH=bestia
 ENV OPS_REPO=https://github.com/nuvolaris/bestia
 
-USER node
-WORKDIR /home/node
+USER trustable
+WORKDIR /home/trustable
 
 RUN \
     echo "export OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\
