@@ -1,5 +1,5 @@
 #!/bin/bash
-export HOME=/home/node
+export HOME=/home/trustable
 export PATH="$HOME/.local/bin:$PATH"
 set -a
 source $HOME/.env
@@ -52,11 +52,11 @@ persist_opencode_dir "$HOME/workspace/.trustable/opencode/config" "$HOME/.config
 persist_opencode_dir "$HOME/workspace/.trustable/opencode/cache" "$HOME/.cache/opencode"
 persist_opencode_dir "$HOME/workspace/.trustable/opencode/share" "$HOME/.local/share/opencode"
 
-chown -R node:node "$HOME/.ssh" "$HOME/.env" "$HOME/.ops" "$HOME/workspace/.trustable/opencode" "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
+chown -R trustable:trustable "$HOME/.ssh" "$HOME/.env" "$HOME/.ops" "$HOME/workspace/.trustable/opencode" "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
 
 if [ -n "$USERID" ] && [ "$USERID" != "1000" ]
 then
-    /usr/sbin/usermod -u $USERID node
+    /usr/sbin/usermod -u $USERID trustable
     chown -Rf "$USERID" "$HOME"
 fi
 
