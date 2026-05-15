@@ -47,7 +47,7 @@ RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
 
-RUN mkdir /home/node/workspace
+RUN mkdir /home/trustable/workspace
 RUN echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
 USER root
