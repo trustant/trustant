@@ -32,11 +32,22 @@
                     <tr><td colspan="4" class="text-center py-4 text-gray-500">Loading...</td></tr>
                 </tbody>
             </table>
-            <div class="mt-4">
+            <div class="mt-4 flex flex-wrap gap-2">
                 <button onclick="addVariable()"
                     class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
                     Add Variable
                 </button>
+                <button onclick="importEnvFile()"
+                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm">
+                    Import .env
+                </button>
+                <label class="inline-flex items-center gap-2 text-sm text-gray-700 px-2">
+                    <input id="envImportDevelopment" type="checkbox"
+                        class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                    Development too
+                </label>
+                <input id="envImportFile" type="file" accept=".env,.env.production,text/plain"
+                    class="hidden" onchange="handleEnvFileImport(event)">
             </div>
         </div>
 
@@ -145,6 +156,113 @@
             const inputs = document.querySelectorAll('#envTableBody input[type="text"]');
             if (inputs.length > 0) {
                 inputs[inputs.length - 3]?.focus();
+            }
+        }
+
+        function importEnvFile() {
+            document.getElementById('envImportFile').click();
+        }
+
+        function stripInlineComment(value) {
+            let quote = '';
+            for (let i = 0; i < value.length; i++) {
+                const ch = value[i];
+                if (quote) {
+                    if (ch === quote && value[i - 1] !== '\\') quote = '';
+                    continue;
+                }
+                if (ch === '"' || ch === "'") {
+                    quote = ch;
+                    continue;
+                }
+                if (ch === '#' && (i === 0 || /\s/.test(value[i - 1]))) {
+                    return value.slice(0, i).trimEnd();
+                }
+            }
+            return value.trimEnd();
+        }
+
+        function unquoteEnvValue(value) {
+            const trimmed = value.trim();
+            if (trimmed.length >= 2 && trimmed[0] === '"' && trimmed[trimmed.length - 1] === '"') {
+                return trimmed.slice(1, -1)
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+            }
+            if (trimmed.length >= 2 && trimmed[0] === "'" && trimmed[trimmed.length - 1] === "'") {
+                return trimmed.slice(1, -1).replace(/\\'/g, "'");
+            }
+            return stripInlineComment(trimmed).trim();
+        }
+
+        function parseEnvFile(text) {
+            const parsed = [];
+            const seen = new Set();
+            text.split(/\r?\n/).forEach((rawLine) => {
+                let line = rawLine.trim();
+                if (!line || line.startsWith('#')) return;
+                if (line.startsWith('export ')) line = line.slice(7).trimStart();
+                const eq = line.indexOf('=');
+                if (eq <= 0) return;
+                const name = line.slice(0, eq).trim();
+                if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return;
+                const value = unquoteEnvValue(line.slice(eq + 1));
+                if (seen.has(name)) {
+                    const existing = parsed.find((item) => item.name === name);
+                    if (existing) existing.value = value;
+                } else {
+                    parsed.push({ name, value });
+                    seen.add(name);
+                }
+            });
+            return parsed;
+        }
+
+        async function handleEnvFileImport(event) {
+            const input = event.target;
+            const file = input.files && input.files[0];
+            if (!file) return;
+            try {
+                const entries = parseEnvFile(await file.text());
+                if (entries.length === 0) {
+                    alert('No variables found in ' + file.name);
+                    return;
+                }
+                let added = 0;
+                let updated = 0;
+                let devUpdated = 0;
+                const importDevelopment = document.getElementById('envImportDevelopment')?.checked;
+                entries.forEach(({ name, value }) => {
+                    const existing = envVars.find((item) => item.name === name);
+                    if (existing) {
+                        existing.prod_value = value;
+                        if (importDevelopment && !existing.readonly) {
+                            existing.dev_value = value;
+                            devUpdated++;
+                        }
+                        updated++;
+                    } else {
+                        envVars.push({
+                            name,
+                            dev_value: importDevelopment ? value : '',
+                            prod_value: value,
+                            readonly: false,
+                            fixed: false
+                        });
+                        if (importDevelopment) devUpdated++;
+                        added++;
+                    }
+                });
+                renderTable();
+                const devSummary = importDevelopment ? `, ${devUpdated} development values updated` : '';
+                alert(`Imported ${entries.length} variables from ${file.name} (${updated} updated, ${added} added${devSummary}).`);
+            } catch (e) {
+                alert('Failed to import .env: ' + e.message);
+            } finally {
+                input.value = '';
             }
         }
 
