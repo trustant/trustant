@@ -37,15 +37,14 @@
                     class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
                     Add Variable
                 </button>
-                <button onclick="importEnvFile()"
+                <button onclick="importEnvFile('development')"
                     class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm">
                     Import .env
                 </button>
-                <label class="inline-flex items-center gap-2 text-sm text-gray-700 px-2">
-                    <input id="envImportDevelopment" type="checkbox"
-                        class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                    Development too
-                </label>
+                <button onclick="importEnvFile('production')"
+                    class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm">
+                    Import .env.production
+                </button>
                 <input id="envImportFile" type="file" accept=".env,.env.production,text/plain"
                     class="hidden" onchange="handleEnvFileImport(event)">
             </div>
@@ -75,6 +74,7 @@
         let envVars = [];
         let localEnvKeys = [];
         let savedSnapshot = '';
+        let envImportTarget = 'production';
 
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -159,7 +159,8 @@
             }
         }
 
-        function importEnvFile() {
+        function importEnvFile(target) {
+            envImportTarget = target === 'development' ? 'development' : 'production';
             document.getElementById('envImportFile').click();
         }
 
@@ -233,32 +234,36 @@
                 }
                 let added = 0;
                 let updated = 0;
-                let devUpdated = 0;
-                const importDevelopment = document.getElementById('envImportDevelopment')?.checked;
+                let skippedReadonly = 0;
+                const target = envImportTarget === 'development' ? 'development' : 'production';
                 entries.forEach(({ name, value }) => {
                     const existing = envVars.find((item) => item.name === name);
                     if (existing) {
-                        existing.prod_value = value;
-                        if (importDevelopment && !existing.readonly) {
+                        if (target === 'development') {
+                            if (existing.readonly) {
+                                skippedReadonly++;
+                                return;
+                            }
                             existing.dev_value = value;
-                            devUpdated++;
+                        } else {
+                            existing.prod_value = value;
                         }
                         updated++;
                     } else {
                         envVars.push({
                             name,
-                            dev_value: importDevelopment ? value : '',
-                            prod_value: value,
+                            dev_value: target === 'development' ? value : '',
+                            prod_value: target === 'production' ? value : '',
                             readonly: false,
                             fixed: false
                         });
-                        if (importDevelopment) devUpdated++;
                         added++;
                     }
                 });
                 renderTable();
-                const devSummary = importDevelopment ? `, ${devUpdated} development values updated` : '';
-                alert(`Imported ${entries.length} variables from ${file.name} (${updated} updated, ${added} added${devSummary}).`);
+                const targetLabel = target === 'development' ? '.env' : '.env.production';
+                const skippedSummary = skippedReadonly ? `, ${skippedReadonly} read-only development values skipped` : '';
+                alert(`Imported ${entries.length} variables from ${file.name} into ${targetLabel} (${updated} updated, ${added} added${skippedSummary}).`);
             } catch (e) {
                 alert('Failed to import .env: ' + e.message);
             } finally {

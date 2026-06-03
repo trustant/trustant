@@ -174,16 +174,20 @@ then you can add and remove other variables set both development and production 
 There are the buttons:
 
 - Import `.env`
+- Import `.env.production`
 - Save
 - Close
 
-The Import `.env` button lets the user select a local `.env` or
-`.env.production` file. The browser parses `KEY=VALUE` entries, ignores blank
-lines and comments, updates matching Production values, and adds missing keys as
-custom variables with empty Development values. A `Development too` checkbox
-optionally copies imported values into editable Development fields as well;
-read-only Development fields remain unchanged. Imported values are not saved
-until the user clicks Save/Commit.
+The Import `.env` button lets the user select a local `.env` file. The browser
+parses `KEY=VALUE` entries, ignores blank lines and comments, updates matching
+editable Development values, and adds missing keys as custom variables with
+empty Production values. Read-only Development fields remain unchanged.
+
+The Import `.env.production` button lets the user select a local `.env` or
+`.env.production` file and imports those values into the Production column on
+Trustable. It updates matching Production values and adds missing keys as custom
+variables with empty Development values. Imported values are not saved until the
+user clicks Save/Commit.
 
 The Save button will save both `.env` and `.env.production`
 The Close will come back, warning if there are unsaved changes.

@@ -433,9 +433,11 @@ On any error: replace the strip with a red error box containing the error text a
 Shows a table with columns: VARIABLE, Development, Production, Actions.
 - Fixed readonly rows for OPS_USER, OPS_PASSWORD, OPS_APIHOST
 - Custom variables that can be added/removed (per-app `development` / `production` only — there is no global `env` section)
-- Include an Import `.env` action that reads a local `.env`/`.env.production`
-  file in the browser, parses `KEY=VALUE` rows, updates matching Production
-  values, and adds missing keys as custom variables with empty Development
-  values. Provide a `Development too` option that also copies imported values
-  into editable Development fields, while leaving read-only Development fields
-  unchanged. The import changes only the in-memory table until the user saves.
+- Include separate Import `.env` and Import `.env.production` actions. Import
+  `.env` reads a local `.env` file in the browser and writes parsed `KEY=VALUE`
+  rows into editable Development values, adding missing keys as custom
+  variables with empty Production values. Import `.env.production` reads a local
+  `.env` or `.env.production` file and writes parsed values into Production,
+  adding missing keys as custom variables with empty Development values.
+  Read-only Development values are never overwritten. The import changes only
+  the in-memory table until the user saves.
