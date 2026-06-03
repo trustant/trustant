@@ -5,6 +5,7 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 ## Important Rules
 
 - Never try to build or deploy; this is managed automatically when you edit sources
+- Never run foreground dev servers or watchers such as `npm run dev`, `vite`, or `ops ide devel`; Trustable already manages the dev server. To verify frontend changes, use bounded checks such as `npm run build`, `curl http://localhost:5173`, or `timeout <seconds> ...`.
 - To initialize always use `ops ide init` that will execute ALL the private actions in `init` package.
 - Never create a backend server; create new public action providing an endpoint.
 - Never create or edit `__main__.py` files, use the following tools:
