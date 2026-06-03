@@ -66,6 +66,7 @@ func main() {
 	http.HandleFunc("/api/skills/", handleSkills)
 	http.HandleFunc("/api/memory/", handleMemory)
 	http.HandleFunc("/api/redeploy", handleRedeploy)
+	http.HandleFunc("/api/activations/poll", handleActivationPoll)
 	http.HandleFunc("/api/credits", handleCredits)
 	http.HandleFunc("/api/topup", handleTopUp)
 
