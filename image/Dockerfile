@@ -30,12 +30,6 @@ RUN \
 ENV UV_TOOL_DIR=/opt/uv/tools
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
-RUN \
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh && \
-    uv python install 3.12 && \
-    uv tool install --python 3.12 postgres-mcp==0.3.0 && \
-    uv tool install redis-mcp-server==0.5.0 && \
-    uv tool install git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3
 
 COPY --from=mcp-s3-builder /out/mcp-s3 /usr/local/bin/mcp-s3
 
@@ -62,6 +56,16 @@ RUN \
     curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
+ENV PATH="/home/trustable/.ops/linux-${TARGETARCH}/bin:${PATH}"
+
+USER root
+RUN \
+    HOME=/root uv python install 3.12 && \
+    HOME=/root uv tool install --python 3.12 postgres-mcp==0.3.0 && \
+    HOME=/root uv tool install redis-mcp-server==0.5.0 && \
+    HOME=/root uv tool install git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3
+
+USER trustable
 RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
