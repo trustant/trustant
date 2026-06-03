@@ -382,6 +382,11 @@
         function showAddModal() {
             document.getElementById('addModal').classList.remove('hidden');
             document.getElementById('addModal').classList.add('flex');
+            const reveal = document.getElementById('sshKeyReveal');
+            if (reveal) reveal.classList.add('hidden');
+            const copied = document.getElementById('addAppSshCopied');
+            if (copied) copied.classList.add('hidden');
+            refreshAddAppSshKeyNotice();
             document.getElementById('appName').focus();
         }
 
@@ -401,10 +406,28 @@
             try {
                 const response = await fetch('/api/sshkey');
                 if (response.ok) {
-                    sshKeyText = (await response.text()).trim();
+                    const text = (await response.text()).trim();
+                    if (text) sshKeyText = text;
                 }
             } catch (e) {}
             return sshKeyText;
+        }
+
+        async function refreshAddAppSshKeyNotice() {
+            const notice = document.getElementById('sshKeyNotice');
+            const textarea = document.getElementById('addAppSshKey');
+            if (!notice || !textarea) return '';
+            const key = await loadSSHKey();
+            if (key) {
+                sshKeyAvailable = true;
+                textarea.value = key;
+                notice.classList.remove('hidden');
+            } else {
+                sshKeyAvailable = false;
+                textarea.value = '';
+                notice.classList.add('hidden');
+            }
+            return key;
         }
 
         async function copyKeyFromTextarea(textareaId, feedbackId) {
@@ -435,8 +458,10 @@
             copyKeyFromTextarea('addAppSshKey', 'addAppSshCopied');
         }
 
-        function toggleAddAppSshKey() {
+        async function toggleAddAppSshKey() {
             const el = document.getElementById('sshKeyReveal');
+            const key = await refreshAddAppSshKeyNotice();
+            if (!key) return;
             el.classList.toggle('hidden');
         }
 
@@ -1089,17 +1114,7 @@
                 console.error('Failed to check version:', e);
             }
             // Check if SSH key is available and prime inline panels
-            try {
-                const sshResp = await fetch('/api/sshkey');
-                if (sshResp.ok) {
-                    sshKeyAvailable = true;
-                    sshKeyText = (await sshResp.text()).trim();
-                    document.getElementById('addAppSshKey').value = sshKeyText;
-                    document.getElementById('sshKeyNotice').classList.remove('hidden');
-                }
-            } catch (e) {
-                // SSH key not available, keep notice hidden
-            }
+            await refreshAddAppSshKeyNotice();
             loadApps();
         })();
     </script>
