@@ -54,3 +54,43 @@ func TestDisabledProvidersForCustomConfigKeepsCustomProviderSelectable(t *testin
 		t.Fatalf("unexpected disabled providers after filtering: %#v", filtered)
 	}
 }
+
+func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
+	lsp := defaultOpenCodeLSPConfig()
+	python, ok := lsp["python"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("python LSP config missing: %#v", lsp)
+	}
+	command, ok := python["command"].([]string)
+	if !ok || len(command) != 1 || command[0] != "pylsp" {
+		t.Fatalf("unexpected python LSP command: %#v", python["command"])
+	}
+}
+
+func TestDefaultOpenCodeMCPConfigUsesAppEnv(t *testing.T) {
+	mcp := defaultOpenCodeMCPConfig(map[string]string{
+		"POSTGRES_URL":  "postgres://user:pass@postgres/db",
+		"REDIS_HOST":    "redis",
+		"MILVUS_HOST":   "milvus",
+		"S3_ACCESS_KEY": "key",
+		"S3_SECRET_KEY": "secret",
+		"S3_HOST":       "minio",
+		"S3_PORT":       "9000",
+	})
+
+	postgres := mcp["postgres"].(map[string]interface{})
+	if postgres["enabled"] != true {
+		t.Fatalf("postgres MCP should be enabled: %#v", postgres)
+	}
+	postgresEnv := postgres["environment"].(map[string]string)
+	if postgresEnv["DATABASE_URI"] != "postgres://user:pass@postgres/db" {
+		t.Fatalf("postgres MCP should normalize POSTGRES_URL to DATABASE_URI: %#v", postgresEnv)
+	}
+
+	for _, name := range []string{"redis", "milvus", "s3"} {
+		server := mcp[name].(map[string]interface{})
+		if server["enabled"] != true {
+			t.Fatalf("%s MCP should be enabled: %#v", name, server)
+		}
+	}
+}

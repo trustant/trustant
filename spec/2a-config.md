@@ -248,6 +248,54 @@ structure (where `<provider>` is the active `provider` from `trustable.json` —
       "models": { <one entry per model in trustable.json "models" map> }
     },
     <preserved custom user providers>
+  },
+  "lsp": {
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"],
+      "extensions": [".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"]
+    },
+    "python": {
+      "command": ["pylsp"],
+      "extensions": [".py"]
+    }
+  },
+  "mcp": {
+    "postgres": {
+      "type": "local",
+      "command": ["trustable-mcp-postgres"],
+      "environment": {
+        "DATABASE_URI": "<DATABASE_URI or POSTGRES_URL from the launched app .env>"
+      },
+      "enabled": "<true only when database credentials are configured>",
+      "timeout": 30000
+    },
+    "redis": {
+      "type": "local",
+      "command": ["trustable-mcp-redis"],
+      "environment": {
+        "REDIS_URL": "<REDIS_URL from the launched app .env>"
+      },
+      "enabled": "<true only when REDIS_URL or REDIS_HOST is configured>",
+      "timeout": 30000
+    },
+    "milvus": {
+      "type": "local",
+      "command": ["trustable-mcp-milvus"],
+      "environment": {
+        "MILVUS_URI": "<MILVUS_URI or MILVUS_HOST/MILVUS_PORT from the launched app .env>"
+      },
+      "enabled": "<true only when Milvus connection variables are configured>",
+      "timeout": 30000
+    },
+    "s3": {
+      "type": "local",
+      "command": ["trustable-mcp-s3"],
+      "environment": {
+        "S3_ENDPOINT": "<S3_ENDPOINT or S3_HOST/S3_PORT from the launched app .env>"
+      },
+      "enabled": "<true only when S3 or AWS connection variables are configured>",
+      "timeout": 30000
+    }
   }
 }
 ```
@@ -282,11 +330,18 @@ Preserve custom providers (i.e. anything other than the Trustable-managed
 Do not emit `enabled_providers`: in OpenCode that field is a whitelist and
 would prevent providers added later from being selectable.
 
-Generated OpenCode keys that were introduced for experimental provider profiles
-(`lsp`, `mcp`, `tools`, `agent`, `compaction`, `enabled_providers`) are not
-carried forward when regenerating the Trustable config. This keeps the default
-OpenCode flow minimal while still allowing users to add providers from the
-OpenCode UI and keep them persisted across app launches.
+The `lsp` section is generated for local TypeScript/JavaScript and Python
+language servers installed in the Trustable image. The `mcp` section is
+regenerated at app launch time from the current app `.env`, not only during the
+global configure step. Keep service hosts, endpoints, tokens, passwords,
+buckets, and credentials as app environment variables. Do not hardcode
+server-specific hostnames or IP addresses in `opencode.json` generation.
+
+Preserve custom `lsp` and `mcp` entries from an existing `opencode.json`, but
+refresh the generated Trustable entries so app-specific environment values stay
+current. Generated OpenCode keys from old experimental provider profiles
+(`tools`, `agent`, `compaction`, `enabled_providers`) are not carried forward
+when regenerating the Trustable config.
 
 In Ollama mode, to get the capabilities of a model use the OllamaEndPoint,
 list the models then show their capabilities. In Trustable mode capability
@@ -335,6 +390,10 @@ generating `opencode.json`, write the embedded `opencode.md` to
 `~/.config/opencode/opencode.md` (the instructions file referenced by absolute
 path in the config). Also copy the embedded `tools` folder to
 `~/.config/opencode/tools`, overwriting existing files.
+
+The language servers are stdio programs. OpenCode launches and supervises
+`typescript-language-server --stdio` and `pylsp` when matching file types are
+used. Do not add them as long-running `supervisord` programs.
 
 # Manage configuration: GET /api/configuration
 
