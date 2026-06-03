@@ -66,6 +66,11 @@ RUN \
     curl -fsSL https://opencode.ai/install | bash ;\
     echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
 
+RUN \
+    mkdir -p "$HOME/.config/opencode" ;\
+    cp -a "$HOME/.opencode/package.json" "$HOME/.opencode/package-lock.json" "$HOME/.opencode/node_modules" "$HOME/.config/opencode/" ;\
+    test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
+
 RUN mkdir /home/trustable/workspace
 RUN echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
