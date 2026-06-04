@@ -492,3 +492,11 @@ On any error: replace the strip with a red error box containing the error text a
 Shows a table with columns: VARIABLE, Development, Production, Actions.
 - Fixed readonly rows for OPS_USER, OPS_PASSWORD, OPS_APIHOST
 - Custom variables that can be added/removed (per-app `development` / `production` only — there is no global `env` section)
+- Include separate Import `.env` and Import `.env.production` actions. Import
+  `.env` reads a local `.env` file in the browser and writes parsed `KEY=VALUE`
+  rows into editable Development values, adding missing keys as custom
+  variables with empty Production values. Import `.env.production` reads a local
+  `.env` or `.env.production` file and writes parsed values into Production,
+  adding missing keys as custom variables with empty Development values.
+  Read-only Development values are never overwritten. The import changes only
+  the in-memory table until the user saves.
