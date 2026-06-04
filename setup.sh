@@ -138,8 +138,8 @@ elif [[ -n "${TRUSTABLE_DEFAULT_APIHOST:-}" ]]; then
   APIHOST="$TRUSTABLE_DEFAULT_APIHOST"
 elif [[ "$OS" == "darwin" && -f "$HOME/Library/Application Support/Trustable/apihost" ]]; then
   APIHOST="$(cat "$HOME/Library/Application Support/Trustable/apihost")"
-elif [[ "$OS" == "msys" || "$OS" == "cygwin" || "$OS" == mingw* ]] && [[ -f "${APPDATA:-}/Trustable/apihost" ]]; then
-  APIHOST="$(cat "${APPDATA}/Trustable/apihost")"
+elif [[ "$OS" == "msys" || "$OS" == "cygwin" || "$OS" == mingw* ]] && [[ -f "${LOCALAPPDATA:-}/Trustable/apihost" ]]; then
+  APIHOST="$(cat "${LOCALAPPDATA}/Trustable/apihost")"
 else
   APIHOST="http://miniops.me"
 fi
@@ -154,15 +154,14 @@ ok "OpenWhisk reachable at ${APIHOST}"
 if [[ "$OS" == "darwin" ]]; then
   ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
   IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
-  if [[ -f "$ID_FILE" && -f "$IP_FILE" ]]; then
+  if [[ -f "$ID_FILE" ]]; then
     echo "--- Extracting kubeconfig ---"
     mkdir -p "$HOME/.ops/tmp"
     IP="$(cat "$IP_FILE")"
-    ssh -i "$ID_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-      "trustable@$IP" sudo cat /etc/rancher/k3s/k3s.yaml \
+    ./ssh.sh sudo cat /etc/rancher/k3s/k3s.yaml \
       | sed -e "/server:/ s/127.0.0.1/$IP/" \
       > "$HOME/.ops/tmp/kubeconfig" \
-      || fail "Failed to extract kubeconfig from trustable@$IP"
+      || fail "Failed to extract kubeconfig"
     ok "kubeconfig written to ~/.ops/tmp/kubeconfig"
   fi
 fi
@@ -181,6 +180,11 @@ if ! command -v opencode &>/dev/null; then
 fi
 command -v opencode &>/dev/null || fail "opencode installation failed"
 ok "opencode is available"
+
+# --- 9. Check kubefwd is in PATH ---
+echo "--- Checking kubefwd ---"
+command -v kubefwd &>/dev/null || fail "kubefwd not found in PATH"
+ok "kubefwd is available"
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"

@@ -394,18 +394,29 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
 	opencodeCmd.Env = os.Environ()
-	for key, value := range parseEnvFile(filepath.Join(workbenchPath, ".env")) {
+	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
+	for key, value := range appEnv {
 		opencodeCmd.Env = append(opencodeCmd.Env, key+"="+value)
 	}
 	// Set process group so we can kill all child processes
 	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	// Log exactly what we are about to run so failures are visible in the air console.
+	if bin, lookErr := exec.LookPath("opencode"); lookErr != nil {
+		log.Printf("opencode: WARNING `opencode` not found in PATH: %s", lookErr)
+	} else {
+		log.Printf("opencode: binary=%s", bin)
+	}
+	log.Printf("opencode: cmd=`%s`", strings.Join(opencodeCmd.Args, " "))
+	log.Printf("opencode: dir=%s config=%s appEnvCount=%d", workbenchPath, opencodeConfigDst, len(appEnv))
+
 	if err := opencodeCmd.Start(); err != nil {
+		log.Printf("opencode: FAILED to start: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start opencode: %s", err)})
 		return
 	}
 
-	log.Printf("Started opencode in directory: %s", workbenchPath)
+	log.Printf("opencode: started pid=%d in directory: %s", opencodeCmd.Process.Pid, workbenchPath)
 
 	// Get the process group ID
 	pgid, err := syscall.Getpgid(opencodeCmd.Process.Pid)
@@ -428,10 +439,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		if err != nil {
 			errMsg = fmt.Sprintf("opencode exited with error: %s", err)
 		}
+		log.Printf("opencode: %s (see opencode stdout/stderr above for the cause)", errMsg)
 		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
 		return
 	case <-time.After(500 * time.Millisecond):
 		// Process is still running - continue
+		log.Printf("opencode: pid=%d still alive after 500ms, serving on port %d", opencodeCmd.Process.Pid, leftPort)
 	}
 
 	// Write pgid and current app name to files
