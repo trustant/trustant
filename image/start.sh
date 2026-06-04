@@ -7,6 +7,8 @@ set +a
 
 ops -update
 
+mkdir -p "$HOME/.bun" "$HOME/.cache" "$HOME/.npm" "$HOME/.ops/tmp" "$HOME/.ssh" "$HOME/.tmp"
+
 #setup sshd
 mkdir -p /run/sshd
 ssh-keygen -A
@@ -52,7 +54,17 @@ persist_opencode_dir "$HOME/workspace/.trustable/opencode/config" "$HOME/.config
 persist_opencode_dir "$HOME/workspace/.trustable/opencode/cache" "$HOME/.cache/opencode"
 persist_opencode_dir "$HOME/workspace/.trustable/opencode/share" "$HOME/.local/share/opencode"
 
-chown -R trustable:trustable "$HOME/.ssh" "$HOME/.env" "$HOME/.ops" "$HOME/workspace/.trustable/opencode" "$HOME/.config/opencode" "$HOME/.cache/opencode" "$HOME/.local/share/opencode"
+chown -R trustable:trustable \
+    "$HOME/.env" \
+    "$HOME/.ops" \
+    "$HOME/.ssh" \
+    "$HOME/.bun" \
+    "$HOME/.cache" \
+    "$HOME/.npm" \
+    "$HOME/.tmp" \
+    "$HOME/workspace/.trustable/opencode" \
+    "$HOME/.config/opencode" \
+    "$HOME/.local/share/opencode"
 
 if [ -n "$USERID" ] && [ "$USERID" != "1000" ]
 then
