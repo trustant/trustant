@@ -48,9 +48,10 @@ The button shows the label "Utils" and a chevron-down icon. Clicking it toggles 
 
 1. **Revert** (orange undo-arrow icon) — disabled when there are no uncommitted changes (same condition as Commit).
 2. **Redeploy** (indigo rocket icon) — always enabled.
-3. **Upload** (green upload-arrow icon) — always enabled.
+3. **Debug** (blue terminal/log icon) — always enabled.
+4. **Upload** (green upload-arrow icon) — always enabled.
 
-Each item triggers the same behavior previously documented in the "Revert", "Redeploy", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+Each item triggers the same behavior previously documented in the "Revert", "Redeploy", "Debug", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
@@ -187,6 +188,20 @@ When clicked:
   - Waiting for dev server to be ready (HTTP HEAD check)
 - On `event: done`, show "Redeploy complete", the action list in a code block, and an OK link pointing to `<RIGHT><ROUTE>?<QUERY>#<ROUTE>`
 - On `event: error`, stop the spinner and show the error in red
+
+# Debug
+
+The **Debug** entry in the Utils pulldown opens a separate browser window at `debug.html?app=<NAME>`.
+
+The debug window opens an EventSource to `GET /api/activations/poll?name=<NAME>` and displays the streamed activation log.
+
+The backend:
+- Validates `<NAME>` with the same app-name rules used by the other per-app endpoints.
+- Requires `$WORKBENCH_DIR/<NAME>` to exist.
+- Regenerates the app `.env` before starting the command.
+- Runs `ops activation poll` in `$WORKBENCH_DIR/<NAME>` with the generated `.env` values appended to the process environment, so `OPS_USER`, `OPS_PASSWORD`, and `OPS_APIHOST` match the development context of the app being edited.
+- Streams stdout and stderr as SSE events.
+- Terminates the spawned process group when the browser closes the debug window or stops the stream.
 
 # Credits
 

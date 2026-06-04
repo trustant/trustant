@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trustable Debug</title>
+    <script src="tailwind.js"></script>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-950 text-gray-100 flex flex-col">
+    <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-800 bg-gray-900">
+        <div class="min-w-0">
+            <h1 class="text-base font-semibold truncate">Activations Debug: <span id="appName">-</span></h1>
+            <div id="status" class="mt-1 text-xs text-gray-400 truncate">Connecting...</div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="restartBtn" class="px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm text-white">Restart</button>
+            <button id="stopBtn" class="px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-sm text-white">Stop</button>
+            <button onclick="window.close()" class="px-3 py-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-sm text-white">Close</button>
+        </div>
+    </header>
+    <main id="log" class="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap"></main>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const appName = params.get('app') || '';
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+        let eventSource = null;
+
+        document.getElementById('appName').textContent = appName || 'unknown';
+
+        function setStatus(text, className) {
+            statusEl.textContent = text;
+            statusEl.className = 'mt-1 text-xs truncate ' + (className || 'text-gray-400');
+        }
+
+        function appendLine(text, className) {
+            const line = document.createElement('div');
+            line.textContent = text;
+            line.className = className || 'text-gray-100';
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function closeStream() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        function connect() {
+            closeStream();
+            logEl.innerHTML = '';
+            if (!appName) {
+                setStatus('Missing app name', 'text-red-400');
+                appendLine('Missing app name.', 'text-red-400');
+                return;
+            }
+
+            setStatus('Connecting...', 'text-gray-400');
+            appendLine('$ ops activation poll', 'text-indigo-300');
+            eventSource = new EventSource('/api/activations/poll?name=' + encodeURIComponent(appName));
+
+            eventSource.onopen = () => {
+                setStatus('Connected', 'text-green-400');
+            };
+
+            eventSource.addEventListener('status', (event) => {
+                setStatus(event.data, 'text-indigo-300');
+                appendLine(event.data, 'text-indigo-300');
+            });
+
+            eventSource.addEventListener('line', (event) => {
+                appendLine(event.data);
+            });
+
+            eventSource.addEventListener('done', (event) => {
+                appendLine(event.data || 'Stopped.', 'text-green-400');
+                setStatus('Stopped', 'text-green-400');
+                closeStream();
+            });
+
+            eventSource.addEventListener('error', (event) => {
+                if (event.data) {
+                    appendLine(event.data, 'text-red-400');
+                    setStatus('Error', 'text-red-400');
+                    closeStream();
+                    return;
+                }
+                setStatus('Disconnected', 'text-amber-300');
+            });
+        }
+
+        document.getElementById('restartBtn').addEventListener('click', connect);
+        document.getElementById('stopBtn').addEventListener('click', () => {
+            closeStream();
+            setStatus('Stopped', 'text-gray-400');
+            appendLine('Stopped by user.', 'text-gray-400');
+        });
+        window.addEventListener('beforeunload', closeStream);
+
+        connect();
+    </script>
+</body>
+</html>
