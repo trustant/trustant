@@ -36,6 +36,10 @@ cp -v trustable.json image/trustable.json
 
 image/image.sh "$TAG"
 
+ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list |\
+  awk '/trustable/{print $1}' |\
+  xargs -L1 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images
+
 echo "Saving $IMAGE:$TAG"
 docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
 echo "Listing Images"
