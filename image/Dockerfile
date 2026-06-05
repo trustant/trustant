@@ -72,7 +72,9 @@ RUN \
 
 RUN \
     mkdir -p "$HOME/.config/opencode" ;\
-    cp -a "$HOME/.opencode/package.json" "$HOME/.opencode/package-lock.json" "$HOME/.opencode/node_modules" "$HOME/.config/opencode/" ;\
+    cd "$HOME/.config/opencode" ;\
+    npm init -y >/dev/null ;\
+    npm install --no-audit --no-fund "@opencode-ai/plugin@$($HOME/.opencode/bin/opencode --version)" ;\
     test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
 
 RUN mkdir /home/trustable/workspace
