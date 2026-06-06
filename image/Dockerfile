@@ -84,6 +84,7 @@ USER root
 CMD ["/usr/local/bin/start.sh"]
 ENTRYPOINT ["tini", "--"]
 ###---###
+USER root
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
 COPY mcp/trustable-mcp-postgres /usr/local/bin/trustable-mcp-postgres
@@ -92,5 +93,5 @@ COPY mcp/trustable-mcp-milvus /usr/local/bin/trustable-mcp-milvus
 COPY mcp/trustable-mcp-s3 /usr/local/bin/trustable-mcp-s3
 RUN chmod +x /usr/local/bin/trustable-mcp-*
 COPY env .env
-COPY trustable.json trustable.json
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
+COPY trustable.json trustable.json

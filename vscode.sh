@@ -11,7 +11,7 @@ test -e "$IT" || ssh-keygen -t ed25519 -N "" -f "$IT"
 #ssh -i "$ID" trustable@$IP  "chmod 0600 ~/.ssh/id_trustable"
 #ssh -tt -i "$ID" trustable@$IP ssh -t  -i .ssh/id_trustable trustable@localhost -p 30222
 
-cat "$IT".pub | ssh -i "$ID" trustable@$IP sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- tee /home/trustable/.ssh/authorized_keys
+cat "$IT".pub  |  ssh -i "$ID" trustable@$IP sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- tee /home/trustable/.ssh/authorized_keys
 
 #>/dev/null
 
