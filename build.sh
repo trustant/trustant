@@ -38,7 +38,9 @@ image/image.sh "$TAG"
 
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list |\
   awk '/trustable/{print $1}' |\
-  xargs -L1 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images
+  while read -r img
+  do ssh -i "$ID" trustable@"$IP" sudo k3s ctr images rm "$img" || true
+  done
 
 echo "Saving $IMAGE:$TAG"
 docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
