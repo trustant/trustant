@@ -1,3 +1,5 @@
+#!/bin/bash
+
 ID=~/Library/Application\ Support/Trustable/id_ed25519
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
 IT=~/Library/Application\ Support/Trustable/id_trustable
@@ -13,8 +15,8 @@ cat "$IT".pub | ssh -i "$ID" trustable@$IP sudo k3s kubectl -n nuvolaris exec -t
 
 #>/dev/null
 
-
 sed -i.bak -e '/^Host trustable-0/,/ProxyJump trustable-0$/d' ~/.ssh/config
+
 cat <<EOF >>~/.ssh/config
 Host trustable
     Hostname localhost
