@@ -36,19 +36,18 @@ cp -v trustable.json image/trustable.json
 
 image/image.sh "$TAG"
 
-ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list |\
-  awk '/trustable/{print $1}' |\
-  while read -r img
-  do ssh -i "$ID" trustable@"$IP" sudo k3s ctr images rm "$img" || true
-  done
+ops bestia trustable undeploy
+ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all
 
 echo "Saving $IMAGE:$TAG"
 docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
 echo "Listing Images"
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
 
-ops bestia trustable redeploy
+ops bestia trustable deploy
 
-cd olaris-bestia
-git commit -m "$TAG" -a
-git tag $TAG
+
+
+#cd olaris-bestia
+#git commit -m "$TAG" -a
+#git tag $TAG
