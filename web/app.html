@@ -446,6 +446,7 @@
         const leftURL = getCookie('LEFT');
         const rightURL = getCookie('RIGHT');
         const appName = getCookie('NAME');
+        const sessionID = getCookie('SESSIONID');
         let urlDirectory = getCookie('URLDIR');
         let b64Directory = getCookie('B64DIR');
         if (!urlDirectory && b64Directory) {
@@ -486,7 +487,9 @@
 
         // Configure iframes with LEFT and RIGHT URLs
         if (leftURL) {
-            if (b64Directory) {
+            if (b64Directory && sessionID) {
+                document.getElementById('leftFrame').src = `${leftURL}/${b64Directory}/session/${encodeURIComponent(sessionID)}`;
+            } else if (b64Directory) {
                 document.getElementById('leftFrame').src = `${leftURL}/${b64Directory}/session`;
             } else {
                 document.getElementById('leftFrame').src = `${leftURL}/`;

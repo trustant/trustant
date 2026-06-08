@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -145,6 +147,113 @@ func terminateLeftoverProcesses() {
 	time.Sleep(500 * time.Millisecond)
 }
 
+func normalizeOpenCodeAgentColor(color string) string {
+	normalized := strings.TrimSpace(strings.ToLower(color))
+	switch normalized {
+	case "primary", "secondary", "accent", "success", "warning", "error", "info":
+		return normalized
+	case "blue", "indigo":
+		return "primary"
+	case "purple", "violet", "gray", "grey":
+		return "secondary"
+	case "cyan", "sky", "teal":
+		return "info"
+	case "green", "emerald", "lime":
+		return "success"
+	case "yellow", "amber", "orange":
+		return "warning"
+	case "red", "rose", "pink":
+		return "error"
+	default:
+		if len(color) == 7 && strings.HasPrefix(color, "#") {
+			valid := true
+			for _, ch := range color[1:] {
+				if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+					valid = false
+					break
+				}
+			}
+			if valid {
+				return color
+			}
+		}
+		return "primary"
+	}
+}
+
+func sanitizeOpenCodeAgentMetadata(workbenchPath string) {
+	agentDir := filepath.Join(workbenchPath, ".opencode", "agent")
+	if _, err := os.Stat(agentDir); err != nil {
+		return
+	}
+	if err := filepath.WalkDir(agentDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			log.Printf("Warning: failed to read OpenCode agent metadata %s: %s", path, readErr)
+			return nil
+		}
+		lines := strings.Split(string(data), "\n")
+		changed := false
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "color:") {
+				continue
+			}
+			prefix := line[:strings.Index(line, "color:")]
+			rawColor := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "color:")), `"'`)
+			normalized := normalizeOpenCodeAgentColor(rawColor)
+			if normalized != rawColor {
+				lines[i] = prefix + "color: " + normalized
+				changed = true
+			}
+			break
+		}
+		if changed {
+			if writeErr := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); writeErr != nil {
+				log.Printf("Warning: failed to update OpenCode agent metadata %s: %s", path, writeErr)
+				return nil
+			}
+			log.Printf("Normalized OpenCode agent metadata in %s", path)
+		}
+		return nil
+	}); err != nil {
+		log.Printf("Warning: failed to scan OpenCode agent metadata: %s", err)
+	}
+}
+
+func openCodeProjectID(app string) string {
+	sum := sha1.Sum([]byte("trustable:" + app))
+	return hex.EncodeToString(sum[:])
+}
+
+func ensureOpenCodeProjectID(workbenchPath, app string) {
+	gitDirOutput, err := exec.Command("git", "-C", workbenchPath, "rev-parse", "--git-dir").Output()
+	gitDir := ""
+	if err == nil {
+		gitDir = strings.TrimSpace(string(gitDirOutput))
+		if gitDir != "" && !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(workbenchPath, gitDir)
+		}
+	}
+	if gitDir == "" {
+		gitDir = filepath.Join(workbenchPath, ".git")
+	}
+	if info, statErr := os.Stat(gitDir); statErr != nil || !info.IsDir() {
+		log.Printf("Warning: failed to locate git dir for OpenCode project id: %s", gitDir)
+		return
+	}
+	projectIDPath := filepath.Join(gitDir, "opencode")
+	projectID := openCodeProjectID(app)
+	if err := os.WriteFile(projectIDPath, []byte(projectID), 0644); err != nil {
+		log.Printf("Warning: failed to write OpenCode project id %s: %s", projectIDPath, err)
+		return
+	}
+	log.Printf("OpenCode project id for %s set to %s", app, projectID)
+}
+
 // waitForProcessStart waits for a process to either exit (error) or stay running for the specified duration
 // Returns nil if process stays running, error if it exits prematurely
 func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
@@ -169,12 +278,12 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 // createOpencodeSession POSTs to opencode's /session/ endpoint with the
 // workbench directory header so the running opencode server scopes its session
 // to the launched app. Failures are logged but non-fatal.
-func createOpencodeSession(port int, directory string) {
+func createOpencodeSession(port int, directory string) string {
 	url := fmt.Sprintf("http://localhost:%d/session/", port)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		log.Printf("opencode session POST: failed to build request: %s", err)
-		return
+		return ""
 	}
 	req.Header.Set("X-Opencode-Directory", directory)
 
@@ -182,11 +291,20 @@ func createOpencodeSession(port int, directory string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("opencode session POST %s failed: %s", url, err)
-		return
+		return ""
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	log.Printf("opencode session POST %s -> %d: %s", url, resp.StatusCode, strings.TrimSpace(string(body)))
+	trimmedBody := strings.TrimSpace(string(body))
+	log.Printf("opencode session POST %s -> %d: %s", url, resp.StatusCode, trimmedBody)
+	var session struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &session); err != nil {
+		log.Printf("Warning: failed to parse OpenCode session response: %s", err)
+		return ""
+	}
+	return session.ID
 }
 
 // handleLaunchGet handles GET /api/launch/<app>
@@ -257,6 +375,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			}
 		}
 	}
+	ensureOpenCodeProjectID(workbenchPath, app)
 
 	// Set up skills if not already present
 	skillsAdded := ensureSkills(app)
@@ -386,6 +505,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			log.Printf("Warning: opencode.json not found: %s", readErr)
 		}
 	}
+	sanitizeOpenCodeAgentMetadata(workbenchPath)
 
 	// Start opencode
 	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
@@ -519,7 +639,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
 
 	// Notify opencode of the workbench directory so it scopes the session correctly.
-	createOpencodeSession(leftPort, absPath)
+	sessionID := createOpencodeSession(leftPort, absPath)
 
 	// Log the opencode session URLs
 	domain := r.Host
@@ -534,6 +654,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		"right":        rightPort,
 		"b64dir":       b64Path,
 		"encdir":       absPath,
+		"session_id":   sessionID,
 		"skills_added": skillsAdded,
 	})
 }

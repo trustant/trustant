@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -8,8 +10,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ipPattern matches IPv4 addresses
@@ -18,6 +22,10 @@ var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 // reverse proxy instances for opencode and vite
 var opencodeProxy = newSilentProxy("localhost:4096")
 var viteProxy = newSilentProxy("localhost:5173")
+
+type opencodeSessionSummary struct {
+	ID string `json:"id"`
+}
 
 // newSilentProxy creates a reverse proxy that silently returns 502 when the backend is unavailable
 func newSilentProxy(host string) *httputil.ReverseProxy {
@@ -46,6 +54,89 @@ func parseHostname(r *http.Request) (hostname, port, protocol string) {
 	}
 
 	return hostname, port, protocol
+}
+
+func latestOpenCodeSessionID(directory string) string {
+	if directory == "" {
+		return ""
+	}
+	sessionURL := fmt.Sprintf("http://localhost:4096/session?directory=%s&roots=true&limit=1", url.QueryEscape(directory))
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(sessionURL)
+	if err != nil {
+		log.Printf("opencode redirect: failed to query latest session for %s: %s", directory, err)
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("opencode redirect: latest session query for %s returned %d", directory, resp.StatusCode)
+		return ""
+	}
+	var sessions []opencodeSessionSummary
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		log.Printf("opencode redirect: failed to decode latest session for %s: %s", directory, err)
+		return ""
+	}
+	if len(sessions) == 0 {
+		return ""
+	}
+	return sessions[0].ID
+}
+
+func decodeOpenCodeDirectory(encoded string) string {
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return ""
+	}
+	directory := string(decoded)
+	if !filepath.IsAbs(directory) {
+		return ""
+	}
+	return directory
+}
+
+func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+
+	var encodedDir string
+	switch {
+	case r.URL.Path == "/":
+		app, err := readCurrentApp()
+		if err != nil || app == "" {
+			return false
+		}
+		directory, err := filepath.Abs(filepath.Join(WorkbenchDir, app))
+		if err != nil {
+			return false
+		}
+		encodedDir = base64.RawURLEncoding.EncodeToString([]byte(directory))
+	case strings.HasSuffix(r.URL.Path, "/session"):
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) != 2 || parts[1] != "session" {
+			return false
+		}
+		encodedDir = parts[0]
+	default:
+		return false
+	}
+
+	directory := decodeOpenCodeDirectory(encodedDir)
+	if directory == "" {
+		return false
+	}
+	sessionID := latestOpenCodeSessionID(directory)
+	if sessionID == "" {
+		return false
+	}
+
+	target := fmt.Sprintf("/%s/session/%s", encodedDir, url.PathEscape(sessionID))
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+	return true
 }
 
 // hostnameMiddleware wraps an http.Handler with hostname verification, IP redirect, and host-based routing
@@ -94,6 +185,9 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			// Serve the web folder (static files + API)
 			next.ServeHTTP(w, r)
 		case "opencode":
+			if redirectOpenCodeSession(w, r) {
+				return
+			}
 			// Proxy pass to port 4096
 			opencodeProxy.ServeHTTP(w, r)
 		case "vite":

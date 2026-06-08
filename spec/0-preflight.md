@@ -47,5 +47,12 @@ The web application requires you always access the application with a full fqdn 
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
 - if <host> is 'trustable', serve the folder `web`
-- if <host> is 'opencode', proxy pass to port 4096
+- if <host> is 'opencode', proxy pass to port 4096. Before proxying, normalize
+  OpenCode document routes that lost their explicit session id:
+  - `/` redirects to the latest root session for the app named by the current
+    workbench marker, when one exists.
+  - `/<B64DIR>/session` redirects to `/<B64DIR>/session/<SESSIONID>` using the
+    latest root session for the decoded directory, when one exists.
+  This keeps OpenCode from falling back to stale global project state after the
+  user exits a session view.
 - if <host> is 'vite',  proxy pass to port 5173
