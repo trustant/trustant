@@ -95,37 +95,20 @@ func decodeOpenCodeDirectory(encoded string) string {
 	return directory
 }
 
-func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		return false
+func currentOpenCodeDirectory() (encodedDir, directory string) {
+	app, err := readCurrentApp()
+	if err != nil || app == "" {
+		return "", ""
 	}
+	directory, err = filepath.Abs(filepath.Join(WorkbenchDir, app))
+	if err != nil {
+		return "", ""
+	}
+	encodedDir = base64.RawURLEncoding.EncodeToString([]byte(directory))
+	return encodedDir, directory
+}
 
-	var encodedDir string
-	switch {
-	case r.URL.Path == "/":
-		app, err := readCurrentApp()
-		if err != nil || app == "" {
-			return false
-		}
-		directory, err := filepath.Abs(filepath.Join(WorkbenchDir, app))
-		if err != nil {
-			return false
-		}
-		encodedDir = base64.RawURLEncoding.EncodeToString([]byte(directory))
-	case strings.HasSuffix(r.URL.Path, "/session"):
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(parts) != 2 || parts[1] != "session" {
-			return false
-		}
-		encodedDir = parts[0]
-	default:
-		return false
-	}
-
-	directory := decodeOpenCodeDirectory(encodedDir)
-	if directory == "" {
-		return false
-	}
+func redirectToLatestOpenCodeSession(w http.ResponseWriter, r *http.Request, encodedDir, directory string) bool {
 	sessionID := latestOpenCodeSessionID(directory)
 	if sessionID == "" {
 		return false
@@ -137,6 +120,42 @@ func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
 	}
 	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 	return true
+}
+
+func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+
+	currentEncodedDir, currentDirectory := currentOpenCodeDirectory()
+	if currentDirectory == "" {
+		return false
+	}
+
+	if r.URL.Path == "/" {
+		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
+	}
+
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 2 || parts[1] != "session" {
+		return false
+	}
+	if len(parts) > 3 {
+		return false
+	}
+
+	requestedEncodedDir := parts[0]
+	requestedDirectory := decodeOpenCodeDirectory(requestedEncodedDir)
+	if requestedDirectory == "" {
+		return false
+	}
+	if requestedDirectory != currentDirectory {
+		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
+	}
+	if len(parts) == 2 {
+		return redirectToLatestOpenCodeSession(w, r, requestedEncodedDir, requestedDirectory)
+	}
+	return false
 }
 
 // hostnameMiddleware wraps an http.Handler with hostname verification, IP redirect, and host-based routing
