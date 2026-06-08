@@ -254,6 +254,65 @@ func ensureOpenCodeProjectID(workbenchPath, app string) {
 	log.Printf("OpenCode project id for %s set to %s", app, projectID)
 }
 
+func cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("Warning: failed to locate home for OpenCode DB cleanup: %s", err)
+		return
+	}
+	dbPath := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return
+	}
+
+	projectID := openCodeProjectID(app)
+	script := `
+import json
+import sqlite3
+import sys
+
+db_path, directory, project_id = sys.argv[1:4]
+con = sqlite3.connect(db_path)
+cur = con.cursor()
+changed = 0
+
+cur.execute(
+    "delete from project_directory where directory = ? and project_id != ?",
+    (directory, project_id),
+)
+changed += cur.rowcount
+
+for stale_id, raw_sandboxes in cur.execute(
+    "select id, sandboxes from project where id != ?",
+    (project_id,),
+).fetchall():
+    try:
+        sandboxes = json.loads(raw_sandboxes or "[]")
+    except Exception:
+        sandboxes = []
+    updated = [entry for entry in sandboxes if entry != directory]
+    if updated != sandboxes:
+        cur.execute(
+            "update project set sandboxes = ? where id = ?",
+            (json.dumps(updated), stale_id),
+        )
+        changed += cur.rowcount
+
+con.commit()
+print(changed)
+`
+	cmd := exec.Command("python3", "-c", script, dbPath, workbenchPath, projectID)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Warning: failed to cleanup OpenCode project directory links: %s, output: %s", err, strings.TrimSpace(string(output)))
+		return
+	}
+	changed := strings.TrimSpace(string(output))
+	if changed != "" && changed != "0" {
+		log.Printf("Cleaned %s stale OpenCode project directory link(s) for %s", changed, workbenchPath)
+	}
+}
+
 // waitForProcessStart waits for a process to either exit (error) or stay running for the specified duration
 // Returns nil if process stays running, error if it exits prematurely
 func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
@@ -376,6 +435,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		}
 	}
 	ensureOpenCodeProjectID(workbenchPath, app)
+	cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
 
 	// Set up skills if not already present
 	skillsAdded := ensureSkills(app)
