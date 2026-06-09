@@ -94,3 +94,42 @@ func TestDefaultOpenCodeMCPConfigUsesAppEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeOpenCodeAgentColorMapsLegacyNames(t *testing.T) {
+	cases := map[string]string{
+		"blue":      "primary",
+		"purple":    "secondary",
+		"green":     "success",
+		"yellow":    "warning",
+		"red":       "error",
+		"cyan":      "info",
+		"primary":   "primary",
+		"#1a2B3c":   "#1a2B3c",
+		"not-valid": "primary",
+	}
+	for input, want := range cases {
+		if got := normalizeOpenCodeAgentColor(input); got != want {
+			t.Fatalf("normalizeOpenCodeAgentColor(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestOpenCodeProjectIDIsStablePerApp(t *testing.T) {
+	first := openCodeProjectID("truorderingestion")
+	second := openCodeProjectID("truorderingestion")
+	other := openCodeProjectID("truk8s")
+	if first != second {
+		t.Fatalf("openCodeProjectID should be stable: %q != %q", first, second)
+	}
+	if first == other {
+		t.Fatalf("openCodeProjectID should differ per app: %q", first)
+	}
+	if len(first) != 40 {
+		t.Fatalf("openCodeProjectID length = %d, want 40", len(first))
+	}
+	for _, ch := range first {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			t.Fatalf("openCodeProjectID contains non-hex character %q in %q", ch, first)
+		}
+	}
+}

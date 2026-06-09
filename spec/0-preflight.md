@@ -31,7 +31,17 @@ OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 
 # check ssh key
 
-Ensure `~/.ssh/id_ed25519` exists. If it does, set `sshKeyAvailable` to true (and derive the matching `.pub` via `ssh-keygen -y` when missing). If it does not, generate a passphrase-less ed25519 keypair at that path (`ssh-keygen -t ed25519 -N "" -C "trustable" -f ~/.ssh/id_ed25519`), chmod 600 both files, and set `sshKeyAvailable` to true. Set `sshKeyAvailable` to false only if directory creation or key generation fails.
+Ensure a persistent ed25519 key exists under
+`$WORKSPACE_DIR/.trustable/ssh/id_ed25519`. If an old ephemeral
+`~/.ssh/id_ed25519` exists and the persistent key is missing, migrate it there.
+Otherwise generate a passphrase-less keypair at the persistent path
+(`ssh-keygen -t ed25519 -N "" -C "trustable" -f
+$WORKSPACE_DIR/.trustable/ssh/id_ed25519`). Derive the matching `.pub` via
+`ssh-keygen -y` when missing, chmod private/public key files 600, and expose
+them at the compatibility paths `~/.ssh/id_ed25519` and
+`~/.ssh/id_ed25519.pub` using symlinks when possible, falling back to copies.
+Set `sshKeyAvailable` to true only when both persistent and compatibility paths
+are ready.
 
 # web server
 
@@ -47,5 +57,15 @@ The web application requires you always access the application with a full fqdn 
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
 - if <host> is 'trustable', serve the folder `web`
-- if <host> is 'opencode', proxy pass to port 4096
+- if <host> is 'opencode', proxy pass to port 4096. Before proxying, normalize
+  OpenCode document routes that lost their explicit session id:
+  - `/` redirects to the latest root session for the app named by the current
+    workbench marker, when one exists.
+  - `/<B64DIR>/session` redirects to `/<B64DIR>/session/<SESSIONID>` using the
+    latest root session for the decoded directory, when one exists.
+  - any OpenCode document route whose decoded `<B64DIR>` does not match the
+    current workbench marker redirects to the latest current-app session. This
+    handles stale browser tabs that still point at a previously edited app.
+  This keeps OpenCode from falling back to stale global project state after the
+  user exits a session view.
 - if <host> is 'vite',  proxy pass to port 5173

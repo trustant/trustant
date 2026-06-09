@@ -61,7 +61,8 @@ base64-url-safe path or is missing while B64DIR is present, decode it first.
 Before opening opencode, always regenerate B64DIR from the raw absolute path:
 
 They will show:
-- to the left: `<LEFT>/<B64DIR>/session`
+- to the left: `<LEFT>/<B64DIR>/session/<SESSIONID>` when `SESSIONID` is
+  available, otherwise `<LEFT>/<B64DIR>/session`
 - to the right: `<RIGHT><ROUTE>#<ROUTE>` where `<ROUTE>` is the value of the ROUTE cookie (defaults to "/")
 
 Write in console.log the values of the cookies B64DIR and URLDIR

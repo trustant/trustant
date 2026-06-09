@@ -15,14 +15,14 @@ import (
 
 // Environment configuration loaded from .env
 var (
-	WorkspaceDir    string
-	WorkbenchDir    string
-	OpenAIBaseUrl   string
-	OpenAIApiKey    string
-	OllamaEndpoint  string
-	AIPRegisterURL  string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
-	AIPBaseURL      string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
-	OpsSkills       string
+	WorkspaceDir   string
+	WorkbenchDir   string
+	OpenAIBaseUrl  string
+	OpenAIApiKey   string
+	OllamaEndpoint string
+	AIPRegisterURL string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
+	AIPBaseURL     string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
+	OpsSkills      string
 )
 
 // loadEnv reads .env from the current directory and sets the config variables,
@@ -302,8 +302,44 @@ func killProcessOnPort(port string) error {
 // sshKeyAvailable indicates whether the SSH key was found during preflight
 var sshKeyAvailable bool
 
-// checkSSHKey ensures ~/.ssh/id_ed25519 exists, generating one if missing,
-// and sets sshKeyAvailable accordingly. The key is used for publishing git pushes.
+func deriveSSHPublicKey(keyPath, pubPath string) error {
+	if _, err := os.Stat(pubPath); err == nil {
+		return nil
+	}
+	out, err := exec.Command("ssh-keygen", "-y", "-f", keyPath).Output()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(pubPath, out, 0o600)
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, mode); err != nil {
+		return err
+	}
+	return os.Chmod(dst, mode)
+}
+
+func ensureSSHKeyLink(linkPath, targetPath string, mode os.FileMode) error {
+	if currentTarget, err := os.Readlink(linkPath); err == nil && currentTarget == targetPath {
+		return nil
+	}
+	if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Symlink(targetPath, linkPath); err == nil {
+		return nil
+	}
+	return copyFile(targetPath, linkPath, mode)
+}
+
+// checkSSHKey ensures ~/.ssh/id_ed25519 exists, backed by the persistent
+// workspace copy, and sets sshKeyAvailable accordingly. The key is used for
+// publishing git pushes.
 func checkSSHKey() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -314,33 +350,67 @@ func checkSSHKey() {
 	sshDir := filepath.Join(homeDir, ".ssh")
 	keyPath := filepath.Join(sshDir, "id_ed25519")
 	pubPath := keyPath + ".pub"
+	persistentDir := filepath.Join(WorkspaceDir, ".trustable", "ssh")
+	persistentKeyPath := filepath.Join(persistentDir, "id_ed25519")
+	persistentPubPath := persistentKeyPath + ".pub"
 
-	if _, err := os.Stat(keyPath); err == nil {
-		if _, err := os.Stat(pubPath); err != nil {
-			if out, perr := exec.Command("ssh-keygen", "-y", "-f", keyPath).Output(); perr == nil {
-				_ = os.WriteFile(pubPath, out, 0o600)
-			}
-		}
-		log.Printf("  - SSH key found at %s", keyPath)
-		sshKeyAvailable = true
+	if err := os.MkdirAll(persistentDir, 0o700); err != nil {
+		log.Printf("  - Warning: cannot create %s: %v", persistentDir, err)
+		sshKeyAvailable = false
 		return
 	}
-
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
 		log.Printf("  - Warning: cannot create %s: %v", sshDir, err)
 		sshKeyAvailable = false
 		return
 	}
-	log.Printf("  - SSH key not found, generating new ed25519 keypair at %s", keyPath)
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "trustable", "-f", keyPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("  - Warning: ssh-keygen failed: %v: %s", err, strings.TrimSpace(string(out)))
+
+	if _, err := os.Stat(persistentKeyPath); os.IsNotExist(err) {
+		if _, homeErr := os.Stat(keyPath); homeErr == nil {
+			log.Printf("  - Migrating SSH key from %s to %s", keyPath, persistentKeyPath)
+			if err := copyFile(keyPath, persistentKeyPath, 0o600); err != nil {
+				log.Printf("  - Warning: failed to persist existing SSH key: %v", err)
+				sshKeyAvailable = false
+				return
+			}
+		} else {
+			log.Printf("  - SSH key not found, generating persistent ed25519 keypair at %s", persistentKeyPath)
+			cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "trustable", "-f", persistentKeyPath)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("  - Warning: ssh-keygen failed: %v: %s", err, strings.TrimSpace(string(out)))
+				sshKeyAvailable = false
+				return
+			}
+		}
+	} else if err != nil {
+		log.Printf("  - Warning: cannot inspect persistent SSH key: %v", err)
 		sshKeyAvailable = false
 		return
 	}
-	_ = os.Chmod(keyPath, 0o600)
-	_ = os.Chmod(pubPath, 0o600)
-	log.Printf("  - SSH key generated at %s", keyPath)
+
+	if err := os.Chmod(persistentKeyPath, 0o600); err != nil {
+		log.Printf("  - Warning: cannot chmod persistent SSH key: %v", err)
+		sshKeyAvailable = false
+		return
+	}
+	if err := deriveSSHPublicKey(persistentKeyPath, persistentPubPath); err != nil {
+		log.Printf("  - Warning: cannot derive SSH public key: %v", err)
+		sshKeyAvailable = false
+		return
+	}
+	_ = os.Chmod(persistentPubPath, 0o600)
+
+	if err := ensureSSHKeyLink(keyPath, persistentKeyPath, 0o600); err != nil {
+		log.Printf("  - Warning: cannot link SSH key into %s: %v", keyPath, err)
+		sshKeyAvailable = false
+		return
+	}
+	if err := ensureSSHKeyLink(pubPath, persistentPubPath, 0o600); err != nil {
+		log.Printf("  - Warning: cannot link SSH public key into %s: %v", pubPath, err)
+		sshKeyAvailable = false
+		return
+	}
+	log.Printf("  - SSH key ready at %s (persistent: %s)", keyPath, persistentKeyPath)
 	sshKeyAvailable = true
 }
 
