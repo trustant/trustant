@@ -31,7 +31,17 @@ OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 
 # check ssh key
 
-Ensure `~/.ssh/id_ed25519` exists. If it does, set `sshKeyAvailable` to true (and derive the matching `.pub` via `ssh-keygen -y` when missing). If it does not, generate a passphrase-less ed25519 keypair at that path (`ssh-keygen -t ed25519 -N "" -C "trustable" -f ~/.ssh/id_ed25519`), chmod 600 both files, and set `sshKeyAvailable` to true. Set `sshKeyAvailable` to false only if directory creation or key generation fails.
+Ensure a persistent ed25519 key exists under
+`$WORKSPACE_DIR/.trustable/ssh/id_ed25519`. If an old ephemeral
+`~/.ssh/id_ed25519` exists and the persistent key is missing, migrate it there.
+Otherwise generate a passphrase-less keypair at the persistent path
+(`ssh-keygen -t ed25519 -N "" -C "trustable" -f
+$WORKSPACE_DIR/.trustable/ssh/id_ed25519`). Derive the matching `.pub` via
+`ssh-keygen -y` when missing, chmod private/public key files 600, and expose
+them at the compatibility paths `~/.ssh/id_ed25519` and
+`~/.ssh/id_ed25519.pub` using symlinks when possible, falling back to copies.
+Set `sshKeyAvailable` to true only when both persistent and compatibility paths
+are ready.
 
 # web server
 
