@@ -11,11 +11,12 @@ test -e "$IT" || ssh-keygen -t ed25519 -N "" -f "$IT"
 #ssh -i "$ID" trustable@$IP  "chmod 0600 ~/.ssh/id_trustable"
 #ssh -tt -i "$ID" trustable@$IP ssh -t  -i .ssh/id_trustable trustable@localhost -p 30222
 
+echo "Expected: Warning: AND Unable to use a TTY"
 cat "$IT".pub  |  ssh -i "$ID" trustable@$IP sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- tee /home/trustable/.ssh/authorized_keys
 
 #>/dev/null
 
-sed -i.bak -e '/^Host trustable-0/,/ProxyJump trustable-0$/d' ~/.ssh/config
+sed -i.bak -e '/^Host trustable/,/End trustable$/d' ~/.ssh/config
 
 cat <<EOF >>~/.ssh/config
 Host trustable
@@ -23,12 +24,13 @@ Host trustable
     Port 30222
     User trustable
     IdentityFile "$IT"
-    ProxyJump trustable-ext
+    ProxyJump trustable-vm
 
-Host trustable-ext
+Host trustable-vm
     Hostname $IP
     User trustable
     IdentityFile "$ID"
+# End trustable
 EOF
 
-echo "you can now 'ssh trustable'
+echo "you can now 'ssh trustable' and 'ssh trustable-vm'"

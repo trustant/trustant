@@ -178,7 +178,7 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`,
 
 2. The OPS_APIHOST is set in this order
-- by env variables OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST
+- by env variables OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST/OPERATOR_CONFIG_APIHOST
 - on Mac by the content of file ~/Library/Application Support/Trustable/apihost if the file is present
 - on Windows by the content of %APPDATA%/Trustable/apihost  if it is present
 - defaults to http://miniops.me
@@ -203,7 +203,7 @@ Passwords are stored in `apps.<name>.password` in the workspace `trustable.json`
 
 This endpoint streams progress to the client. It assumes a provider has already been chosen (`provider`, `base_url`, and `api_key` are set in the workspace `trustable.json`); it does **not** prompt for provider selection. Provider selection happens once on the splash page (see [1-index.md](1-index.md)) and is changed only via the **Change Provider** button in the configure UI. If `provider` is empty, the splash flow handles the choice — `/api/configure` is only invoked afterwards.
 
-`/api/configure` is the streamed path used by the splash after a provider is freshly chosen: it runs the Ollama connectivity check and the model-pull loop. It is **not** invoked by the configure UI's Save & Configure button — that path is now `POST /api/configuration` (see below), which persists, regenerates `opencode.json`, and runs testmodel in a single call. The two paths share the opencode-regen helper.
+`/api/configure` is the streamed path used by the splash after a provider is freshly chosen: it runs the Ollama connectivity check and the model-pull loop. It is **not** invoked by the configure UI's Save & Configure button — that path is now `POST /api/configuration` (see below), which persists and runs testmodel in a single call. Neither path writes an `opencode.json`; that file is generated per-app in the workbench project directory at launch (see [4-launch.md](4-launch.md)).
 
 The behaviour depends on the merged config's `provider`:
 
@@ -231,14 +231,18 @@ For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this st
 
 # Prepare opencode config
 
-Create the OpenCode config in `~/.config/opencode/opencode.json` following the
-structure (where `<provider>` is the active `provider` from `trustable.json` —
-`ollama`, `trustable`, or `bestia`):
+The OpenCode config is a **single, self-contained** file written into each app's
+project directory at launch — `<workbenchdir>/<app>/opencode.json`. There is
+**no** global `~/.config/opencode/opencode.json`; the rules below describe the
+content of the per-app file (see [4-launch.md](4-launch.md) for when it is
+written). `<provider>` is the active `provider` from `trustable.json` —
+`ollama`, `trustable`, or `bestia`. `instructions` points at the project's own
+`opencode.md`:
 
 ```
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": ["~/.config/opencode/opencode.md"],
+  "instructions": ["<workbenchdir>/<app>/opencode.md"],
   "model": "<provider>/<opencode.default>",
   "small_model": "<provider>/<opencode.small>",
   "disabled_providers": [<default OpenCode providers, minus "<provider>">],
@@ -248,54 +252,6 @@ structure (where `<provider>` is the active `provider` from `trustable.json` —
       "models": { <one entry per model in trustable.json "models" map> }
     },
     <preserved custom user providers>
-  },
-  "lsp": {
-    "typescript": {
-      "command": ["typescript-language-server", "--stdio"],
-      "extensions": [".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"]
-    },
-    "python": {
-      "command": ["pylsp"],
-      "extensions": [".py"]
-    }
-  },
-  "mcp": {
-    "postgres": {
-      "type": "local",
-      "command": ["trustable-mcp-postgres"],
-      "environment": {
-        "DATABASE_URI": "<DATABASE_URI or POSTGRES_URL from the launched app .env>"
-      },
-      "enabled": "<true only when database credentials are configured>",
-      "timeout": 30000
-    },
-    "redis": {
-      "type": "local",
-      "command": ["trustable-mcp-redis"],
-      "environment": {
-        "REDIS_URL": "<REDIS_URL from the launched app .env>"
-      },
-      "enabled": "<true only when REDIS_URL or REDIS_HOST is configured>",
-      "timeout": 30000
-    },
-    "milvus": {
-      "type": "local",
-      "command": ["trustable-mcp-milvus"],
-      "environment": {
-        "MILVUS_URI": "<MILVUS_URI or MILVUS_HOST/MILVUS_PORT from the launched app .env>"
-      },
-      "enabled": "<true only when Milvus connection variables are configured>",
-      "timeout": 30000
-    },
-    "s3": {
-      "type": "local",
-      "command": ["trustable-mcp-s3"],
-      "environment": {
-        "S3_ENDPOINT": "<S3_ENDPOINT or S3_HOST/S3_PORT from the launched app .env>"
-      },
-      "enabled": "<true only when S3 or AWS connection variables are configured>",
-      "timeout": 30000
-    }
   }
 }
 ```
@@ -331,17 +287,20 @@ Do not emit `enabled_providers`: in OpenCode that field is a whitelist and
 would prevent providers added later from being selectable.
 
 The `lsp` section is generated for local TypeScript/JavaScript and Python
-language servers installed in the Trustable image. The `mcp` section is
-regenerated at app launch time from the current app `.env`, not only during the
-global configure step. Keep service hosts, endpoints, tokens, passwords,
-buckets, and credentials as app environment variables. Do not hardcode
-server-specific hostnames or IP addresses in `opencode.json` generation.
+language servers installed in the Trustable image. The `mcp` section is built
+from `~/.ops/config.json` at app launch time (see [4-launch.md](4-launch.md));
+since the whole file is generated per-app at launch, the `mcp` servers are part
+of it. The provider-choice/config-save flows (`GET /api/configure`,
+`POST /api/configuration`) do **not** write any `opencode.json` — they only
+persist `trustable.json`, check connectivity, and run testmodel; the new model
+defaults take effect on the next launch. Do not hardcode server-specific
+hostnames or IP addresses in `opencode.json` generation.
 
 Preserve custom `lsp` and `mcp` entries from an existing `opencode.json`, but
-refresh the generated Trustable entries so app-specific environment values stay
-current. Generated OpenCode keys from old experimental provider profiles
-(`tools`, `agent`, `compaction`, `enabled_providers`) are not carried forward
-when regenerating the Trustable config.
+refresh the generated Trustable `lsp` entries so they stay current. Generated
+OpenCode keys from old experimental provider profiles (`tools`, `agent`,
+`compaction`, `enabled_providers`) are not carried forward when regenerating the
+Trustable config.
 
 In Ollama mode, to get the capabilities of a model use the OllamaEndPoint,
 list the models then show their capabilities. In Trustable mode capability
@@ -385,11 +344,12 @@ Template:
 
 OpenCode state must be persistent across pod restarts. At container startup,
 `~/.config/opencode`, `~/.cache/opencode`, and `~/.local/share/opencode` are
-symlinked into the mounted workspace under `.trustable/opencode/`. After
-generating `opencode.json`, write the embedded `opencode.md` to
-`~/.config/opencode/opencode.md` (the instructions file referenced by absolute
-path in the config). Also copy the embedded `tools` folder to
-`~/.config/opencode/tools`, overwriting existing files.
+symlinked into the mounted workspace under `.trustable/opencode/` (this is
+OpenCode's own cache/state, independent of the per-app config file). After
+generating the project `opencode.json`, write the embedded `opencode.md` into
+the same project directory (`<workbenchdir>/<app>/opencode.md`, the instructions
+file referenced by the config). Also copy the embedded `tools` folder into the
+project directory (`<workbenchdir>/<app>/tools`), overwriting existing files.
 
 The language servers are stdio programs. OpenCode launches and supervises
 `typescript-language-server --stdio` and `pylsp` when matching file types are
@@ -401,11 +361,12 @@ Returns the merged configuration (base + workspace overrides) as JSON.
 
 # POST /api/configuration
 
-The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs three steps in order and returns a single JSON result:
+The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs two steps in order and returns a single JSON result:
 
 1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
-2. **Regenerate `~/.config/opencode/opencode.json`** — rebuild the OpenCode config from the merged `trustable.json` using the rules in "Prepare opencode config". This was previously triggered only from `/api/configure`, app launch, and appconfig save; it now also runs on every `POST /api/configuration` so a model-defaults change takes effect without forcing a full reconfigure.
-3. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `opencode.small` using the top-level `base_url` / `api_key` of the just-saved merged config).
+2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `opencode.small` using the top-level `base_url` / `api_key` of the just-saved merged config).
+
+This endpoint does **not** write any `opencode.json`. The OpenCode config is a single self-contained file generated per-app in the workbench project directory at launch (see [4-launch.md](4-launch.md)); the new model defaults take effect on the next launch.
 
 Response shape on success:
 
@@ -419,9 +380,9 @@ On testmodel failure (still HTTP 200 — the save succeeded, only the connectivi
 { "status": "saved", "testmodel": { "ok": false, "error": "<message>" } }
 ```
 
-Persist / opencode-regen failures return HTTP 5xx with `{ "error": "..." }`. The frontend distinguishes a save failure (non-2xx) from a connection failure (2xx with `testmodel.ok == false`).
+Persist failures return HTTP 4xx/5xx with a plain-text error body (via `http.Error`). The frontend distinguishes a save failure (non-2xx) from a connection failure (2xx with `testmodel.ok == false`).
 
-Rationale for the single endpoint: testmodel must see the just-persisted config, and `opencode.json` must reflect the new model choice before the small model is exercised. A single endpoint guarantees ordering and gives the caller one network round-trip and one error path to render.
+Rationale for the single endpoint: testmodel must see the just-persisted config. A single endpoint guarantees ordering and gives the caller one network round-trip and one error path to render.
 
 `GET /api/configure` (the streamed splash flow) is unchanged — it remains the path for the Ollama connectivity check and the model-pull loop after a provider is freshly chosen.
 
@@ -472,7 +433,7 @@ If the URL has `?reselect=1` (set by the splash or applist when `status[provider
 
 The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
-Read the configuration with `GET /api/configuration`. **Save & Configure** calls `POST /api/configuration`, which persists, regenerates `opencode.json`, and runs testmodel in a single call (see "POST /api/configuration" above). The button does **not** invoke `GET /api/configure` — the streamed connectivity-check + model-pull flow runs only on the splash, after a provider is freshly chosen. Subsequent edits on `configure.html` are model-defaults edits and do not require re-pulling models.
+Read the configuration with `GET /api/configuration`. **Save & Configure** calls `POST /api/configuration`, which persists and runs testmodel in a single call (see "POST /api/configuration" above); it does not write an `opencode.json` (that is generated per-app at launch). The button does **not** invoke `GET /api/configure` — the streamed connectivity-check + model-pull flow runs only on the splash, after a provider is freshly chosen. Subsequent edits on `configure.html` are model-defaults edits and do not require re-pulling models.
 
 On `testmodel.ok == true` → navigate to `applist.html`. On `testmodel.ok == false` → stay on `configure.html` and surface the error inline (see "Save & Configure UX" below). Do **not** bounce back to `index.html` on failure — the splash would just re-run configure with the same broken settings.
 
@@ -481,7 +442,6 @@ On `testmodel.ok == true` → navigate to `applist.html`. On `testmodel.ok == fa
 Clicking **Save & Configure** disables the button and renders an inline status strip that progresses through:
 
 - `Saving configuration…`
-- `Regenerating OpenCode config…`
 - `Testing connection…`
 - `Success` (brief, green) → navigate to `applist.html`
 

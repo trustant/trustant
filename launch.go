@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -13,9 +14,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
+	"text/template"
 	"time"
 )
 
@@ -23,6 +26,326 @@ const (
 	opencodePort = 4096
 	opsdevelPort = 5173
 )
+
+// opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
+// server generation and CLI tooling at launch time (see spec/4-launch.md).
+type opsConfig struct {
+	S3 struct {
+		Host   string `json:"host"`
+		Port   int    `json:"port"`
+		Bucket struct {
+			Data   string `json:"data"`
+			Static string `json:"static"`
+		} `json:"bucket"`
+		Access struct {
+			Key string `json:"key"`
+		} `json:"access"`
+		Secret struct {
+			Key string `json:"key"`
+		} `json:"secret"`
+	} `json:"s3"`
+	Postgres struct {
+		Database string `json:"database"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Host     string `json:"host"`
+		Port     int    `json:"port"`
+		URL      string `json:"url"`
+	} `json:"postgres"`
+	Redis struct {
+		Port     int    `json:"port"`
+		Password string `json:"password"`
+		URL      string `json:"url"`
+		Service  string `json:"service"`
+		Prefix   string `json:"prefix"`
+	} `json:"redis"`
+	Milvus struct {
+		Host  string `json:"host"`
+		Port  int    `json:"port"`
+		Token string `json:"token"`
+		DB    struct {
+			Name string `json:"name"`
+		} `json:"db"`
+	} `json:"milvus"`
+}
+
+// opsConfigPath returns the path to ~/.ops/config.json.
+func opsConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".ops", "config.json")
+}
+
+// loadOpsConfig reads and parses ~/.ops/config.json. A missing file is not an
+// error — it returns a zero-value config so the caller emits no MCP servers.
+func loadOpsConfig() (*opsConfig, error) {
+	path := opsConfigPath()
+	if path == "" {
+		return &opsConfig{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &opsConfig{}, nil
+		}
+		return nil, err
+	}
+	var cfg opsConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return &cfg, nil
+}
+
+// buildLaunchMCPConfig builds the OpenCode `mcp` section from ~/.ops/config.json
+// per spec/4-launch.md. Each server is added only when its backing config block
+// is present. Returns nil when no services are configured so the caller emits no
+// mcp section. Reading the config is best-effort: failures are logged and yield
+// an empty section rather than blocking a launch.
+func buildLaunchMCPConfig() map[string]interface{} {
+	cfg, err := loadOpsConfig()
+	if err != nil {
+		log.Printf("Warning: failed to load ~/.ops/config.json for MCP generation: %s", err)
+		return nil
+	}
+	return buildMCPFromOpsConfig(cfg)
+}
+
+// buildMCPFromOpsConfig is the pure builder behind buildLaunchMCPConfig: it maps
+// a parsed opsConfig to the OpenCode mcp section. Each server is added only when
+// its backing config block is present; returns nil when nothing is configured.
+func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
+	mcp := make(map[string]interface{})
+
+	if cfg.S3.Host != "" {
+		mcp["s3"] = map[string]interface{}{
+			"type":    "local",
+			"command": []string{"mcp-s3"},
+			"environment": map[string]string{
+				"S3_ENDPOINT":           fmt.Sprintf("http://%s:%d", cfg.S3.Host, cfg.S3.Port),
+				"AWS_ACCESS_KEY_ID":     cfg.S3.Access.Key,
+				"AWS_SECRET_ACCESS_KEY": cfg.S3.Secret.Key,
+				"S3_USE_PATH_STYLE":     "true",
+			},
+			"enabled": true,
+			"timeout": 30000,
+		}
+	}
+
+	if cfg.Postgres.Database != "" {
+		mcp["postgres"] = map[string]interface{}{
+			"type":    "local",
+			"command": []string{"postgres-mcp", "--access-mode=unrestricted"},
+			"environment": map[string]string{
+				"DATABASE_URI": cfg.Postgres.URL,
+			},
+			"enabled": true,
+			"timeout": 30000,
+		}
+	}
+
+	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
+		mcp["redis"] = map[string]interface{}{
+			"type":    "local",
+			"command": []string{"redis-mcp-server", "--url", cfg.Redis.URL},
+			"enabled": true,
+			"timeout": 30000,
+		}
+	}
+
+	if cfg.Milvus.Host != "" {
+		mcp["milvus"] = map[string]interface{}{
+			"type": "local",
+			"command": []string{
+				"mcp-server-milvus",
+				"--milvus-token", cfg.Milvus.Token,
+				"--milvus-db", cfg.Milvus.DB.Name,
+				"--milvus-uri", fmt.Sprintf("http://%s:%d", cfg.Milvus.Host, cfg.Milvus.Port),
+			},
+			"environment": map[string]string{
+				"MILVUS_URI": fmt.Sprintf("http://%s:%d", cfg.Milvus.Host, cfg.Milvus.Port),
+			},
+			"enabled": true,
+			"timeout": 30000,
+		}
+	}
+
+	if len(mcp) == 0 {
+		return nil
+	}
+	return mcp
+}
+
+// isTrustableManagedMCPServer reports whether an mcp server name is one this app
+// generates from ~/.ops/config.json. These belong in the LOCAL workbench
+// opencode.json, never the global one (see spec/4-launch.md); the global writer
+// uses this to drop any that leaked into a global config written by older code.
+func isTrustableManagedMCPServer(name string) bool {
+	switch name {
+	case "s3", "postgres", "redis", "milvus":
+		return true
+	}
+	return false
+}
+
+// localBinPrefix is the PATH the ~/.local/bin wrapper scripts set so they can
+// invoke the real CLI binaries by bare name without re-entering the wrappers
+// themselves: /usr/bin on Linux, /opt/homebrew/bin/ on Mac (see
+// spec/4-launch.md line 4).
+func localBinPrefix() string {
+	if runtime.GOOS == "darwin" {
+		return "/opt/homebrew/bin/"
+	}
+	return "/usr/bin"
+}
+
+// setupServiceTooling writes the CLI wrapper scripts into ~/.local/bin that
+// accompany the MCP servers (see spec/4-launch.md): `rclone` (s3), `psql`
+// (postgres), `redis-cli` (redis), and `milvus_cli` (milvus). Each is gated on
+// the same config block that gates its MCP server and is best-effort — failures
+// are logged, never fatal to a launch.
+//
+// Every wrapper sets PATH to localBinPrefix() and then invokes the real binary
+// by bare name (rather than an absolute path) so it reaches the system binary
+// without re-entering the ~/.local/bin wrapper itself (spec/4-launch.md line 4).
+func setupServiceTooling() {
+	cfg, err := loadOpsConfig()
+	if err != nil {
+		log.Printf("Warning: failed to load ~/.ops/config.json for service tooling: %s", err)
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("Warning: failed to locate home for service tooling: %s", err)
+		return
+	}
+	binDir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		log.Printf("Warning: failed to create ~/.local/bin: %s", err)
+		return
+	}
+	prefix := localBinPrefix()
+
+	if cfg.S3.Host != "" {
+		writeServiceWrapper(binDir, "rclone", fmt.Sprintf(
+			"#!/bin/bash\n"+
+				"export PATH=%s\n"+
+				"export RCLONE_CONFIG_S3_TYPE=s3\n"+
+				"export RCLONE_CONFIG_S3_PROVIDER=SeaweedFS\n"+
+				"export RCLONE_CONFIG_S3_ACCESS_KEY_ID='%s'\n"+
+				"export RCLONE_CONFIG_S3_SECRET_ACCESS_KEY='%s'\n"+
+				"export RCLONE_CONFIG_S3_ENDPOINT='http://%s:%d'\n"+
+				"export RCLONE_CONFIG_S3_REGION=us-east-1\n"+
+				"export RCLONE_CONFIG_WEB_TYPE=alias\n"+
+				"export RCLONE_CONFIG_WEB_REMOTE=s3:%s\n"+
+				"export RCLONE_CONFIG_DATA_TYPE=alias\n"+
+				"export RCLONE_CONFIG_DATA_REMOTE=s3:%s\n"+
+				"exec rclone \"$@\"\n",
+			prefix, cfg.S3.Access.Key, cfg.S3.Secret.Key, cfg.S3.Host, cfg.S3.Port,
+			cfg.S3.Bucket.Static, cfg.S3.Bucket.Data))
+	}
+	if cfg.Postgres.Database != "" {
+		writeServiceWrapper(binDir, "psql", fmt.Sprintf(
+			"#!/bin/bash\nexport PATH=%s\nexec psql \"%s\" \"$@\"\n",
+			prefix, cfg.Postgres.URL))
+	}
+	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
+		// The spec passes the prefix with its trailing char (the ":") removed as
+		// the redis-cli username (-u), e.g. "trureact:" -> "trureact".
+		user := cfg.Redis.Prefix
+		if user != "" {
+			user = user[:len(user)-1]
+		}
+		writeServiceWrapper(binDir, "redis-cli", fmt.Sprintf(
+			"#!/bin/bash\n"+
+				"export PATH=%s\n"+
+				"export REDISCLI_AUTH='%s'\n"+
+				"exec redis-cli -h '%s' --user '%s' -p '%d' \"$@\"\n",
+			prefix, cfg.Redis.Password, cfg.Redis.Service, user, cfg.Redis.Port))
+	}
+	if cfg.Milvus.Host != "" {
+		// The milvus_cli wrapper is a self-contained Python script (rendered from
+		// the embedded milvus_cli.tmpl) that auto-connects to the configured
+		// host/db before dropping into the milvus-cli REPL, reusing the installed
+		// milvus-cli venv. Its shebang is the venv python taken from the first line
+		// of the installed `milvus_client` binary (see spec/4-launch.md).
+		if body, err := renderMilvusCliWrapper(prefix, cfg); err != nil {
+			log.Printf("Warning: failed to render milvus_cli wrapper: %s", err)
+		} else {
+			writeServiceWrapper(binDir, "milvus_cli", body)
+		}
+	}
+}
+
+// renderMilvusCliWrapper renders the embedded milvus_cli.tmpl with the milvus
+// config and the python venv resolved from the installed `milvus_client`
+// binary. <local.prefix> (prefix) is a PATH-style list of bin dirs; the first
+// one containing `milvus_client` supplies the venv shebang (its first line).
+func renderMilvusCliWrapper(prefix string, cfg *opsConfig) (string, error) {
+	pythonVenv, err := milvusPythonVenv(prefix)
+	if err != nil {
+		return "", err
+	}
+	tmpl, err := template.New("milvus_cli").Parse(milvusCliTemplate)
+	if err != nil {
+		return "", fmt.Errorf("parse milvus_cli template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, struct {
+		PythonVenv string
+		Host       string
+		Port       int
+		Token      string
+		DbName     string
+	}{
+		PythonVenv: pythonVenv,
+		Host:       cfg.Milvus.Host,
+		Port:       cfg.Milvus.Port,
+		Token:      cfg.Milvus.Token,
+		DbName:     cfg.Milvus.DB.Name,
+	}); err != nil {
+		return "", fmt.Errorf("render milvus_cli template: %w", err)
+	}
+	return buf.String(), nil
+}
+
+// milvusPythonVenv returns the venv python interpreter for the milvus_cli
+// wrapper shebang: the first line of the installed `milvus_client` binary, found
+// by scanning the colon-separated <local.prefix> bin dirs.
+func milvusPythonVenv(prefix string) (string, error) {
+	for _, dir := range strings.Split(prefix, ":") {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		path := filepath.Join(dir, "milvus_client")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		firstLine := string(data)
+		if idx := strings.IndexByte(firstLine, '\n'); idx != -1 {
+			firstLine = firstLine[:idx]
+		}
+		firstLine = strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
+		if firstLine != "" {
+			return firstLine, nil
+		}
+	}
+	return "", fmt.Errorf("milvus_client not found in any of: %s", prefix)
+}
+
+// writeServiceWrapper writes a single executable wrapper script into binDir.
+func writeServiceWrapper(binDir, name, body string) {
+	path := filepath.Join(binDir, name)
+	if err := os.WriteFile(path, []byte(body), 0755); err != nil {
+		log.Printf("Warning: failed to write %s wrapper: %s", name, err)
+		return
+	}
+	log.Printf("Configured %s wrapper at %s", name, path)
+}
 
 // getPgidFile returns the path to the pgid file inside WorkbenchDir
 func getPgidFile() string {
@@ -76,6 +399,34 @@ func isPortFree(port int) bool {
 	return true
 }
 
+// reclaimPort forcefully frees a TCP port by killing whatever is listening on
+// it. This is the fallback for orphaned launches: when a prior opencode/devel
+// process still holds 4096/5173 but its pgid file is gone (so
+// terminateLeftoverProcesses found nothing to kill), the port-free check would
+// otherwise wedge the launcher. Best-effort; returns true if the port ended up
+// free. Uses `lsof` to find the listeners by port, independent of any pgid file.
+func reclaimPort(port int) bool {
+	out, err := exec.Command("lsof", "-nP", "-tiTCP:"+strconv.Itoa(port), "-sTCP:LISTEN").Output()
+	if err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			pid, convErr := strconv.Atoi(strings.TrimSpace(line))
+			if convErr != nil || pid <= 0 {
+				continue
+			}
+			log.Printf("reclaimPort: killing orphaned pid %d holding port %d", pid, port)
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+	// Give the OS a moment to release the socket, then confirm.
+	for i := 0; i < 8; i++ {
+		if isPortFree(port) {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return isPortFree(port)
+}
+
 // isPortListening checks if a port is accepting connections
 func isPortListening(port int) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 500*time.Millisecond)
@@ -127,11 +478,25 @@ func killPgid(pgid int) error {
 	return nil
 }
 
-// terminateLeftoverProcesses checks for and kills any leftover process group
+// terminateLeftoverProcesses checks for and kills any leftover process group.
+// It handles two cases of stale state from a previous launch:
+//  1. A pgid file pointing at a still-running process group — kill it by pgid.
+//  2. No pgid file, but an orphaned opencode/devel still holding 4096/5173 (the
+//     pgid file was removed while the process kept running) — reclaim the ports
+//     directly so the upcoming port-free check doesn't wedge the launch.
+// A `current` file lingering without a pgid file is itself stale, so it is
+// cleared too.
 func terminateLeftoverProcesses() {
 	pgid, err := readPgid()
 	if err != nil {
-		// No pgid file or can't read it - nothing to do
+		// No pgid file: nothing to kill by group, but a prior process may still
+		// be holding the ports. Reclaim them and clear the stale current marker.
+		if isPortListening(opencodePort) || isPortListening(opsdevelPort) {
+			log.Printf("No pgid file but ports busy; reclaiming orphaned listeners")
+			reclaimPort(opencodePort)
+			reclaimPort(opsdevelPort)
+		}
+		removeCurrentFile()
 		return
 	}
 
@@ -142,6 +507,7 @@ func terminateLeftoverProcesses() {
 	}
 
 	removePgidFile()
+	removeCurrentFile()
 
 	// Wait a bit for ports to be freed
 	time.Sleep(500 * time.Millisecond)
@@ -336,9 +702,11 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 
 // createOpencodeSession POSTs to opencode's /session/ endpoint with the
 // workbench directory header so the running opencode server scopes its session
-// to the launched app. Failures are logged but non-fatal.
-func createOpencodeSession(port int, directory string) string {
-	url := fmt.Sprintf("http://localhost:%d/session/", port)
+// to the launched app. The POST targets <domain>:<port> (not localhost) because
+// in production opencode is reached through an ingress, not the loopback (see
+// spec/4-launch.md). Failures are logged but non-fatal.
+func createOpencodeSession(domain string, port int, directory string) string {
+	url := fmt.Sprintf("http://%s:%d/session/", domain, port)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
 		log.Printf("opencode session POST: failed to build request: %s", err)
@@ -419,19 +787,11 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		log.Printf("Workbench for %s set up successfully", app)
 	} else {
 		log.Printf("Workbench for %s already exists, reusing", app)
-		// Always regenerate .env from config to keep in sync
+		// On the reuse path, regenerate the .env files to keep them in sync with
+		// the current config (spec/4-launch.md). npm install runs only on the
+		// initial clone, not on reuse.
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
-		}
-
-		// Run npm install if package.json exists (always, to keep deps in sync)
-		if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err == nil {
-			log.Printf("Running npm install in workbench/%s...", app)
-			npmCmd := exec.Command("npm", "install")
-			npmCmd.Dir = workbenchPath
-			if output, err := npmCmd.CombinedOutput(); err != nil {
-				log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
-			}
 		}
 	}
 	ensureOpenCodeProjectID(workbenchPath, app)
@@ -533,38 +893,31 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	leftPort := opencodePort
 	rightPort := opsdevelPort
 
-	// Check if ports are free
-	if !isPortFree(leftPort) {
+	// Check if ports are free. If a port is held — typically by an orphaned
+	// opencode/devel from a prior launch whose pgid file is gone, so
+	// terminateLeftoverProcesses couldn't clean it up — reclaim it by killing
+	// the listener directly before giving up.
+	if !isPortFree(leftPort) && !reclaimPort(leftPort) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Port %d (opencode) is not available", leftPort)})
 		return
 	}
-	if !isPortFree(rightPort) {
+	if !isPortFree(rightPort) && !reclaimPort(rightPort) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Port %d (opsdevel) is not available", rightPort)})
 		return
 	}
 
-	// Point the project config at the global OpenCode config so provider edits
-	// saved from the UI are immediately read by the active workbench.
-	opencodeConfigSrc := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.json")
+	// Generate the complete, self-contained OpenCode config directly in the
+	// workbench project folder (<workbench>/<app>/opencode.json): provider,
+	// model defaults, lsp, and the mcp servers from ~/.ops/config.json. There is
+	// no global ~/.config/opencode/opencode.json (see spec/4-launch.md).
 	if cfg, err := loadTrustableConfig(); err != nil {
 		log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
 	} else if err := generateOpencodeConfigForApp(cfg, app); err != nil {
 		log.Printf("Warning: failed to generate opencode.json: %s", err)
 	}
-	opencodeConfigDst := filepath.Join(workbenchPath, "opencode.json")
-	if removeErr := os.Remove(opencodeConfigDst); removeErr != nil && !os.IsNotExist(removeErr) {
-		log.Printf("Warning: failed to replace workbench opencode.json: %s", removeErr)
-	}
-	if linkErr := os.Symlink(opencodeConfigSrc, opencodeConfigDst); linkErr != nil {
-		log.Printf("Warning: failed to link opencode.json, falling back to copy: %s", linkErr)
-		if data, readErr := os.ReadFile(opencodeConfigSrc); readErr == nil {
-			if writeErr := os.WriteFile(opencodeConfigDst, data, 0644); writeErr != nil {
-				log.Printf("Warning: failed to copy opencode.json: %s", writeErr)
-			}
-		} else {
-			log.Printf("Warning: opencode.json not found: %s", readErr)
-		}
-	}
+	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
+	// MCP servers generated above from ~/.ops/config.json.
+	setupServiceTooling()
 	sanitizeOpenCodeAgentMetadata(workbenchPath)
 
 	// Start opencode
@@ -588,7 +941,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		log.Printf("opencode: binary=%s", bin)
 	}
 	log.Printf("opencode: cmd=`%s`", strings.Join(opencodeCmd.Args, " "))
-	log.Printf("opencode: dir=%s config=%s appEnvCount=%d", workbenchPath, opencodeConfigDst, len(appEnv))
+	log.Printf("opencode: dir=%s config=%s appEnvCount=%d", workbenchPath, filepath.Join(workbenchPath, "opencode.json"), len(appEnv))
 
 	if err := opencodeCmd.Start(); err != nil {
 		log.Printf("opencode: FAILED to start: %s", err)
@@ -698,16 +1051,21 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
 
-	// Notify opencode of the workbench directory so it scopes the session correctly.
-	sessionID := createOpencodeSession(leftPort, absPath)
-
-	// Log the opencode session URLs
+	// Strip any port from the request host to get the bare domain.
 	domain := r.Host
 	if colonIdx := strings.LastIndex(domain, ":"); colonIdx != -1 {
 		if bracketIdx := strings.LastIndex(domain, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
 			domain = domain[:colonIdx]
 		}
 	}
+
+	// Notify opencode of the workbench directory so it scopes the session
+	// correctly. The request arrives on the trustable.<domain> host, but opencode
+	// is served on opencode.<domain> (the ingress routes by hostname prefix — see
+	// middleware.go), so swap the prefix before POSTing.
+	opencodeHost := strings.Replace(domain, "trustable.", "opencode.", 1)
+	sessionID := createOpencodeSession(opencodeHost, leftPort, absPath)
+
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"left":         leftPort,

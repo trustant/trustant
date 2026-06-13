@@ -1,97 +1,125 @@
-FROM golang:1.25 AS mcp-s3-builder
+ARG OLLAMA_VERSION=0.30.6
+ARG OPENCODE_VERSION=1.16.2
+ARG PNPM_VERSION=11.5.2
+ARG NODE_VERSION=24.16.0
+ARG OPS_BRANCH=bestia
+ARG OPS_REPO=https://github.com/nuvolaris/bestia
 
-ENV PATH="/usr/local/go/bin:${PATH}"
-RUN GOBIN=/out go install github.com/txn2/mcp-s3/cmd/mcp-s3@v1.1.0
-
-FROM node:24 AS builder
-USER root
-RUN apt-get update && apt-get install -y zstd
-RUN curl -sL https://ollama.com/install.sh | bash
-
-FROM node:24
+########################################################## loader
+FROM ubuntu:24.04 AS loader
 ARG TARGETARCH
+ARG OLLAMA_VERSION
+ARG OPENCODE_VERSION
+
+# install ollama and opencode
 USER root
-COPY --from=builder /usr/local/bin/ollama /usr/local/bin/ollama
-COPY --from=builder /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
 
-# Install basic development tools
+RUN apt-get update && apt-get install -y curl zstd
+RUN curl -fsSL https://ollama.com/install.sh >ollama.sh
+
+RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
+
+RUN curl -fsSL https://opencode.ai/install >opencode.sh
+RUN bash opencode.sh --version ${OPENCODE_VERSION}
+
+########################################################## stage1-root
+FROM ubuntu:24.04 AS stage1-root
+ARG TARGETARCH
+ARG PNPM_VERSION
+ARG NODE_VERSION
+ARG OLLAMA_VERSION
+ARG OPENCODE_VERSION
+
+USER root
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PNPM_HOME=/usr/local
+
 RUN \
-    echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
-    wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc |  apt-key add - && \
-    apt update && \
-    apt install -y less man-db sudo vim jq curl ca-certificates git python-is-python3 python3-pip python3-virtualenv \
-    locales postgresql-client-16 openssh-server tini supervisor ripgrep
+    echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
+    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment;\
+    echo "PNPM_HOME=/usr/local" >>/etc/environment
 
 RUN \
-    npm install -g typescript-language-server typescript && \
-    python3 -m pip install --break-system-packages --no-cache-dir python-lsp-server && \
-    rm -Rvf /var/lib/apt/lists/* /var/cache/apt/*
+    apt-get update && \
+    apt-get install -y \
+        locales ca-certificates git sudo curl jq less vim libatomic1 \
+        tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
+        python-is-python3  python3-pip  python3-virtualenv pipx \
+        postgresql-client-16 redis-tools rclone ffmpeg && \
+    env PIPX_BIN_DIR=/usr/bin pipx install milvus-cli
 
-ENV UV_TOOL_DIR=/opt/uv/tools
-ENV UV_TOOL_BIN_DIR=/usr/local/bin
-ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
-
-COPY --from=mcp-s3-builder /out/mcp-s3 /usr/local/bin/mcp-s3
-
-# setup env
 RUN \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
     locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN \
+    curl -fsSL https://get.pnpm.io/install.sh |\
+    env PNPM_VERSION=${PNPM_VERSION} bash ;\
+    pnpm runtime set node ${NODE_VERSION} -g
+
+COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
+COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
+
+
+# build the local part
+########################################################## stage2-user
+FROM stage1-root AS stage2-user
+ARG TARGETARCH
+ARG OLLAMA_VERSION
+ARG OPENCODE_VERSION
+ARG PNPM_VERSION
+ARG NODE_VERSION
+ARG OPS_BRANCH
+ARG OPS_REPO
+
+# install cli tools
+USER root
+ENV PNPM_HOME=/usr/local
+
+RUN \
     useradd -d /home/trustable -u 769 -s /bin/bash -m trustable ;\
     echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
-
-ENV HOME=/home/trustable
-ENV OPS_BRANCH=bestia
-ENV OPS_REPO=https://github.com/nuvolaris/bestia
 
 USER trustable
 WORKDIR /home/trustable
 
 RUN \
-    echo "export OPS_BRANCH=$OPS_BRANCH" >>$HOME/.bashrc ;\
-    echo "export OPS_REPO=$OPS_REPO" >>$HOME/.bashrc ;\
-    curl -sL n7s.co/get-ops | bash ;\
+    echo "source /etc/environment" >>$HOME/.bashrc ;\
+    echo "export OPS_BRANCH=${OPS_BRANCH}" >>$HOME/.bashrc ;\
+    echo "export OPS_REPO=${OPS_REPO}" >>$HOME/.bashrc ;\
+    source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
-ENV PATH="/home/trustable/.ops/linux-${TARGETARCH}/bin:${PATH}"
+COPY --from=loader /root/.opencode/bin/opencode /home/trustable/.local/bin/opencode
 
-USER root
-RUN \
-    HOME=/root uv python install 3.12 && \
-    HOME=/root uv tool install --python 3.12 postgres-mcp==0.3.0 && \
-    HOME=/root uv tool install redis-mcp-server==0.5.0 && \
-    HOME=/root uv tool install git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3
+ENV PATH="/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:${PATH}"
 
-USER trustable
-RUN \
-    curl -fsSL https://opencode.ai/install | bash ;\
-    echo 'export PATH="$HOME/.opencode/bin:$PATH"' >>$HOME/.bashrc
+COPY setup_lsp_mcp.sh .local/bin/setup_lsp_mcp.sh
+RUN bash .local/bin/setup_lsp_mcp.sh
 
 RUN \
     mkdir -p "$HOME/.config/opencode" ;\
     cd "$HOME/.config/opencode" ;\
-    npm init -y >/dev/null ;\
-    npm install --no-audit --no-fund "@opencode-ai/plugin@$($HOME/.opencode/bin/opencode --version)" ;\
+    pnpm init -y >/dev/null ;\
+    pnpm install  "@opencode-ai/plugin@$($HOME/.local/bin/opencode --version)" ;\
     test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
 
-RUN mkdir /home/trustable/workspace
-RUN echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
+RUN \
+    mkdir -p /home/trustable/workspace ;\
+    echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
 USER root
 CMD ["/usr/local/bin/start.sh"]
 ENTRYPOINT ["tini", "--"]
+
+########################################################## stage3-app
 ###---###
 USER root
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
-COPY mcp/trustable-mcp-postgres /usr/local/bin/trustable-mcp-postgres
-COPY mcp/trustable-mcp-redis /usr/local/bin/trustable-mcp-redis
-COPY mcp/trustable-mcp-milvus /usr/local/bin/trustable-mcp-milvus
-COPY mcp/trustable-mcp-s3 /usr/local/bin/trustable-mcp-s3
-RUN chmod +x /usr/local/bin/trustable-mcp-*
+USER trustable
+WORKDIR /home/trustable
 COPY env .env
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
 COPY trustable.json trustable.json

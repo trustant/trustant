@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestManagedOllamaDetectionRequiresGeneratedModelMarker(t *testing.T) {
 	customOllama := map[string]interface{}{
@@ -67,31 +72,148 @@ func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
 	}
 }
 
-func TestDefaultOpenCodeMCPConfigUsesAppEnv(t *testing.T) {
-	mcp := defaultOpenCodeMCPConfig(map[string]string{
-		"POSTGRES_URL":  "postgres://user:pass@postgres/db",
-		"REDIS_HOST":    "redis",
-		"MILVUS_HOST":   "milvus",
-		"S3_ACCESS_KEY": "key",
-		"S3_SECRET_KEY": "secret",
-		"S3_HOST":       "minio",
-		"S3_PORT":       "9000",
-	})
+func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
+	var cfg opsConfig
+	cfg.S3.Host = "seaweedfs"
+	cfg.S3.Port = 9000
+	cfg.S3.Bucket.Data = "app-data"
+	cfg.S3.Bucket.Static = "app-web"
+	cfg.S3.Access.Key = "key"
+	cfg.S3.Secret.Key = "secret"
+	cfg.Postgres.Database = "appdb"
+	cfg.Postgres.URL = "postgresql://app:pw@pg:5432/appdb"
+	cfg.Redis.URL = "redis://app:pw@redis:6379"
+	cfg.Redis.Port = 6379
+	cfg.Redis.Password = "pw"
+	cfg.Milvus.Host = "milvus"
+	cfg.Milvus.Port = 19530
+	cfg.Milvus.Token = "app:tok"
+	cfg.Milvus.DB.Name = "appdb"
+
+	mcp := buildMCPFromOpsConfig(&cfg)
+
+	s3 := mcp["s3"].(map[string]interface{})
+	if cmd := s3["command"].([]string); len(cmd) != 1 || cmd[0] != "mcp-s3" {
+		t.Fatalf("unexpected S3 command: %#v", s3["command"])
+	}
+	s3Env := s3["environment"].(map[string]string)
+	if s3Env["S3_ENDPOINT"] != "http://seaweedfs:9000" {
+		t.Fatalf("unexpected S3_ENDPOINT: %#v", s3Env)
+	}
+	if s3Env["S3_USE_PATH_STYLE"] != "true" {
+		t.Fatalf("unexpected S3_USE_PATH_STYLE: %#v", s3Env)
+	}
 
 	postgres := mcp["postgres"].(map[string]interface{})
-	if postgres["enabled"] != true {
-		t.Fatalf("postgres MCP should be enabled: %#v", postgres)
+	if cmd := postgres["command"].([]string); len(cmd) != 2 || cmd[0] != "postgres-mcp" || cmd[1] != "--access-mode=unrestricted" {
+		t.Fatalf("unexpected postgres command: %#v", postgres["command"])
 	}
 	postgresEnv := postgres["environment"].(map[string]string)
-	if postgresEnv["DATABASE_URI"] != "postgres://user:pass@postgres/db" {
-		t.Fatalf("postgres MCP should normalize POSTGRES_URL to DATABASE_URI: %#v", postgresEnv)
+	if postgresEnv["DATABASE_URI"] != "postgresql://app:pw@pg:5432/appdb" {
+		t.Fatalf("unexpected postgres DATABASE_URI: %#v", postgresEnv)
 	}
 
-	for _, name := range []string{"redis", "milvus", "s3"} {
+	redis := mcp["redis"].(map[string]interface{})
+	if cmd := redis["command"].([]string); len(cmd) != 3 || cmd[0] != "redis-mcp-server" || cmd[1] != "--url" || cmd[2] != "redis://app:pw@redis:6379" {
+		t.Fatalf("unexpected redis command: %#v", redis["command"])
+	}
+
+	for _, name := range []string{"redis", "milvus"} {
 		server := mcp[name].(map[string]interface{})
 		if server["enabled"] != true {
 			t.Fatalf("%s MCP should be enabled: %#v", name, server)
 		}
+	}
+
+	// No service blocks -> no mcp section.
+	if got := buildMCPFromOpsConfig(&opsConfig{}); got != nil {
+		t.Fatalf("empty ops config should yield nil mcp, got %#v", got)
+	}
+}
+
+// The opencode.json is a single, self-contained file generated in the app's
+// workbench project folder: provider + model defaults + lsp, instructions
+// pointing at the project's own opencode.md. opencode.md and tools/ are written
+// alongside it. Custom providers/lsp/mcp from an existing file are preserved.
+func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
+	origWorkbench := WorkbenchDir
+	t.Cleanup(func() { WorkbenchDir = origWorkbench })
+	WorkbenchDir = t.TempDir()
+
+	app := "demo"
+	appDir := filepath.Join(WorkbenchDir, app)
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatalf("mkdir app dir: %s", err)
+	}
+
+	// Seed an existing project file with custom provider + lsp entries.
+	seed := map[string]interface{}{
+		"provider": map[string]interface{}{
+			"custom-provider": map[string]interface{}{"options": map[string]interface{}{}},
+		},
+		"lsp": map[string]interface{}{
+			"custom-lsp": map[string]interface{}{"command": []string{"my-lsp"}},
+		},
+	}
+	seedData, _ := json.Marshal(seed)
+	if err := os.WriteFile(filepath.Join(appDir, "opencode.json"), seedData, 0644); err != nil {
+		t.Fatalf("seed project config: %s", err)
+	}
+
+	cfg := &trustableConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		APIKey:   "dummy",
+		Models:   map[string]*ModelLimits{"qwen3:latest": {MaxToken: 131072, MaxOutput: 32768}},
+		Opencode: &opencodeConfig{Default: "qwen3:latest", Small: "qwen3:latest"},
+	}
+
+	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
+		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(appDir, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read project config: %s", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("parse project config: %s", err)
+	}
+
+	// Full config: provider + model + lsp present.
+	if got["model"] != "ollama/qwen3:latest" {
+		t.Fatalf("unexpected model: %#v", got["model"])
+	}
+	providers, ok := got["provider"].(map[string]interface{})
+	if !ok || providers["ollama"] == nil {
+		t.Fatalf("generated provider missing: %#v", got["provider"])
+	}
+	if providers["custom-provider"] == nil {
+		t.Fatalf("custom provider not preserved: %#v", providers)
+	}
+	lsp, ok := got["lsp"].(map[string]interface{})
+	if !ok || lsp["typescript"] == nil || lsp["python"] == nil {
+		t.Fatalf("generated lsp missing: %#v", got["lsp"])
+	}
+	if lsp["custom-lsp"] == nil {
+		t.Fatalf("custom lsp not preserved: %#v", lsp)
+	}
+
+	// instructions must point at the project's own opencode.md.
+	instr, ok := got["instructions"].([]interface{})
+	wantMd := filepath.Join(appDir, "opencode.md")
+	if !ok || len(instr) != 1 || instr[0] != wantMd {
+		t.Fatalf("instructions should reference %s, got %#v", wantMd, got["instructions"])
+	}
+
+	// opencode.md must be written in the project dir, not under ~/.config.
+	if _, err := os.Stat(wantMd); err != nil {
+		t.Fatalf("opencode.md not written to project dir: %s", err)
+	}
+	// tools/ folder must exist in the project dir.
+	if info, err := os.Stat(filepath.Join(appDir, "tools")); err != nil || !info.IsDir() {
+		t.Fatalf("tools/ not written to project dir: %v", err)
 	}
 }
 

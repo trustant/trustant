@@ -459,140 +459,6 @@ func defaultOpenCodeLSPConfig() map[string]interface{} {
 	}
 }
 
-func envValue(env map[string]string, keys ...string) string {
-	if env == nil {
-		return ""
-	}
-	for _, key := range keys {
-		if value := strings.TrimSpace(env[key]); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func selectedEnv(env map[string]string, keys ...string) map[string]string {
-	selected := make(map[string]string)
-	if env == nil {
-		return selected
-	}
-	for _, key := range keys {
-		if value, ok := env[key]; ok && strings.TrimSpace(value) != "" {
-			selected[key] = value
-		}
-	}
-	return selected
-}
-
-func defaultOpenCodeMCPConfig(appEnv map[string]string) map[string]interface{} {
-	postgresEnv := selectedEnv(appEnv, "DATABASE_URI", "POSTGRES_URL", "POSTGRES_MCP_ACCESS_MODE")
-	if postgresEnv["DATABASE_URI"] == "" && postgresEnv["POSTGRES_URL"] != "" {
-		postgresEnv["DATABASE_URI"] = postgresEnv["POSTGRES_URL"]
-	}
-	postgresEnabled := envValue(postgresEnv, "DATABASE_URI") != ""
-
-	redisEnv := selectedEnv(appEnv,
-		"REDIS_URL",
-		"REDIS_HOST",
-		"REDIS_PORT",
-		"REDIS_DB",
-		"REDIS_USERNAME",
-		"REDIS_PWD",
-		"REDIS_SSL",
-		"REDIS_SSL_CA_PATH",
-		"REDIS_SSL_KEYFILE",
-		"REDIS_SSL_CERTFILE",
-		"REDIS_SSL_CERT_REQS",
-		"REDIS_SSL_CA_CERTS",
-		"REDIS_CLUSTER_MODE",
-		"REDIS_PREFIX",
-	)
-	redisEnabled := envValue(redisEnv, "REDIS_URL", "REDIS_HOST") != ""
-
-	milvusEnv := selectedEnv(appEnv,
-		"MILVUS_URI",
-		"MILVUS_PROTO",
-		"MILVUS_HOST",
-		"MILVUS_PORT",
-		"MILVUS_TOKEN",
-		"MILVUS_DB",
-		"MILVUS_DB_NAME",
-	)
-	if milvusEnv["MILVUS_DB"] == "" && milvusEnv["MILVUS_DB_NAME"] != "" {
-		milvusEnv["MILVUS_DB"] = milvusEnv["MILVUS_DB_NAME"]
-	}
-	milvusEnabled := envValue(milvusEnv, "MILVUS_URI", "MILVUS_HOST") != ""
-
-	s3Env := selectedEnv(appEnv,
-		"AWS_ACCESS_KEY_ID",
-		"AWS_SECRET_ACCESS_KEY",
-		"AWS_SESSION_TOKEN",
-		"AWS_PROFILE",
-		"AWS_REGION",
-		"S3_ENDPOINT",
-		"S3_USE_PATH_STYLE",
-		"S3_TIMEOUT",
-		"S3_HOST",
-		"S3_PORT",
-		"S3_PROTO",
-		"S3_ACCESS_KEY",
-		"S3_SECRET_KEY",
-		"S3_REGION",
-		"S3_BUCKET_DATA",
-		"S3_BUCKET_STATIC",
-		"OPSDEV_S3",
-		"MCP_S3_EXT_READONLY",
-		"MCP_S3_EXT_SIZELIMIT",
-		"MCP_S3_MAX_GET_SIZE",
-		"MCP_S3_MAX_PUT_SIZE",
-		"MCP_S3_EXT_LOGGING",
-		"MCP_S3_EXT_AUDIT",
-		"S3_ADDITIONAL_CONNECTIONS",
-		"S3_CONNECTION_NAME",
-	)
-	if s3Env["AWS_ACCESS_KEY_ID"] == "" && s3Env["S3_ACCESS_KEY"] != "" {
-		s3Env["AWS_ACCESS_KEY_ID"] = s3Env["S3_ACCESS_KEY"]
-	}
-	if s3Env["AWS_SECRET_ACCESS_KEY"] == "" && s3Env["S3_SECRET_KEY"] != "" {
-		s3Env["AWS_SECRET_ACCESS_KEY"] = s3Env["S3_SECRET_KEY"]
-	}
-	if s3Env["AWS_REGION"] == "" && s3Env["S3_REGION"] != "" {
-		s3Env["AWS_REGION"] = s3Env["S3_REGION"]
-	}
-	s3Enabled := envValue(s3Env, "S3_ENDPOINT", "S3_HOST", "AWS_ACCESS_KEY_ID", "AWS_PROFILE") != ""
-
-	return map[string]interface{}{
-		"postgres": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-postgres"},
-			"environment": postgresEnv,
-			"enabled":     postgresEnabled,
-			"timeout":     30000,
-		},
-		"redis": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-redis"},
-			"environment": redisEnv,
-			"enabled":     redisEnabled,
-			"timeout":     30000,
-		},
-		"milvus": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-milvus"},
-			"environment": milvusEnv,
-			"enabled":     milvusEnabled,
-			"timeout":     30000,
-		},
-		"s3": map[string]interface{}{
-			"type":        "local",
-			"command":     []string{"trustable-mcp-s3"},
-			"environment": s3Env,
-			"enabled":     s3Enabled,
-			"timeout":     30000,
-		},
-	}
-}
-
 func defaultDisabledOpenCodeProviders() []string {
 	return []string{
 		"302ai",
@@ -929,47 +795,13 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Generate opencode config
-	sendMsg("Generating opencode configuration...")
-	if err := generateOpencodeConfig(cfg); err != nil {
-		sendMsg("ERROR: " + err.Error())
-		return
-	}
-	sendMsg("OK: opencode.json generated")
-
-	// Copy embedded tools folder to ~/.config/opencode/tools
-	toolsDst := filepath.Join(os.Getenv("HOME"), ".config", "opencode", "tools")
-	if err := os.MkdirAll(toolsDst, 0755); err != nil {
-		sendMsg("WARNING: failed to create tools directory: " + err.Error())
-	} else {
-		entries, err := fs.ReadDir(embeddedTools, "tools")
-		if err != nil {
-			sendMsg("WARNING: failed to read embedded tools: " + err.Error())
-		} else {
-			for _, entry := range entries {
-				if entry.IsDir() {
-					continue
-				}
-				data, err := fs.ReadFile(embeddedTools, "tools/"+entry.Name())
-				if err != nil {
-					sendMsg("WARNING: failed to read embedded tool " + entry.Name() + ": " + err.Error())
-					continue
-				}
-				dst := filepath.Join(toolsDst, entry.Name())
-				if err := os.WriteFile(dst, data, 0644); err != nil {
-					sendMsg("WARNING: failed to write tool " + entry.Name() + ": " + err.Error())
-				}
-			}
-			sendMsg("OK: opencode tools installed")
-		}
-	}
+	// The opencode.json is no longer generated here: it is a single,
+	// self-contained file written into each app's workbench project folder at
+	// launch time (see generateOpencodeConfigForApp / spec/4-launch.md). The
+	// global configure flow only verifies connectivity and pulls models.
+	sendMsg("OK: opencode.json is generated per-app at launch")
 
 	sendMsg("DONE")
-}
-
-// generateOpencodeConfig creates ~/.config/opencode/opencode.json from trustable.json config.
-func generateOpencodeConfig(cfg *trustableConfig) error {
-	return generateOpencodeConfigWithEnv(cfg, nil)
 }
 
 // buildModelProvider constructs the Trustable-managed OpenCode provider entry
@@ -1057,17 +889,23 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	}
 }
 
-// generateOpencodeConfigForApp refreshes opencode.json before a workbench launch,
-// using the launched app .env for local MCP server credentials.
+// generateOpencodeConfigForApp generates the complete OpenCode config for an app
+// directly in its workbench project folder. Per spec/4-launch.md there is a
+// single, self-contained <workbench>/<app>/opencode.json — there is no global
+// ~/.config/opencode/opencode.json. It holds the provider, model defaults,
+// disabled_providers, instructions, lsp, and the mcp servers built from
+// ~/.ops/config.json. opencode.md and the tools/ folder are written alongside it
+// in the project folder and referenced by project-relative path.
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
-	appEnv := map[string]string(nil)
-	if strings.TrimSpace(appName) != "" {
-		appEnv = parseEnvFile(filepath.Join(WorkbenchDir, appName, ".env"))
-	}
-	return generateOpencodeConfigWithEnv(cfg, appEnv)
+	projectDir := filepath.Join(WorkbenchDir, appName)
+	mcp := buildLaunchMCPConfig()
+	return generateOpencodeConfigInDir(cfg, projectDir, mcp)
 }
 
-func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]string) error {
+// generateOpencodeConfigInDir writes the full opencode.json (plus opencode.md and
+// the embedded tools/ folder) into projectDir, merging against any existing
+// opencode.json there to preserve custom providers/lsp/mcp entries.
+func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
 	providers := make(map[string]interface{})
 
 	// The OpenCode provider key tracks the active trustable provider:
@@ -1080,13 +918,22 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 	// Always generate the Trustable-managed provider entry.
 	providers[providerKey] = buildModelProvider(cfg)
 
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return fmt.Errorf("failed to create project directory: %w", err)
+	}
+
 	config := map[string]interface{}{
 		"$schema":            "https://opencode.ai/config.json",
 		"disabled_providers": defaultDisabledOpenCodeProviders(),
-		"instructions":       []string{filepath.Join(os.Getenv("HOME"), ".config", "opencode", "opencode.md")},
+		"instructions":       []string{filepath.Join(projectDir, "opencode.md")},
 		"provider":           providers,
 		"lsp":                defaultOpenCodeLSPConfig(),
-		"mcp":                defaultOpenCodeMCPConfig(appEnv),
+	}
+	// The mcp section is built from ~/.ops/config.json (nil when no service
+	// blocks are configured); custom mcp entries from an existing opencode.json
+	// are preserved by the merge below.
+	if mcp != nil {
+		config["mcp"] = mcp
 	}
 
 	// Always set top-level model/small_model from trustable.json opencode config.
@@ -1099,18 +946,7 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 		}
 	}
 
-	// Write to ~/.config/opencode/opencode.json
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	configDir := filepath.Join(homeDir, ".config", "opencode")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
-	configPath := filepath.Join(configDir, "opencode.json")
+	configPath := filepath.Join(projectDir, "opencode.json")
 	if existingData, readErr := os.ReadFile(configPath); readErr == nil {
 		var existing map[string]interface{}
 		if err := json.Unmarshal(existingData, &existing); err != nil {
@@ -1140,13 +976,24 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 				}
 			}
 			if existingMCP, ok := existing["mcp"].(map[string]interface{}); ok {
-				if generatedMCP, ok := config["mcp"].(map[string]interface{}); ok {
-					for serverName, serverConfig := range existingMCP {
-						if _, generated := generatedMCP[serverName]; !generated {
-							generatedMCP[serverName] = serverConfig
-							log.Printf("  - Preserved custom OpenCode MCP server %s", serverName)
-						}
+				generatedMCP, _ := config["mcp"].(map[string]interface{})
+				if generatedMCP == nil {
+					generatedMCP = make(map[string]interface{})
+				}
+				for serverName, serverConfig := range existingMCP {
+					// The Trustable-managed servers (s3/postgres/redis/milvus)
+					// are regenerated above from ~/.ops/config.json; only carry
+					// forward genuinely custom servers.
+					if isTrustableManagedMCPServer(serverName) {
+						continue
 					}
+					if _, generated := generatedMCP[serverName]; !generated {
+						generatedMCP[serverName] = serverConfig
+						log.Printf("  - Preserved custom OpenCode MCP server %s", serverName)
+					}
+				}
+				if len(generatedMCP) > 0 {
+					config["mcp"] = generatedMCP
 				}
 			}
 			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {
@@ -1180,12 +1027,34 @@ func generateOpencodeConfigWithEnv(cfg *trustableConfig, appEnv map[string]strin
 
 	log.Printf("  - Written to %s", configPath)
 
-	// Write opencode.md instructions file alongside the config
-	mdPath := filepath.Join(filepath.Dir(configPath), "opencode.md")
+	// Write opencode.md instructions file alongside the config in the project dir
+	mdPath := filepath.Join(projectDir, "opencode.md")
 	if err := os.WriteFile(mdPath, []byte(opencodeMd), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", mdPath, err)
 	}
 	log.Printf("  - Written to %s", mdPath)
+
+	// Copy the embedded tools/ folder into the project dir, overwriting.
+	toolsDst := filepath.Join(projectDir, "tools")
+	if err := os.MkdirAll(toolsDst, 0755); err != nil {
+		log.Printf("  - Warning: failed to create tools directory: %s", err)
+	} else if entries, err := fs.ReadDir(embeddedTools, "tools"); err != nil {
+		log.Printf("  - Warning: failed to read embedded tools: %s", err)
+	} else {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			toolData, err := fs.ReadFile(embeddedTools, "tools/"+entry.Name())
+			if err != nil {
+				log.Printf("  - Warning: failed to read embedded tool %s: %s", entry.Name(), err)
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(toolsDst, entry.Name()), toolData, 0644); err != nil {
+				log.Printf("  - Warning: failed to write tool %s: %s", entry.Name(), err)
+			}
+		}
+	}
 
 	return nil
 }
@@ -1556,16 +1425,14 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 	// Regenerate per-app .env files.
 	regenerateAllAppEnvFiles()
 
-	// Regenerate ~/.config/opencode/opencode.json from the merged config so
-	// the next launch / opencode invocation sees the new model defaults
-	// without requiring a separate /api/configure run.
+	// opencode.json is generated per-app in the workbench project folder at
+	// launch time (see generateOpencodeConfigForApp / spec/4-launch.md), so a
+	// global config save does not write it here — the new model defaults take
+	// effect on the next launch. We still reload the merged config for the
+	// connectivity probe below.
 	merged, mergedErr := loadTrustableConfig()
 	if mergedErr != nil {
 		http.Error(w, "Failed to reload merged configuration: "+mergedErr.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := generateOpencodeConfig(merged); err != nil {
-		http.Error(w, "Failed to regenerate opencode.json: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

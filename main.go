@@ -21,6 +21,9 @@ var opencodeMd string
 //go:embed tools
 var embeddedTools embed.FS
 
+//go:embed milvus_cli.tmpl
+var milvusCliTemplate string
+
 func main() {
 	// Run preflight checks
 	if err := runPreflight(); err != nil {

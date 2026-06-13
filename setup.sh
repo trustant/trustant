@@ -22,6 +22,10 @@ esac
 RC_FILES=("$HOME/.bashrc")
 [[ "$OS" == "darwin" ]] && RC_FILES+=("$HOME/.zshrc")
 
+# Snapshot the shell's PATH before add_to_path mutates it, so step 13 can
+# check what the user's environment actually has, not our in-process changes.
+ORIGINAL_PATH="$PATH"
+
 add_to_path() {
   local dir="$1"
   for rc in "${RC_FILES[@]}"; do
@@ -33,7 +37,23 @@ add_to_path() {
   export PATH="$dir:$PATH"
 }
 
-# --- 1. Check .env and .env.dist ---
+# --- 0. Read ARG <VAR>=<VALUE> versions from image/Dockerfile ---
+echo "--- Reading versions from image/Dockerfile ---"
+[[ -f image/Dockerfile ]] || fail "image/Dockerfile not found"
+
+read_arg() {
+  local var="$1"
+  grep -m1 "^ARG ${var}=" image/Dockerfile | cut -d'=' -f2- | tr -d ' '
+}
+
+for v in OLLAMA_VERSION OPENCODE_VERSION PNPM_VERSION NODE_VERSION OPS_BRANCH OPS_REPO; do
+  val=$(read_arg "$v")
+  [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
+  export "$v=$val"
+  ok "$v=$val"
+done
+
+# --- 1. Check .env and .env.dist, load .env, check WORKSPACE_DIR/WORKBENCH_DIR ---
 echo "--- Checking .env ---"
 [[ -f .env ]] || fail ".env file not found. Create it based on .env.dist."
 [[ -f .env.dist ]] || fail ".env.dist not found"
@@ -60,29 +80,35 @@ WORKBENCH_DIR_EXPANDED=$(eval echo "${WORKBENCH_DIR}")
 [[ -d "${WORKBENCH_DIR_EXPANDED}" ]] || fail "WORKBENCH_DIR '${WORKBENCH_DIR}' does not exist"
 ok "WORKBENCH_DIR exists: ${WORKBENCH_DIR_EXPANDED}"
 
-# --- 2. Check ops is in PATH and OPS_REPO/OPS_BRANCH ---
+# --- 2. Check ops is in PATH and OPS_REPO/OPS_BRANCH match Dockerfile values ---
 echo "--- Checking ops ---"
-if [[ "${OPS_REPO:-}" != "https://github.com/nuvolaris/bestia" ]]; then
-  warn "OPS_REPO is '${OPS_REPO:-}', expected 'https://github.com/nuvolaris/bestia'"
-  warn "Set: export OPS_REPO=https://github.com/nuvolaris/bestia"
-  fail "OPS_REPO must be set before installing ops"
-fi
-if [[ "${OPS_BRANCH:-}" != "bestia" ]]; then
-  warn "OPS_BRANCH is '${OPS_BRANCH:-}', expected 'bestia'"
-  warn "Set: export OPS_BRANCH=bestia"
-  fail "OPS_BRANCH must be set before installing ops"
+if ! command -v ops &>/dev/null; then
+  warn "ops not found in PATH"
+  warn "Set these and install ops:"
+  warn "  export OPS_REPO=${OPS_REPO}"
+  warn "  export OPS_BRANCH=${OPS_BRANCH}"
+  warn "  curl -sL n7s.co/get-ops | bash"
+  fail "ops is not installed"
 fi
 
-if ! command -v ops &>/dev/null; then
-  warn "ops not found, installing..."
-  if [[ "$OS" == "darwin" || "$OS" == "linux" ]]; then
-    curl -sL n7s.co/get-ops | bash || fail "ops install failed"
-  else
-    powershell -c "irm n7s.co/get-ops | iex" || fail "ops install failed"
-  fi
-  add_to_path "$HOME/.ops/${OS}-${ARCH}/bin"
+OPS_INFO=$(ops -info 2>/dev/null || true)
+ops_info_value() { echo "$OPS_INFO" | grep -i "^$1[:=]" | head -1 | cut -d: -f2- | xargs; }
+OPS_REPO_ACTUAL=$(ops_info_value OPS_REPO)
+OPS_BRANCH_ACTUAL=$(ops_info_value OPS_BRANCH)
+# fall back to the environment if ops -info does not expose them
+OPS_REPO_ACTUAL="${OPS_REPO_ACTUAL:-${OPS_REPO:-}}"
+OPS_BRANCH_ACTUAL="${OPS_BRANCH_ACTUAL:-${OPS_BRANCH:-}}"
+
+if [[ "$OPS_REPO_ACTUAL" != "$OPS_REPO" ]]; then
+  warn "ops OPS_REPO is '${OPS_REPO_ACTUAL}', expected '${OPS_REPO}'"
+  warn "Recommend: export OPS_REPO=${OPS_REPO} and reinstall ops (curl -sL n7s.co/get-ops | bash)"
+  fail "OPS_REPO mismatch"
 fi
-command -v ops &>/dev/null || fail "ops still not in PATH after install"
+if [[ "$OPS_BRANCH_ACTUAL" != "$OPS_BRANCH" ]]; then
+  warn "ops OPS_BRANCH is '${OPS_BRANCH_ACTUAL}', expected '${OPS_BRANCH}'"
+  warn "Recommend: export OPS_BRANCH=${OPS_BRANCH} and reinstall ops (curl -sL n7s.co/get-ops | bash)"
+  fail "OPS_BRANCH mismatch"
+fi
 ok "ops is installed with correct OPS_REPO and OPS_BRANCH"
 
 # --- 3. Add ~/.ops/<os>-<arch>/bin to PATH and check bun, uv ---
@@ -126,7 +152,18 @@ fi
 command -v air &>/dev/null || fail "air installation failed"
 ok "air is available"
 
-# --- 5. Reach OpenWhisk ---
+# --- 5. Install pnpm if missing ---
+echo "--- Checking pnpm ---"
+if ! command -v pnpm &>/dev/null; then
+  warn "pnpm not found, installing..."
+  curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=${PNPM_VERSION} bash || fail "pnpm install failed"
+  set +eu; source "$HOME/.bashrc"; set -eu
+  pnpm runtime set node "${NODE_VERSION}" || fail "pnpm runtime set node ${NODE_VERSION} failed"
+fi
+command -v pnpm &>/dev/null || fail "pnpm not in PATH after install"
+ok "pnpm is available"
+
+# --- 6. Reach OpenWhisk ---
 echo "--- Locating OpenWhisk apihost ---"
 APIHOST_ENV="${APIHOST:-}"
 APIHOST=""
@@ -146,11 +183,11 @@ fi
 APIHOST="${APIHOST%/}"
 
 echo "Using apihost: $APIHOST"
-WHISK_DESC=$(curl -sf "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) || true
+WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) || true
 [[ "$WHISK_DESC" == "OpenWhisk" ]] || fail "Cannot reach OpenWhisk at ${APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
 ok "OpenWhisk reachable at ${APIHOST}"
 
-# --- 6. Extract kubeconfig (mac only, when id_ed25519 is present) ---
+# --- 7. Extract kubeconfig (mac only, when id_ed25519 is present) ---
 if [[ "$OS" == "darwin" ]]; then
   ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
   IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
@@ -166,25 +203,77 @@ if [[ "$OS" == "darwin" ]]; then
   fi
 fi
 
-# --- 7. Check admin power ---
+# --- 8. Check admin power ---
 echo "--- Checking admin access ---"
 ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
-# --- 8. Install opencode if missing ---
+# --- 9. Check opencode version matches OPENCODE_VERSION, install if needed ---
 echo "--- Checking opencode ---"
-if ! command -v opencode &>/dev/null; then
-  warn "opencode not found, installing..."
-  curl -fsSL https://opencode.ai/install | bash
+install_opencode() {
+  curl -fsSL https://opencode.ai/install >opencode.sh
+  bash opencode.sh --version "${OPENCODE_VERSION}" || fail "opencode install failed"
   add_to_path "$HOME/.opencode/bin"
+}
+
+if ! command -v opencode &>/dev/null; then
+  warn "opencode not found, installing ${OPENCODE_VERSION}..."
+  install_opencode
+else
+  OPENCODE_ACTUAL=$(opencode -v 2>/dev/null | tr -d ' ' || true)
+  if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" ]]; then
+    warn "opencode version is '${OPENCODE_ACTUAL}', expected '${OPENCODE_VERSION}', reinstalling..."
+    install_opencode
+  fi
 fi
 command -v opencode &>/dev/null || fail "opencode installation failed"
-ok "opencode is available"
+ok "opencode ${OPENCODE_VERSION} is available"
 
-# --- 9. Check kubefwd is in PATH ---
+# --- 10. Check kubefwd is in PATH ---
 echo "--- Checking kubefwd ---"
-command -v kubefwd &>/dev/null || fail "kubefwd not found in PATH"
+command -v kubefwd &>/dev/null || fail "kubefwd not found in PATH (it is an error if missing)"
 ok "kubefwd is available"
+
+# --- 11. Check CLI tools are installed and in PATH (ask to install via brew/pipx) ---
+echo "--- Checking CLI tools (kubefwd, rclone, psql, redis-cli, milvus_cli) ---"
+check_cli() {
+  local cmd="$1" brew_pkg="$2" pipx_pkg="$3"
+  if command -v "$cmd" &>/dev/null; then
+    ok "$cmd is available"
+    return
+  fi
+  warn "$cmd not found in PATH"
+  if [[ -n "$brew_pkg" ]]; then
+    warn "  install with: brew install ${brew_pkg}"
+  fi
+  if [[ -n "$pipx_pkg" ]]; then
+    warn "  or with: pipx install ${pipx_pkg}"
+  fi
+  fail "$cmd is required"
+}
+
+check_cli kubefwd   kubefwd          ""
+check_cli rclone    rclone           ""
+check_cli psql      libpq            ""
+check_cli redis-cli redis            ""
+check_cli milvus_cli ""              milvus-cli
+
+# --- 12. Run image/setup_lsp_mcp.sh ---
+echo "--- Running image/setup_lsp_mcp.sh ---"
+[[ -f image/setup_lsp_mcp.sh ]] || fail "image/setup_lsp_mcp.sh not found"
+bash image/setup_lsp_mcp.sh || fail "image/setup_lsp_mcp.sh failed"
+ok "LSP/MCP tools installed"
+
+# --- 13. Ensure ~/.local/bin is the first entry in PATH ---
+echo "--- Checking ~/.local/bin is first in PATH ---"
+LOCAL_BIN="$HOME/.local/bin"
+FIRST_ENTRY="${ORIGINAL_PATH%%:*}"
+if [[ "$FIRST_ENTRY" == "$LOCAL_BIN" ]]; then
+  ok "~/.local/bin is the first entry in PATH"
+else
+  warn "~/.local/bin is not the first entry in PATH (first is: ${FIRST_ENTRY})"
+  warn "Prepend it by adding to your shell rc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+fi
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"
