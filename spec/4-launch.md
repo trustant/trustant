@@ -162,6 +162,7 @@ export RCLONE_CONFIG_WEB_TYPE=alias
 export RCLONE_CONFIG_WEB_REMOTE=s3:<config.s3.bucket.static>
 export RCLONE_CONFIG_DATA_TYPE=alias
 export RCLONE_CONFIG_DATA_REMOTE=s3:<config.s3.bucket.data>
+mkdir -p ~/.config/rclone && touch ~/.config/rclone/rclone.conf
 exec rclone "$@"
 ```
 
