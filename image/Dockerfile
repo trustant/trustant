@@ -100,7 +100,6 @@ RUN \
     echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
 ENV HOME=/home/trustable
-ENV
 WORKDIR /home/trustable
 USER trustable
 
