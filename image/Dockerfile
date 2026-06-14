@@ -1,7 +1,5 @@
 ARG OLLAMA_VERSION=0.30.6
 ARG OPENCODE_VERSION=1.16.2
-ARG PNPM_VERSION=11.5.2
-ARG NODE_VERSION=24.16.0
 ARG OPS_BRANCH=bestia
 ARG OPS_REPO=https://github.com/nuvolaris/bestia
 
@@ -15,8 +13,8 @@ ARG OPENCODE_VERSION
 USER root
 
 RUN apt-get update && apt-get install -y curl zstd
-RUN curl -fsSL https://ollama.com/install.sh >ollama.sh
 
+RUN curl -fsSL https://ollama.com/install.sh >ollama.sh
 RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
 
 RUN curl -fsSL https://opencode.ai/install >opencode.sh
@@ -25,8 +23,6 @@ RUN bash opencode.sh --version ${OPENCODE_VERSION}
 ########################################################## stage1-root
 FROM ubuntu:24.04 AS stage1-root
 ARG TARGETARCH
-ARG PNPM_VERSION
-ARG NODE_VERSION
 ARG OLLAMA_VERSION
 ARG OPENCODE_VERSION
 
@@ -34,19 +30,19 @@ USER root
 
 RUN \
     echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
-    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment;\
-    echo "PNPM_HOME=/usr/local" >>/etc/environment
+    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN \
-    apt-get update && \
-    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
-    apt-get install -y --no-install-recommends \
+    apt update && \
+    apt install -y --no-install-recommends \
         locales ca-certificates git sudo curl jq less vim libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
-        python-is-python3  python3-pip \
+        nodejs python-is-python3  python3-pip \
         postgresql-client-16 redis-tools rclone && \
-        rm -rf /var/lib/apt/lists/*
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
+    apt update && apt install -y nodejs ;\
+    rm -rf /var/lib/apt/lists/*
 
 RUN \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
@@ -79,7 +75,8 @@ RUN \
 
 RUN \
     npm install -g typescript-language-server typescript ;\
-    env VER=1.3.0 ARCH="$(dpkg --print-architecture)" \
+    npm cache clean --force ;\
+    export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
     curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_linux_${ARCH}.tar.gz |\
     tar -C /usr/local/bin -xzvf -  mcp-s3
 
@@ -91,7 +88,6 @@ FROM stage1-root AS stage2-user
 ARG TARGETARCH
 ARG OLLAMA_VERSION
 ARG OPENCODE_VERSION
-ARG PNPM_VERSION
 ARG NODE_VERSION
 ARG OPS_BRANCH
 ARG OPS_REPO
@@ -119,8 +115,8 @@ RUN \
 RUN \
     mkdir -p "$HOME/.config/opencode" ;\
     cd "$HOME/.config/opencode" ;\
-    pnpm init -y >/dev/null ;\
-    pnpm install  "@opencode-ai/plugin@$($HOME/.local/bin/opencode --version)" ;\
+    npm init -y >/dev/null ;\
+    npm install  "@opencode-ai/plugin@$($HOME/.local/bin/opencode --version)" ;\
     test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
 
 # workspace
