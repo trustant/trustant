@@ -61,6 +61,7 @@ RUN \
 COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
 COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
 
+ENTRYPOINT ["tini", "--"]
 
 # build the local part
 ########################################################## stage2-user
@@ -76,6 +77,8 @@ ARG OPS_REPO
 # install cli tools
 USER root
 ENV PNPM_HOME=/usr/local
+ENV HOME=/home/trustable
+ENV PATH="/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:${PATH}"
 
 RUN \
     useradd -d /home/trustable -u 769 -s /bin/bash -m trustable ;\
@@ -90,13 +93,9 @@ RUN \
     source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
+
+# opencode
 COPY --from=loader /root/.opencode/bin/opencode /home/trustable/.local/bin/opencode
-
-ENV PATH="/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:${PATH}"
-
-COPY setup_lsp_mcp.sh .local/bin/setup_lsp_mcp.sh
-RUN bash .local/bin/setup_lsp_mcp.sh
-
 RUN \
     mkdir -p "$HOME/.config/opencode" ;\
     cd "$HOME/.config/opencode" ;\
@@ -104,6 +103,11 @@ RUN \
     pnpm install  "@opencode-ai/plugin@$($HOME/.local/bin/opencode --version)" ;\
     test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
 
+# mcp
+ADD setup_lsp_mcp.sh .local/bin/setup_lsp_mcp.sh
+RUN bash .local/bin/setup_lsp_mcp.sh
+
+# workspace
 RUN \
     mkdir -p /home/trustable/workspace ;\
     echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
@@ -112,16 +116,17 @@ RUN chown -Rvf trustable:trustable /home/trustable
 
 ########################################################## stage3-app
 ###---###
+# start
 USER root
-COPY supervisord.ini /etc/supervisord.ini
-COPY start.sh /usr/local/bin/start.sh
-
+WORKDIR /home/trustable
 COPY env .env
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
 COPY trustable.json trustable.json
 
-# user trustable switched by supervisord
+COPY supervisord.ini /etc/supervisord.ini
+COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]
-ENTRYPOINT ["tini", "--"]
+
+# user trustable switched by supervisord
 RUN chown -Rvf trustable:trustable /home/trustable
 WORKDIR /home/trustable

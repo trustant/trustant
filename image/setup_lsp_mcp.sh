@@ -1,4 +1,5 @@
 #!/bin/bash
+export PATH="$HOME"/.ops/*-*/bin:"$PATH"
 set -euo pipefail
 which typescript-language-server || sudo pnpm install -g typescript-language-server typescript
 which pylsp || uv tool install --python 3.12 "python-lsp-server[yapf]"
@@ -16,9 +17,7 @@ then
       (Linux-x86_64) SUF=linux_amd64 ;;
     esac
     if test -n "$SUF"
-    then
-        curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_${SUF}.tar.gz | tar -C ~/.local/bin -xzvf -  mcp-s3
-    else
-        echo not found mcp-s3
+    then curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_${SUF}.tar.gz | tar -C ~/.local/bin -xzvf -  mcp-s3
+    else echo not found mcp-s3
     fi
 fi
