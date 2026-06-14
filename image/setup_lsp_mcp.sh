@@ -17,7 +17,7 @@ then
     esac
     if test -n "$SUF"
     then
-        curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_${SUF}.tar.gz | tar -C ~/.local/bin -xvf -  mcp-s3
+        curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_${SUF}.tar.gz | tar -C ~/.local/bin -xzvf -  mcp-s3
     else
         echo not found mcp-s3
     fi
