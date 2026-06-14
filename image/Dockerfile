@@ -100,13 +100,14 @@ RUN \
     echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
 ENV HOME=/home/trustable
-ENV PATH="/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:${PATH}"
+ENV
 WORKDIR /home/trustable
 USER trustable
 
 RUN \
     echo "source /etc/environment" >>$HOME/.bashrc ;\
-    echo "export OPS_BRANCH=${OPS_BRANCH}" >>$HOME/.bashrc ;\
+    echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:${PATH}\"" >>$HOME/.bashrc ;\
+    echo "export OPS_REPO=${OPS_REPO}" >>$HOME/.bashrc ;\
     echo "export OPS_REPO=${OPS_REPO}" >>$HOME/.bashrc ;\
     source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
