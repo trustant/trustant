@@ -133,8 +133,10 @@ COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]
 
-USER trustable
-WORKDIR /home/trustable
-COPY env .env
-COPY trustable.json trustable.json
+COPY --chown=trustable:trustable env .env
+COPY --chown=trustable:trustable trustable.json trustable.json
+
+# start.sh / supervisord must run as root: start.sh chowns $HOME and
+# supervisord (user=root) drops privilege per-program. Final user MUST be root.
+USER root
 WORKDIR /home/trustable
