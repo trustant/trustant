@@ -7,7 +7,12 @@ mkdir -p /run/sshd
 ssh-keygen -A
 
 if test -n "$B64KUBECONFIG"
-then ops -base64 -d "$B64KUBECONFIG" >$HOME/.ops/tmp/kubeconfig
+then
+    # First `ops` run clones its tasks and prints "Cloning tasks..." to
+    # stdout. Warm it up first so that chatter never lands in the kubeconfig.
+    ops -t >/dev/null 2>&1 || true
+    # Strip any stray pre-amble: a valid kubeconfig starts at `apiVersion:`.
+    ops -base64 -d "$B64KUBECONFIG" | sed -n '/^apiVersion:/,$p' >$HOME/.ops/tmp/kubeconfig
 fi
 
 chown -R trustable:trustable "$HOME"
