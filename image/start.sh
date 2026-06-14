@@ -3,7 +3,6 @@ export HOME=/home/trustable
 export PATH="$HOME/.local/bin:$PATH"
 source $HOME/.bashrc
 
-ops -update
 mkdir -p /run/sshd
 ssh-keygen -A
 

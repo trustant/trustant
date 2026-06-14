@@ -14,6 +14,7 @@ KEY=${1:-trustable}
 VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
 IMAGE=ghcr.io/trustable-ai/trustable-app
+TAG=$(git tag) # use to re-read, skip the following
 TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%M)"
 echo "New Tag: $TAG"
 
@@ -43,7 +44,6 @@ echo "Saving $IMAGE:$TAG"
 docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
 
 echo "Listing Images"
-
 
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
 

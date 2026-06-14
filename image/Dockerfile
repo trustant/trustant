@@ -31,35 +31,57 @@ ARG OLLAMA_VERSION
 ARG OPENCODE_VERSION
 
 USER root
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PNPM_HOME=/usr/local
 
 RUN \
     echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
     echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment;\
     echo "PNPM_HOME=/usr/local" >>/etc/environment
 
+ENV DEBIAN_FRONTEND=noninteractive
 RUN \
     apt-get update && \
-    apt-get install -y \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
+    apt-get install -y --no-install-recommends \
         locales ca-certificates git sudo curl jq less vim libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
-        python-is-python3  python3-pip  python3-virtualenv pipx \
-        postgresql-client-16 redis-tools rclone ffmpeg && \
-    env PIPX_BIN_DIR=/usr/bin pipx install milvus-cli
+        python-is-python3  python3-pip \
+        postgresql-client-16 redis-tools rclone && \
+        rm -rf /var/lib/apt/lists/*
 
 RUN \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
     locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-RUN \
-    curl -fsSL https://get.pnpm.io/install.sh |\
-    env PNPM_VERSION=${PNPM_VERSION} bash ;\
-    pnpm runtime set node ${NODE_VERSION} -g
-
+# collecting
 COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
 COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
+COPY --from=loader /root/.opencode/bin/opencode /usr/local/bin/opencode
+
+# installing lsp: ts py, mcp: postgres, redis, milvus, cli: milvus
+RUN \
+    curl -LsSf https://astral.sh/uv/install.sh | \
+    env UV_INSTALL_DIR="/usr/bin" INSTALLER_NO_MODIFY_PATH=1 sh ;\
+    for tool in \
+        milvus-cli \
+        'python-lsp-server[yapf]' \
+        postgres-mcp==0.3.0 \
+        redis-mcp-server==0.5.0 \
+        git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3 ;\
+    do env \
+        UV_TOOL_BIN_DIR=/usr/local/bin \
+        UV_TOOL_DIR=/opt/uv/tools \
+        UV_CACHE_DIR=/opt/uv/cache \
+        UV_PYTHON_PREFERENCE=only-system \
+        UV_LINK_MODE=hardlink \
+        uv tool install --python /usr/bin/python3 $tool ;\
+    done
+
+RUN \
+    npm install -g typescript-language-server typescript ;\
+    env VER=1.3.0 ARCH="$(dpkg --print-architecture)" \
+    curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_linux_${ARCH}.tar.gz |\
+    tar -C /usr/local/bin -xzvf -  mcp-s3
 
 ENTRYPOINT ["tini", "--"]
 
@@ -76,15 +98,15 @@ ARG OPS_REPO
 
 # install cli tools
 USER root
-ENV PNPM_HOME=/usr/local
-ENV HOME=/home/trustable
-ENV PATH="/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:${PATH}"
 
 RUN \
     useradd -d /home/trustable -u 769 -s /bin/bash -m trustable ;\
     echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
+ENV HOME=/home/trustable
+ENV PATH="/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:${PATH}"
 WORKDIR /home/trustable
+USER trustable
 
 RUN \
     echo "source /etc/environment" >>$HOME/.bashrc ;\
@@ -93,9 +115,7 @@ RUN \
     source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 
-
 # opencode
-COPY --from=loader /root/.opencode/bin/opencode /home/trustable/.local/bin/opencode
 RUN \
     mkdir -p "$HOME/.config/opencode" ;\
     cd "$HOME/.config/opencode" ;\
@@ -103,30 +123,22 @@ RUN \
     pnpm install  "@opencode-ai/plugin@$($HOME/.local/bin/opencode --version)" ;\
     test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
 
-# mcp
-ADD setup_lsp_mcp.sh .local/bin/setup_lsp_mcp.sh
-RUN bash .local/bin/setup_lsp_mcp.sh
-
 # workspace
 RUN \
     mkdir -p /home/trustable/workspace ;\
     echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
-RUN chown -Rvf trustable:trustable /home/trustable
-
 ########################################################## stage3-app
 ###---###
 # start
 USER root
-WORKDIR /home/trustable
-COPY env .env
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
-COPY trustable.json trustable.json
-
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]
 
-# user trustable switched by supervisord
-RUN chown -Rvf trustable:trustable /home/trustable
+USER trustable
+WORKDIR /home/trustable
+COPY env .env
+COPY trustable.json trustable.json
 WORKDIR /home/trustable
