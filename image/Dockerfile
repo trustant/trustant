@@ -81,7 +81,6 @@ RUN \
     useradd -d /home/trustable -u 769 -s /bin/bash -m trustable ;\
     echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
-USER trustable
 WORKDIR /home/trustable
 
 RUN \
@@ -109,17 +108,20 @@ RUN \
     mkdir -p /home/trustable/workspace ;\
     echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
-USER root
-CMD ["/usr/local/bin/start.sh"]
-ENTRYPOINT ["tini", "--"]
+RUN chown -Rvf trustable:trustable /home/trustable
 
 ########################################################## stage3-app
 ###---###
 USER root
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
-USER trustable
-WORKDIR /home/trustable
+
 COPY env .env
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
 COPY trustable.json trustable.json
+
+# user trustable switched by supervisord
+CMD ["/usr/local/bin/start.sh"]
+ENTRYPOINT ["tini", "--"]
+RUN chown -Rvf trustable:trustable /home/trustable
+WORKDIR /home/trustable
