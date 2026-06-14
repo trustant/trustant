@@ -40,8 +40,7 @@ ops bestia trustable undeploy
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all
 
 echo "Saving $IMAGE:$TAG"
-docker save $IMAGE:$TAG >image.tar
-| ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
+docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
 
 echo "Listing Images"
 
