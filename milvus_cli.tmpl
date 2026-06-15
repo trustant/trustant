@@ -1,0 +1,55 @@
+#!{{.PythonVenv}}
+"""
+milvus_cli starter that auto-connects to one host + one database, then drops
+into the normal REPL. Reuses the installed milvus-cli venv (no edits to it).
+
+Rendered from milvus_cli.tmpl with: PythonVenv, Host, Port, Token, DbName.
+"""
+import sys
+
+from pymilvus import MilvusClient
+
+from milvus_cli.scripts.init_client_cli import get_milvus_cli_obj
+from milvus_cli.scripts.milvus_client_cli import runCliPrompt
+
+HOST = "{{.Host}}"
+PORT = {{.Port}}
+TOKEN = "{{.Token}}"
+DB_NAME = "{{.DbName}}"
+
+
+def auto_connect():
+    """Connect to the configured host and database before the REPL starts."""
+    uri = HOST if "://" in HOST else f"http://{HOST}:{PORT}"
+
+    # Pass db_name at construction time: switching to a db *after* connecting
+    # to `default` can trip PERMISSION_DENIED for db-scoped users.
+    params = {"uri": uri}
+    if TOKEN:
+        params["token"] = TOKEN
+    if DB_NAME:
+        params["db_name"] = DB_NAME
+
+    obj = get_milvus_cli_obj()
+    conn = obj.connection
+    try:
+        conn.client = MilvusClient(**params)
+    except Exception as e:
+        print(f"Auto-connect failed: {e}", file=sys.stderr)
+        return
+
+    conn.uri = uri
+    conn.connection_params = params
+    conn._is_connected = True
+    if DB_NAME:
+        conn.set_current_database(DB_NAME)
+
+    print(f"Connected to {uri}" + (f" (db: {DB_NAME})" if DB_NAME else ""))
+
+
+if __name__ == "__main__":
+    if sys.argv[0].endswith(".exe"):
+        sys.argv[0] = sys.argv[0][:-4]
+    if "--version" not in sys.argv:
+        auto_connect()
+    sys.exit(runCliPrompt())
