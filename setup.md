@@ -4,7 +4,6 @@ When I say add to the PATH, add to ~/.bashrc and on mac also on ~/.zshrc
 
 If a check fails, abort and warn the user
 
-
 0. Read from image/Dockerfile search the variable in format
 
 ARG <VARIABLE>=<VALUE>
@@ -13,8 +12,6 @@ and set the env vars
 
 - OLLAMA_VERSION
 - OPENCODE_VERSION
-- PNPM_VERSION
-- NODE_VERSION
 - OPS_BRANCH
 - OPS_REPO
 
@@ -22,8 +19,7 @@ and set the env vars
 and check the $WORKSPACE_DIR exists
 and the folder pointed by $WORKBENCH_DIR exists
 
-2. check ops is in the path and the values of the env vars should be the same as
-OPS_BRANCH and OPS_REPO
+2. check ops is in the path and the values of the env vars should be the same as OPS_BRANCH and OPS_REPO
 
 If not, recommend to set the variables and install ops
 
@@ -37,15 +33,16 @@ then activate the go version in go.mod
 
 then install air
 
-5. if pnpm is not on the path, install it with
+5. if npm is not on the path, install it with fnm
 
 ```
-curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=${PNPM_VERSION} bash
-source ~/.bashrc
-pnpm runtime set node ${NODE_VERSION}
+curl -o- https://fnm.vercel.app/install | bash
+fnm install 24
 ```
 
-6. check you can reach OpenWhisk
+6. ensure $HOME/.local/bin is the first entry in the path and warn if not
+
+7. check you can reach OpenWhisk
 
 locate the <apihost>:
 
@@ -56,34 +53,34 @@ locate the <apihost>:
 
 verify  curl -sL <apihost>/api/info | jq .description returns OpenWhisk
 
-7. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519,
+8. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519,
 
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
 ./ssh.sh sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
 
-8. check you have administrative power
+9. check you have administrative power
 ensuring `ops admin listuser` does not return error
 
-9. Check if opencode is in the path and if it there check the version `opencode -v` matches with the $OPENCODE_VERSION
-
- it does not match, install with
-
-```
-curl -fsSL https://opencode.ai/install >opencode.sh
-bash opencode.sh --version ${OPENCODE_VERSION}
-```
-
-10. check the kubefwd binary is in the path otherwise it is an error
-
-11. check you have installed in /opt/homebrew/bin the following commands
+10. check you have installed in /opt/homebrew/bin the following commands
+- uv
 - kubefwd
 - rclone
 - psql
 - redis-cli
 - milvus_cli
 
-if missing warn and ask to install there
+11. Check if opencode is in the path and if it there check the version `opencode -v` matches with the $OPENCODE_VERSION
 
-12. execute image/setup_mcp_lsp.sh and check there are no errors
+ it does not match, install with
 
-13. ensure $HOME/.local/bin is the first entry in the path and warn if not
+```
+curl -fsSL https://opencode.ai/install >opencode.sh
+bash opencode.sh --version ${OPENCODE_VERSION}
+mv ~/.opencode/bin/opencode ~/.local/bin
+```
+
+if missing warn and ask to install them
+
+12. implement in the commands to install in ~/.local/bin  the mcp servers for redis, milvus, postgres and s3
+using the same procedure in images/Dockerfile (do not use /opt/uv/* vars and install everything for the local user)
+

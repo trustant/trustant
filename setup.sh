@@ -46,7 +46,7 @@ read_arg() {
   grep -m1 "^ARG ${var}=" image/Dockerfile | cut -d'=' -f2- | tr -d ' '
 }
 
-for v in OLLAMA_VERSION OPENCODE_VERSION PNPM_VERSION NODE_VERSION OPS_BRANCH OPS_REPO; do
+for v in OLLAMA_VERSION OPENCODE_VERSION OPS_BRANCH OPS_REPO; do
   val=$(read_arg "$v")
   [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
   export "$v=$val"
@@ -152,18 +152,32 @@ fi
 command -v air &>/dev/null || fail "air installation failed"
 ok "air is available"
 
-# --- 5. Install pnpm if missing ---
-echo "--- Checking pnpm ---"
-if ! command -v pnpm &>/dev/null; then
-  warn "pnpm not found, installing..."
-  curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=${PNPM_VERSION} bash || fail "pnpm install failed"
-  set +eu; source "$HOME/.bashrc"; set -eu
-  pnpm runtime set node "${NODE_VERSION}" || fail "pnpm runtime set node ${NODE_VERSION} failed"
+# --- 5. Install npm via fnm if missing ---
+echo "--- Checking npm ---"
+if ! command -v npm &>/dev/null; then
+  warn "npm not found, installing fnm + node 24..."
+  curl -o- https://fnm.vercel.app/install | bash || fail "fnm install failed"
+  add_to_path "$HOME/.local/share/fnm"
+  eval "$(fnm env)" 2>/dev/null || true
+  fnm install 24 || fail "fnm install 24 failed"
+  fnm use 24 || fail "fnm use 24 failed"
 fi
-command -v pnpm &>/dev/null || fail "pnpm not in PATH after install"
-ok "pnpm is available"
+command -v npm &>/dev/null || fail "npm not in PATH after install"
+ok "npm is available"
 
-# --- 6. Reach OpenWhisk ---
+# --- 6. Ensure ~/.local/bin is the first entry in PATH ---
+echo "--- Checking ~/.local/bin is first in PATH ---"
+LOCAL_BIN="$HOME/.local/bin"
+mkdir -p "$LOCAL_BIN"
+FIRST_ENTRY="${ORIGINAL_PATH%%:*}"
+if [[ "$FIRST_ENTRY" == "$LOCAL_BIN" ]]; then
+  ok "~/.local/bin is the first entry in PATH"
+else
+  warn "~/.local/bin is not the first entry in PATH (first is: ${FIRST_ENTRY})"
+  warn "Prepend it by adding to your shell rc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+fi
+
+# --- 7. Reach OpenWhisk ---
 echo "--- Locating OpenWhisk apihost ---"
 APIHOST_ENV="${APIHOST:-}"
 APIHOST=""
@@ -187,7 +201,7 @@ WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) 
 [[ "$WHISK_DESC" == "OpenWhisk" ]] || fail "Cannot reach OpenWhisk at ${APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
 ok "OpenWhisk reachable at ${APIHOST}"
 
-# --- 7. Extract kubeconfig (mac only, when id_ed25519 is present) ---
+# --- 8. Extract kubeconfig (mac only, when id_ed25519 is present) ---
 if [[ "$OS" == "darwin" ]]; then
   ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
   IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
@@ -203,39 +217,13 @@ if [[ "$OS" == "darwin" ]]; then
   fi
 fi
 
-# --- 8. Check admin power ---
+# --- 9. Check admin power ---
 echo "--- Checking admin access ---"
 ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
-# --- 9. Check opencode version matches OPENCODE_VERSION, install if needed ---
-echo "--- Checking opencode ---"
-install_opencode() {
-  curl -fsSL https://opencode.ai/install >opencode.sh
-  bash opencode.sh --version "${OPENCODE_VERSION}" || fail "opencode install failed"
-  add_to_path "$HOME/.opencode/bin"
-}
-
-if ! command -v opencode &>/dev/null; then
-  warn "opencode not found, installing ${OPENCODE_VERSION}..."
-  install_opencode
-else
-  OPENCODE_ACTUAL=$(opencode -v 2>/dev/null | tr -d ' ' || true)
-  if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" ]]; then
-    warn "opencode version is '${OPENCODE_ACTUAL}', expected '${OPENCODE_VERSION}', reinstalling..."
-    install_opencode
-  fi
-fi
-command -v opencode &>/dev/null || fail "opencode installation failed"
-ok "opencode ${OPENCODE_VERSION} is available"
-
-# --- 10. Check kubefwd is in PATH ---
-echo "--- Checking kubefwd ---"
-command -v kubefwd &>/dev/null || fail "kubefwd not found in PATH (it is an error if missing)"
-ok "kubefwd is available"
-
-# --- 11. Check CLI tools are installed and in PATH (ask to install via brew/pipx) ---
-echo "--- Checking CLI tools (kubefwd, rclone, psql, redis-cli, milvus_cli) ---"
+# --- 10. Check CLI tools are installed and in PATH (ask to install via brew/pipx) ---
+echo "--- Checking CLI tools (uv, kubefwd, rclone, psql, redis-cli, milvus_cli) ---"
 check_cli() {
   local cmd="$1" brew_pkg="$2" pipx_pkg="$3"
   if command -v "$cmd" &>/dev/null; then
@@ -252,28 +240,65 @@ check_cli() {
   fail "$cmd is required"
 }
 
+check_cli uv        uv               ""
 check_cli kubefwd   kubefwd          ""
 check_cli rclone    rclone           ""
 check_cli psql      libpq            ""
 check_cli redis-cli redis            ""
 check_cli milvus_cli ""              milvus-cli
 
-# --- 12. Run image/setup_lsp_mcp.sh ---
-echo "--- Running image/setup_lsp_mcp.sh ---"
-[[ -f image/setup_lsp_mcp.sh ]] || fail "image/setup_lsp_mcp.sh not found"
-bash image/setup_lsp_mcp.sh || fail "image/setup_lsp_mcp.sh failed"
-ok "LSP/MCP tools installed"
+# --- 11. Check opencode version matches OPENCODE_VERSION, install if needed ---
+echo "--- Checking opencode ---"
+install_opencode() {
+  curl -fsSL https://opencode.ai/install >opencode.sh
+  bash opencode.sh --version "${OPENCODE_VERSION}" || fail "opencode install failed"
+  mv "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/" || fail "moving opencode to ~/.local/bin failed"
+}
 
-# --- 13. Ensure ~/.local/bin is the first entry in PATH ---
-echo "--- Checking ~/.local/bin is first in PATH ---"
-LOCAL_BIN="$HOME/.local/bin"
-FIRST_ENTRY="${ORIGINAL_PATH%%:*}"
-if [[ "$FIRST_ENTRY" == "$LOCAL_BIN" ]]; then
-  ok "~/.local/bin is the first entry in PATH"
+if ! command -v opencode &>/dev/null; then
+  warn "opencode not found, installing ${OPENCODE_VERSION}..."
+  install_opencode
 else
-  warn "~/.local/bin is not the first entry in PATH (first is: ${FIRST_ENTRY})"
-  warn "Prepend it by adding to your shell rc: export PATH=\"\$HOME/.local/bin:\$PATH\""
+  OPENCODE_ACTUAL=$(opencode -v 2>/dev/null | tr -d ' ' || true)
+  if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" ]]; then
+    warn "opencode version is '${OPENCODE_ACTUAL}', expected '${OPENCODE_VERSION}', reinstalling..."
+    install_opencode
+  fi
 fi
+command -v opencode &>/dev/null || fail "opencode installation failed"
+ok "opencode ${OPENCODE_VERSION} is available"
+
+# --- 12. Install MCP servers (redis, milvus, postgres, s3) for local use ---
+# Mirrors the procedure in image/Dockerfile: uv tool install for the python
+# servers, and the mcp-s3 release tarball for s3 — installed into the user's
+# local bin (~/.local/bin) rather than system-wide, so no sudo is needed.
+echo "--- Installing MCP servers for local use ---"
+MCP_BIN="$HOME/.local/bin"
+mkdir -p "$MCP_BIN"
+
+command -v uv &>/dev/null || fail "uv is required to install MCP servers"
+
+# postgres, redis, milvus MCP servers via uv tool (same pins as the Dockerfile)
+for tool in \
+    postgres-mcp==0.3.0 \
+    redis-mcp-server==0.5.0 \
+    'git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3' ;
+do
+  env \
+    UV_TOOL_BIN_DIR="$MCP_BIN" \
+    UV_LINK_MODE=hardlink \
+    uv tool install "$tool" || fail "uv tool install $tool failed"
+done
+
+# s3 MCP server from the txn2/mcp-s3 release (host OS/arch)
+if ! command -v mcp-s3 &>/dev/null; then
+  MCP_S3_VER=1.3.0
+  curl -sL "https://github.com/txn2/mcp-s3/releases/download/v${MCP_S3_VER}/mcp-s3_${MCP_S3_VER}_${OS}_${ARCH}.tar.gz" \
+    | tar -C "$MCP_BIN" -xzf - mcp-s3 \
+    || fail "mcp-s3 install failed"
+fi
+
+ok "MCP servers (postgres, redis, milvus, s3) installed in $MCP_BIN"
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"

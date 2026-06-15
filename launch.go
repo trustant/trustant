@@ -148,14 +148,13 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 
 	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
 		mcp["redis"] = map[string]interface{}{
-			"type":    "local",
-			"command": []string{"redis-mcp-server"},
-			"environment": map[string]string{
-				"REDIS_HOST":         cfg.Redis.Service,
-				"REDIS_PORT":         fmt.Sprintf("%d", cfg.Redis.Port),
-				"REDIS_PWD":          cfg.Redis.Password,
-				"REDIS_SSL":          "false",
-				"REDIS_CLUSTER_MODE": "false",
+			"type": "local",
+			"command": []string{
+				"redis-mcp-server",
+				"--host", cfg.Redis.Service,
+				"--port", fmt.Sprintf("%d", cfg.Redis.Port),
+				"--username", redisUsername(cfg),
+				"--password", cfg.Redis.Password,
 			},
 			"enabled": true,
 			"timeout": 30000,
@@ -195,6 +194,18 @@ func isTrustableManagedMCPServer(name string) bool {
 		return true
 	}
 	return false
+}
+
+// redisUsername derives the Redis user from the config prefix: the prefix with
+// its trailing char (the ":") removed, e.g. "trureact:" -> "trureact". This is
+// the "current user" used both for the redis MCP server's REDIS_USERNAME and as
+// the redis-cli --user argument (see spec/4-launch.md).
+func redisUsername(cfg *opsConfig) string {
+	user := cfg.Redis.Prefix
+	if user != "" {
+		user = user[:len(user)-1]
+	}
+	return user
 }
 
 // localBinPrefix is the PATH the ~/.local/bin wrapper scripts set so they can
@@ -259,12 +270,7 @@ func setupServiceTooling() {
 			prefix, cfg.Postgres.URL))
 	}
 	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
-		// The spec passes the prefix with its trailing char (the ":") removed as
-		// the redis-cli username (-u), e.g. "trureact:" -> "trureact".
-		user := cfg.Redis.Prefix
-		if user != "" {
-			user = user[:len(user)-1]
-		}
+		user := redisUsername(cfg)
 		writeServiceWrapper(binDir, "redis-cli", fmt.Sprintf(
 			"#!/bin/bash\n"+
 				"export PATH=%s\n"+

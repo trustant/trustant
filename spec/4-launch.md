@@ -193,14 +193,12 @@ exec psql "<config.postgres.url>" "$@"
 ```
 "redis": {
   "type": "local",
-  "command": ["redis-mcp-server"],
-  "environment:" {
-    "REDIS_HOST": "<config.redis.service>",
-    "REDIS_PORT": "<config.redis.port>",
-    "REDIS_PWD": "<config.redis.password>",
-    "REDIS_SSL": "false",
-    "REDIS_CLUSTER_MODE": "false"
-  },
+  "command": ["redis-mcp-server",
+    "--host", "<config.redis.service>",
+    "--port", "<config.redis.port>",
+    "--username",  '<config.redis.prefix with last char removed>',
+    "--password", '<config.redis.password>'
+  ],
   "enabled": true,
   "timeout": 30000
 }
