@@ -117,8 +117,8 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	}
 
 	redis := mcp["redis"].(map[string]interface{})
-	// Per spec/4-launch.md the redis MCP block is just type/command/enabled/timeout
-	// — no environment block and no --ssl/--cluster-mode flags.
+	// Per spec/4-launch.md the redis command has no --ssl/--cluster-mode flags,
+	// and the environment block carries exactly REDIS_USERNAME/HOST/PORT/PWD.
 	wantRedisCmd := []string{
 		"redis-mcp-server",
 		"--host", "redis",
@@ -129,8 +129,15 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	if cmd := redis["command"].([]string); !reflect.DeepEqual(cmd, wantRedisCmd) {
 		t.Fatalf("unexpected redis command: %#v", redis["command"])
 	}
-	if _, ok := redis["environment"]; ok {
-		t.Fatalf("redis MCP should not carry an environment block: %#v", redis)
+	redisEnv := redis["environment"].(map[string]string)
+	wantRedisEnv := map[string]string{
+		"REDIS_USERNAME": "app",
+		"REDIS_HOST":     "redis",
+		"REDIS_PORT":     "6379",
+		"REDIS_PWD":      "pw",
+	}
+	if !reflect.DeepEqual(redisEnv, wantRedisEnv) {
+		t.Fatalf("unexpected redis environment: %#v", redisEnv)
 	}
 
 	for _, name := range []string{"redis", "milvus"} {

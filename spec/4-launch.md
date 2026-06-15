@@ -199,6 +199,12 @@ exec psql "<config.postgres.url>" "$@"
     "--username",  '<config.redis.prefix with last char removed>',
     "--password", '<config.redis.password>'
   ],
+   "environment": {
+    "REDIS_USERNAME": "<config.redis.prefix with last char removed>",
+    "REDIS_HOST": "<config.redis.service>",
+    "REDIS_PORT": "<config.redis.port>",
+    "REDIS_PWD": "<config.redis.password>",
+   },
   "enabled": true,
   "timeout": 30000
 }

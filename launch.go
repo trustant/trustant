@@ -156,6 +156,12 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 				"--username", redisUsername(cfg),
 				"--password", cfg.Redis.Password,
 			},
+			"environment": map[string]string{
+				"REDIS_USERNAME": redisUsername(cfg),
+				"REDIS_HOST":     cfg.Redis.Service,
+				"REDIS_PORT":     fmt.Sprintf("%d", cfg.Redis.Port),
+				"REDIS_PWD":      cfg.Redis.Password,
+			},
 			"enabled": true,
 			"timeout": 30000,
 		}
