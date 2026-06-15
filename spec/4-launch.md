@@ -177,7 +177,7 @@ exec rclone "$@"
   },
   "enabled": true,
   "timeout": 30000
-},
+}
 ```
 
 and create ~/.local/bin/psql with the body
@@ -193,10 +193,17 @@ exec psql "<config.postgres.url>" "$@"
 ```
 "redis": {
   "type": "local",
-  "command": ["redis-mcp-server", "--url", "<config.redis.url>" ],
+  "command": ["redis-mcp-server"],
+  "environment:" {
+    "REDIS_HOST": "<config.redis.service>",
+    "REDIS_PORT": "<config.redis.port>",
+    "REDIS_PWD": "<config.redis.password>",
+    "REDIS_SSL": "false",
+    "REDIS_CLUSTER_MODE": "false"
+  },
   "enabled": true,
   "timeout": 30000
-},
+}
 ```
 
 and create in ~/.local/bin/redis-cli like this:

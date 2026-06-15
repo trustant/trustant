@@ -149,7 +149,14 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
 		mcp["redis"] = map[string]interface{}{
 			"type":    "local",
-			"command": []string{"redis-mcp-server", "--url", cfg.Redis.URL},
+			"command": []string{"redis-mcp-server"},
+			"environment": map[string]string{
+				"REDIS_HOST":         cfg.Redis.Service,
+				"REDIS_PORT":         fmt.Sprintf("%d", cfg.Redis.Port),
+				"REDIS_PWD":          cfg.Redis.Password,
+				"REDIS_SSL":          "false",
+				"REDIS_CLUSTER_MODE": "false",
+			},
 			"enabled": true,
 			"timeout": 30000,
 		}

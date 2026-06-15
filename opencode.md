@@ -4,9 +4,9 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 
 ## Important Rules
 
-- Never try to build or deploy; this is managed automatically when you edit sources
-- Never run foreground dev servers or watchers such as `npm run dev`, `vite`, or `ops ide devel`; Trustable already manages the dev server. To verify frontend changes, use bounded checks such as `npm run build`, `curl http://localhost:5173`, or `timeout <seconds> ...`.
-- To initialize always use `ops ide init` that will execute ALL the private actions in `init` package.
+- Never try to build or deploy; this is managed automatically when you edit sources.
+- Never run foreground dev servers or watchers such as `npm run dev`, `vite`, or `ops ide devel`; Trustable already manages the dev server. To verify frontend changes, use bounded checks such as `curl http://localhost:5173`, or `timeout <seconds> ...`.
+- All initialization must go in private actions in the `setup` package. Executing `ops ide setup` invokes ALL of them. The setup actions must be idempotent. They are invoked automatically when deploying, but NOT when developing — so whenever you change one of them you must be explicit and run `ops ide setup`.
 - Never create a backend server; create new public action providing an endpoint.
 - Never create or edit `__main__.py` files, use the following tools:
     - `action-new` to create an action
@@ -30,11 +30,20 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 
 ## Initializations
 
-To initialize database schemas, cache objects, add files to s3 buckets and more, create private actions in package `init` using `action-new` with `public: false`.
+To initialize database schemas, cache objects, add files to s3 buckets and more, create private actions in package `setup` using `action-new` with `public: false`.
 
 Private actions are the same as public ones but with `#--web false` and are not exposed as HTTP endpoints. Invoke them with `action-invoke`.
 
-Make the init actions always:
+All setup actions are invoked together by `ops ide setup`. They are run automatically when deploying, but NOT when developing — so whenever you change a setup action you must be explicit and run `ops ide setup` for the change to take effect.
+
+Use a dedicated setup action per kind of resource, and always run `ops ide setup` after creating or changing one:
+
+- **Tables** — when you need a new table, create the action `setup/database` (or update it if it already exists), then run `ops ide setup`. Never create tables or seed data in the database outside of `setup/database`. Make every statement idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
+- **Redis keys** — when you need to prepare redis with certain keys, create the action `setup/cache` (or update it if it already exists), then run `ops ide setup`. Never initialize redis keys outside of `setup/cache`. Make it idempotent (only set keys that are missing, e.g. `SET ... NX`).
+- **Milvus collections** — when you need a new collection, create the action `setup/collection` (or update it if it already exists), then run `ops ide setup`. Never create collections outside of `setup/collection`. Make it idempotent (check the collection exists before creating it).
+- **S3 data** — when you need to preload files into the `<user>-data` bucket, create the action `setup/upload` (or update it if it already exists), then run `ops ide setup`. Never seed bucket objects outside of `setup/upload`. Make it idempotent (only upload objects that are missing or changed). The `<user>-web` bucket is initialized separately from the content in the `public` folder — do not upload web content via `setup/upload`.
+
+Make the setup actions always:
 - incremental
 - idempotent
 - not destructive
@@ -64,3 +73,16 @@ for example:
 - **ALWAYS** use the `action-new` tool to create new API endpoints. Never create `__main__.py` or action directories directly.
 
 - Never edit `__main__.py`. Edit `packages/<package>/<action>/<module>.py` instead (where `<module>` is `<action>` with `-` replaced by `_`). The main function of this module is invoked with the request parameters and a context object to access services.
+
+## Databases, Redis, Bucket restrictions
+
+Retrieve your `<user>` with `ops util whoami`. These restrictions are enforced by the platform — operations outside them fail.
+
+- **Postgres**: the database is named after `<user>`; the schema is `<user>_schema` and is the default. Do not create or use other databases or schemas.
+- **Milvus**: the database is named after `<user>`. Do not create or use other databases.
+- **Redis**: keys must be prefixed with `<user>:` — keys without this prefix are not writable.
+- **S3**: there are exactly two writable buckets:
+  - `<user>-data` — private. Use this for application data; preload it with the `setup/upload` action (see Initializations).
+  - `<user>-web` — public. Never store private data here. Its content comes from the `public` folder, uploaded automatically on deploy — do not write to it directly.
+
+  The S3 MCP cannot list buckets, so assume only `<user>-data` and `<user>-web` exist.

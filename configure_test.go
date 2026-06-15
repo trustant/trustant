@@ -85,6 +85,7 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	cfg.Redis.URL = "redis://app:pw@redis:6379"
 	cfg.Redis.Port = 6379
 	cfg.Redis.Password = "pw"
+	cfg.Redis.Service = "redis"
 	cfg.Milvus.Host = "milvus"
 	cfg.Milvus.Port = 19530
 	cfg.Milvus.Token = "app:tok"
@@ -114,8 +115,15 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	}
 
 	redis := mcp["redis"].(map[string]interface{})
-	if cmd := redis["command"].([]string); len(cmd) != 3 || cmd[0] != "redis-mcp-server" || cmd[1] != "--url" || cmd[2] != "redis://app:pw@redis:6379" {
+	if cmd := redis["command"].([]string); len(cmd) != 1 || cmd[0] != "redis-mcp-server" {
 		t.Fatalf("unexpected redis command: %#v", redis["command"])
+	}
+	redisEnv := redis["environment"].(map[string]string)
+	if redisEnv["REDIS_HOST"] != "redis" || redisEnv["REDIS_PORT"] != "6379" || redisEnv["REDIS_PWD"] != "pw" {
+		t.Fatalf("unexpected redis environment: %#v", redisEnv)
+	}
+	if redisEnv["REDIS_SSL"] != "false" || redisEnv["REDIS_CLUSTER_MODE"] != "false" {
+		t.Fatalf("unexpected redis SSL/cluster flags: %#v", redisEnv)
 	}
 
 	for _, name := range []string{"redis", "milvus"} {
