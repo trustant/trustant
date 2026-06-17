@@ -49,6 +49,7 @@ fi
 
 echo "CI passed. Pushing olaris-bestia..."
 cd olaris-bestia
+git commit -m $TAG -a
 git push origin main --tags
 
 echo "Done. Published $TAG successfully."
