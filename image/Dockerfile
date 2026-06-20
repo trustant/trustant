@@ -102,17 +102,18 @@ WORKDIR /home/trustable
 USER trustable
 
 RUN \
-    sed 's/^\(.*\)=\(.*\)/export \1="\2"/' /etc/environment  -e 's/""/"/' >>$HOME/.bashrc ;\
-    echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:${PATH}\"" >>$HOME/.bashrc ;\
-    source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
-    bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
+    sed -e 's/^\(.*\)=\(.*\)/export \1="\2"/'  -e 's/""/"/g' >>$HOME/.bashrc /etc/environment  ;\
+    echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:/usr/bin:/bin\"" >>$HOME/.bashrc ;\
+    curl -fsSL n7s.co/get-ops | bash
+
+RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
 # opencode
 RUN \
     mkdir -p "$HOME/.config/opencode" ;\
     cd "$HOME/.config/opencode" ;\
     npm init -y >/dev/null ;\
-    npm install  "@opencode-ai/plugin@$($HOME/.local/bin/opencode --version)" ;\
+    npm install  "@opencode-ai/plugin@$(/usr/local/bin/opencode --version)" ;\
     test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
 
 # workspace
