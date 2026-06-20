@@ -8,6 +8,8 @@ FROM ubuntu:24.04 AS loader
 ARG TARGETARCH
 ARG OLLAMA_VERSION
 ARG OPENCODE_VERSION
+ARG OPS_BRANCH
+ARG OPS_REPO
 
 # install ollama and opencode
 USER root
@@ -20,28 +22,26 @@ RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
 RUN curl -fsSL https://opencode.ai/install >opencode.sh
 RUN bash opencode.sh --version ${OPENCODE_VERSION}
 
+RUN \
+    echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
+    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment ;\
+    echo "OPS_REPO=${OPS_REPO}" >>/etc/environment ;\
+    echo "OPS_BRANCH=${OPS_BRANCH}" >>/etc/environment ;\
+
 ########################################################## stage1-root
 FROM ubuntu:24.04 AS stage1-root
 ARG TARGETARCH
-ARG OLLAMA_VERSION
-ARG OPENCODE_VERSION
-
 USER root
-
-RUN \
-    echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
-    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
     apt update && \
     apt install -y --no-install-recommends \
         locales ca-certificates git sudo curl jq less vim libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
-        nodejs python-is-python3  python3-pip \
-        postgresql-client-16 redis-tools rclone && \
-    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
-    apt update && apt install -y nodejs ;\
+        python-is-python3  python3-pip \
+        postgresql-client-16 redis-tools rclone nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 RUN \
@@ -86,11 +86,6 @@ ENTRYPOINT ["tini", "--"]
 ########################################################## stage2-user
 FROM stage1-root AS stage2-user
 ARG TARGETARCH
-ARG OLLAMA_VERSION
-ARG OPENCODE_VERSION
-ARG NODE_VERSION
-ARG OPS_BRANCH
-ARG OPS_REPO
 
 # install cli tools
 USER root
@@ -104,10 +99,8 @@ WORKDIR /home/trustable
 USER trustable
 
 RUN \
-    echo "source /etc/environment" >>$HOME/.bashrc ;\
+    sed 's/^\(.*\)=\(.*\)/export \1="\2"/' /etc/environment  -e 's/""/"/' >>$HOME/.bashrc
     echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:${PATH}\"" >>$HOME/.bashrc ;\
-    echo "export OPS_REPO=${OPS_REPO}" >>$HOME/.bashrc ;\
-    echo "export OPS_REPO=${OPS_REPO}" >>$HOME/.bashrc ;\
     source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
 

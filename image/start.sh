@@ -1,27 +1,24 @@
 #!/bin/bash
-export HOME=/home/trustable
-export PATH="$HOME/.local/bin:$PATH"
-source $HOME/.bashrc
 
 mkdir -p /run/sshd
 ssh-keygen -A
 
-if test -n "$B64KUBECONFIG"
-then
-    # First `ops` run clones its tasks and prints "Cloning tasks..." to
-    # stdout. Warm it up first so that chatter never lands in the kubeconfig.
-    ops -t >/dev/null 2>&1 || true
-    # Strip any stray pre-amble: a valid kubeconfig starts at `apiVersion:`.
-    ops -base64 -d "$B64KUBECONFIG" | sed -n '/^apiVersion:/,$p' >$HOME/.ops/tmp/kubeconfig
-fi
+export HOME=/home/trustable
+export PATH="$HOME/.local/bin:$PATH"
+source $HOME/.bashrc
+ops -info
 
-chown -R trustable:trustable "$HOME"
+if test -n "$B64KUBECONFIG"
+then ops -base64 -d "$B64KUBECONFIG"  >$HOME/.ops/tmp/kubeconfig
+fi
+echo "Checking kubeconfig"
+ls -l ~/.ops/tmp/kubeconfig
 
 if [ -n "$USERID" ] && [ "$USERID" != "769" ]
-then
-    /usr/sbin/usermod -u $USERID trustable
-    chown -Rf "$USERID" "$HOME"
+then /usr/sbin/usermod -u $USERID trustable
 fi
+
+chown -Rvf trustable:trustable "$HOME"
 
 # start supervisor
 supervisord -c /etc/supervisord.ini
