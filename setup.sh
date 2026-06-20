@@ -204,7 +204,7 @@ ok "OpenWhisk reachable at ${APIHOST}"
 # --- 8. Extract kubeconfig (mac only, when id_ed25519 is present) ---
 if [[ "$OS" == "darwin" ]]; then
   ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
-  IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
+  IP_FILE="$HOME/Library/Application Support/Trustable/workspace/current.ip"
   if [[ -f "$ID_FILE" ]]; then
     echo "--- Extracting kubeconfig ---"
     mkdir -p "$HOME/.ops/tmp"
@@ -222,30 +222,30 @@ echo "--- Checking admin access ---"
 ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
-# --- 10. Check CLI tools are installed and in PATH (ask to install via brew/pipx) ---
-echo "--- Checking CLI tools (uv, kubefwd, rclone, psql, redis-cli, milvus_cli) ---"
-check_cli() {
+# --- 10. Check CLI tools are installed in /opt/homebrew/bin (warn, don't abort) ---
+echo "--- Checking CLI tools in /opt/homebrew/bin (uv, kubefwd, rclone, psql, redis-cli, milvus_cli) ---"
+BREW_BIN="/opt/homebrew/bin"
+check_brew_cli() {
   local cmd="$1" brew_pkg="$2" pipx_pkg="$3"
-  if command -v "$cmd" &>/dev/null; then
-    ok "$cmd is available"
+  if [[ -x "${BREW_BIN}/${cmd}" ]]; then
+    ok "$cmd is installed in ${BREW_BIN}"
     return
   fi
-  warn "$cmd not found in PATH"
+  warn "$cmd not found in ${BREW_BIN}"
   if [[ -n "$brew_pkg" ]]; then
     warn "  install with: brew install ${brew_pkg}"
   fi
   if [[ -n "$pipx_pkg" ]]; then
     warn "  or with: pipx install ${pipx_pkg}"
   fi
-  fail "$cmd is required"
 }
 
-check_cli uv        uv               ""
-check_cli kubefwd   kubefwd          ""
-check_cli rclone    rclone           ""
-check_cli psql      libpq            ""
-check_cli redis-cli redis            ""
-check_cli milvus_cli ""              milvus-cli
+check_brew_cli uv        uv               ""
+check_brew_cli kubefwd   kubefwd          ""
+check_brew_cli rclone    rclone           ""
+check_brew_cli psql      libpq            ""
+check_brew_cli redis-cli redis            ""
+check_brew_cli milvus_cli ""              milvus-cli
 
 # --- 11. Check opencode version matches OPENCODE_VERSION, install if needed ---
 echo "--- Checking opencode ---"

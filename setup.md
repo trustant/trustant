@@ -51,11 +51,11 @@ locate the <apihost>:
 - on Windows if there is a file %LOCALAPPDATA%/Trustable/apihost use  the url in that file
 - otherwise use http://miniops.me
 
-verify  curl -sL <apihost>/api/info | jq .description returns OpenWhisk
+verify curl -sL <apihost>/api/info | jq .description returns OpenWhisk
 
 8. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519,
 
-IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
+IP="$(cat ~/Library/Application\ Support/Trustable/workspace/current.ip)"
 ./ssh.sh sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
 
 9. check you have administrative power
