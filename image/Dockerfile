@@ -33,6 +33,12 @@ FROM ubuntu:24.04 AS stage1-root
 ARG TARGETARCH
 USER root
 
+# collecting
+COPY --from=loader /etc/environment /etc/environment
+COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
+COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
+COPY --from=loader /root/.opencode/bin/opencode /usr/local/bin/opencode
+
 ENV DEBIAN_FRONTEND=noninteractive
 RUN \
     apt update && \
@@ -50,10 +56,6 @@ RUN \
     locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-# collecting
-COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
-COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
-COPY --from=loader /root/.opencode/bin/opencode /usr/local/bin/opencode
 
 # installing lsp: ts py, mcp: postgres, redis, milvus, cli: milvus
 RUN \
