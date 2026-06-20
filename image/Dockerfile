@@ -26,7 +26,7 @@ RUN \
     echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
     echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment ;\
     echo "OPS_REPO=${OPS_REPO}" >>/etc/environment ;\
-    echo "OPS_BRANCH=${OPS_BRANCH}" >>/etc/environment ;\
+    echo "OPS_BRANCH=${OPS_BRANCH}" >>/etc/environment
 
 ########################################################## stage1-root
 FROM ubuntu:24.04 AS stage1-root
