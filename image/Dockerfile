@@ -35,13 +35,14 @@ USER root
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN \
-    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
     apt update && \
     apt install -y --no-install-recommends \
         locales ca-certificates git sudo curl jq less vim libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
         python-is-python3  python3-pip \
-        postgresql-client-16 redis-tools rclone nodejs && \
+        postgresql-client-16 redis-tools rclone  && \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
+    apt update && apt -y install nodejs ;\
     rm -rf /var/lib/apt/lists/*
 
 RUN \
@@ -99,7 +100,7 @@ WORKDIR /home/trustable
 USER trustable
 
 RUN \
-    sed 's/^\(.*\)=\(.*\)/export \1="\2"/' /etc/environment  -e 's/""/"/' >>$HOME/.bashrc
+    sed 's/^\(.*\)=\(.*\)/export \1="\2"/' /etc/environment  -e 's/""/"/' >>$HOME/.bashrc ;\
     echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:${PATH}\"" >>$HOME/.bashrc ;\
     source $HOME/.bashrc ; curl -sL n7s.co/get-ops | bash ;\
     bash -c "source $HOME/.bashrc ; $HOME/.local/bin/ops -t"
