@@ -11,3 +11,6 @@
 [submodule "olaris-bestia"]
 	path = olaris-bestia
 	url = git@github.com:nuvolaris/olaris-bestia
+[submodule "mcp"]
+	path = mcp
+	url = git@github.com:apache/openserverless-mcp

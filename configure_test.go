@@ -153,10 +153,12 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	}
 }
 
-// The opencode.json is a single, self-contained file generated in the app's
-// workbench project folder: provider + model defaults + lsp, instructions
-// pointing at the project's own opencode.md. opencode.md and tools/ are written
-// alongside it. Custom providers/lsp/mcp from an existing file are preserved.
+// The opencode.json is a single, self-contained file fully regenerated in the
+// app's workbench project folder on every launch: provider + model defaults +
+// lsp, instructions pointing at the project's own opencode.md, and the
+// openserverless MCP server wired in. There is no merge — any pre-existing
+// content in the file (custom providers/lsp/mcp, stale managed entries) is
+// discarded so the result always reflects the current config.
 func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
@@ -168,13 +170,21 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
 
-	// Seed an existing project file with custom provider + lsp entries.
+	// Seed an existing project file with custom + stale entries that must NOT
+	// survive the full regeneration.
 	seed := map[string]interface{}{
 		"provider": map[string]interface{}{
 			"custom-provider": map[string]interface{}{"options": map[string]interface{}{}},
 		},
 		"lsp": map[string]interface{}{
 			"custom-lsp": map[string]interface{}{"command": []string{"my-lsp"}},
+		},
+		"mcp": map[string]interface{}{
+			"postgres": map[string]interface{}{
+				"type":        "local",
+				"command":     []string{"postgres-mcp", "--access-mode=unrestricted"},
+				"environment": map[string]interface{}{"DATABASE_URI": "postgres://stale:stale@old/db"},
+			},
 		},
 	}
 	seedData, _ := json.Marshal(seed)
@@ -211,15 +221,16 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if !ok || providers["ollama"] == nil {
 		t.Fatalf("generated provider missing: %#v", got["provider"])
 	}
-	if providers["custom-provider"] == nil {
-		t.Fatalf("custom provider not preserved: %#v", providers)
+	// No merge: the seeded custom provider/lsp must be gone.
+	if _, present := providers["custom-provider"]; present {
+		t.Fatalf("custom provider should be discarded by full regeneration: %#v", providers)
 	}
 	lsp, ok := got["lsp"].(map[string]interface{})
 	if !ok || lsp["typescript"] == nil || lsp["python"] == nil {
 		t.Fatalf("generated lsp missing: %#v", got["lsp"])
 	}
-	if lsp["custom-lsp"] == nil {
-		t.Fatalf("custom lsp not preserved: %#v", lsp)
+	if _, present := lsp["custom-lsp"]; present {
+		t.Fatalf("custom lsp should be discarded by full regeneration: %#v", lsp)
 	}
 
 	// instructions must point at the project's own opencode.md.
@@ -233,9 +244,141 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if _, err := os.Stat(wantMd); err != nil {
 		t.Fatalf("opencode.md not written to project dir: %s", err)
 	}
-	// tools/ folder must exist in the project dir.
-	if info, err := os.Stat(filepath.Join(appDir, "tools")); err != nil || !info.IsDir() {
-		t.Fatalf("tools/ not written to project dir: %v", err)
+	// The action tools are provided by the openserverless MCP server, which must
+	// always be wired into the mcp section.
+	mcp, ok := got["mcp"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("mcp section missing: %#v", got["mcp"])
+	}
+	oss, ok := mcp["openserverless"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("openserverless MCP server missing: %#v", mcp)
+	}
+	if cmd, ok := oss["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "openserverless-mcp" {
+		t.Fatalf("unexpected openserverless command: %#v", oss["command"])
+	}
+	// No merge: if a postgres MCP is present it must be the freshly generated one,
+	// never the stale seeded DATABASE_URI.
+	if pg, present := mcp["postgres"].(map[string]interface{}); present {
+		env, _ := pg["environment"].(map[string]interface{})
+		if uri, _ := env["DATABASE_URI"].(string); uri == "postgres://stale:stale@old/db" {
+			t.Fatalf("stale seeded postgres DATABASE_URI survived full regeneration: %#v", pg)
+		}
+	}
+
+	// A Claude-format .mcp.json must be emitted with the same servers, translated
+	// to the mcpServers/stdio schema.
+	mcpData, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
+	if err != nil {
+		t.Fatalf(".mcp.json not written to project dir: %s", err)
+	}
+	var claude struct {
+		MCPServers map[string]map[string]interface{} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(mcpData, &claude); err != nil {
+		t.Fatalf("parse .mcp.json: %s", err)
+	}
+	cOss, ok := claude.MCPServers["openserverless"]
+	if !ok {
+		t.Fatalf("openserverless missing from .mcp.json: %#v", claude.MCPServers)
+	}
+	if cOss["type"] != "stdio" || cOss["command"] != "openserverless-mcp" {
+		t.Fatalf("unexpected .mcp.json openserverless entry: %#v", cOss)
+	}
+}
+
+// When vite.config.* contains AgentiReact(), the agentireact remote MCP server
+// is added to opencode.json and translated to an http server in .mcp.json.
+func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
+	origWorkbench := WorkbenchDir
+	t.Cleanup(func() { WorkbenchDir = origWorkbench })
+	WorkbenchDir = t.TempDir()
+
+	app := "demo"
+	appDir := filepath.Join(WorkbenchDir, app)
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatalf("mkdir app dir: %s", err)
+	}
+	vite := "import AgentiReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgentiReact()] }\n"
+	if err := os.WriteFile(filepath.Join(appDir, "vite.config.ts"), []byte(vite), 0644); err != nil {
+		t.Fatalf("write vite config: %s", err)
+	}
+
+	cfg := &trustableConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		APIKey:   "dummy",
+		Opencode: &opencodeConfig{Default: "qwen3:latest", Small: "qwen3:latest"},
+	}
+	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
+		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(appDir, "opencode.json"))
+	if err != nil {
+		t.Fatalf("read opencode.json: %s", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("parse opencode.json: %s", err)
+	}
+	mcp, _ := got["mcp"].(map[string]interface{})
+	ar, ok := mcp["agentireact"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("agentireact MCP server missing: %#v", mcp)
+	}
+	if ar["type"] != "remote" || ar["url"] != "http://localhost:5173/mcp" {
+		t.Fatalf("unexpected agentireact entry: %#v", ar)
+	}
+
+	// In .mcp.json (Claude format), remote -> http.
+	mcpData, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
+	if err != nil {
+		t.Fatalf("read .mcp.json: %s", err)
+	}
+	var claude struct {
+		MCPServers map[string]map[string]interface{} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(mcpData, &claude); err != nil {
+		t.Fatalf("parse .mcp.json: %s", err)
+	}
+	cAR, ok := claude.MCPServers["agentireact"]
+	if !ok {
+		t.Fatalf("agentireact missing from .mcp.json: %#v", claude.MCPServers)
+	}
+	if cAR["type"] != "http" || cAR["url"] != "http://localhost:5173/mcp" {
+		t.Fatalf("unexpected .mcp.json agentireact entry: %#v", cAR)
+	}
+}
+
+// Without an AgentiReact() opt-in, no agentireact server is added.
+func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
+	origWorkbench := WorkbenchDir
+	t.Cleanup(func() { WorkbenchDir = origWorkbench })
+	WorkbenchDir = t.TempDir()
+
+	app := "demo"
+	appDir := filepath.Join(WorkbenchDir, app)
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatalf("mkdir app dir: %s", err)
+	}
+	// A vite config that does NOT use AgentiReact.
+	if err := os.WriteFile(filepath.Join(appDir, "vite.config.js"), []byte("export default {}\n"), 0644); err != nil {
+		t.Fatalf("write vite config: %s", err)
+	}
+
+	cfg := &trustableConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1", APIKey: "dummy"}
+	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
+		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(appDir, "opencode.json"))
+	var got map[string]interface{}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("parse opencode.json: %s", err)
+	}
+	mcp, _ := got["mcp"].(map[string]interface{})
+	if _, present := mcp["agentireact"]; present {
+		t.Fatalf("agentireact should be absent without opt-in: %#v", mcp)
 	}
 }
 

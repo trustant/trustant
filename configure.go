@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -902,9 +901,10 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	return generateOpencodeConfigInDir(cfg, projectDir, mcp)
 }
 
-// generateOpencodeConfigInDir writes the full opencode.json (plus opencode.md and
-// the embedded tools/ folder) into projectDir, merging against any existing
-// opencode.json there to preserve custom providers/lsp/mcp entries.
+// generateOpencodeConfigInDir writes the full opencode.json (plus opencode.md)
+// into projectDir, merging against any existing opencode.json there to preserve
+// custom providers/lsp/mcp entries. The action tools are provided by the
+// openserverless MCP server wired into the mcp section, not copied as files.
 func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
 	providers := make(map[string]interface{})
 
@@ -931,10 +931,29 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	}
 	// The mcp section is built from ~/.ops/config.json (nil when no service
 	// blocks are configured); custom mcp entries from an existing opencode.json
-	// are preserved by the merge below.
-	if mcp != nil {
-		config["mcp"] = mcp
+	// are preserved by the merge below. The openserverless MCP server is always
+	// added: it replaces the old embedded tools/ plugins, exposing the
+	// OpenServerless action tools (action_new/invoke/requirements + connectors)
+	// over MCP.
+	if mcp == nil {
+		mcp = make(map[string]interface{})
 	}
+	mcp["openserverless"] = map[string]interface{}{
+		"type":    "local",
+		"command": []string{"openserverless-mcp"},
+		"enabled": true,
+	}
+	// When the app's Vite config uses AgentiReact(), the running dev server
+	// (opsdevel on :5173) exposes an MCP endpoint over HTTP; wire it in as a
+	// remote server (see spec/4-launch.md).
+	if appUsesAgentiReact(projectDir) {
+		mcp["agentireact"] = map[string]interface{}{
+			"type":    "remote",
+			"url":     "http://localhost:5173/mcp",
+			"enabled": true,
+		}
+	}
+	config["mcp"] = mcp
 
 	// Always set top-level model/small_model from trustable.json opencode config.
 	if cfg.Opencode != nil {
@@ -946,72 +965,12 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		}
 	}
 
+	// opencode.json and its mcp servers are fully regenerated from trustable.json
+	// and ~/.ops/config.json on every launch — no merge with any existing file.
+	// This guarantees the managed providers/lsp/mcp (e.g. the postgres MCP's
+	// DATABASE_URI) always reflect the current config and never carry forward a
+	// stale value. Any hand-edits to the project opencode.json are discarded.
 	configPath := filepath.Join(projectDir, "opencode.json")
-	if existingData, readErr := os.ReadFile(configPath); readErr == nil {
-		var existing map[string]interface{}
-		if err := json.Unmarshal(existingData, &existing); err != nil {
-			log.Printf("  - Warning: could not parse existing opencode.json for provider merge: %s", err)
-		} else {
-			if existingProviders, ok := existing["provider"].(map[string]interface{}); ok {
-				for providerName, providerConfig := range existingProviders {
-					if providerName == providerKey {
-						continue // always regenerated above
-					}
-					if isTrustableManagedOpenCodeProvider(providerName, providerConfig) {
-						log.Printf("  - Removed Trustable-managed OpenCode provider %s", providerName)
-						continue
-					}
-					providers[providerName] = providerConfig
-					log.Printf("  - Preserved custom OpenCode provider %s", providerName)
-				}
-			}
-			if existingLSP, ok := existing["lsp"].(map[string]interface{}); ok {
-				if generatedLSP, ok := config["lsp"].(map[string]interface{}); ok {
-					for serverName, serverConfig := range existingLSP {
-						if _, generated := generatedLSP[serverName]; !generated {
-							generatedLSP[serverName] = serverConfig
-							log.Printf("  - Preserved custom OpenCode LSP %s", serverName)
-						}
-					}
-				}
-			}
-			if existingMCP, ok := existing["mcp"].(map[string]interface{}); ok {
-				generatedMCP, _ := config["mcp"].(map[string]interface{})
-				if generatedMCP == nil {
-					generatedMCP = make(map[string]interface{})
-				}
-				for serverName, serverConfig := range existingMCP {
-					// The Trustable-managed servers (s3/postgres/redis/milvus)
-					// are regenerated above from ~/.ops/config.json; only carry
-					// forward genuinely custom servers.
-					if isTrustableManagedMCPServer(serverName) {
-						continue
-					}
-					if _, generated := generatedMCP[serverName]; !generated {
-						generatedMCP[serverName] = serverConfig
-						log.Printf("  - Preserved custom OpenCode MCP server %s", serverName)
-					}
-				}
-				if len(generatedMCP) > 0 {
-					config["mcp"] = generatedMCP
-				}
-			}
-			if existingDisabledProviders, ok := existing["disabled_providers"]; ok {
-				config["disabled_providers"] = mergeDisabledOpenCodeProviders(existingDisabledProviders, defaultDisabledOpenCodeProviders())
-			}
-			for key, value := range existing {
-				if _, generated := config[key]; generated {
-					continue
-				}
-				if dropGeneratedOpenCodeKey(key) {
-					log.Printf("  - Removed generated OpenCode %s config to restore the default flow", key)
-					continue
-				}
-				config[key] = value
-			}
-			config["provider"] = providers
-		}
-	}
 	if disabledProviders, ok := config["disabled_providers"].([]string); ok {
 		config["disabled_providers"] = disabledProvidersForCustomConfig(disabledProviders, providers)
 	}
@@ -1034,28 +993,118 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	}
 	log.Printf("  - Written to %s", mdPath)
 
-	// Copy the embedded tools/ folder into the project dir, overwriting.
-	toolsDst := filepath.Join(projectDir, "tools")
-	if err := os.MkdirAll(toolsDst, 0755); err != nil {
-		log.Printf("  - Warning: failed to create tools directory: %s", err)
-	} else if entries, err := fs.ReadDir(embeddedTools, "tools"); err != nil {
-		log.Printf("  - Warning: failed to read embedded tools: %s", err)
-	} else {
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			toolData, err := fs.ReadFile(embeddedTools, "tools/"+entry.Name())
-			if err != nil {
-				log.Printf("  - Warning: failed to read embedded tool %s: %s", entry.Name(), err)
-				continue
-			}
-			if err := os.WriteFile(filepath.Join(toolsDst, entry.Name()), toolData, 0644); err != nil {
-				log.Printf("  - Warning: failed to write tool %s: %s", entry.Name(), err)
-			}
+	// The action tools are no longer copied into the project dir as embedded
+	// @opencode-ai/plugin scripts; they are now provided by the openserverless
+	// MCP server wired into the mcp section above.
+
+	// Also emit a Claude-format .mcp.json carrying the same MCP servers, so
+	// Claude-format clients see the same tools (see spec/4-launch.md).
+	if finalMCP, ok := config["mcp"].(map[string]interface{}); ok {
+		if err := writeClaudeMCPConfig(projectDir, finalMCP); err != nil {
+			log.Printf("  - Warning: failed to write .mcp.json: %s", err)
+		} else {
+			log.Printf("  - Written to %s", filepath.Join(projectDir, ".mcp.json"))
 		}
 	}
 
+	return nil
+}
+
+// appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.
+// It checks vite.config.js and vite.config.ts in projectDir for a call to
+// AgentiReact(); a missing or unreadable config means false.
+func appUsesAgentiReact(projectDir string) bool {
+	for _, name := range []string{"vite.config.js", "vite.config.ts"} {
+		data, err := os.ReadFile(filepath.Join(projectDir, name))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), "AgentiReact()") {
+			return true
+		}
+	}
+	return false
+}
+
+// writeClaudeMCPConfig writes <projectDir>/.mcp.json in Claude Code's mcpServers
+// format, translated from the OpenCode mcp section (see spec/4-launch.md):
+//   - type "local" (command array + optional environment) -> stdio (command
+//     string + args + env)
+//   - type "remote" (url) -> http (url)
+// OpenCode-only fields (enabled, timeout) are dropped.
+func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
+	servers := make(map[string]interface{})
+	for name, raw := range mcp {
+		server, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		switch server["type"] {
+		case "remote":
+			url, _ := server["url"].(string)
+			if url == "" {
+				continue
+			}
+			servers[name] = map[string]interface{}{"type": "http", "url": url}
+		default: // "local" (or unset) -> stdio
+			// command may be []string (servers we generate) or []interface{}
+			// (custom servers carried over from a parsed opencode.json).
+			cmd := toStringSlice(server["command"])
+			if len(cmd) == 0 {
+				continue
+			}
+			entry := map[string]interface{}{
+				"type":    "stdio",
+				"command": cmd[0],
+				"args":    cmd[1:],
+			}
+			if env := toStringMap(server["environment"]); len(env) > 0 {
+				entry["env"] = env
+			}
+			servers[name] = entry
+		}
+	}
+
+	data, err := json.MarshalIndent(map[string]interface{}{"mcpServers": servers}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal .mcp.json: %w", err)
+	}
+	return os.WriteFile(filepath.Join(projectDir, ".mcp.json"), data, 0644)
+}
+
+// toStringSlice coerces a []string or []interface{} (as produced by JSON
+// unmarshaling) into a []string, dropping non-string elements.
+func toStringSlice(v interface{}) []string {
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		out := make([]string, 0, len(s))
+		for _, e := range s {
+			if str, ok := e.(string); ok {
+				out = append(out, str)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// toStringMap coerces a map[string]string or map[string]interface{} (as produced
+// by JSON unmarshaling) into a map[string]string, keeping only string values.
+func toStringMap(v interface{}) map[string]string {
+	switch m := v.(type) {
+	case map[string]string:
+		return m
+	case map[string]interface{}:
+		out := make(map[string]string, len(m))
+		for k, e := range m {
+			if str, ok := e.(string); ok {
+				out[k] = str
+			}
+		}
+		return out
+	}
 	return nil
 }
 

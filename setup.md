@@ -81,6 +81,32 @@ mv ~/.opencode/bin/opencode ~/.local/bin
 
 if missing warn and ask to install them
 
-12. implement in the commands to install in ~/.local/bin  the mcp servers for redis, milvus, postgres and s3
+12. implement in the commands to install in ~/.local/bin  the mcp servers for openserverless, redis, milvus, postgres, s3
 using the same procedure in images/Dockerfile (do not use /opt/uv/* vars and install everything for the local user)
+
+The python-based mcp servers (postgres, redis, milvus) are installed with uv, pointing the tool bin dir to ~/.local/bin:
+
+```
+for tool in \
+    postgres-mcp==0.3.0 \
+    redis-mcp-server==0.5.0 \
+    git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3 ;
+do
+    env UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install $tool
+done
+```
+
+The openserverless mcp is installed with npm (global, for the local user):
+
+```
+npm install -g github:apache/openserverless-mcp
+```
+
+The s3 mcp is downloaded as a release binary into ~/.local/bin:
+
+```
+export VER=1.3.0 ARCH="$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)" OS="$(uname -s | tr A-Z a-z)"
+curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_${OS}_${ARCH}.tar.gz |\
+    tar -C "$HOME/.local/bin" -xzvf - mcp-s3
+```
 

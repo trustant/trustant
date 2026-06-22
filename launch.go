@@ -196,10 +196,37 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 // uses this to drop any that leaked into a global config written by older code.
 func isTrustableManagedMCPServer(name string) bool {
 	switch name {
-	case "s3", "postgres", "redis", "milvus":
+	case "s3", "postgres", "redis", "milvus", "openserverless":
 		return true
 	}
 	return false
+}
+
+// logOpsServiceBlocks reports which service blocks are present in
+// ~/.ops/config.json after `ops ide login`. The MCP servers and CLI wrappers are
+// generated only for present blocks (see buildMCPFromOpsConfig), so a missing
+// block here is the root cause of a skipped/empty MCP server. Purely diagnostic.
+func logOpsServiceBlocks(app string) {
+	cfg, err := loadOpsConfig()
+	if err != nil {
+		log.Printf("Warning: could not read ~/.ops/config.json for %s after login: %s", app, err)
+		return
+	}
+	for _, s := range []struct {
+		name    string
+		present bool
+	}{
+		{"s3", cfg.S3.Host != ""},
+		{"postgres", cfg.Postgres.Database != ""},
+		{"redis", cfg.Redis.URL != "" || cfg.Redis.Port != 0},
+		{"milvus", cfg.Milvus.Host != ""},
+	} {
+		if s.present {
+			log.Printf("  - service %q configured for %s; MCP server will be generated", s.name, app)
+		} else {
+			log.Printf("  - service %q absent from ~/.ops/config.json for %s; MCP server will be skipped", s.name, app)
+		}
+	}
 }
 
 // redisUsername derives the Redis user from the config prefix: the prefix with
@@ -834,14 +861,20 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	kubegetCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+app, ".spec.password")
 	kubegetOutput, kubegetErr := kubegetCmd.Output()
 	if kubegetErr != nil {
-		// User doesn't exist, recreate with stored password
-		if storedPassword == "" {
-			json.NewEncoder(w).Encode(map[string]string{"error": "No stored password for user " + app + ", cannot recreate"})
+		// User doesn't exist: recreate it using the password from the workbench
+		// .env (OPS_PASSWORD), which was (re)generated above. Fall back to the
+		// stored config password only if .env has none.
+		recreatePassword := parseEnvFile(filepath.Join(workbenchPath, ".env"))["OPS_PASSWORD"]
+		if recreatePassword == "" {
+			recreatePassword = storedPassword
+		}
+		if recreatePassword == "" {
+			json.NewEncoder(w).Encode(map[string]string{"error": "No password in .env or config for user " + app + ", cannot recreate"})
 			return
 		}
-		log.Printf("User %s not found, creating with stored password...", app)
+		log.Printf("User %s not found, creating with password from .env...", app)
 		email := app + "@n7s.co"
-		addUserCmd := exec.Command("ops", "admin", "adduser", app, email, storedPassword, "--all")
+		addUserCmd := exec.Command("ops", "admin", "adduser", app, email, recreatePassword, "--all")
 		if output, err := addUserCmd.CombinedOutput(); err != nil {
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to create user: %s", string(output))})
 			return
@@ -885,6 +918,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 	log.Printf("ops ide login for %s completed successfully", app)
+
+	// ops ide login (re)writes ~/.ops/config.json with the app user's service
+	// bindings. The opencode.json/MCP generation below reads that file, so log
+	// which service blocks landed — a missing block here is exactly why an MCP
+	// server would be skipped or misconfigured (spec/4-launch.md).
+	logOpsServiceBlocks(app)
 
 	// Run ops ide clean
 	log.Printf("Running ops ide clean for %s...", app)

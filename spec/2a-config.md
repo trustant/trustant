@@ -250,14 +250,17 @@ written). `<provider>` is the active `provider` from `trustable.json` —
     "<provider>": {
       "options": { "baseURL": "<base_url>", "apiKey": "<api_key>" },
       "models": { <one entry per model in trustable.json "models" map> }
-    },
-    <preserved custom user providers>
+    }
   }
 }
 ```
 
-Always generate the `opencode.json` from the merged `trustable.json`, regardless
-of any existing `opencode.json`. The `<provider>` entry's `models` map contains
+Always **fully regenerate** the `opencode.json` from the merged `trustable.json`
+and `~/.ops/config.json` — there is **no merge** with any existing
+`opencode.json`. The file is overwritten on every launch, so any prior content
+(custom providers/lsp/mcp, hand-edits, stale managed entries such as an old
+postgres `DATABASE_URI`) is discarded and the result always reflects the current
+config. The `<provider>` entry's `models` map contains
 one entry per model listed under `models` in `trustable.json` (built from the
 template below). The provider's `baseURL` and `apiKey` are taken **directly
 from the top-level `base_url` and `api_key` fields** of `trustable.json`:
@@ -277,30 +280,28 @@ Always set top-level `model` and `small_model` to
 using the values from `trustable.json`. Any user-selected `model`/`small_model`
 from a previous `opencode.json` is overwritten.
 
-Hide OpenCode's other automatic/default providers via `disabled_providers`,
-but remove any ID from that disabled list when the same ID is present as a
-preserved custom provider.
+Hide OpenCode's other automatic/default providers via `disabled_providers`.
 
-Preserve custom providers (i.e. anything other than the Trustable-managed
-`ollama`, `trustable`, and `vllm` providers) from any existing `opencode.json`.
-Do not emit `enabled_providers`: in OpenCode that field is a whitelist and
-would prevent providers added later from being selectable.
+Only the generated Trustable provider is written — custom providers from a prior
+`opencode.json` are **not** preserved (the file is fully regenerated). Do not emit
+`enabled_providers`: in OpenCode that field is a whitelist and would prevent
+providers added later from being selectable.
 
 The `lsp` section is generated for local TypeScript/JavaScript and Python
 language servers installed in the Trustable image. The `mcp` section is built
-from `~/.ops/config.json` at app launch time (see [4-launch.md](4-launch.md));
-since the whole file is generated per-app at launch, the `mcp` servers are part
-of it. The provider-choice/config-save flows (`GET /api/configure`,
+from `~/.ops/config.json` at app launch time (see [4-launch.md](4-launch.md)),
+plus the always-present `openserverless` MCP server that provides the action
+tools; since the whole file is generated per-app at launch, the `mcp` servers
+are part of it. The provider-choice/config-save flows (`GET /api/configure`,
 `POST /api/configuration`) do **not** write any `opencode.json` — they only
 persist `trustable.json`, check connectivity, and run testmodel; the new model
 defaults take effect on the next launch. Do not hardcode server-specific
 hostnames or IP addresses in `opencode.json` generation.
 
-Preserve custom `lsp` and `mcp` entries from an existing `opencode.json`, but
-refresh the generated Trustable `lsp` entries so they stay current. Generated
-OpenCode keys from old experimental provider profiles (`tools`, `agent`,
-`compaction`, `enabled_providers`) are not carried forward when regenerating the
-Trustable config.
+The `lsp` and `mcp` sections are likewise fully regenerated, not merged: only
+the Trustable-generated `lsp` servers and the `mcp` servers built from
+`~/.ops/config.json` (plus `openserverless`/`agentireact`) are written. Custom
+`lsp`/`mcp` entries from a prior `opencode.json` are not carried forward.
 
 In Ollama mode, to get the capabilities of a model use the OllamaEndPoint,
 list the models then show their capabilities. In Trustable mode capability
@@ -348,8 +349,9 @@ symlinked into the mounted workspace under `.trustable/opencode/` (this is
 OpenCode's own cache/state, independent of the per-app config file). After
 generating the project `opencode.json`, write the embedded `opencode.md` into
 the same project directory (`<workbenchdir>/<app>/opencode.md`, the instructions
-file referenced by the config). Also copy the embedded `tools` folder into the
-project directory (`<workbenchdir>/<app>/tools`), overwriting existing files.
+file referenced by the config). The action tools are no longer copied as an
+embedded `tools/` folder; they are provided by the `openserverless` MCP server
+wired into the `mcp` section.
 
 The language servers are stdio programs. OpenCode launches and supervises
 `typescript-language-server --stdio` and `pylsp` when matching file types are

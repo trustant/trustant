@@ -18,9 +18,6 @@ var buildTxt string
 //go:embed opencode.md
 var opencodeMd string
 
-//go:embed tools
-var embeddedTools embed.FS
-
 //go:embed milvus_cli.tmpl
 var milvusCliTemplate string
 

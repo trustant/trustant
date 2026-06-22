@@ -77,7 +77,8 @@ RUN \
     done
 
 RUN \
-    npm install -g typescript-language-server typescript ;\
+    npm install -g typescript-language-server typescript tsx ;\
+    npm install -g tsx github:apache/openserverless-mcp ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
     curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_linux_${ARCH}.tar.gz |\

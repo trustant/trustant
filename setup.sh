@@ -204,7 +204,7 @@ ok "OpenWhisk reachable at ${APIHOST}"
 # --- 8. Extract kubeconfig (mac only, when id_ed25519 is present) ---
 if [[ "$OS" == "darwin" ]]; then
   ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
-  IP_FILE="$HOME/Library/Application Support/Trustable/workspace/current.ip"
+  IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
   if [[ -f "$ID_FILE" ]]; then
     echo "--- Extracting kubeconfig ---"
     mkdir -p "$HOME/.ops/tmp"
@@ -268,10 +268,11 @@ fi
 command -v opencode &>/dev/null || fail "opencode installation failed"
 ok "opencode ${OPENCODE_VERSION} is available"
 
-# --- 12. Install MCP servers (redis, milvus, postgres, s3) for local use ---
+# --- 12. Install MCP servers (openserverless, redis, milvus, postgres, s3) for local use ---
 # Mirrors the procedure in image/Dockerfile: uv tool install for the python
-# servers, and the mcp-s3 release tarball for s3 — installed into the user's
-# local bin (~/.local/bin) rather than system-wide, so no sudo is needed.
+# servers, npm for the openserverless server, and the mcp-s3 release tarball for
+# s3 — installed into the user's local bin (~/.local/bin) rather than
+# system-wide, so no sudo is needed.
 echo "--- Installing MCP servers for local use ---"
 MCP_BIN="$HOME/.local/bin"
 mkdir -p "$MCP_BIN"
@@ -290,6 +291,10 @@ do
     uv tool install "$tool" || fail "uv tool install $tool failed"
 done
 
+# openserverless MCP server via npm (global, for the local user)
+command -v npm &>/dev/null || fail "npm is required to install the openserverless MCP server"
+npm install -g github:apache/openserverless-mcp || fail "npm install openserverless-mcp failed"
+
 # s3 MCP server from the txn2/mcp-s3 release (host OS/arch)
 if ! command -v mcp-s3 &>/dev/null; then
   MCP_S3_VER=1.3.0
@@ -298,7 +303,7 @@ if ! command -v mcp-s3 &>/dev/null; then
     || fail "mcp-s3 install failed"
 fi
 
-ok "MCP servers (postgres, redis, milvus, s3) installed in $MCP_BIN"
+ok "MCP servers (openserverless, postgres, redis, milvus, s3) installed in $MCP_BIN"
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"

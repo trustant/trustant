@@ -72,11 +72,12 @@ reported in the launch response (`skills_added`).
 Make sure the OpenWhisk/whisk user backing this app exists and its password is in
 sync before logging in:
 
-- Read the stored password from the merged config (`apps.<name>.password`).
 - Read the live password with `ops util kubeget whiskuser/<name> .spec.password`.
-- If the user does **not** exist: recreate it with the stored password via
-  `ops admin adduser <name> <name>@n7s.co <storedPassword> --all`. If there is no
-  stored password, return `{ "error": ... }` (cannot recreate).
+- If the user does **not** exist: recreate it using the password from the
+  workbench `.env` (`OPS_PASSWORD`, generated above), falling back to the stored
+  config password (`apps.<name>.password`) only if `.env` has none, via
+  `ops admin adduser <name> <name>@n7s.co <password> --all`. If neither source
+  has a password, return `{ "error": ... }` (cannot recreate).
 - If the user **does** exist but the live password differs from the stored one,
   adopt the live password: persist it to the workspace config
   (`apps.<name>.password`) and regenerate the `.env` files.
@@ -98,13 +99,16 @@ project directory `<workbenchdir>/<app>/opencode.json`. There is **no** global
 The project file holds the entire config: provider, model defaults
 (`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`, and the
 `mcp` servers built from `~/.ops/config.json`. The provider block, model
-defaults, and the merge rules are exactly those in
+defaults, and the full-regeneration rules (no merge — the file is overwritten
+every launch) are exactly those in
 [2a-config.md](2a-config.md#prepare-opencode-config), except the file is written
 to the project directory instead of `~/.config/opencode/`.
 
-`opencode.md` and the embedded `tools/` folder are written **alongside** the
-config in the project directory, and `instructions` references the project's own
-`<workbenchdir>/<app>/opencode.md` (not an absolute `~/.config` path).
+`opencode.md` is written **alongside** the config in the project directory, and
+`instructions` references the project's own `<workbenchdir>/<app>/opencode.md`
+(not an absolute `~/.config` path). The OpenServerless action tools are no longer
+written as embedded plugin files; they are provided by the `openserverless` MCP
+server wired into the `mcp` section (see below).
 
 The full file looks like (lsp + mcp shown; provider/model/instructions sections
 per the rules above):
@@ -128,6 +132,38 @@ per the rules above):
 Read  <config> values ~/.ops/config.json and add the mcp servers and command line utils
 as follows:
 
+# always add the openserverless MCP server:
+
+This server exposes the OpenServerless action tools (`action_new`, `action_invoke`,
+`action_requirements`, and the `action_add_*` connectors) over MCP, replacing the
+old embedded `tools/` plugins. It is installed globally in the image as
+`openserverless-mcp` and is added unconditionally, independent of `~/.ops/config.json`:
+
+```
+"openserverless": {
+  "type": "local",
+  "command": ["openserverless-mcp"],
+  "enabled": true
+}
+```
+
+# if the app uses AgentiReact add the agentireact MCP server:
+
+Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
+`vite.config.js` or `vite.config.ts`). If that file exists and its contents
+contain `AgentiReact()`, the running app exposes an MCP endpoint over HTTP at
+`http://localhost:5173/mcp` (the `opsdevel` dev server on port 5173). Add a
+remote MCP server pointing at it:
+
+```
+"agentireact": {
+  "type": "remote",
+  "url": "http://localhost:5173/mcp",
+  "enabled": true
+}
+```
+
+If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
 
 # if config.s3.host is defined and not empty add:
 
@@ -325,9 +361,36 @@ model/small_model defaults, `disabled_providers`, `instructions`, `lsp`, and the
 `mcp` servers from `~/.ops/config.json`). There is no global
 `~/.config/opencode/opencode.json` — do not generate, symlink, or copy one.
 
-Note: `opencode.md` and the embedded `tools/` folder are written into the
-project directory alongside `opencode.json`, and `instructions` references the
-project's own `<workbenchdir>/<app>/opencode.md`.
+Note: `opencode.md` is written into the project directory alongside
+`opencode.json`, and `instructions` references the project's own
+`<workbenchdir>/<app>/opencode.md`. The action tools come from the
+`openserverless` MCP server, not from an embedded `tools/` folder.
+
+After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
+in the **Claude Code** format, containing every MCP server from the generated
+opencode.json `mcp` section (including `openserverless`, the optional
+`agentireact`, and any of `s3`/`postgres`/`redis`/`milvus` that were added). This
+keeps the same servers available to Claude-format clients for compatibility.
+
+Translate each opencode server entry to Claude's `mcpServers` schema:
+
+- a `type: "local"` server with `command: [cmd, arg1, ...]` and an optional
+  `environment` map becomes a stdio server: `{ "type": "stdio", "command": cmd,
+  "args": [arg1, ...], "env": { ... } }` (omit `env` when there is no
+  environment block).
+- a `type: "remote"` server with a `url` (e.g. `agentireact`) becomes
+  `{ "type": "http", "url": "<url>" }`.
+
+Drop opencode-only fields (`enabled`, `timeout`). The file shape is:
+
+```
+{
+  "mcpServers": {
+    "openserverless": { "type": "stdio", "command": "openserverless-mcp", "args": [] },
+    "agentireact":    { "type": "http",  "url": "http://localhost:5173/mcp" }
+  }
+}
+```
 
 Also normalize any OpenCode agent metadata under
 `<workbenchdir>/<app>/.opencode/agent/*.md`: rewrite each agent's `color:`

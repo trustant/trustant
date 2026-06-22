@@ -28,6 +28,28 @@ This is a serverless application with a TypeScript/React frontend and a Python b
 - To access an action with streaming output, given `<proto>://<user>.<domain>`, POST to `<proto>://stream.<domain>/web/<package>/<action>` (returns a stream of JSON objects)
 - To invoke a private action, for initialization for example, use `action-invoke`
 
+## Web actions and the response envelope
+
+A **web action** is a public action (declared `#--web true`) that is directly reachable over HTTP at `/api/my/<package>/<action>`. Being a web action is exactly what exposes it as an HTTP endpoint — a private action (`#--web false`) has no URL and can only be called with `action-invoke`.
+
+When a web action returns a dict shaped like:
+
+```python
+return { "body": <value>, "statusCode": 200, "headers": { "Content-Type": "application/json" } }
+```
+
+this object is **not** sent to the caller literally. It is an instruction to the HTTP gateway, which unwraps it:
+
+- `body` becomes the actual HTTP response body — the caller receives **only this value**.
+- `statusCode` sets the HTTP status (e.g. `200`, `404`, `500`) — the caller sees it as the response status, not as a field.
+- `headers` are applied as the HTTP response headers.
+
+So **do not expect the literal `{ "body", "statusCode", "headers" }` JSON back from an HTTP request.** A call to `fetch("/api/my/v1/get-ip")` for an action returning `{ "body": {"ip": "1.2.3.4"}, "statusCode": 200 }` gets HTTP status `200` and a body of `{"ip": "1.2.3.4"}` — never the wrapping object.
+
+To return data, put it under `body`; to signal an error, set `statusCode`. The envelope is only meaningful for web actions: a private action invoked with `action-invoke` returns its raw result dict as-is, with no unwrapping.
+
+Note: the envelope is only interpreted when it looks like one. The `__main__.py` generated for an action wraps the module result as `{ "body": <module>.main(...) }` with no `statusCode`/`headers`, so the gateway treats that whole dict as a plain JSON body and returns it verbatim. That is why a frontend may read `response.json().body` — that `.body` is the action's own payload key, not the (already-unwrapped) gateway envelope.
+
 ## Initializations
 
 To initialize database schemas, cache objects, add files to s3 buckets and more, create private actions in package `setup` using `action-new` with `public: false`.

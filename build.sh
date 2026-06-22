@@ -8,7 +8,7 @@ then echo "This script must be run on Mac after installing Trustable"
 fi
 
 ID=~/Library/Application\ Support/Trustable/id_ed25519
-IP="$(cat ~/Library/Application\ Support/Trustable/workspace/current.ip)"
+IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
 
 KEY=${1:-trustable}
 VERSION="$(cat version.txt)"
