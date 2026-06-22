@@ -22,24 +22,30 @@
             <h3 class="text-xl font-semibold mb-4 text-center">Choose your AI provider</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 items-stretch">
                 <div class="flex flex-col items-center h-full">
+                    <img src="regolo-head.png" alt="Trustable Cloud powered by Regolo.AI" class="h-24 w-auto mb-3">
+                    <button onclick="selectTrustable()"
+                        class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                        <div class="font-semibold text-lg mb-2">Register on Trustable Cloud,</div>
+                        <div class="text-sm text-gray-600">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="text-blue-600 hover:underline">Regolo.AI</a></div>
+                        <div class="text-sm text-gray-600 mt-2">100 Credits FREE when registering</div>
+                        <div class="text-sm text-gray-600 font-bold">Special Offer until September 2026</div>
+                        <ul class="text-sm text-gray-600 list-disc list-inside">
+                            <li>FREE Credits Top Up (fair use policy applies)</li>
+                            <li>FREE App for publishing (redeem it email <a href="mailto:redeem@nuvolaris.io" onclick="event.stopPropagation()" class="text-blue-600 hover:underline">redeem@nuvolaris.io</a>)</li>
+                        </ul>
+                    </button>
+                </div>
+                <div class="flex flex-col items-center h-full">
                     <img src="ollama-head.png" alt="Ollama" class="h-24 w-auto mb-3">
                     <button onclick="selectOllama()"
                         class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
                         <div class="font-semibold text-lg mb-2">Ollama</div>
-                        <div class="text-sm text-gray-600">Free for private use without publishing.</div>
-                        <div class="text-sm text-gray-600 mt-2">Use our embedded ollama server or your own local server.</div>
-                        <div class="text-sm text-gray-600">Only HTTP without authentication.</div>
-                    </button>
-                </div>
-                <div class="flex flex-col items-center h-full">
-                    <img src="regolo-head.png" alt="Trustable Cloud powered by Regolo.AI" class="h-24 w-auto mb-3">
-                    <button onclick="selectTrustable()"
-                        class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                        <div class="font-semibold text-lg mb-2">Trustable Cloud <br> powered by Regolo.AI</div>
-                        <div class="text-sm text-gray-600">100 credits FREE when registering</div>
-                        <div class="text-sm text-gray-600 mt-2">Free while in beta then $20/month including:</div>
-                        <div class="text-sm text-gray-600">- 1000 credits/month</div>
-                        <div class="text-sm text-gray-600">- 1 app for publishing</div>
+                        <div class="text-sm text-gray-600">You can use Trustable for free for local use <strong>without publishing</strong></div>
+                        <div class="text-sm text-gray-600 mt-2">You can use:</div>
+                        <ul class="text-sm text-gray-600 list-disc list-inside">
+                            <li>Our embedded ollama server using <strong>your Ollama cloud account</strong></li>
+                            <li>Your local server, only if <strong>accessible in HTTP without authentication</strong></li>
+                        </ul>
                     </button>
                 </div>
             </div>
