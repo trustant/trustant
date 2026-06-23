@@ -36,6 +36,10 @@ conventional backend server project.
   redeploy before testing the public endpoint.
 - Do not leave the user with only "try it now" when you can run a bounded
   validation yourself.
+- Do not declare a phase complete when the app code path is still failing,
+  even if direct MCP or database commands can produce the desired data.
+- Do not invent tool or `ops` command names. Use only tools exposed in the
+  current OpenCode tool list or generated `opencode.json`.
 
 ## Project Layout
 
@@ -95,6 +99,11 @@ depending on the client. Use the matching exposed tool:
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
 
+If a tool call returns "Invalid Tool", stop and use one of the exposed tool
+names. Do not retry with guessed aliases. If a shell command reports
+`no command named ...`, do not keep guessing `ops` subcommands; use the MCP
+action tools above or inspect the available task list with bounded commands.
+
 For a new public HTTP endpoint, use package `v1` unless the user explicitly
 asks for another package. The endpoint is reachable at
 `/api/my/<package>/<action>`.
@@ -126,6 +135,43 @@ already provides them.
 
 The launch process also writes `.mcp.json` in Claude Code format with the same
 MCP servers. OpenCode should rely on generated `opencode.json`.
+
+Service MCP servers are diagnostic and verification aids. They must not replace
+the app's own setup actions or public API paths. Do not use `postgres_execute_sql`
+or other service MCP write operations to create schemas, seed records, repair
+state, or mark a feature complete unless the user explicitly asks for an
+administrative data repair. For normal app work, fix the setup/action code and
+rerun the app path. Read-only MCP checks such as listing tables or selecting
+rows are fine as supporting evidence after the app path succeeds.
+
+## PostgreSQL Action Pattern
+
+After `action-add-postgresql` / `action_add_postgresql`, the generated wrapper
+adds PostgreSQL wiring and exposes a live `psycopg` connection as
+`ctx.POSTGRESQL`.
+
+In the editable module:
+
+- Use `conn = ctx.POSTGRESQL`.
+- Do not import `psycopg2`.
+- Do not call `psycopg2.connect(ctx.POSTGRESQL)` or reconnect using
+  `ctx.POSTGRESQL`; it is already a connection object.
+- Do not manually edit `__main__.py` to add database wiring. Use the
+  PostgreSQL action tool.
+
+Use this pattern or an equivalent one:
+
+```python
+def main(args, ctx=None):
+    if not ctx or not hasattr(ctx, "POSTGRESQL"):
+        return {"ok": False, "error": "Database not configured"}
+
+    conn = ctx.POSTGRESQL
+    with conn.cursor() as cur:
+        cur.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY)")
+    conn.commit()
+    return {"ok": True}
+```
 
 ## Skills
 
@@ -237,6 +283,13 @@ if (!response.ok || data?.ok === false || data?.error) {
 - Private S3 data preload belongs in `setup/upload`.
 - Public web assets belong in `public/`, not in setup uploads.
 - Run `ops ide setup` after creating or changing setup actions.
+- `ops ide setup` must succeed before setup work is complete.
+- If setup returns `Cannot start action. Check logs for details.`, immediately
+  run `timeout <seconds> ops logs --last` and fix the first traceback. Do not
+  proceed by mutating the service directly.
+- Do not create missing tables or seed rows with PostgreSQL MCP write tools and
+  then claim setup succeeded. The `setup/*` action must be able to recreate the
+  state idempotently.
 
 Examples of idempotent setup:
 
@@ -250,6 +303,11 @@ Examples of idempotent setup:
 
 - Add frontend dependencies to `package.json`, then run `npm install`.
 - Add Python dependencies only with `action-requirements`.
+- Before importing a non-stdlib Python package such as `bcrypt`, `jwt`,
+  `requests`, or a database driver, add it with `action-requirements` and
+  redeploy the action.
+- If action logs show `ModuleNotFoundError`, fix the dependency or import before
+  doing any other validation. Do not mark the feature complete.
 - Add PostgreSQL, Redis, S3, Milvus, and secrets with the corresponding
   action/service tool. Do not hardcode credentials and do not manually edit
   generated wrapper code.
@@ -276,6 +334,12 @@ End backend-related work with proof:
 - After changing setup actions, run `ops ide setup`.
 - Validate public actions with bounded HTTP checks against
   `/api/my/<package>/<action>`.
+- `ops action invoke` by itself is not enough proof when it only prints an
+  activation id such as `ok: invoked ...`; inspect the action result/logs or
+  validate through the HTTP endpoint.
+- If any action reports `Cannot start action`, `application error`, or
+  `developer error`, run `timeout <seconds> ops logs --last` before changing
+  strategy.
 - Verify JSON request fields, method, and headers are visible to the action.
 - Verify frontend fetch handling accepts the response shape actually returned.
 - Use bounded checks such as `timeout <seconds> ...` and `curl`.

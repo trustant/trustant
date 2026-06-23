@@ -114,6 +114,13 @@ the matching exposed tool:
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
 
+The embedded guidance must tell assistants not to invent tool or `ops` command
+names. If a tool call returns "Invalid Tool", assistants must switch to one of
+the exposed tools in the current tool list or generated `opencode.json`. If an
+`ops` command reports `no command named ...`, assistants must not keep guessing
+subcommands; they should use the MCP action tools above or inspect the available
+task list with bounded commands.
+
 For new public HTTP endpoints, the guidance must say to use package `v1` unless
 the user explicitly asks for another package. A public action is reachable at
 `/api/my/<package>/<action>`.
@@ -151,6 +158,44 @@ tokens when the MCP server or generated environment already provides them.
 The launch process also writes `<workbenchdir>/<app>/.mcp.json` in Claude Code
 format with the same MCP servers. The embedded guidance can mention this for
 compatibility, but OpenCode should rely on the generated `opencode.json`.
+
+The embedded guidance must say that service MCP servers are diagnostic and
+verification aids. They must not replace the app's own setup actions or public
+API paths. Assistants must not use `postgres_execute_sql` or other service MCP
+write operations to create schemas, seed records, repair state, or mark a
+feature complete unless the user explicitly asks for an administrative data
+repair. For normal app work, they must fix the setup/action code and rerun the
+app path. Read-only MCP checks such as listing tables or selecting rows are
+allowed as supporting evidence after the app path succeeds.
+
+## PostgreSQL Action Pattern
+
+The embedded guidance must explain the generated PostgreSQL action wiring. After
+`action-add-postgresql` / `action_add_postgresql`, the generated wrapper exposes
+a live `psycopg` connection as `ctx.POSTGRESQL`.
+
+The embedded guidance must say:
+
+- editable modules should use `conn = ctx.POSTGRESQL`;
+- modules must not import `psycopg2`;
+- modules must not call `psycopg2.connect(ctx.POSTGRESQL)` or reconnect using
+  `ctx.POSTGRESQL`, because it is already a connection object;
+- assistants must not manually edit `__main__.py` to add database wiring; they
+  must use the PostgreSQL action tool.
+
+The guidance must include this pattern or an equivalent one:
+
+```python
+def main(args, ctx=None):
+    if not ctx or not hasattr(ctx, "POSTGRESQL"):
+        return {"ok": False, "error": "Database not configured"}
+
+    conn = ctx.POSTGRESQL
+    with conn.cursor() as cur:
+        cur.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY)")
+    conn.commit()
+    return {"ok": True}
+```
 
 ## Skills
 
@@ -264,6 +309,13 @@ The embedded guidance must say:
 - public web assets belong in `public/`, not in setup uploads;
 - run `ops ide setup` after creating or changing setup actions.
 
+The embedded guidance must also say that `ops ide setup` must succeed before
+setup work is complete. If setup returns `Cannot start action. Check logs for
+details.`, assistants must immediately run `timeout <seconds> ops logs --last`
+and fix the first traceback. They must not create missing tables or seed rows
+with PostgreSQL MCP write tools and then claim setup succeeded; the `setup/*`
+action must be able to recreate the state idempotently.
+
 ## Dependencies
 
 The embedded guidance must say:
@@ -271,6 +323,12 @@ The embedded guidance must say:
 - frontend dependencies are added to `package.json`, then installed with
   `npm install`;
 - Python dependencies are added only with `action-requirements`;
+- before importing a non-stdlib Python package such as `bcrypt`, `jwt`,
+  `requests`, or a database driver, assistants must add it with
+  `action-requirements` and redeploy the action;
+- if action logs show `ModuleNotFoundError`, assistants must fix the dependency
+  or import before doing any other validation and must not mark the feature
+  complete;
 - PostgreSQL, Redis, S3, Milvus, and secrets are added with the corresponding
   action/service tool, not by manually editing generated wrapper code or
   hardcoding credentials.
@@ -297,6 +355,12 @@ The embedded guidance must end backend-related changes with local proof:
 - after changing setup actions, run `ops ide setup`;
 - validate public actions with bounded HTTP checks against
   `/api/my/<package>/<action>`;
+- treat `ops action invoke` as insufficient proof when it only prints an
+  activation id such as `ok: invoked ...`; assistants must inspect the action
+  result/logs or validate through the HTTP endpoint;
+- if any action reports `Cannot start action`, `application error`, or
+  `developer error`, run `timeout <seconds> ops logs --last` before changing
+  strategy;
 - verify JSON request fields, method, and headers are visible to the action;
 - verify frontend fetch handling accepts the response shape actually returned;
 - use bounded checks such as `timeout <seconds> ...` and `curl`;
