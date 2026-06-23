@@ -1,363 +1,197 @@
-[![txn2/mcp-s3](./docs/images/MCP-S3-banner.svg)](https://mcp-s3.txn2.com)
+# trustable-app
 
-[![GitHub license](https://img.shields.io/github/license/txn2/mcp-s3.svg)](https://github.com/txn2/mcp-s3/blob/main/LICENSE)
-[![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-s3.svg)](https://pkg.go.dev/github.com/txn2/mcp-s3)
-[![Go Report Card](https://goreportcard.com/badge/github.com/txn2/mcp-s3)](https://goreportcard.com/report/github.com/txn2/mcp-s3)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/txn2/mcp-s3/badge)](https://securityscorecards.dev/viewer/?uri=github.com/txn2/mcp-s3)
-[![codecov](https://codecov.io/gh/txn2/mcp-s3/graph/badge.svg)](https://codecov.io/gh/txn2/mcp-s3)
+A Go single-binary web server that hosts a **"Lovable-like" development environment** on top of [OpenServerless](https://openserverless.apache.org/). From one executable it serves a local UI, reverse-proxies the user's running app and AI assistant, drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
 
-**Full documentation at [mcp-s3.txn2.com](https://mcp-s3.txn2.com)**
+The whole product is delivered as **one process listening on `:8910`**. There is no separate frontend server, no API gateway, and no build pipeline for the UI — the binary embeds its web assets and serves everything itself, which keeps deployment to a single artifact and development to a single hot-reload loop.
 
-A Model Context Protocol (MCP) server for [Amazon S3](https://aws.amazon.com/s3/) and S3-compatible object storage, enabling AI assistants to browse buckets, read and write objects, and generate presigned URLs.
-
-AI assistants can help with file organization, data migration, and content management, but they need secure access to storage systems. mcp-s3 bridges this gap by connecting S3-compatible storage to AI assistants through the MCP protocol, with configurable safety controls and multi-account support.
-
-## MCP Data Platform Ecosystem
-
-mcp-s3 is part of a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined to give AI assistants unified access to storage, query engines, and metadata catalogs.
-
-- [txn2/mcp-data-platform](https://github.com/txn2/mcp-data-platform/)
-- [txn2/mcp-datahub](https://github.com/txn2/mcp-datahub/)
-- [txn2/mcp-trino](https://github.com/txn2/mcp-trino/)
-
-## Core Capabilities
-
-**Composable Architecture**
-- Import as a Go library to build custom MCP servers
-- Add authentication, tenant isolation, audit logging without forking
-- Middleware and interceptor patterns for enterprise requirements
-- Combine with other MCP servers (mcp-trino, mcp-datahub) for unified data access
-
-**Multi-Provider Support**
-- Works with AWS S3, SeaweedFS, LocalStack, and any S3-compatible storage
-- Connect to multiple accounts/regions from a single MCP installation
-- Unified interface across production, staging, and development environments
-
-**Secure Defaults**
-- Read-only mode prevents accidental data modification
-- Size limits prevent large file transfers
-- Prefix-based ACLs restrict access to specific paths
-- Audit logging for compliance requirements
-
-## Features
-
-- **List Buckets**: Browse accessible S3 buckets across connections
-- **List Objects**: Navigate bucket contents with prefix/delimiter/pagination
-- **Read Objects**: Retrieve object content with automatic text/binary detection
-- **Write Objects**: Upload content (disabled by default in read-only mode)
-- **Delete Objects**: Remove objects (disabled by default in read-only mode)
-- **Copy Objects**: Copy within or between buckets
-- **Presigned URLs**: Generate temporary access URLs for GET/PUT operations
-- **Compose Custom Servers**: Import as a Go library with middleware and interceptors
-
-## Installation
-
-### Go Install
-
-```bash
-go install github.com/txn2/mcp-s3/cmd/mcp-s3@latest
-```
-
-### From Source
-
-```bash
-git clone https://github.com/txn2/mcp-s3.git
-cd mcp-s3
-make build
-```
-
-### Docker
-
-```bash
-docker run -e AWS_ACCESS_KEY_ID=... -e AWS_SECRET_ACCESS_KEY=... ghcr.io/txn2/mcp-s3
-```
-
-## Quick Start
-
-### Claude Code CLI
-
-Claude Code is the terminal-based coding assistant. Add mcp-s3 as an MCP server:
-
-```bash
-# For AWS S3
-claude mcp add s3 \
-  -e AWS_ACCESS_KEY_ID=your-access-key \
-  -e AWS_SECRET_ACCESS_KEY=your-secret-key \
-  -e AWS_REGION=us-east-1 \
-  -- mcp-s3
-
-# For SeaweedFS
-claude mcp add seaweedfs \
-  -e S3_ENDPOINT=http://localhost:8333 \
-  -e S3_USE_PATH_STYLE=true \
-  -e AWS_ACCESS_KEY_ID=any \
-  -e AWS_SECRET_ACCESS_KEY=any \
-  -- mcp-s3
-```
-
-### Claude Desktop
-
-Add to your `claude_desktop_config.json` (find via Claude Desktop → Settings → Developer):
-
-```json
-{
-  "mcpServers": {
-    "s3": {
-      "command": "mcp-s3",
-      "env": {
-        "AWS_ACCESS_KEY_ID": "your-access-key",
-        "AWS_SECRET_ACCESS_KEY": "your-secret-key",
-        "AWS_REGION": "us-east-1"
-      }
-    }
-  }
-}
-```
-
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `s3_list_buckets` | List all accessible S3 buckets |
-| `s3_list_objects` | List objects with prefix/delimiter/pagination |
-| `s3_get_object` | Retrieve object content |
-| `s3_get_object_metadata` | Get object metadata without content |
-| `s3_put_object` | Upload object (disabled in read-only mode) |
-| `s3_delete_object` | Delete object (disabled in read-only mode) |
-| `s3_copy_object` | Copy object within/between buckets |
-| `s3_presign_url` | Generate presigned GET/PUT URLs |
-| `s3_list_connections` | List configured S3 connections |
-
-## Configuration
-
-### Environment Variables
-
-**Primary Connection:**
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AWS_REGION` | AWS region | `us-east-1` |
-| `AWS_ACCESS_KEY_ID` | Access key | (credential chain) |
-| `AWS_SECRET_ACCESS_KEY` | Secret key | (credential chain) |
-| `AWS_SESSION_TOKEN` | Session token | (optional) |
-| `AWS_PROFILE` | Profile name | (optional) |
-| `S3_ENDPOINT` | Custom endpoint (SeaweedFS) | (AWS default) |
-| `S3_USE_PATH_STYLE` | Path-style URLs | `false` |
-| `S3_TIMEOUT` | Operation timeout | `30s` |
-
-**Extensions:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MCP_S3_EXT_READONLY` | `true` | Block write operations |
-| `MCP_S3_EXT_SIZELIMIT` | `true` | Enforce size limits |
-| `MCP_S3_MAX_GET_SIZE` | `10MB` | Max bytes for GET |
-| `MCP_S3_MAX_PUT_SIZE` | `100MB` | Max bytes for PUT |
-| `MCP_S3_EXT_LOGGING` | `false` | Enable structured logging |
-| `MCP_S3_EXT_AUDIT` | `false` | Enable audit logging |
-
-### Multi-Connection Setup
-
-Set `S3_ADDITIONAL_CONNECTIONS` with a JSON object:
-
-```bash
-export S3_ADDITIONAL_CONNECTIONS='{
-  "production": {
-    "region": "us-east-1",
-    "access_key_id": "prod-key",
-    "secret_access_key": "prod-secret"
-  },
-  "seaweedfs": {
-    "region": "us-east-1",
-    "endpoint": "http://seaweedfs:8333",
-    "use_path_style": true
-  }
-}'
-export S3_CONNECTION_NAME=production
-```
-
-## Library Usage
-
-mcp-s3 is designed as a composable Go library. Import the packages to build custom MCP servers with S3 capabilities:
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/mark3labs/mcp-go/server"
-    "github.com/txn2/mcp-s3/pkg/client"
-    "github.com/txn2/mcp-s3/pkg/tools"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // Create S3 client from environment
-    cfg := client.FromEnv()
-    s3Client, err := client.New(ctx, &cfg)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer s3Client.Close()
-
-    // Create toolkit with options
-    toolkit := tools.NewToolkit(s3Client,
-        tools.WithReadOnly(true),
-        tools.WithMaxGetSize(10*1024*1024),
-        tools.WithToolPrefix("myapp_"),
-    )
-    defer toolkit.Close()
-
-    // Create MCP server and register tools
-    mcpServer := server.NewMCPServer("my-server", "1.0.0")
-    toolkit.RegisterTools(mcpServer)
-
-    // Add custom middleware
-    toolkit.Use(myLoggingMiddleware)
-    toolkit.AddInterceptor(myAuthInterceptor)
-
-    // Serve
-    if err := server.ServeStdio(mcpServer); err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-### Streaming uploads
-
-`PutObject` buffers the whole body in memory. For large or unbounded sources
-(query exports, log streams), use `PutObjectStream`, which uploads from an
-`io.Reader` via the AWS SDK transfer manager without buffering the full payload:
-
-```go
-out, err := s3Client.PutObjectStream(ctx, &client.PutObjectStreamInput{
-    Bucket:      "my-bucket",
-    Key:         "exports/large.csv",
-    Body:        reader, // any io.Reader
-    ContentType: "text/csv",
-    MaxBytes:    500 * 1024 * 1024, // optional: abort past this many bytes
-})
-if err != nil {
-    if errors.Is(err, client.ErrStreamTooLarge) {
-        // stream exceeded MaxBytes and was aborted
-    }
-    log.Fatal(err)
-}
-log.Printf("uploaded, etag=%s", out.ETag)
-```
-
-Notes:
-
-- The per-operation timeout (`S3_TIMEOUT`) is **not** applied to streaming
-  uploads, since they can legitimately run much longer than a normal request.
-  Control the deadline through the supplied `context.Context`.
-- `MaxBytes` bounds the stream at the library level. The read-only and
-  size-limit MCP extensions guard the tool layer, not direct library calls;
-  `PutObjectStream` is currently a library-only capability (no MCP tool).
-
-### Extensibility Patterns
-
-**Middleware** wraps tool execution for cross-cutting concerns:
-
-```go
-func loggingMiddleware(next tools.ToolHandler) tools.ToolHandler {
-    return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-        log.Printf("Tool called: %s", req.Params.Name)
-        return next(ctx, req)
-    }
-}
-```
-
-**Interceptors** can block or modify requests before execution:
-
-```go
-type authInterceptor struct{}
-
-func (a *authInterceptor) Intercept(ctx context.Context, tc *tools.ToolContext, req mcp.CallToolRequest) tools.InterceptResult {
-    if !isAuthorized(ctx, tc.ToolName) {
-        return tools.InterceptResult{Allow: false, Message: "Unauthorized"}
-    }
-    return tools.InterceptResult{Allow: true}
-}
-```
-
-**Transformers** modify results after execution:
-
-```go
-type redactTransformer struct{}
-
-func (r *redactTransformer) Transform(ctx context.Context, tc *tools.ToolContext, result *mcp.CallToolResult) *mcp.CallToolResult {
-    // Redact sensitive content from results
-    return redactedResult
-}
-```
-
-## Security Considerations
-
-- **Read-Only Mode**: Enabled by default, blocks PUT and DELETE operations
-- **Size Limits**: Default 10MB for GET, 100MB for PUT to prevent abuse
-- **Prefix ACLs**: Restrict access to specific bucket prefixes
-- **Audit Logging**: Optional logging of all operations for compliance
-
-## Development
-
-```bash
-# Clone the repository
-git clone https://github.com/txn2/mcp-s3.git
-cd mcp-s3
-
-# Build
-make build
-
-# Run tests
-make test
-
-# Run linter
-make lint
-
-# Run all checks
-make verify
-
-# Serve documentation locally
-make docs-serve
-```
-
-### Testing with SeaweedFS
-
-```bash
-# Start SeaweedFS with S3 API
-docker run -d -p 8333:8333 -p 9333:9333 \
-  chrislusf/seaweedfs server -s3
-
-# Configure environment
-export S3_ENDPOINT=http://localhost:8333
-export S3_USE_PATH_STYLE=true
-export AWS_ACCESS_KEY_ID=any
-export AWS_SECRET_ACCESS_KEY=any
-
-# Run
-./build/mcp-s3
-```
-
-## Contributing
-
-We welcome contributions for bug fixes, tests, and documentation. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## License
-
-[Apache License 2.0](LICENSE)
-
-## Related Projects
-
-- [Model Context Protocol](https://modelcontextprotocol.io/) - The MCP specification
-- [mcp-trino](https://github.com/txn2/mcp-trino) - MCP server for Trino SQL queries
-- [mcp-datahub](https://github.com/txn2/mcp-datahub) - MCP server for DataHub metadata
-- [Amazon S3](https://aws.amazon.com/s3/) - Object storage service
-- [SeaweedFS](https://seaweedfs.io/) - S3-compatible object storage
+> **Note:** This repository requires a running **Trustable VM** on the local machine. The macOS app from [trustable.ai](https://trustable.ai) provisions a [k3s](https://k3s.io/) VM and writes its credentials (`id_ed25519`, `current.ip`, `apihost`) to `~/Library/Application Support/Trustable/`. Without those files, the bootstrap (`setup.sh`), build (`build.sh`), SSH (`ssh.sh`), and publish (`publish.sh`) scripts will not run.
 
 ---
 
-Open source by [Craig Johnston](https://twitter.com/cjimti), sponsored by [Deasil Works, Inc.](https://deasil.works/)
+## What it does
+
+`trustable-app` lets a user **create, edit, run, and publish** web applications backed by OpenServerless, with the [opencode](https://opencode.ai/) AI coding assistant wired into each app. The single `:8910` server:
+
+- **Serves the local UI** (`web/`) — splash, app list, per-app editor, and config pages
+- **Reverse-proxies** the user's running app (Vite on `:5173`) and the AI assistant (opencode on `:4096`), so all three surfaces share one origin
+- **Manages per-app state** as **bare git repos** (durable workspaces) and **active checkouts** (working workbenches)
+- **Drives `ops` CLI subprocesses** for login, deploy, and teardown of each app on the k3s VM
+- **Handles configuration and billing** — provider/model selection, credits/top-up, and signature-gated publishing
+
+The production binary embeds `web/`, `_build.txt`, and `opencode.md`, so a shipped release is a **single self-contained executable** with no external asset dependencies at runtime.
+
+## Architecture at a glance
+
+### One Go package, file-per-feature
+
+Everything lives in `package main`. Rather than splitting into many packages, the codebase uses **one file per feature surface**, and each `*.go` file maps 1:1 to a spec doc under [spec/](spec/). The spec describes intended behavior; the Go file implements it. **When a spec and a `.go` file disagree, the spec is the source of truth** — specs are written and iterated on *first*, then the code follows.
+
+| File | Spec | Responsibility |
+|---|---|---|
+| [main.go](main.go) | — | Embeds assets, registers `/api/*` routes, starts `:8910` behind `hostnameMiddleware` |
+| [preflight.go](preflight.go) | [0-preflight.md](spec/0-preflight.md) | Loads `.env`, frees ports 8910/5173/4096, checks the ssh key, runs the workspace config migration |
+| [middleware.go](middleware.go) | [0-preflight.md](spec/0-preflight.md) | Host-based routing — one port serves three apps by hostname prefix |
+| [repo.go](repo.go) | [2-repo.md](spec/2-repo.md) | `/api/repo`, `/api/upload`, `/api/git*` — per-app bare repos |
+| [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config, `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` |
+| [launch.go](launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clone → checkout, `ops ide` lifecycle, pgid teardown |
+| [git.go](git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
+| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — every endpoint gated by `requirePublishingAuth` |
+| [validate_key.go](validate_key.go) | [10-validate_key.md](spec/10-validate_key.md) | Ed25519 verification of the `aip_<id>.<sig>` API key |
+| [skills.go](skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones skills into the app's `.agents/skills/` |
+| [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to ai-proxy |
+| [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog |
+| [memory.go](memory.go) | — | `/api/memory/` |
+
+### Host-based routing
+
+The non-obvious core of the design: **a single listener on `:8910` serves three different surfaces**, distinguished entirely by the first label of the request hostname. [middleware.go](middleware.go) inspects the host and dispatches:
+
+- `trustable.<domain>` → static `web/` assets **+** the Go `/api/*` handlers
+- `opencode.<domain>` → reverse-proxy to `localhost:4096` (the opencode AI coding assistant)
+- `vite.<domain>` → reverse-proxy to `localhost:5173` (the user's running app under Vite)
+- Any other prefix → `400`, with a response pointing at the corrected URL
+
+Bare `localhost` or raw-IP requests are **`307`-redirected** to `trustable.<ip>.nip.io:<port>`, so the fully-qualified form is always used in practice. This matters for testing: **every test must target an FQDN** — hitting plain `localhost:8910` only gets the redirect, never the app.
+
+### Workspace vs. workbench
+
+The app keeps two distinct on-disk representations of each project:
+
+- **Workspace** — `$WORKSPACE_DIR/workspace/<name>/` is the **bare git repo** for an app. This is the durable source of truth and the thing that gets published.
+- **Workbench** — `$WORKBENCH_DIR/<name>/` is the **active checkout** of whichever app is currently being edited. It is regenerated on launch and holds the volatile working state: `.env` / `.env.production`, `node_modules`, and `.agents/skills/`.
+
+Launching an app **clones workspace → workbench** when the workbench is missing, and **regenerates the env files every time** so that configuration edits always propagate into the running app. A `pgid` file written into the workbench records the running `ops` process group, which is how teardown later finds and cleanly stops it.
+
+### Configuration layering
+
+Configuration is the result of **merging two `trustable.json` files** (see [spec/2a-config.md](spec/2a-config.md)):
+
+1. **Base** — `./trustable.json`, the immutable defaults shipped with the binary.
+2. **Workspace** — `$WORKSPACE_DIR/trustable.json`, holding user overrides plus the `apps` and `provider` data.
+
+Maps are merged **key-by-key** (not wholesale-replaced), so the workspace layer only needs to carry deltas. `provider`, `apps`, and the chosen models live **only** in the workspace layer. Per-app environment variables live under `apps.<name>.development` and `apps.<name>.production`.
+
+### Frontend (`web/`)
+
+The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.js)) — **no build step and no React**. Each page maps to a spec doc and communicates with the backend **only** through `/api/*` JSON endpoints; there is no shared client framework or bundler.
+
+| Page | Spec | Purpose |
+|---|---|---|
+| [web/index.html](web/index.html) | [1-index.md](spec/1-index.md) | Splash screen + provider choice |
+| [web/applist.html](web/applist.html) | [1-applist.md](spec/1-applist.md) | App list |
+| [web/app.html](web/app.html) | [3-app.md](spec/3-app.md) | Per-app workbench / editor |
+| [web/appconfig.html](web/appconfig.html) | — | Per-app env editor |
+| [web/configure.html](web/configure.html) | [2a-config.md](spec/2a-config.md) | Provider / model config |
+
+## Prerequisites
+
+- A **running Trustable VM** on the local machine — the macOS app from [trustable.ai](https://trustable.ai) provisions a k3s VM and writes `id_ed25519`, `current.ip`, and `apihost` into `~/Library/Application Support/Trustable/`. `setup.sh` reads these to extract the VM's kubeconfig so `ops` can talk to k3s directly.
+- **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, and `opencode` — all installed and verified by `setup.sh`.
+- A populated **`.env`** (see below). Startup fails preflight if it is missing.
+
+## Getting started
+
+```bash
+# 1. One-time bootstrap: verifies the running VM, extracts the k3s kubeconfig
+#    (rewriting 127.0.0.1 → the VM IP into ~/.ops/tmp/kubeconfig), and installs/
+#    verifies ops, go (via g), air, bun, uv, and opencode.
+./setup.sh
+
+# 2. Create your environment file from the template and fill it in.
+cp .env.dist .env
+$EDITOR .env
+
+# 3. Dev loop: frees ports 8910/5173/4096, runs `air` for hot reload,
+#    and opens the UI via `ops trustable signin`.
+./run.sh
+```
+
+`air` (configured in [.air.toml](.air.toml)) rebuilds `tmp/main` on **every `.go` change** and restarts the server on `:8910` — edit a Go file, save, and the running server reloads.
+
+## Environment (`.env`)
+
+`.env` is **mandatory** — preflight aborts startup if it is absent. Copy [.env.dist](.env.dist) and set every variable:
+
+| Variable | Required | Description |
+|---|---|---|
+| `WORKSPACE_DIR` | ✅ | Must already exist (created by `ops setup mini`). Per-app bare repos live under `$WORKSPACE_DIR/workspace/<name>` |
+| `WORKBENCH_DIR` | ✅ | Checkout area for the currently-launched app |
+| `OPENAI_BASE_URL` | ✅ | Provider base URL (overwritten when the user picks a provider in the UI) |
+| `OPENAI_API_KEY` | ✅ | Provider API key |
+| `OLLAMA_ENDPOINT` | ✅ | Local Ollama endpoint for the Ollama provider |
+| `AIP_REGISTER_URL` | ✅ | ai-proxy registration UI base. The splash loads this in an iframe for Trustable Cloud sign-up; the top-up form lives at `<this>/top-up`. Dev: `http://localhost:8080/_register`; Prod: `https://api.nuvolaris.io/_register` |
+| `AIP_BASE_URL` | ✅ | ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL. Dev: `http://localhost:8080/api/v2/`; Prod: `https://api.nuvolaris.io/api/v2/` |
+| `GIT_USER` | ✅ | Author name for commits made on behalf of the user |
+| `GIT_EMAIL` | ✅ | Author email for commits made on behalf of the user |
+
+## Common commands
+
+```bash
+./setup.sh       # One-time bootstrap (VM check, kubeconfig extract, tool install)
+./run.sh         # Dev loop: free ports, `air` hot reload, open via `ops trustable signin`
+./build.sh       # Build the single image, import it into the local k3s VM, update olaris-bestia/opsroot.json
+./publish.sh     # Push the latest git tag, watch CI, then push the olaris-bestia submodule
+./ssh.sh         # SSH into the running Trustable VM
+go test ./...    # Unit tests (currently mostly configure_test.go)
+go test -run TestManagedOllamaDetectionRequiresGeneratedModelMarker   # Run a single test
+```
+
+### Versioning & build
+
+`_build.txt` is generated by [build.sh](build.sh) from `version.txt` (currently `v0.3.10`) plus `expiry.txt` (currently `2026/08/31`). It holds the multi-line `Version:` / `Build:` / `Expiry:` block that `parseVersion` reads at startup. `build.sh` then writes the new image tag into `olaris-bestia/opsroot.json` via `jq` and commits it **inside that submodule**; it is `publish.sh` pushing the submodule that actually ships the new version to the deployment plugin.
+
+## API surface
+
+All endpoints are JSON under `/api/*`, registered in [main.go](main.go):
+
+| Endpoint | Handler file | Purpose |
+|---|---|---|
+| `GET /api/version` | main.go | Build / version info |
+| `GET /api/status` | status.go | Provider model catalog (powers the splash screen) |
+| `/api/repo`, `/api/upload` | repo.go | Per-app repo management & uploads |
+| `/api/git`, `/api/git/status/`, `/api/git/save` | git.go / repo.go | Git status & save |
+| `/api/launch`, `/api/launch/<name>` | launch.go | Clone → checkout, `ops ide` lifecycle |
+| `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` | configure.go | Config & model testing |
+| `/api/ollama-connect`, `/api/discover-models` | configure.go | Ollama discovery |
+| `/api/publish/{push,force-push,remote}` | publish.go | Publishing (signature-gated) |
+| `/api/skills/<name>` | skills.go | Install skills into an app |
+| `/api/memory/` | memory.go | App memory |
+| `/api/credits`, `/api/topup` | credits.go | Credits & top-up (ai-proxy) |
+| `/api/sshkey` | — | SSH key handling |
+| `/api/redeploy`, `/api/activations/poll`, `/api/bestia-check` | — | Deploy & activation polling |
+
+### Publishing authorization
+
+There is **no client-side gate** on publishing. The frontend always renders the Git Push / Publish controls and always calls the backend — the authorization decision lives entirely on the server. Every `/api/publish/*` handler calls `requirePublishingAuth` ([validate_key.go](validate_key.go)), which:
+
+1. Reads the merged config's `api_key` and `base_url`.
+2. Fetches `<origin>/.well-known/ai-proxy-pubkey` (cached for the lifetime of the process).
+3. Validates the Ed25519 signature embedded in the `aip_<id>.<sig>` key against that public key.
+4. On **any** failure, returns `403 {"error": "Publishing not authorized: <reason>"}`.
+
+The frontend keys off the exact `"Publishing not authorized"` prefix to show a friendly modal instead of a raw error. **When changing this wording, keep the prefix intact** — otherwise the frontend gate breaks.
+
+## Submodules
+
+Five git submodules are declared in [.gitmodules](.gitmodules) — `olaris`, `olaris-bestia`, `olaris-trustable`, `support`, and `skills`. As noted above, `build.sh` writes the new image tag into `olaris-bestia/opsroot.json` and commits it there, so pushing **that** submodule in `publish.sh` is the step that actually ships a new version to the deployment plugin.
+
+Initialize them after cloning:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Testing
+
+- **Unit tests:** `go test ./...` runs the Go `*_test.go` tests. Coverage is intentionally minimal — mostly [configure_test.go](configure_test.go).
+- **End-to-end scenarios:** [tests/](tests/) holds **manual** end-to-end scenarios, each a spec markdown file paired with a runnable script (e.g. `1-reset.sh` wipes the miniops users and the workspace, then runs `air`). These are **not** part of `go test` and must be run by hand.
+
+## Conventions
+
+- **Adding a new API:** register the route in [main.go](main.go), add the handler in the matching feature file, and update the spec doc under [spec/](spec/) — the spec is iterated on first, then the code follows.
+- **`opencode.md` is not repo guidance.** The `opencode.md` at the repo root is **embedded into the binary** and shown to the AI assistant running inside *user-created* apps. It is **not** instructions for editing this repository — that role belongs to `CLAUDE.md`. Don't confuse the two.
+- **Process groups for cleanup.** Long-running subprocesses (`ops ide deploy`, `npm install`, `git push`) are spawned with their own process group; the `pgid` file in `$WORKBENCH_DIR` is how teardown finds and stops them.
+
+## License
+
+See [LICENSE](LICENSE).
