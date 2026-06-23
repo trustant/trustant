@@ -31,19 +31,30 @@ set of free-form Python modules:
 The embedded document must be written as an agent instruction document, similar
 in clarity and directness to a `SKILL.md`, not as a broad project README.
 
-It must contain these sections, in this order:
+It may start with `SKILL.md`-style YAML frontmatter containing only `name` and
+`description`. The description must explain that the guidance is for building
+and fixing user-created Trustable apps with React frontend code, Python
+OpenServerless actions, setup actions, services, MCP checks, and runtime
+debugging inside a Trustable workbench.
+
+It must then contain these sections, in this order:
 
 1. Serverless operating model.
 2. Non-negotiable rules.
 3. Project layout.
 4. Application development workflow.
 5. OpenServerless action tools.
-6. MCP servers and service access.
-7. Web action request and response rules.
-8. Setup and service initialization.
-9. Dependencies.
-10. Data/service restrictions.
-11. Validation checklist.
+6. Action endpoint grammar.
+7. MCP servers and service access.
+8. PostgreSQL action pattern.
+9. Skills.
+10. Web action request rules.
+11. Web action response rules.
+12. Authentication UI rules.
+13. Setup and service initialization.
+14. Dependencies.
+15. Data/service restrictions.
+16. Validation checklist.
 
 ## Non-Negotiable Rules
 
@@ -62,6 +73,16 @@ The embedded guidance must include these rules:
 - If setup actions change, explicitly run `ops ide setup`.
 - If action modules change and runtime behavior must be verified, run the
   appropriate deploy/redeploy path before testing the public endpoint.
+- Assistants must not use shell redirection to create or replace source files.
+  The embedded guidance must explicitly forbid `cat > file`, heredocs, `tee`,
+  `printf >`, and `sed -i` for app source or generated wrappers, and should
+  tell assistants to use file edit/write tools instead.
+- Assistants must not read or copy secrets from `~/.ops/config.json` into app
+  source. They must never paste database URLs, passwords, tokens, service
+  hosts, buckets, or ports into code when platform wiring can provide them.
+- If an MCP action tool fails while creating or wiring an action, assistants
+  must stop and fix the tool sequence instead of manually creating nested
+  action directories, generated wrappers, or hardcoded service wiring.
 
 ## Application Development Workflow
 
@@ -80,6 +101,18 @@ The embedded guidance must describe the normal way to build a Trustable app:
    during debugging.
 7. Run bounded validation against the real public endpoint and browser-visible
    app host.
+
+The embedded guidance must include a concrete backend execution loop:
+
+1. Design action endpoint names and reject invalid nested names before creating
+   files.
+2. Create actions with the OpenServerless MCP action tool.
+3. Add service wiring with the matching action/service tool after the action
+   files exist.
+4. Edit only the generated editable module, not `__main__.py`.
+5. Add Python libraries with `action-requirements`.
+6. Run setup/deploy, inspect logs on failure, then validate via the real HTTP
+   app path.
 
 The guidance must tell assistants how to choose the backend shape:
 
@@ -129,6 +162,42 @@ For setup and initialization, the guidance must say to create private actions
 under package `setup` with `public: false`, and to invoke the complete setup
 set with `ops ide setup` after creating or changing them.
 
+## Action Endpoint Grammar
+
+The embedded guidance must explain the Trustable/OpenWhisk endpoint grammar.
+OpenWhisk action names are namespace/package/action, so the action endpoint
+accepted by the Trustable action tools must be only:
+
+- `action`;
+- `package/action`.
+
+For browser-facing APIs, the guidance must prefer package `v1`. It must include
+valid examples such as:
+
+- `v1/register`;
+- `v1/login`;
+- `v1/me`;
+- `v1/contacts`;
+- `v1/orders`;
+- `setup/database`.
+
+It must explicitly mark nested endpoint forms as invalid, including:
+
+- `v1/auth/register`;
+- `v1/contacts/list`;
+- `v1/orders/create`;
+- `packages/v1/auth/register`.
+
+The guidance must say that CRUD resources should normally use one public action
+per resource, such as `v1/contacts` or `v1/orders`, and branch inside the
+editable module using `__ow_method` plus request data. If separate actions are
+clearer, names must remain flat, such as `v1/contacts_list` or
+`v1/orders_create`.
+
+The guidance must explicitly forbid creating nested directories under
+`packages/<package>/<group>/<action>` to simulate routes, because they are not
+valid Trustable/OpenServerless endpoints.
+
 ## MCP Servers And Service Access
 
 The embedded guidance must explain that `opencode.json` is generated at launch
@@ -154,6 +223,9 @@ The guidance must say that service MCP servers are generated from
 the corresponding MCP server is intentionally absent. Assistants must not
 hardcode service hosts, ports, credentials, bucket names, database names, or
 tokens when the MCP server or generated environment already provides them.
+Assistants may inspect `~/.ops/config.json` only to understand which services
+exist; they must not copy values from it into app code, wrapper code, logs,
+docs, or frontend configuration.
 
 The launch process also writes `<workbenchdir>/<app>/.mcp.json` in Claude Code
 format with the same MCP servers. The embedded guidance can mention this for
@@ -182,6 +254,8 @@ The embedded guidance must say:
   `ctx.POSTGRESQL`, because it is already a connection object;
 - assistants must not manually edit `__main__.py` to add database wiring; they
   must use the PostgreSQL action tool.
+- assistants must not hardcode PostgreSQL connection strings, usernames,
+  passwords, hosts, or schemas in module code or wrappers.
 
 The guidance must include this pattern or an equivalent one:
 
@@ -217,6 +291,8 @@ web action semantics as used by OpenServerless:
 - body fields override query fields in OpenWhisk's normal merge behavior;
 - HTTP context is exposed through reserved metadata keys such as
   `__ow_method`, `__ow_headers`, and `__ow_path`;
+- web actions support HTTP methods such as GET, POST, PUT, PATCH, DELETE, HEAD,
+  and OPTIONS, and method-based CRUD actions should use `__ow_method`;
 - requests cannot override reserved `__ow_*` metadata names.
 
 For Trustable-generated Python actions, the instructions must be defensive:

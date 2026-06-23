@@ -1,3 +1,12 @@
+---
+name: trustable-app-assistant
+description: >-
+  Build and fix user-created Trustable apps with React frontend code and Python
+  OpenServerless actions. Use this when creating app features, login/register
+  flows, CRUD APIs, setup actions, service-backed storage, MCP service checks,
+  or debugging app runtime failures inside a Trustable workbench.
+---
+
 # Trustable App Assistant Guide
 
 You are working inside a user-created Trustable app. This is a
@@ -5,6 +14,10 @@ TypeScript/React frontend plus Python OpenServerless actions. It is not a
 conventional backend server project.
 
 ## Serverless Operating Model
+
+Core principle: build the app through Trustable/OpenServerless primitives. Do
+not replace the platform with hand-written servers, hand-written generated
+wrappers, raw credentials, or guessed `ops` commands.
 
 - Frontend code lives in `src/` and calls public actions through
   `/api/my/<package>/<action>`.
@@ -40,6 +53,15 @@ conventional backend server project.
   even if direct MCP or database commands can produce the desired data.
 - Do not invent tool or `ops` command names. Use only tools exposed in the
   current OpenCode tool list or generated `opencode.json`.
+- Do not use shell redirection to create or replace source files. Avoid
+  `cat > file`, heredocs, `tee`, `printf >`, and `sed -i` for app source or
+  generated wrappers; use file edit/write tools.
+- Do not read or copy secrets from `~/.ops/config.json` into app source. Never
+  paste database URLs, passwords, tokens, service hosts, buckets, or ports into
+  code when platform wiring can provide them.
+- If an MCP action tool fails while creating or wiring an action, stop and fix
+  that tool sequence. Do not manually create nested action directories,
+  generated wrappers, or hardcoded service wiring as a workaround.
 
 ## Project Layout
 
@@ -70,6 +92,18 @@ conventional backend server project.
    debugging.
 7. Validate with bounded checks against the real public endpoint and
    browser-visible app host.
+
+Use this execution loop for backend work:
+
+1. Design the action endpoint names and reject invalid nested names before
+   creating files.
+2. Create actions with the OpenServerless MCP action tool.
+3. Add service wiring with the matching action/service tool after the action
+   files exist.
+4. Edit only the generated editable module, not `__main__.py`.
+5. Add Python libraries with `action-requirements`.
+6. Run setup/deploy, inspect logs on failure, then validate via the real HTTP
+   app path.
 
 Choose the backend shape this way:
 
@@ -111,6 +145,38 @@ asks for another package. The endpoint is reachable at
 For initialization, create private actions in package `setup` with
 `public: false`. After creating or changing setup actions, run `ops ide setup`.
 
+## Action Endpoint Grammar
+
+OpenWhisk action names are namespace/package/action. In Trustable app code, the
+MCP action endpoint must therefore be only:
+
+- `action`
+- `package/action`
+
+For browser-facing APIs, use package `v1`. Valid examples:
+
+- `v1/register`
+- `v1/login`
+- `v1/me`
+- `v1/contacts`
+- `v1/orders`
+- `setup/database`
+
+Invalid examples:
+
+- `v1/auth/register`
+- `v1/contacts/list`
+- `v1/orders/create`
+- `packages/v1/auth/register`
+
+If an API needs CRUD behavior, prefer one public action per resource, such as
+`v1/contacts` or `v1/orders`, and branch inside the editable module using
+`__ow_method` plus request data. If separate actions are clearer, keep names
+flat, such as `v1/contacts_list` or `v1/orders_create`.
+
+Never create nested directories under `packages/<package>/<group>/<action>` to
+simulate routes. They are not valid Trustable/OpenServerless endpoints.
+
 ## MCP Servers And Service Access
 
 `opencode.json` is generated at launch with an `mcp` section. Use available MCP
@@ -132,6 +198,10 @@ Service MCP servers are generated from `~/.ops/config.json` after
 intentionally absent. Do not hardcode service hosts, ports, credentials, bucket
 names, database names, or tokens when the MCP server or generated environment
 already provides them.
+
+You may inspect `~/.ops/config.json` only to understand which services exist.
+Do not copy values from it into app code, wrapper code, logs, docs, or frontend
+configuration.
 
 The launch process also writes `.mcp.json` in Claude Code format with the same
 MCP servers. OpenCode should rely on generated `opencode.json`.
@@ -158,6 +228,8 @@ In the editable module:
   `ctx.POSTGRESQL`; it is already a connection object.
 - Do not manually edit `__main__.py` to add database wiring. Use the
   PostgreSQL action tool.
+- Do not hardcode PostgreSQL connection strings, usernames, passwords, hosts,
+  or schemas in module code or wrappers.
 
 Use this pattern or an equivalent one:
 
@@ -191,6 +263,8 @@ OpenServerless web actions are Apache OpenWhisk web actions:
 - In normal OpenWhisk merging, body fields override query fields.
 - HTTP context is exposed through reserved metadata keys such as
   `__ow_method`, `__ow_headers`, and `__ow_path`.
+- Web actions support HTTP methods such as GET, POST, PUT, PATCH, DELETE, HEAD,
+  and OPTIONS. Use `__ow_method` for method-based CRUD actions.
 - Requests cannot override reserved `__ow_*` metadata names.
 
 Trustable-generated Python actions should be defensive: some wrappers or
