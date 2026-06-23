@@ -370,6 +370,11 @@ When an app has login or registration:
 - Replace starter placeholder screens. The root route must redirect to login,
   render login, or render the authenticated app based on session state; it must
   not keep the Trustable starter/welcome template.
+- Before marking auth UI complete, inspect the router and the component used by
+  `/` or `#/`. Remove or replace generated starter content such as `Welcome`,
+  `Try the following prompts to start`, `Powered by Trustable`, `trustable.png`,
+  or sample prompt lists. A protected app is incomplete if the browser-visible
+  home page still shows the starter screen.
 - Hide protected navigation items such as dashboards, contacts, orders,
   settings, admin, or profile until the user is authenticated.
 - Protect direct routes too. If an unauthenticated user opens a protected hash
@@ -453,9 +458,15 @@ End backend-related work with proof:
   strategy.
 - Verify JSON request fields, method, and headers are visible to the action.
 - Verify frontend fetch handling accepts the response shape actually returned.
+- Treat editor, LSP, TypeScript, lint, and tool diagnostics as validation
+  failures when they mention generated or edited files. Fix the diagnostic, or
+  explain why it is stale with a successful bounded command that proves it.
 - Use bounded checks such as `timeout <seconds> ...` and `curl`.
 - Do not hide validation failures with `|| true`, forced zero exits, or output
   truncation that can mask the first error. Let checks fail loudly, then fix the
   failure.
+- For frontend auth flows, validate both route shape and route behavior: root
+  path, login path, register path, direct protected route while logged out, and
+  protected navigation after login.
 - If validation is impossible, state the blocker instead of asking the user to
   "try it now" with no local proof.

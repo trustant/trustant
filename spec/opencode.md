@@ -398,6 +398,11 @@ When an app has login or registration, the embedded guidance must say:
 - starter placeholder screens must be replaced. The root route must redirect to
   login, render login, or render the authenticated app based on session state;
   it must not keep the Trustable starter/welcome template;
+- before marking auth UI complete, assistants must inspect the router and the
+  component used by `/` or `#/`, and must remove or replace generated starter
+  content such as `Welcome`, `Try the following prompts to start`, `Powered by
+  Trustable`, `trustable.png`, or sample prompt lists. A protected app is
+  incomplete if the browser-visible home page still shows the starter screen;
 - protected navigation items such as dashboards, contacts, orders, settings,
   admin, or profile must be hidden until the user is authenticated;
 - direct protected routes must also be guarded: an unauthenticated user opening a
@@ -445,6 +450,9 @@ The embedded guidance must say:
 - if action logs show `ModuleNotFoundError`, assistants must fix the dependency
   or import before doing any other validation and must not mark the feature
   complete;
+- editor, LSP, TypeScript, lint, and tool diagnostics that mention generated or
+  edited files are validation failures. Assistants must fix the diagnostic or
+  explain why it is stale with a successful bounded command that proves it;
 - PostgreSQL, Redis, S3, Milvus, and secrets are added with the corresponding
   action/service tool, not by manually editing generated wrapper code or
   hardcoding credentials.
@@ -479,10 +487,16 @@ The embedded guidance must end backend-related changes with local proof:
   strategy;
 - verify JSON request fields, method, and headers are visible to the action;
 - verify frontend fetch handling accepts the response shape actually returned;
+- treat editor, LSP, TypeScript, lint, and tool diagnostics that mention
+  generated or edited files as validation failures unless a successful bounded
+  command proves they are stale;
 - use bounded checks such as `timeout <seconds> ...` and `curl`;
 - never hide validation failures with `|| true`, forced zero exits, or output
   truncation that can mask the first error. Checks must fail loudly so the
   assistant fixes the failure;
+- for frontend auth flows, validate route shape and behavior for the root path,
+  login path, register path, direct protected route while logged out, and
+  protected navigation after login;
 - never leave the user with only "try it now" unless validation was impossible
   and the blocker is stated.
 
