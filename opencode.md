@@ -1,110 +1,283 @@
-# Trustable App Development Guide
+# Trustable App Assistant Guide
 
-This is a serverless application with a TypeScript/React frontend and a Python backend.
+You are working inside a user-created Trustable app. This is a
+TypeScript/React frontend plus Python OpenServerless actions. It is not a
+conventional backend server project.
 
-## Important Rules
+## Serverless Operating Model
 
-- Never try to build or deploy; this is managed automatically when you edit sources.
-- Never run foreground dev servers or watchers such as `npm run dev`, `vite`, or `ops ide devel`; Trustable already manages the dev server. To verify frontend changes, use bounded checks such as `curl http://localhost:5173`, or `timeout <seconds> ...`.
-- All initialization must go in private actions in the `setup` package. Executing `ops ide setup` invokes ALL of them. The setup actions must be idempotent. They are invoked automatically when deploying, but NOT when developing — so whenever you change one of them you must be explicit and run `ops ide setup`.
-- Never create a backend server; create new public action providing an endpoint.
-- Never create or edit `__main__.py` files, use the following tools:
-    - `action-new` to create an action
-    - `action-add-secret` to add a new env var / secret
-    - `action-add-s3` to add S3 service
-    - `action-add-postgresql` to add SQL database service
-    - `action-add-milvus` to add vector database service
-    - `action-add-redis` to add redis cache service
+- Frontend code lives in `src/` and calls public actions through
+  `/api/my/<package>/<action>`.
+- Backend logic lives in editable action modules under
+  `packages/<package>/<action>/<module>.py`.
+- Generated `__main__.py` files are platform wrappers. Do not create or edit
+  them.
+- Setup and initialization belong in private actions in package `setup`.
+- Trustable launches and manages the Vite dev server and OpenCode process.
+- OpenServerless web actions have their own request parameter, metadata, and
+  response semantics. Treat them carefully.
+- Every backend change should end with bounded validation against the real
+  deployed action endpoint.
 
-## Architecture
+## Non-Negotiable Rules
 
-- **Frontend**: TypeScript with React and Tailwind CSS, sources under `src/`
-- **Backend**: Python serverless actions, sources are under `packages/<package>/<action>/`
-- If you need a public endpoint, use `v1` as package, choose an alphanumeric name (can contain '-'), create a public action with `action-new` and you get an endpoint `/api/my/<package>/<action>`
+- Never create a backend server. Create public or private actions instead.
+- Never create or edit generated `__main__.py` files.
+- Never run foreground dev servers or watchers such as `npm run dev`, `vite`,
+  or `ops ide devel`.
+- Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
+  hang.
+- Do not build or deploy the Trustable product itself. When validating app
+  action changes, use the app deploy/redeploy path described below.
+- Put feature logic, request parsing, auth checks, and business behavior in the
+  editable module file: `packages/<package>/<action>/<module>.py`.
+- If setup actions change, run `ops ide setup`.
+- If action modules change and runtime behavior must be verified, deploy or
+  redeploy before testing the public endpoint.
+- Do not leave the user with only "try it now" when you can run a bounded
+  validation yourself.
 
-## API Endpoints
+## Project Layout
 
-- Backend APIs are public actions available at `/api/my/<package>/<action>` (package is usually `v1`)
-- To access an action with streaming output, given `<proto>://<user>.<domain>`, POST to `<proto>://stream.<domain>/web/<package>/<action>` (returns a stream of JSON objects)
-- To invoke a private action, for initialization for example, use `action-invoke`
+- `src/`: React/TypeScript frontend.
+- `public/`: public web assets uploaded automatically.
+- `packages/<package>/<action>/`: Python action directories.
+- `packages/<package>/<action>/<module>.py`: editable action logic.
+- `packages/<package>/<action>/__main__.py`: generated wrapper, do not edit.
+- `packages/setup/<action>/`: private setup actions.
+- `.agents/skills/`: app-specific skills, when installed.
+- `opencode.json`: generated OpenCode config for this app.
+- `opencode.md`: this instruction file.
+- `.mcp.json`: generated Claude-compatible MCP config with the same MCP
+  servers.
 
-## Web actions and the response envelope
+## Application Development Workflow
 
-A **web action** is a public action (declared `#--web true`) that is directly reachable over HTTP at `/api/my/<package>/<action>`. Being a web action is exactly what exposes it as an HTTP endpoint — a private action (`#--web false`) has no URL and can only be called with `action-invoke`.
+1. Inspect existing `src/`, `packages/`, `public/`, `.agents/skills`, and
+   available MCP servers before changing files.
+2. Build frontend behavior in `src/` using the existing React/Tailwind style.
+3. For backend behavior, create or update OpenServerless actions instead of
+   starting a server process.
+4. Add platform services with the action/service tools before writing code that
+   depends on them.
+5. Put schema, collection, cache, or seed initialization in private setup
+   actions.
+6. Use generated MCP servers and CLI wrappers to inspect service state during
+   debugging.
+7. Validate with bounded checks against the real public endpoint and
+   browser-visible app host.
 
-When a web action returns a dict shaped like:
+Choose the backend shape this way:
+
+- Use a public `v1` action for browser-facing APIs.
+- Use a private `setup` action for idempotent initialization.
+- Use S3 for object/file data.
+- Use PostgreSQL for relational data.
+- Use Redis for cache or ephemeral state.
+- Use Milvus for vector search.
+- Use AgentiReact MCP only when the app is configured with AgentiReact.
+
+## OpenServerless Action Tools
+
+Use the Trustable/OpenServerless MCP action tools instead of manually creating
+platform scaffolding. Tool names may appear with hyphens or underscores,
+depending on the client. Use the matching exposed tool:
+
+- `action-new` / `action_new`: create public or private actions and generated
+  wrappers.
+- `action-invoke` / `action_invoke`: invoke private actions such as setup
+  actions.
+- `action-requirements` / `action_requirements`: add Python libraries.
+- `action-add-secret` / `action_add_secret`: add an environment secret.
+- `action-add-s3` / `action_add_s3`: add S3 service wiring.
+- `action-add-postgresql` / `action_add_postgresql`: add PostgreSQL service
+  wiring.
+- `action-add-redis` / `action_add_redis`: add Redis service wiring.
+- `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
+
+For a new public HTTP endpoint, use package `v1` unless the user explicitly
+asks for another package. The endpoint is reachable at
+`/api/my/<package>/<action>`.
+
+For initialization, create private actions in package `setup` with
+`public: false`. After creating or changing setup actions, run `ops ide setup`.
+
+## MCP Servers And Service Access
+
+`opencode.json` is generated at launch with an `mcp` section. Use available MCP
+servers and generated CLI wrappers instead of inventing connection details.
+
+- `openserverless`: always present; exposes action-management tools.
+- `agentireact`: present only when the app's Vite config contains
+  `AgentiReact()`; remote MCP at `http://localhost:5173/mcp`.
+- `s3`: present only when S3 is configured; companion CLI wrapper: `rclone`.
+- `postgres`: present only when PostgreSQL is configured; companion CLI
+  wrapper: `psql`.
+- `redis`: present only when Redis is configured; companion CLI wrapper:
+  `redis-cli`.
+- `milvus`: present only when Milvus is configured; companion CLI wrapper:
+  `milvus_cli`.
+
+Service MCP servers are generated from `~/.ops/config.json` after
+`ops ide login`. If a service block is missing, the corresponding MCP server is
+intentionally absent. Do not hardcode service hosts, ports, credentials, bucket
+names, database names, or tokens when the MCP server or generated environment
+already provides them.
+
+The launch process also writes `.mcp.json` in Claude Code format with the same
+MCP servers. OpenCode should rely on generated `opencode.json`.
+
+## Skills
+
+App-specific skills may be installed under `.agents/skills`. Read relevant
+`SKILL.md` files before using them. Do not delete or replace `.agents/skills`
+unless the user explicitly asks to update skills.
+
+## Web Action Request Rules
+
+OpenServerless web actions are Apache OpenWhisk web actions:
+
+- Public web actions can be invoked over HTTP without an OpenWhisk API key.
+- The action owner pays for the activation, so the action must implement its
+  own application-level authorization when needed.
+- Query parameters, form fields, and JSON object body fields can be passed as
+  first-class action arguments.
+- In normal OpenWhisk merging, body fields override query fields.
+- HTTP context is exposed through reserved metadata keys such as
+  `__ow_method`, `__ow_headers`, and `__ow_path`.
+- Requests cannot override reserved `__ow_*` metadata names.
+
+Trustable-generated Python actions should be defensive: some wrappers or
+clients may also provide `args["body"]` as a dict or JSON string. Merge both
+shapes and let top-level fields win, because a generated wrapper or previous
+edit can create an empty `body = {}` while real request fields are top-level.
+
+Use this pattern in editable modules when reading JSON fields:
 
 ```python
-return { "body": <value>, "statusCode": 200, "headers": { "Content-Type": "application/json" } }
+import json
+
+def request_data(args):
+    data = dict(args) if isinstance(args, dict) else {}
+    body = data.get("body")
+    if isinstance(body, str):
+        try:
+            body = json.loads(body)
+        except Exception:
+            body = {}
+    merged = dict(body) if isinstance(body, dict) else {}
+    ignored = {"body", "POSTGRES_URL", "__ow_method", "__ow_headers", "__ow_path"}
+    merged.update({k: v for k, v in data.items() if k not in ignored})
+    return merged
 ```
 
-this object is **not** sent to the caller literally. It is an instruction to the HTTP gateway, which unwraps it:
+Read request metadata from OpenServerless keys first:
 
-- `body` becomes the actual HTTP response body — the caller receives **only this value**.
-- `statusCode` sets the HTTP status (e.g. `200`, `404`, `500`) — the caller sees it as the response status, not as a field.
-- `headers` are applied as the HTTP response headers.
+```python
+def request_method(args):
+    return (args.get("__ow_method") or args.get("method") or "GET").upper()
 
-So **do not expect the literal `{ "body", "statusCode", "headers" }` JSON back from an HTTP request.** A call to `fetch("/api/my/v1/get-ip")` for an action returning `{ "body": {"ip": "1.2.3.4"}, "statusCode": 200 }` gets HTTP status `200` and a body of `{"ip": "1.2.3.4"}` — never the wrapping object.
+def request_headers(args):
+    headers = args.get("__ow_headers") or args.get("headers") or {}
+    return {str(k).lower(): v for k, v in headers.items()} if isinstance(headers, dict) else {}
 
-To return data, put it under `body`; to signal an error, set `statusCode`. The envelope is only meaningful for web actions: a private action invoked with `action-invoke` returns its raw result dict as-is, with no unwrapping.
+headers = request_headers(args)
+auth_header = headers.get("authorization", "")
+```
 
-Note: the envelope is only interpreted when it looks like one. The `__main__.py` generated for an action wraps the module result as `{ "body": <module>.main(...) }` with no `statusCode`/`headers`, so the gateway treats that whole dict as a plain JSON body and returns it verbatim. That is why a frontend may read `response.json().body` — that `.body` is the action's own payload key, not the (already-unwrapped) gateway envelope.
+If a raw or non-JSON request body is needed, handle `__ow_body` explicitly.
+Most app JSON endpoints should not need raw body handling.
 
-## Initializations
+## Web Action Response Rules
 
-To initialize database schemas, cache objects, add files to s3 buckets and more, create private actions in package `setup` using `action-new` with `public: false`.
+OpenWhisk web actions can use top-level `headers`, `statusCode`, and `body` as
+HTTP response instructions. Trustable-generated Python wrappers, however,
+commonly call the editable module and return:
 
-Private actions are the same as public ones but with `#--web false` and are not exposed as HTTP endpoints. Invoke them with `action-invoke`.
+```python
+{ "body": module.main(args, ctx=ctx) }
+```
 
-All setup actions are invoked together by `ops ide setup`. They are run automatically when deploying, but NOT when developing — so whenever you change a setup action you must be explicit and run `ops ide setup` for the change to take effect.
+Because of that, a module return value such as:
 
-Use a dedicated setup action per kind of resource, and always run `ops ide setup` after creating or changing one:
+```python
+{"statusCode": 401, "body": {"error": "Token non fornito"}}
+```
 
-- **Tables** — when you need a new table, create the action `setup/database` (or update it if it already exists), then run `ops ide setup`. Never create tables or seed data in the database outside of `setup/database`. Make every statement idempotent (`CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
-- **Redis keys** — when you need to prepare redis with certain keys, create the action `setup/cache` (or update it if it already exists), then run `ops ide setup`. Never initialize redis keys outside of `setup/cache`. Make it idempotent (only set keys that are missing, e.g. `SET ... NX`).
-- **Milvus collections** — when you need a new collection, create the action `setup/collection` (or update it if it already exists), then run `ops ide setup`. Never create collections outside of `setup/collection`. Make it idempotent (check the collection exists before creating it).
-- **S3 data** — when you need to preload files into the `<user>-data` bucket, create the action `setup/upload` (or update it if it already exists), then run `ops ide setup`. Never seed bucket objects outside of `setup/upload`. Make it idempotent (only upload objects that are missing or changed). The `<user>-web` bucket is initialized separately from the content in the `public` folder — do not upload web content via `setup/upload`.
+can reach the browser as HTTP 200 with that object nested inside JSON if the
+wrapper did not pass it through.
 
-Make the setup actions always:
-- incremental
-- idempotent
-- not destructive
-for example:
-- create a database with `CREATE TABLE IF NOT EXISTS`
-- add fields with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+Therefore:
+
+- Do not edit `__main__.py` just to force HTTP status behavior.
+- Treat editable module return values as application JSON unless the generated
+  wrapper is known to pass web-action envelopes through.
+- Prefer simple module payloads such as `{"ok": False, "error": "..."}` for
+  app-level errors.
+- Frontend fetch code should normalize both direct and wrapped payloads before
+  reading fields.
+
+Use this frontend pattern or an equivalent one:
+
+```ts
+const raw = await response.json();
+const data = raw && typeof raw === "object" && "body" in raw ? raw.body : raw;
+if (!response.ok || data?.ok === false || data?.error) {
+  throw new Error(data?.error || `Request failed: ${response.status}`);
+}
+```
+
+## Setup And Data Initialization
+
+- All initialization belongs in private actions in package `setup`.
+- Setup actions must be incremental, idempotent, and non-destructive.
+- Table creation belongs in `setup/database`.
+- Redis key preparation belongs in `setup/cache`.
+- Milvus collection creation belongs in `setup/collection`.
+- Private S3 data preload belongs in `setup/upload`.
+- Public web assets belong in `public/`, not in setup uploads.
+- Run `ops ide setup` after creating or changing setup actions.
+
+Examples of idempotent setup:
+
+- `CREATE TABLE IF NOT EXISTS ...`
+- `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`
+- Redis `SET ... NX` for keys that should only be seeded once.
+- Check Milvus collection existence before creating it.
+- Upload S3 objects only when missing or changed.
 
 ## Dependencies
 
-### Frontend
--  add frontend dependencies to `package.json` then run `npm install`
+- Add frontend dependencies to `package.json`, then run `npm install`.
+- Add Python dependencies only with `action-requirements`.
+- Add PostgreSQL, Redis, S3, Milvus, and secrets with the corresponding
+  action/service tool. Do not hardcode credentials and do not manually edit
+  generated wrapper code.
 
-### Backend
+## Data And Service Restrictions
 
-- When you need a SQL database, **ALWAYS** use the tool `action-add-postgresql` and the provided context and the already provided `psycopg` library to access it. Never try to add requirements or use directly database connections.
+Retrieve the current user with `ops util whoami` when needed. These
+restrictions are enforced by the platform:
 
-- When you need redis, **ALWAYS** use the tool `action-add-redis` and the provided context and the already provided `redis` library. Never try to add requirements or use directly redis connections.
+- PostgreSQL database is named after the user; the default schema is
+  `<user>_schema`.
+- Milvus database is named after the user.
+- Redis writable keys must be prefixed with `<user>:`.
+- S3 writable buckets are `<user>-data` for private app data and `<user>-web`
+  for public web assets.
+- The S3 MCP cannot list buckets, so assume only the two user buckets above are
+  writable.
 
-- When you need s3, **ALWAYS** use the tool `action-add-s3` and the provided context and the already provided `boto3` library. Never try to add requirements or use directly s3 connections.
+## Validation Checklist
 
-- When you need a vector database, **ALWAYS** use the tool `action-add-milvus` and the provided context and the already provided `pymilvus` library. Never try to add requirements or use directly milvus connections.
+End backend-related work with proof:
 
-- Always use the `action-requirements` tool to add Python libraries. Never edit `requirements.txt` directly.
-
-## Creating Backend Actions
-
-- **ALWAYS** use the `action-new` tool to create new API endpoints. Never create `__main__.py` or action directories directly.
-
-- Never edit `__main__.py`. Edit `packages/<package>/<action>/<module>.py` instead (where `<module>` is `<action>` with `-` replaced by `_`). The main function of this module is invoked with the request parameters and a context object to access services.
-
-## Databases, Redis, Bucket restrictions
-
-Retrieve your `<user>` with `ops util whoami`. These restrictions are enforced by the platform — operations outside them fail.
-
-- **Postgres**: the database is named after `<user>`; the schema is `<user>_schema` and is the default. Do not create or use other databases or schemas.
-- **Milvus**: the database is named after `<user>`. Do not create or use other databases.
-- **Redis**: keys must be prefixed with `<user>:` — keys without this prefix are not writable.
-- **S3**: there are exactly two writable buckets:
-  - `<user>-data` — private. Use this for application data; preload it with the `setup/upload` action (see Initializations).
-  - `<user>-web` — public. Never store private data here. Its content comes from the `public` folder, uploaded automatically on deploy — do not write to it directly.
-
-  The S3 MCP cannot list buckets, so assume only `<user>-data` and `<user>-web` exist.
+- After changing an action module, run the appropriate deploy/redeploy path.
+- After changing setup actions, run `ops ide setup`.
+- Validate public actions with bounded HTTP checks against
+  `/api/my/<package>/<action>`.
+- Verify JSON request fields, method, and headers are visible to the action.
+- Verify frontend fetch handling accepts the response shape actually returned.
+- Use bounded checks such as `timeout <seconds> ...` and `curl`.
+- If validation is impossible, state the blocker instead of asking the user to
+  "try it now" with no local proof.
