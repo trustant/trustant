@@ -56,6 +56,10 @@ wrappers, raw credentials, or guessed `ops` commands.
 - Do not use shell redirection to create or replace source files. Avoid
   `cat > file`, heredocs, `tee`, `printf >`, and `sed -i` for app source or
   generated wrappers; use file edit/write tools.
+- Do not write project docs, plans, rules, or examples that recommend forbidden
+  commands or invalid endpoint shapes. Documentation must not contain examples
+  such as `ops action deploy`, `ops action update`, `v1/auth/register`, or
+  `v1/contacts/list`.
 - Do not read or copy secrets from `~/.ops/config.json` into app source. Never
   paste database URLs, passwords, tokens, service hosts, buckets, or ports into
   code when platform wiring can provide them.

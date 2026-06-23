@@ -77,6 +77,11 @@ The embedded guidance must include these rules:
   The embedded guidance must explicitly forbid `cat > file`, heredocs, `tee`,
   `printf >`, and `sed -i` for app source or generated wrappers, and should
   tell assistants to use file edit/write tools instead.
+- Assistants must not write project docs, plans, rules, or examples that
+  recommend forbidden commands or invalid endpoint shapes. The embedded
+  guidance must explicitly say documentation must not contain examples such as
+  `ops action deploy`, `ops action update`, `v1/auth/register`, or
+  `v1/contacts/list`.
 - Assistants must not read or copy secrets from `~/.ops/config.json` into app
   source. They must never paste database URLs, passwords, tokens, service
   hosts, buckets, or ports into code when platform wiring can provide them.
