@@ -367,6 +367,9 @@ if (!response.ok || data?.ok === false || data?.error) {
 When an app has login or registration:
 
 - Treat login/register as the only public UI flows.
+- Replace starter placeholder screens. The root route must redirect to login,
+  render login, or render the authenticated app based on session state; it must
+  not keep the Trustable starter/welcome template.
 - Hide protected navigation items such as dashboards, contacts, orders,
   settings, admin, or profile until the user is authenticated.
 - Protect direct routes too. If an unauthenticated user opens a protected hash
@@ -451,5 +454,8 @@ End backend-related work with proof:
 - Verify JSON request fields, method, and headers are visible to the action.
 - Verify frontend fetch handling accepts the response shape actually returned.
 - Use bounded checks such as `timeout <seconds> ...` and `curl`.
+- Do not hide validation failures with `|| true`, forced zero exits, or output
+  truncation that can mask the first error. Let checks fail loudly, then fix the
+  failure.
 - If validation is impossible, state the blocker instead of asking the user to
   "try it now" with no local proof.

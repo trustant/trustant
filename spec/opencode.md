@@ -395,6 +395,9 @@ if (!response.ok || data?.ok === false || data?.error) {
 When an app has login or registration, the embedded guidance must say:
 
 - login/register are the only public UI flows;
+- starter placeholder screens must be replaced. The root route must redirect to
+  login, render login, or render the authenticated app based on session state;
+  it must not keep the Trustable starter/welcome template;
 - protected navigation items such as dashboards, contacts, orders, settings,
   admin, or profile must be hidden until the user is authenticated;
 - direct protected routes must also be guarded: an unauthenticated user opening a
@@ -477,6 +480,9 @@ The embedded guidance must end backend-related changes with local proof:
 - verify JSON request fields, method, and headers are visible to the action;
 - verify frontend fetch handling accepts the response shape actually returned;
 - use bounded checks such as `timeout <seconds> ...` and `curl`;
+- never hide validation failures with `|| true`, forced zero exits, or output
+  truncation that can mask the first error. Checks must fail loudly so the
+  assistant fixes the failure;
 - never leave the user with only "try it now" unless validation was impossible
   and the blocker is stated.
 
