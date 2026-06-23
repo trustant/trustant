@@ -107,12 +107,13 @@ The embedded guidance must include a concrete backend execution loop:
 1. Design action endpoint names and reject invalid nested names before creating
    files.
 2. Create actions with the OpenServerless MCP action tool.
-3. Add service wiring with the matching action/service tool after the action
-   files exist.
+3. If an action reads or writes a platform service, immediately add service
+   wiring with the matching action/service tool after the action files exist and
+   before editing the module logic.
 4. Edit only the generated editable module, not `__main__.py`.
 5. Add Python libraries with `action-requirements`.
-6. Run setup/deploy, inspect logs on failure, then validate via the real HTTP
-   app path.
+6. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
+   changes, inspect logs on failure, then validate via the real HTTP app path.
 
 The guidance must tell assistants how to choose the backend shape:
 
@@ -153,6 +154,13 @@ the exposed tools in the current tool list or generated `opencode.json`. If an
 `ops` command reports `no command named ...`, assistants must not keep guessing
 subcommands; they should use the MCP action tools above or inspect the available
 task list with bounded commands.
+
+The embedded guidance must explicitly say not to use `ops action deploy`
+because it is not an app workflow command. It must also say not to use
+`ops action update`, `ops action create`, or raw `ops action` commands as the
+normal deploy path for edited app modules. After changing public action modules,
+assistants must run `timeout <seconds> ops ide deploy`. After changing setup
+actions, assistants must run `timeout <seconds> ops ide setup`.
 
 For new public HTTP endpoints, the guidance must say to use package `v1` unless
 the user explicitly asks for another package. A public action is reachable at
@@ -239,6 +247,11 @@ feature complete unless the user explicitly asks for an administrative data
 repair. For normal app work, they must fix the setup/action code and rerun the
 app path. Read-only MCP checks such as listing tables or selecting rows are
 allowed as supporting evidence after the app path succeeds.
+
+The embedded guidance must tell assistants to use exact PostgreSQL MCP tool
+names when inspecting PostgreSQL. For schemas, use `postgres_list_schemas`. For
+tables/views in a schema, use `postgres_list_objects`. It must explicitly forbid
+generic invented names such as `list_schemas`.
 
 ## PostgreSQL Action Pattern
 
