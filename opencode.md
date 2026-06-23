@@ -273,6 +273,25 @@ if (!response.ok || data?.ok === false || data?.error) {
 }
 ```
 
+## Authentication UI Rules
+
+When an app has login or registration:
+
+- Treat login/register as the only public UI flows.
+- Hide protected navigation items such as dashboards, contacts, orders,
+  settings, admin, or profile until the user is authenticated.
+- Protect direct routes too. If an unauthenticated user opens a protected hash
+  route directly, redirect to the login/register route or render the auth view,
+  not the protected page.
+- After login, store only the returned session/token/user data needed by the
+  frontend, then derive the authenticated UI state from that data or from a
+  bounded `me` check.
+- Add an explicit logout path when protected navigation is shown.
+- Do not hardcode browser-visible identity such as `user_id=1` in fetch URLs or
+  request bodies. The backend must derive the current user from authenticated
+  request state, such as a token/session header, not from a user id supplied by
+  the browser.
+
 ## Setup And Data Initialization
 
 - All initialization belongs in private actions in package `setup`.
