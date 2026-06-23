@@ -353,6 +353,12 @@ file referenced by the config). The action tools are no longer copied as an
 embedded `tools/` folder; they are provided by the `openserverless` MCP server
 wired into the `mcp` section.
 
+The content contract for the embedded `opencode.md` lives in
+[opencode.md](opencode.md). Keep that spec synchronized with the embedded file:
+it defines the serverless mental model, required OpenServerless action/MCP
+guidance, web-action request/response handling, and validation checklist that
+coding assistants must receive.
+
 The language servers are stdio programs. OpenCode launches and supervises
 `typescript-language-server --stdio` and `pylsp` when matching file types are
 used. Do not add them as long-running `supervisord` programs.
