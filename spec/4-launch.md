@@ -46,6 +46,24 @@ The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global en
 
 When the workbench already exists (reuse path), also regenerate the `.env` files to keep them in sync with the current config.
 
+## ensure required folders
+
+After the workbench checkout is ready (clone or reuse), verify the required
+folders exist in `<workbenchdir>/<name>` and scaffold any that are missing:
+
+- If there is no `packages` folder, create it with an empty `packages/.gitkeep` file.
+- If there is no `web` folder, create it and seed it from the embedded assets:
+  - `web/index.html` from the embedded `web/template.html`
+  - `web/favicon.ico` and `web/trustable-head.png` (the template references both
+    by relative path).
+
+  Only do this when the `web` folder did **not** already exist — if the app already
+  ships its own `web/`, leave it untouched (do not overwrite its files).
+
+If anything was created, `git add` the created files (`packages/.gitkeep`,
+`web/index.html`, and, when seeded, `web/favicon.ico` and `web/trustable-head.png`)
+and commit them with the message `adding required web and packages`.
+
 ## opencode project bookkeeping
 
 After the workbench is ready (clone or reuse), bind the workbench to a stable
@@ -147,11 +165,12 @@ old embedded `tools/` plugins. It is installed globally in the image as
 }
 ```
 
-# if the app uses AgentiReact add the agentireact MCP server:
+# if the app uses Agentic React add the agentireact MCP server:
 
 Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
 `vite.config.js` or `vite.config.ts`). If that file exists and its contents
-contain `AgentiReact()`, the running app exposes an MCP endpoint over HTTP at
+reference the `@agentic-react/vite` plugin (imported and invoked as
+`AgenticReact()`), the running app exposes an MCP endpoint over HTTP at
 `http://localhost:5173/mcp` (the `opsdevel` dev server on port 5173). Add a
 remote MCP server pointing at it:
 
@@ -163,7 +182,7 @@ remote MCP server pointing at it:
 }
 ```
 
-If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
+If no `vite.config.*` exists or none references `@agentic-react/vite`, skip this server.
 
 # if config.s3.host is defined and not empty add:
 
@@ -431,8 +450,15 @@ If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`
 
 Wait that both the processes are up and running and ports are listening.
 
-When ok, execute a POST to the opencode session endpoint with header
-"X-Opencode-Directory: <directory>" and log the result of this invocation.
+
+When ok, query `GET http://localhost:4096/session?directory=<directory>&roots=true&limit=20`.
+If it returns existing root sessions, prefer the newest non-empty session. A
+session is non-empty when it has token activity or a title other than the
+default `New session - ...` placeholder. If no non-empty session exists, reuse
+the newest returned session. Only when no session exists, execute a POST to
+`http://localhost:4096/session/` with header `X-Opencode-Directory: <directory>`
+and log the result of this invocation.
+
 
 The POST must target the **opencode host**, not localhost: take the request host,
 strip its port, swap the `trustable.` hostname prefix for `opencode.`, and POST to
@@ -447,7 +473,7 @@ then return:
   "right": <opsdeve-port>,
   "b64dir": <base64-urlsafe-encoded directory>,
   "encdir": <absolute directory>,
-  "session_id": <id returned by the opencode session POST, or "">,
+  "session_id": <reused-or-created-opencode-session-id>,
   "skills_added": <true if skills were freshly added this launch>
 }`
 

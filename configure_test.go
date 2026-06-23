@@ -287,8 +287,9 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	}
 }
 
-// When vite.config.* contains AgentiReact(), the agentireact remote MCP server
-// is added to opencode.json and translated to an http server in .mcp.json.
+// When vite.config.* imports the @agentic-react/vite plugin, the agentireact
+// remote MCP server is added to opencode.json and translated to an http server
+// in .mcp.json.
 func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
@@ -299,7 +300,7 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
-	vite := "import AgentiReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgentiReact()] }\n"
+	vite := "import AgenticReact from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n"
 	if err := os.WriteFile(filepath.Join(appDir, "vite.config.ts"), []byte(vite), 0644); err != nil {
 		t.Fatalf("write vite config: %s", err)
 	}
@@ -351,7 +352,7 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 	}
 }
 
-// Without an AgentiReact() opt-in, no agentireact server is added.
+// Without an @agentic-react/vite opt-in, no agentireact server is added.
 func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })

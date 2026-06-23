@@ -15,7 +15,11 @@ if [ -n "$USERID" ] && [ "$USERID" != "769" ]
 then /usr/sbin/usermod -u $USERID trustable
 fi
 
-chown -Rvf trustable:trustable "$HOME"
+echo "Changing permissions to workspace, file count:"
+chown -Rvf trustable:trustable "$HOME" | wc -l
+echo "Showing ops -info:"
+sudo -u trustable bash -c "source ~/.bashrc && ~/.local/bin/ops -info"
+
 
 # start supervisor
 supervisord -c /etc/supervisord.ini

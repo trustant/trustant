@@ -1010,16 +1010,19 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	return nil
 }
 
-// appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.
-// It checks vite.config.js and vite.config.ts in projectDir for a call to
-// AgentiReact(); a missing or unreadable config means false.
+// appUsesAgentiReact reports whether the app's Vite config opts into Agentic
+// React. It checks vite.config.js and vite.config.ts in projectDir for the
+// @agentic-react/vite plugin (imported and invoked as `AgenticReact()`); a
+// missing or unreadable config means false. The match is on the plugin package
+// `@agentic-react/vite` because that import is unambiguous regardless of the
+// local name the app binds the default export to.
 func appUsesAgentiReact(projectDir string) bool {
 	for _, name := range []string{"vite.config.js", "vite.config.ts"} {
 		data, err := os.ReadFile(filepath.Join(projectDir, name))
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), "AgentiReact()") {
+		if strings.Contains(string(data), "@agentic-react/vite") {
 			return true
 		}
 	}

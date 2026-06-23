@@ -50,6 +50,12 @@ The Git Push and Publish buttons are always rendered and always call their respe
 
 ## Adding an application
 
+Below the "Add Application" heading, show an explanatory note:
+
+> **Important:** you need a template compatible with [Trustable conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable). It is recommended you use this starter: trureact (click the link to use it). If you provide an empty repo we will try to make it compatible.
+
+The "trureact" word in the note is a clickable link that fills the form: Name with "trureact", Password with "trureact", and Repo with "trustable-ai/trureact".
+
 When you add an application it will ask for:
 
 - an application name
@@ -57,9 +63,6 @@ When you add an application it will ask for:
 - a github repo in format <org>/<repo>
 
 with a button "Create" and "Cancel"
-
-Show "Use our starter:" followed by a clickable link: trureact.
-Clicking the link fills the form: Name with "trureact", Password with "trureact", and Repo with "trustable-ai/trureact".
 
 If the SSH key is available (GET /api/sshkey returns 200), show a yellow notice inside the Add Application modal with the text:
 
@@ -104,6 +107,7 @@ You can click the button `edit` to open an app
   - the URLDIR in a cookie using the backend `encdir` value
   - the B64DIR in a cookie using the backend `b64dir` value
   navigate to the page app.html
+  - the SESSIONID in a cookie using the backend `session_id` value
 
 ## Revert
 

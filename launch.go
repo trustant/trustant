@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -746,6 +747,92 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 	}
 }
 
+// opencodeSession mirrors the subset of opencode's session object we care about
+// when deciding whether to reuse an existing session (see spec/4-launch.md).
+type opencodeSession struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Time  struct {
+		Created int64 `json:"created"`
+		Updated int64 `json:"updated"`
+	} `json:"time"`
+	Tokens struct {
+		Input  int64 `json:"input"`
+		Output int64 `json:"output"`
+	} `json:"tokens"`
+}
+
+// hasActivity reports whether a session is non-empty: it has token activity or a
+// title other than the default "New session - ..." placeholder (spec/4-launch.md).
+func (s opencodeSession) hasActivity() bool {
+	if s.Tokens.Input > 0 || s.Tokens.Output > 0 {
+		return true
+	}
+	title := strings.TrimSpace(s.Title)
+	return title != "" && !strings.HasPrefix(title, "New session - ")
+}
+
+// resolveOpencodeSession returns the id of the session to use for the launched
+// app. It first queries opencode's root sessions for the workbench directory and
+// prefers the newest non-empty session; if none are non-empty it reuses the
+// newest returned session. Only when no session exists does it create a new one
+// via createOpencodeSession (see spec/4-launch.md). Failures are non-fatal.
+func resolveOpencodeSession(domain string, port int, directory string) string {
+	sessions := listOpencodeSessions(domain, port, directory)
+	if len(sessions) > 0 {
+		// Newest non-empty session, else newest session overall. The list is
+		// scanned for the max updated time in each category.
+		var best, newest *opencodeSession
+		for i := range sessions {
+			s := &sessions[i]
+			if newest == nil || s.Time.Updated > newest.Time.Updated {
+				newest = s
+			}
+			if s.hasActivity() && (best == nil || s.Time.Updated > best.Time.Updated) {
+				best = s
+			}
+		}
+		chosen := best
+		if chosen == nil {
+			chosen = newest
+		}
+		log.Printf("opencode: reusing session %s (active=%t) for %s", chosen.ID, best != nil, directory)
+		return chosen.ID
+	}
+	return createOpencodeSession(domain, port, directory)
+}
+
+// listOpencodeSessions queries opencode for the root sessions scoped to the
+// given directory. Returns nil on any failure (treated as "no sessions").
+func listOpencodeSessions(domain string, port int, directory string) []opencodeSession {
+	reqURL := fmt.Sprintf("http://%s:%d/session?directory=%s&roots=true&limit=20", domain, port, url.QueryEscape(directory))
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		log.Printf("opencode session list: failed to build request: %s", err)
+		return nil
+	}
+	req.Header.Set("X-Opencode-Directory", directory)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("opencode session list %s failed: %s", reqURL, err)
+		return nil
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("opencode session list %s -> %d: %s", reqURL, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil
+	}
+	var sessions []opencodeSession
+	if err := json.Unmarshal(body, &sessions); err != nil {
+		log.Printf("Warning: failed to parse OpenCode session list: %s", err)
+		return nil
+	}
+	return sessions
+}
+
 // createOpencodeSession POSTs to opencode's /session/ endpoint with the
 // workbench directory header so the running opencode server scopes its session
 // to the launched app. The POST targets <domain>:<port> (not localhost) because
@@ -778,6 +865,79 @@ func createOpencodeSession(domain string, port int, directory string) string {
 		return ""
 	}
 	return session.ID
+}
+
+// ensureRequiredWorkbenchFolders scaffolds the folders every app must have
+// (spec/4-launch.md "ensure required folders"). It creates packages/.gitkeep
+// when packages/ is missing, and seeds web/ (index.html from the embedded
+// template plus favicon.ico and trustable-head.png) when web/ does not already
+// exist — an app shipping its own web/ is left untouched. Any created files are
+// staged and committed with a fixed message. Best-effort: failures are logged,
+// never fatal to a launch.
+func ensureRequiredWorkbenchFolders(workbenchPath string) {
+	var created []string
+
+	// packages/.gitkeep
+	packagesDir := filepath.Join(workbenchPath, "packages")
+	if _, err := os.Stat(packagesDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(packagesDir, 0755); err != nil {
+			log.Printf("ensureRequiredWorkbenchFolders: failed to create packages/: %s", err)
+		} else if err := os.WriteFile(filepath.Join(packagesDir, ".gitkeep"), []byte{}, 0644); err != nil {
+			log.Printf("ensureRequiredWorkbenchFolders: failed to write packages/.gitkeep: %s", err)
+		} else {
+			created = append(created, "packages/.gitkeep")
+		}
+	}
+
+	// web/ — only seed when the folder does not already exist.
+	webDir := filepath.Join(workbenchPath, "web")
+	if _, err := os.Stat(webDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(webDir, 0755); err != nil {
+			log.Printf("ensureRequiredWorkbenchFolders: failed to create web/: %s", err)
+		} else {
+			// index.html from the embedded template, plus the assets it references.
+			seeds := map[string]string{
+				"index.html":         "web/template.html",
+				"favicon.ico":        "web/favicon.ico",
+				"trustable-head.png": "web/trustable-head.png",
+			}
+			for dest, src := range seeds {
+				data, err := embeddedWeb.ReadFile(src)
+				if err != nil {
+					log.Printf("ensureRequiredWorkbenchFolders: failed to read embedded %s: %s", src, err)
+					continue
+				}
+				if err := os.WriteFile(filepath.Join(webDir, dest), data, 0644); err != nil {
+					log.Printf("ensureRequiredWorkbenchFolders: failed to write web/%s: %s", dest, err)
+					continue
+				}
+				created = append(created, "web/"+dest)
+			}
+		}
+	}
+
+	if len(created) == 0 {
+		return
+	}
+
+	if err := ensureGitIdentity(workbenchPath); err != nil {
+		log.Printf("ensureRequiredWorkbenchFolders: %s", err)
+		return
+	}
+	addArgs := append([]string{"add"}, created...)
+	addCmd := exec.Command("git", addArgs...)
+	addCmd.Dir = workbenchPath
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		log.Printf("ensureRequiredWorkbenchFolders: git add failed: %s", string(output))
+		return
+	}
+	commitCmd := exec.Command("git", "commit", "-m", "adding required web and packages")
+	commitCmd.Dir = workbenchPath
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		log.Printf("ensureRequiredWorkbenchFolders: git commit failed: %s", string(output))
+		return
+	}
+	log.Printf("ensureRequiredWorkbenchFolders: scaffolded and committed %v", created)
 }
 
 // handleLaunchGet handles GET /api/launch/<app>
@@ -840,6 +1000,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
 		}
 	}
+
+	// Ensure the required folders exist (packages/, web/) after checkout.
+	ensureRequiredWorkbenchFolders(workbenchPath)
+
 	ensureOpenCodeProjectID(workbenchPath, app)
 	cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
 
@@ -1122,7 +1286,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// is served on opencode.<domain> (the ingress routes by hostname prefix — see
 	// middleware.go), so swap the prefix before POSTing.
 	opencodeHost := strings.Replace(domain, "trustable.", "opencode.", 1)
-	sessionID := createOpencodeSession(opencodeHost, leftPort, absPath)
+	sessionID := resolveOpencodeSession(opencodeHost, leftPort, absPath)
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
