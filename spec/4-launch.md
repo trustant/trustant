@@ -46,24 +46,6 @@ The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global en
 
 When the workbench already exists (reuse path), also regenerate the `.env` files to keep them in sync with the current config.
 
-## ensure required folders
-
-After the workbench checkout is ready (clone or reuse), verify the required
-folders exist in `<workbenchdir>/<name>` and scaffold any that are missing:
-
-- If there is no `packages` folder, create it with an empty `packages/.gitkeep` file.
-- If there is no `web` folder, create it and seed it from the embedded assets:
-  - `web/index.html` from the embedded `web/template.html`
-  - `web/favicon.ico` and `web/trustable-head.png` (the template references both
-    by relative path).
-
-  Only do this when the `web` folder did **not** already exist — if the app already
-  ships its own `web/`, leave it untouched (do not overwrite its files).
-
-If anything was created, `git add` the created files (`packages/.gitkeep`,
-`web/index.html`, and, when seeded, `web/favicon.ico` and `web/trustable-head.png`)
-and commit them with the message `adding required web and packages`.
-
 ## opencode project bookkeeping
 
 After the workbench is ready (clone or reuse), bind the workbench to a stable
@@ -122,11 +104,19 @@ every launch) are exactly those in
 [2a-config.md](2a-config.md#prepare-opencode-config), except the file is written
 to the project directory instead of `~/.config/opencode/`.
 
-`opencode.md` is written **alongside** the config in the project directory, and
-`instructions` references the project's own `<workbenchdir>/<app>/opencode.md`
-(not an absolute `~/.config` path). The OpenServerless action tools are no longer
-written as embedded plugin files; they are provided by the `openserverless` MCP
-server wired into the `mcp` section (see below).
+`.openserverless-contract.md` and `opencode.md` are written **alongside** the
+config in the project directory. `instructions` references the project's own
+`<workbenchdir>/<app>/.openserverless-contract.md` first and
+`<workbenchdir>/<app>/opencode.md` second (not absolute `~/.config` paths).
+The OpenServerless action tools are no longer written as embedded plugin files;
+they are provided by the `openserverless` MCP server wired into the `mcp`
+section (see below).
+
+The launch/config generation also installs
+`~/.local/bin/check_openserverless_actions.sh` with executable mode. This
+checker is installed once per Trustable user, not duplicated into every app
+repo. The generated app contract tells OpenCode to run it with the current app
+path before deploy.
 
 The full file looks like (lsp + mcp shown; provider/model/instructions sections
 per the rules above):
@@ -165,12 +155,11 @@ old embedded `tools/` plugins. It is installed globally in the image as
 }
 ```
 
-# if the app uses Agentic React add the agentireact MCP server:
+# if the app uses AgentiReact add the agentireact MCP server:
 
 Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
 `vite.config.js` or `vite.config.ts`). If that file exists and its contents
-reference the `@agentic-react/vite` plugin (imported and invoked as
-`AgenticReact()`), the running app exposes an MCP endpoint over HTTP at
+contain `AgentiReact()`, the running app exposes an MCP endpoint over HTTP at
 `http://localhost:5173/mcp` (the `opsdevel` dev server on port 5173). Add a
 remote MCP server pointing at it:
 
@@ -182,7 +171,7 @@ remote MCP server pointing at it:
 }
 ```
 
-If no `vite.config.*` exists or none references `@agentic-react/vite`, skip this server.
+If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
 
 # if config.s3.host is defined and not empty add:
 
@@ -381,9 +370,17 @@ model/small_model defaults, `disabled_providers`, `instructions`, `lsp`, and the
 `~/.config/opencode/opencode.json` — do not generate, symlink, or copy one.
 
 Note: `opencode.md` is written into the project directory alongside
-`opencode.json`, and `instructions` references the project's own
-`<workbenchdir>/<app>/opencode.md`. The action tools come from the
+`opencode.json` and `.openserverless-contract.md`. The checker is installed
+once at `~/.local/bin/check_openserverless_actions.sh`. The `instructions`
+array references the project's own
+`<workbenchdir>/<app>/.openserverless-contract.md` first and
+`<workbenchdir>/<app>/opencode.md` second. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
+The checker must not flag `.zip` files created by `ops ide deploy` under
+`packages/` as failures merely because they exist.
+It must not flag standard generated `__main__.py` PostgreSQL wiring as business
+logic merely because the wrapper imports `psycopg`, reads `POSTGRES_URL`, and
+assigns `ctx.POSTGRESQL`.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated
@@ -450,15 +447,8 @@ If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`
 
 Wait that both the processes are up and running and ports are listening.
 
-
-When ok, query `GET http://localhost:4096/session?directory=<directory>&roots=true&limit=20`.
-If it returns existing root sessions, prefer the newest non-empty session. A
-session is non-empty when it has token activity or a title other than the
-default `New session - ...` placeholder. If no non-empty session exists, reuse
-the newest returned session. Only when no session exists, execute a POST to
-`http://localhost:4096/session/` with header `X-Opencode-Directory: <directory>`
-and log the result of this invocation.
-
+When ok, execute a POST to the opencode session endpoint with header
+"X-Opencode-Directory: <directory>" and log the result of this invocation.
 
 The POST must target the **opencode host**, not localhost: take the request host,
 strip its port, swap the `trustable.` hostname prefix for `opencode.`, and POST to
@@ -473,7 +463,7 @@ then return:
   "right": <opsdeve-port>,
   "b64dir": <base64-urlsafe-encoded directory>,
   "encdir": <absolute directory>,
-  "session_id": <reused-or-created-opencode-session-id>,
+  "session_id": <id returned by the opencode session POST, or "">,
   "skills_added": <true if skills were freshly added this launch>
 }`
 

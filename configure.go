@@ -893,18 +893,21 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 // single, self-contained <workbench>/<app>/opencode.json — there is no global
 // ~/.config/opencode/opencode.json. It holds the provider, model defaults,
 // disabled_providers, instructions, lsp, and the mcp servers built from
-// ~/.ops/config.json. opencode.md and the tools/ folder are written alongside it
-// in the project folder and referenced by project-relative path.
+// ~/.ops/config.json. The OpenServerless contract and opencode.md are written
+// alongside it in the project folder and referenced by absolute path where
+// OpenCode expects instruction files. The checker is installed once in the
+// user's local bin and invoked with the project path.
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	projectDir := filepath.Join(WorkbenchDir, appName)
 	mcp := buildLaunchMCPConfig()
 	return generateOpencodeConfigInDir(cfg, projectDir, mcp)
 }
 
-// generateOpencodeConfigInDir writes the full opencode.json (plus opencode.md)
-// into projectDir, merging against any existing opencode.json there to preserve
-// custom providers/lsp/mcp entries. The action tools are provided by the
-// openserverless MCP server wired into the mcp section, not copied as files.
+// generateOpencodeConfigInDir writes the full opencode.json plus generated
+// OpenServerless guidance into projectDir. The file is fully regenerated on
+// every launch; custom provider/lsp/mcp entries from a previous opencode.json
+// are not preserved. The action tools are provided by the openserverless MCP
+// server wired into the mcp section, not copied as plugins.
 func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
 	providers := make(map[string]interface{})
 
@@ -922,10 +925,13 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
 
+	contractPath := filepath.Join(projectDir, ".openserverless-contract.md")
+	mdPath := filepath.Join(projectDir, "opencode.md")
+
 	config := map[string]interface{}{
 		"$schema":            "https://opencode.ai/config.json",
 		"disabled_providers": defaultDisabledOpenCodeProviders(),
-		"instructions":       []string{filepath.Join(projectDir, "opencode.md")},
+		"instructions":       []string{contractPath, mdPath},
 		"provider":           providers,
 		"lsp":                defaultOpenCodeLSPConfig(),
 	}
@@ -986,12 +992,23 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 
 	log.Printf("  - Written to %s", configPath)
 
-	// Write opencode.md instructions file alongside the config in the project dir
-	mdPath := filepath.Join(projectDir, "opencode.md")
+	// Write the short OpenServerless contract and the longer opencode.md
+	// instructions alongside the config in the project dir.
+	if err := os.WriteFile(contractPath, []byte(openserverlessContractMd), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", contractPath, err)
+	}
+	log.Printf("  - Written to %s", contractPath)
+
 	if err := os.WriteFile(mdPath, []byte(opencodeMd), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", mdPath, err)
 	}
 	log.Printf("  - Written to %s", mdPath)
+
+	checkerPath, err := ensureOpenServerlessCheckerInstalled()
+	if err != nil {
+		return err
+	}
+	log.Printf("  - OpenServerless checker available at %s", checkerPath)
 
 	// The action tools are no longer copied into the project dir as embedded
 	// @opencode-ai/plugin scripts; they are now provided by the openserverless
@@ -1010,19 +1027,50 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	return nil
 }
 
-// appUsesAgentiReact reports whether the app's Vite config opts into Agentic
-// React. It checks vite.config.js and vite.config.ts in projectDir for the
-// @agentic-react/vite plugin (imported and invoked as `AgenticReact()`); a
-// missing or unreadable config means false. The match is on the plugin package
-// `@agentic-react/vite` because that import is unambiguous regardless of the
-// local name the app binds the default export to.
+var openServerlessCheckerInstallPathOverride string
+
+func openServerlessCheckerInstallPath() (string, error) {
+	if openServerlessCheckerInstallPathOverride != "" {
+		return openServerlessCheckerInstallPathOverride, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home dir for OpenServerless checker: %w", err)
+	}
+	return filepath.Join(home, ".local", "bin", "check_openserverless_actions.sh"), nil
+}
+
+func ensureOpenServerlessCheckerInstalled() (string, error) {
+	checkerPath, err := openServerlessCheckerInstallPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(checkerPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create %s: %w", filepath.Dir(checkerPath), err)
+	}
+	content := []byte(openserverlessCheckerSh)
+	if existing, err := os.ReadFile(checkerPath); err == nil && bytes.Equal(existing, content) {
+		if err := os.Chmod(checkerPath, 0755); err != nil {
+			return "", fmt.Errorf("failed to chmod %s: %w", checkerPath, err)
+		}
+		return checkerPath, nil
+	}
+	if err := os.WriteFile(checkerPath, content, 0755); err != nil {
+		return "", fmt.Errorf("failed to write %s: %w", checkerPath, err)
+	}
+	return checkerPath, nil
+}
+
+// appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.
+// It checks vite.config.js and vite.config.ts in projectDir for a call to
+// AgentiReact(); a missing or unreadable config means false.
 func appUsesAgentiReact(projectDir string) bool {
 	for _, name := range []string{"vite.config.js", "vite.config.ts"} {
 		data, err := os.ReadFile(filepath.Join(projectDir, name))
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), "@agentic-react/vite") {
+		if strings.Contains(string(data), "AgentiReact()") {
 			return true
 		}
 	}
@@ -1034,6 +1082,7 @@ func appUsesAgentiReact(projectDir string) bool {
 //   - type "local" (command array + optional environment) -> stdio (command
 //     string + args + env)
 //   - type "remote" (url) -> http (url)
+//
 // OpenCode-only fields (enabled, timeout) are dropped.
 func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 	servers := make(map[string]interface{})

@@ -32,6 +32,30 @@ wrappers, raw credentials, or guessed `ops` commands.
 - Every backend change should end with bounded validation against the real
   deployed action endpoint.
 
+## Critical Recovery Contract
+
+Before touching actions, databases, setup, seed data, deploys, or service
+state, read `.openserverless-contract.md` if it exists. It is the short
+recovery contract for this app and takes priority for OpenServerless workflow
+details.
+
+Trustable installs `check_openserverless_actions.sh` once in the user PATH. Run
+it against the current app before deploying backend changes:
+
+```bash
+timeout 60 check_openserverless_actions.sh .
+```
+
+If the checker reports hard failures, fix them before deploy and re-read
+`.openserverless-contract.md` before editing again. If the contract is missing
+or the checker is unavailable in PATH, say so and fall back to this file's
+rules. Do not invent manual zip or raw `ops action create/update/deploy`
+workflows.
+
+After compaction, do not continue editing from memory. Re-read this file,
+`.openserverless-contract.md` if present, `opencode.json`, and git status.
+Then inspect available MCP/tool names before touching action or service code.
+
 ## Non-Negotiable Rules
 
 - Never create a backend server. Create public or private actions instead.
@@ -40,6 +64,11 @@ wrappers, raw credentials, or guessed `ops` commands.
   or `ops ide devel`.
 - Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
   hang.
+- Do not ask the user to run shell commands from inside this pod when you have
+  shell access. Run bounded checks yourself, including `ops ide deploy`, `curl`,
+  `npm run build`, `python3 -m compileall`, and `git diff --check`. Ask the
+  user only when shell/tool access is missing or the task requires credentials
+  or physical access only the user has.
 - Do not build or deploy the Trustable product itself. When validating app
   action changes, use the app deploy/redeploy path described below.
 - Put feature logic, request parsing, auth checks, and business behavior in the
@@ -99,15 +128,17 @@ wrappers, raw credentials, or guessed `ops` commands.
 
 Use this execution loop for backend work:
 
-1. Design the action endpoint names and reject invalid nested names before
+1. Read `.openserverless-contract.md` if present and run the checker before
+   deploy when it exists.
+2. Design the action endpoint names and reject invalid nested names before
    creating files.
-2. Create actions with the OpenServerless MCP action tool.
-3. If an action reads or writes a platform service, immediately add service
+3. Create actions with the OpenServerless MCP action tool.
+4. If an action reads or writes a platform service, immediately add service
    wiring with the matching action/service tool after the action files exist
    and before editing the module logic.
-4. Edit only the generated editable module, not `__main__.py`.
-5. Add Python libraries with `action-requirements`.
-6. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
+5. Edit only the generated editable module, not `__main__.py`.
+6. Add Python libraries with `action-requirements`.
+7. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
    changes, inspect logs on failure, then validate via the real HTTP app path.
 
 Choose the backend shape this way:
@@ -229,6 +260,27 @@ When inspecting PostgreSQL through MCP, use the exact exposed tool names. For
 schemas use `postgres_list_schemas`. For tables/views in a schema use
 `postgres_list_objects`. Do not call generic names such as `list_schemas`.
 
+## Runtime Host Rules
+
+OpenCode runs inside the Trustable pod. Classify hosts before using them:
+
+- `localhost:5173` is the pod-local app dev server started by `ops ide devel`.
+  Use it for normal app HTTP validation from this shell.
+- `localhost:4096` is the pod-local OpenCode server.
+- `trustable.<domain>` is the browser-visible Trustable UI/API host.
+- `vite.<domain>` is the browser-visible app host through Trustable
+  proxy/ingress. Use it only after `ops ide deploy` succeeds and only when
+  external browser or ingress routing is in scope.
+- `opencode.<domain>` is the browser-visible OpenCode host.
+- `OPS_APIHOST` is the configured OpenServerless API host.
+
+Do not invent pod IPs, raw service names, public domains, or replacement
+localhost URLs for app verification. For app endpoints from this shell, prefer:
+
+```bash
+curl http://localhost:5173/api/my/<package>/<action>
+```
+
 ## PostgreSQL Action Pattern
 
 After `action-add-postgresql` / `action_add_postgresql`, the generated wrapper
@@ -322,6 +374,46 @@ auth_header = headers.get("authorization", "")
 
 If a raw or non-JSON request body is needed, handle `__ow_body` explicitly.
 Most app JSON endpoints should not need raw body handling.
+
+For REST-style item routes, do not assume `__ow_path` always contains the full
+public URL. It can be a suffix or a different shape depending on the
+OpenServerless web action route. Use body `id` only as a fallback, not as the
+only way update/delete works.
+
+Use this pattern or an equivalent one for item ids:
+
+```python
+def request_route_id(args, data, resource_name):
+    for key in ("id", f"{resource_name}_id"):
+        value = data.get(key)
+        if value not in (None, ""):
+            return str(value)
+
+    raw_path = str(args.get("__ow_path") or args.get("path") or "").strip("/")
+    if not raw_path:
+        return ""
+
+    parts = [part for part in raw_path.split("/") if part]
+    if not parts:
+        return ""
+
+    if resource_name in parts:
+        index = parts.index(resource_name)
+        if index + 1 < len(parts):
+            return parts[index + 1]
+
+    return parts[-1]
+```
+
+For CRUD resources, test both update and delete through the public HTTP path:
+
+```bash
+curl -X PUT http://localhost:5173/api/my/v1/<resource>/<id> ...
+curl -X DELETE http://localhost:5173/api/my/v1/<resource>/<id> ...
+```
+
+A test that only calls `/api/my/v1/<resource>` with `{"id": ...}` in the body
+does not prove the REST-style item route works.
 
 ## Web Action Response Rules
 
@@ -446,10 +538,18 @@ restrictions are enforced by the platform:
 
 End backend-related work with proof:
 
+- Run `timeout 60 check_openserverless_actions.sh .` before deploy when the
+  checker is available.
 - After changing an action module, run the appropriate deploy/redeploy path.
 - After changing setup actions, run `ops ide setup`.
 - Validate public actions with bounded HTTP checks against
-  `/api/my/<package>/<action>`.
+  `http://localhost:5173/api/my/<package>/<action>` from inside this pod.
+- For CRUD resources, validate the full create/list/update/delete matrix. Test
+  `PUT /api/my/v1/<resource>/<id>` and
+  `DELETE /api/my/v1/<resource>/<id>` without relying only on `id` in the JSON
+  body, then read back to confirm the updated value or deleted absence.
+- Use `vite.<domain>` only after deploy and only for explicit external
+  browser/ingress checks.
 - `ops action invoke` by itself is not enough proof when it only prints an
   activation id such as `ok: invoked ...`; inspect the action result/logs or
   validate through the HTTP endpoint.

@@ -18,6 +18,12 @@ var buildTxt string
 //go:embed opencode.md
 var opencodeMd string
 
+//go:embed openserverless-contract.md
+var openserverlessContractMd string
+
+//go:embed check_openserverless_actions.sh
+var openserverlessCheckerSh string
+
 //go:embed milvus_cli.tmpl
 var milvusCliTemplate string
 

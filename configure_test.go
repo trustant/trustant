@@ -3,10 +3,21 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func isolateOpenServerlessCheckerInstall(t *testing.T) string {
+	t.Helper()
+	origCheckerPath := openServerlessCheckerInstallPathOverride
+	checkerInstallPath := filepath.Join(t.TempDir(), "bin", "check_openserverless_actions.sh")
+	openServerlessCheckerInstallPathOverride = checkerInstallPath
+	t.Cleanup(func() { openServerlessCheckerInstallPathOverride = origCheckerPath })
+	return checkerInstallPath
+}
 
 func TestManagedOllamaDetectionRequiresGeneratedModelMarker(t *testing.T) {
 	customOllama := map[string]interface{}{
@@ -155,14 +166,16 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 
 // The opencode.json is a single, self-contained file fully regenerated in the
 // app's workbench project folder on every launch: provider + model defaults +
-// lsp, instructions pointing at the project's own opencode.md, and the
-// openserverless MCP server wired in. There is no merge — any pre-existing
-// content in the file (custom providers/lsp/mcp, stale managed entries) is
-// discarded so the result always reflects the current config.
+// lsp, instructions pointing at the project's own contract/opencode.md, the
+// checker script, and the openserverless MCP server wired in. There is no
+// merge — any pre-existing content in the file (custom providers/lsp/mcp, stale
+// managed entries) is discarded so the result always reflects the current
+// config.
 func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
+	checkerInstallPath := isolateOpenServerlessCheckerInstall(t)
 
 	app := "demo"
 	appDir := filepath.Join(WorkbenchDir, app)
@@ -233,16 +246,33 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 		t.Fatalf("custom lsp should be discarded by full regeneration: %#v", lsp)
 	}
 
-	// instructions must point at the project's own opencode.md.
+	// instructions must point first at the project's own OpenServerless
+	// contract, then at opencode.md.
 	instr, ok := got["instructions"].([]interface{})
+	wantContract := filepath.Join(appDir, ".openserverless-contract.md")
 	wantMd := filepath.Join(appDir, "opencode.md")
-	if !ok || len(instr) != 1 || instr[0] != wantMd {
-		t.Fatalf("instructions should reference %s, got %#v", wantMd, got["instructions"])
+	if !ok || len(instr) != 2 || instr[0] != wantContract || instr[1] != wantMd {
+		t.Fatalf("instructions should reference %s then %s, got %#v", wantContract, wantMd, got["instructions"])
 	}
 
-	// opencode.md must be written in the project dir, not under ~/.config.
+	// The contract and opencode.md must be written in the project dir, not under
+	// ~/.config. The checker is installed once in the configured bin path and is
+	// executable; it is not duplicated into every app repo.
+	if _, err := os.Stat(wantContract); err != nil {
+		t.Fatalf(".openserverless-contract.md not written to project dir: %s", err)
+	}
 	if _, err := os.Stat(wantMd); err != nil {
 		t.Fatalf("opencode.md not written to project dir: %s", err)
+	}
+	if _, err := os.Stat(filepath.Join(appDir, "scripts", "check_openserverless_actions.sh")); !os.IsNotExist(err) {
+		t.Fatalf("checker should not be copied into app repo, stat err=%v", err)
+	}
+	checkerInfo, err := os.Stat(checkerInstallPath)
+	if err != nil {
+		t.Fatalf("check_openserverless_actions.sh not installed: %s", err)
+	}
+	if checkerInfo.Mode()&0111 == 0 {
+		t.Fatalf("check_openserverless_actions.sh should be executable, mode=%s", checkerInfo.Mode())
 	}
 	// The action tools are provided by the openserverless MCP server, which must
 	// always be wired into the mcp section.
@@ -287,20 +317,20 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	}
 }
 
-// When vite.config.* imports the @agentic-react/vite plugin, the agentireact
-// remote MCP server is added to opencode.json and translated to an http server
-// in .mcp.json.
+// When vite.config.* contains AgentiReact(), the agentireact remote MCP server
+// is added to opencode.json and translated to an http server in .mcp.json.
 func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
+	isolateOpenServerlessCheckerInstall(t)
 
 	app := "demo"
 	appDir := filepath.Join(WorkbenchDir, app)
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
-	vite := "import AgenticReact from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n"
+	vite := "import AgentiReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgentiReact()] }\n"
 	if err := os.WriteFile(filepath.Join(appDir, "vite.config.ts"), []byte(vite), 0644); err != nil {
 		t.Fatalf("write vite config: %s", err)
 	}
@@ -352,11 +382,175 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 	}
 }
 
-// Without an @agentic-react/vite opt-in, no agentireact server is added.
+func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "hello")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from hello import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "hello.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerAllowsGeneratedPostgresWrapper(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "contacts")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+#--timeout 300000
+import types
+import os
+import contacts
+
+def init_postgresql(args, ctx):
+    dburl = args.get("POSTGRES_URL") or os.getenv("POSTGRES_URL")
+    import psycopg
+    ctx.POSTGRESQL = psycopg.connect(dburl)
+
+def main(args, ctx=None):
+    if ctx is None:
+        ctx = types.SimpleNamespace()
+        init_postgresql(args, ctx)
+    return {"body": contacts.main(args, ctx=ctx)}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    data = dict(args)
+    ignored = {"body", "POSTGRES_URL", "__ow_method", "__ow_headers", "__ow_path"}
+    merged = {k: v for k, v in data.items() if k not in ignored}
+    return {"ok": True, "merged": merged}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "contacts.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should allow generated postgres wrappers, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	output := string(out)
+	if strings.Contains(output, "Generated wrapper appears") || strings.Contains(output, "POSTGRES_URL") {
+		t.Fatalf("checker should not report standard wrapper wiring or ignored POSTGRES_URL, got=%s", strings.TrimSpace(output))
+	}
+}
+
+func TestOpenServerlessCheckerFailsNestedActionShape(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "auth", "register")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir nested action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("print('bad shape')\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should fail for nested action, output=%s", strings.TrimSpace(string(out)))
+	}
+	output := string(out)
+	if !strings.Contains(output, "Invalid nested action path") || !strings.Contains(output, ".openserverless-contract.md") {
+		t.Fatalf("checker output should explain nested action and contract recovery, got=%s", strings.TrimSpace(output))
+	}
+}
+
+func TestOpenServerlessCheckerIgnoresOpsIdeDeployZips(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "hello")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from hello import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "hello.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "hello.zip"), []byte("deploy artifact\n"), 0644); err != nil {
+		t.Fatalf("write deploy zip artifact: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should ignore deploy zips, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if strings.Contains(string(out), "zip") {
+		t.Fatalf("checker should not report generated zip artifacts, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerWarnsOnFragileRouteIDParsing(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "contacts")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from contacts import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    method = args.get("__ow_method", "GET")
+    path = args.get("__ow_path", "")
+    if method == "DELETE":
+        return {"ok": True, "path": path}
+    return {"ok": True}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "contacts.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fragile route-id parsing should warn, not fail, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "route-id extraction helper") {
+		t.Fatalf("checker should warn about fragile route id parsing, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+// Without an AgentiReact() opt-in, no agentireact server is added.
 func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
+	isolateOpenServerlessCheckerInstall(t)
 
 	app := "demo"
 	appDir := filepath.Join(WorkbenchDir, app)
