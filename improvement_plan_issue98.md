@@ -185,6 +185,11 @@ Implemented in this refinement:
   workspace volume and restore missing checkout directories from the durable
   bare repos at startup, while still doing full per-app login/deploy only in
   `/api/launch/<name>`.
+- Additional OpenCode 1.17 behavior: the project picker does not reliably
+  discover `~/workbench/*` by searching from the user home directory because
+  its file picker refuses home-root scans. After `opencode serve` starts,
+  Trustable should explicitly seed each restored checkout through OpenCode's
+  project-current API so the workbenches appear as openable/recent projects.
 
 Important measured sizes:
 

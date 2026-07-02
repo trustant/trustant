@@ -45,6 +45,13 @@ back into the workbench and regenerate `.env` files. Do not run `ops ide login`,
 `ops ide deploy`, or start Vite/OpenCode during this restore; the full per-app
 runtime setup still happens only when `/api/launch/<name>` is called.
 
+After `opencode serve` is listening during launch, register every existing
+`<workbenchdir>/<name>` checkout with OpenCode by calling its project-current
+API for each directory. This seeds OpenCode's recent/openable projects list.
+Do this because OpenCode 1.17 refuses file-picker searches rooted at the user's
+home directory, so the project picker cannot discover `~/workbench/*` merely by
+searching from `~`.
+
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
 
 Otherwise, clone the workspace into the workbench:
