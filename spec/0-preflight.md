@@ -74,11 +74,14 @@ The web application requires you always access the application with a full fqdn 
   user exits a session view.
 - The OpenCode iframe is scoped to the app launched by Trustable. Before
   proxying any `opencode.<domain>` request with a `directory` query parameter,
-  rewrite non-current directories to the current app directory from
-  `<workbenchdir>/current`. This prevents OpenCode's internal project switcher
-  from opening another Trustable app as a plain folder without the required
-  `ops ide login`, generated env, deploy, app-local `opencode.json`, and MCP
-  configuration. App switching must happen through Trustable `/api/launch/<app>`.
+  rewrite it to the current app directory from `<workbenchdir>/current` when it
+  points at another app or when it points at the same app through a symlink.
+  The value sent to OpenCode must be the canonical path because OpenCode stores
+  sessions under the resolved worktree path. This prevents OpenCode's internal
+  project switcher from opening another Trustable app as a plain folder without
+  the required `ops ide login`, generated env, deploy, app-local
+  `opencode.json`, and MCP configuration. App switching must happen through
+  Trustable `/api/launch/<app>`.
 - For the same reason, `GET /project` through `opencode.<domain>` returns only
   the current app's OpenCode project, even if OpenCode's persistent DB contains
   older projects from previous launches.

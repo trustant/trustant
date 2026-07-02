@@ -104,6 +104,7 @@ func currentOpenCodeDirectory() (encodedDir, directory string) {
 	if err != nil {
 		return "", ""
 	}
+	directory = canonicalPath(directory)
 	encodedDir = base64.RawURLEncoding.EncodeToString([]byte(directory))
 	return encodedDir, directory
 }
@@ -149,11 +150,22 @@ func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
 	if requestedDirectory == "" {
 		return false
 	}
-	if requestedDirectory != currentDirectory {
+	if !samePath(requestedDirectory, currentDirectory) {
 		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
 	}
+	if requestedEncodedDir != currentEncodedDir {
+		target := fmt.Sprintf("/%s/session", currentEncodedDir)
+		if len(parts) == 3 {
+			target += "/" + url.PathEscape(parts[2])
+		}
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		return true
+	}
 	if len(parts) == 2 {
-		return redirectToLatestOpenCodeSession(w, r, requestedEncodedDir, requestedDirectory)
+		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
 	}
 	return false
 }
@@ -182,7 +194,12 @@ func rewriteOpenCodeDirectoryQueryToCurrent(r *http.Request) {
 		return
 	}
 	_, currentDirectory := currentOpenCodeDirectory()
-	if currentDirectory == "" || samePath(directory, currentDirectory) {
+	if currentDirectory == "" {
+		return
+	}
+	currentCanonical := canonicalPath(currentDirectory)
+	requestedCanonical := canonicalPath(directory)
+	if requestedCanonical == currentCanonical && filepath.Clean(directory) == currentDirectory {
 		return
 	}
 	q.Set("directory", currentDirectory)

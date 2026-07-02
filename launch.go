@@ -1337,6 +1337,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
 		return
 	}
+	absPath = canonicalPath(absPath)
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
 
 	// Notify the pod-local OpenCode server of the workbench directory so it

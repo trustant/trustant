@@ -535,6 +535,19 @@ Host classification for this case:
 - `vite.<domain>`: browser-visible app host, used only after `ops ide deploy`
   when external ingress routing is in scope.
 
+Session persistence follow-up from the same verification pass:
+
+- OpenCode stores sessions under the resolved worktree path, for example
+  `/home/trustable/workspace/workbench/<app>`, not necessarily the symlink path
+  `/home/trustable/workbench/<app>`.
+- Trustable launch and the OpenCode proxy must therefore use the canonical path
+  for `b64dir`, `encdir`, session lookup, and `directory` query rewriting.
+- The container startup must also symlink OpenCode's own persistent state
+  (`~/.config/opencode`, `~/.cache/opencode`, `~/.local/share/opencode`) into
+  `$WORKSPACE_DIR/.trustable/opencode/` before Trustable/OpenCode starts;
+  otherwise pod/image rebuilds create a fresh OpenCode DB and the UI appears to
+  lose previous sessions.
+
 ## Proposed commit structure
 
 1. `docs: add issue 98 improvement plan`

@@ -350,7 +350,10 @@ Template:
 OpenCode state must be persistent across pod restarts. At container startup,
 `~/.config/opencode`, `~/.cache/opencode`, and `~/.local/share/opencode` are
 symlinked into the mounted workspace under `.trustable/opencode/` (this is
-OpenCode's own cache/state, independent of the per-app config file). After
+OpenCode's own cache/state, independent of the per-app config file). If the
+persistent target already contains data, startup must keep it and replace the
+ephemeral home directory with the symlink before Trustable/OpenCode starts; this
+preserves OpenCode sessions across image rebuilds and pod restarts. After
 generating the project `opencode.json`, write these generated app-repo files in
 the same project directory:
 

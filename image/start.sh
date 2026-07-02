@@ -27,6 +27,28 @@ elif [ -d "$HOME/workbench" ]; then
 fi
 ln -sfn "$HOME/workspace/workbench" "$HOME/workbench"
 
+persist_opencode_dir() {
+  local src="$1"
+  local dst="$2"
+  mkdir -p "$(dirname "$src")" "$dst"
+  if [ -L "$src" ]; then
+    ln -sfn "$dst" "$src"
+    return
+  fi
+  if [ -e "$src" ]; then
+    if [ -d "$src" ] && ! find "$dst" -mindepth 1 -maxdepth 1 | read -r _
+    then
+      cp -a "$src"/. "$dst"/
+    fi
+    rm -rf "$src"
+  fi
+  ln -sfn "$dst" "$src"
+}
+
+persist_opencode_dir "$HOME/.config/opencode" "$HOME/workspace/.trustable/opencode/config"
+persist_opencode_dir "$HOME/.cache/opencode" "$HOME/workspace/.trustable/opencode/cache"
+persist_opencode_dir "$HOME/.local/share/opencode" "$HOME/workspace/.trustable/opencode/share"
+
 echo "Changing permissions to workspace, file count:"
 chown -Rvf trustable:trustable "$HOME" | wc -l
 echo "Showing ops -info:"

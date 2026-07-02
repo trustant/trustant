@@ -441,7 +441,12 @@ the process environment.
 
 ## start process group
 
-Let <directory> be the absolute path of `<workbenchdir>/<app>`
+Let <directory> be the canonical absolute path of `<workbenchdir>/<app>` after
+resolving symlinks. This matters in the pod because `/home/trustable/workbench`
+can point at the persistent `/home/trustable/workspace/workbench`; OpenCode
+stores sessions by the resolved worktree path, so the launch response and
+session lookup must use the same canonical value to preserve/reopen previous
+sessions.
 
 Execute  opencode changing to this directory as
 
