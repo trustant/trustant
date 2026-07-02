@@ -31,6 +31,8 @@ matching applications. Searching filters by app name, repository, production
 host, and production user without calling the backend again.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
+Application action buttons keep the standard solid color scheme: Edit is green,
+Env is purple, Git Push is indigo, Publish is teal, and Delete is red.
 
 The Local link points to `<protocol>://<name>.<domain>` by replacing the first
 label of the current Trustable host. For example, from
