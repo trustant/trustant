@@ -24,9 +24,17 @@ import (
 )
 
 const (
-	opencodePort = 4096
-	opsdevelPort = 5173
+	opencodePort        = 4096
+	opsdevelPort        = 5173
+	defaultHeadroomPort = 8787
 )
+
+type headroomLaunchConfig struct {
+	Enabled  bool
+	Mode     string
+	Port     int
+	StateDir string
+}
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
@@ -494,6 +502,165 @@ func waitForPort(port int, timeout time.Duration) error {
 		time.Sleep(250 * time.Millisecond)
 	}
 	return fmt.Errorf("port %d not listening after %v", port, timeout)
+}
+
+func parseOptionalBoolEnv(key string) (bool, error) {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch value {
+	case "", "0", "false", "f", "no", "off":
+		return false, nil
+	case "1", "true", "t", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be true/false, got %q", key, os.Getenv(key))
+	}
+}
+
+func defaultHeadroomStateDir() string {
+	base := WorkspaceDir
+	if base == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			base = filepath.Join(home, "workspace")
+		}
+	}
+	if base == "" {
+		base = "/home/trustable/workspace"
+	}
+	return filepath.Join(base, ".trustable", "headroom")
+}
+
+func headroomConfigFromEnv() (headroomLaunchConfig, error) {
+	enabled, err := parseOptionalBoolEnv("TRUSTABLE_HEADROOM_ENABLED")
+	if err != nil {
+		return headroomLaunchConfig{}, err
+	}
+
+	mode := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_MODE"))
+	if mode == "" {
+		mode = "proxy"
+	}
+
+	port := defaultHeadroomPort
+	if rawPort := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_PORT")); rawPort != "" {
+		parsed, err := strconv.Atoi(rawPort)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			return headroomLaunchConfig{}, fmt.Errorf("TRUSTABLE_HEADROOM_PORT must be 1-65535, got %q", rawPort)
+		}
+		port = parsed
+	}
+
+	stateDir := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_STATE_DIR"))
+	if stateDir == "" {
+		stateDir = defaultHeadroomStateDir()
+	}
+
+	cfg := headroomLaunchConfig{
+		Enabled:  enabled,
+		Mode:     mode,
+		Port:     port,
+		StateDir: stateDir,
+	}
+
+	if enabled && mode != "proxy" {
+		return cfg, fmt.Errorf("unsupported TRUSTABLE_HEADROOM_MODE %q", mode)
+	}
+
+	return cfg, nil
+}
+
+func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
+	cacheDir := filepath.Join(cfg.StateDir, "cache")
+	dataDir := filepath.Join(cfg.StateDir, "data")
+	stateDir := filepath.Join(cfg.StateDir, "state")
+	logPath := filepath.Join(cfg.StateDir, "proxy.jsonl")
+
+	env := append([]string{}, base...)
+	env = append(env,
+		"HEADROOM_HOST=127.0.0.1",
+		"HEADROOM_PORT="+strconv.Itoa(cfg.Port),
+		"HEADROOM_WORKSPACE_DIR="+cfg.StateDir,
+		"HEADROOM_CONFIG_DIR="+filepath.Join(cfg.StateDir, "config"),
+		"HEADROOM_LOG_FILE="+logPath,
+		"HEADROOM_MEMORY_DB_PATH="+filepath.Join(cfg.StateDir, "memory.db"),
+		"HEADROOM_CCR_SQLITE_PATH="+filepath.Join(cfg.StateDir, "ccr_store.db"),
+		"HEADROOM_NO_SUBSCRIPTION_TRACKING=true",
+		"HEADROOM_TELEMETRY=off",
+		"XDG_CACHE_HOME="+cacheDir,
+		"XDG_DATA_HOME="+dataDir,
+		"XDG_STATE_HOME="+stateDir,
+	)
+	return env
+}
+
+func ensureHeadroomProxy(pgid int) error {
+	cfg, err := headroomConfigFromEnv()
+	if err != nil {
+		return err
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+
+	if cfg.Mode != "proxy" {
+		return fmt.Errorf("unsupported Headroom mode %q", cfg.Mode)
+	}
+
+	if isPortListening(cfg.Port) {
+		log.Printf("headroom: proxy already listening on 127.0.0.1:%d, reusing", cfg.Port)
+		return nil
+	}
+	if !isPortFree(cfg.Port) && !reclaimPort(cfg.Port) {
+		return fmt.Errorf("headroom proxy port %d is not available", cfg.Port)
+	}
+
+	if err := os.MkdirAll(cfg.StateDir, 0755); err != nil {
+		return fmt.Errorf("create Headroom state dir %s: %w", cfg.StateDir, err)
+	}
+
+	bin, err := exec.LookPath("headroom")
+	if err != nil {
+		return fmt.Errorf("headroom is enabled but `headroom` is not in PATH")
+	}
+
+	args := []string{
+		"proxy",
+		"--host", "127.0.0.1",
+		"--port", strconv.Itoa(cfg.Port),
+		"--no-telemetry",
+		"--log-file", filepath.Join(cfg.StateDir, "proxy.jsonl"),
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = cfg.StateDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = headroomProxyEnv(os.Environ(), cfg)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
+
+	log.Printf("headroom: starting proxy binary=%s cmd=`%s` dir=%s", bin, strings.Join(append([]string{"headroom"}, args...), " "), cfg.StateDir)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start Headroom proxy: %w", err)
+	}
+
+	exited := make(chan error, 1)
+	go func() {
+		exited <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-exited:
+		if err != nil {
+			return fmt.Errorf("Headroom proxy exited early: %w", err)
+		}
+		return fmt.Errorf("Headroom proxy exited early")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	if err := waitForPort(cfg.Port, 15*time.Second); err != nil {
+		return fmt.Errorf("Headroom proxy failed to listen on 127.0.0.1:%d: %w", cfg.Port, err)
+	}
+
+	log.Printf("headroom: proxy ready on 127.0.0.1:%d state=%s", cfg.Port, cfg.StateDir)
+	return nil
 }
 
 // readPgid reads the process group ID from the pgid file
@@ -1266,6 +1433,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	case <-time.After(500 * time.Millisecond):
 		// Process is still running - continue
 		log.Printf("opencode: pid=%d still alive after 500ms, serving on port %d", opencodeCmd.Process.Pid, leftPort)
+	}
+
+	if err := ensureHeadroomProxy(pgid); err != nil {
+		killPgid(pgid)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start Headroom proxy: %s", err)})
+		return
 	}
 
 	// Write pgid and current app name to files

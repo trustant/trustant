@@ -439,6 +439,44 @@ defaulting anything unrecognized to `primary`. Best-effort — failures are logg
 Launch `opencode serve` with the variables from the workbench `.env` appended to
 the process environment.
 
+Headroom is an optional, disabled-by-default experiment. When
+`TRUSTABLE_HEADROOM_ENABLED` is absent or false, launch behavior is unchanged:
+start `opencode serve` directly and do not start any Headroom process.
+
+When `TRUSTABLE_HEADROOM_ENABLED=true` and
+`TRUSTABLE_HEADROOM_MODE=proxy` (the default mode), launch starts a local
+Headroom proxy in the same process group as OpenCode:
+
+```
+headroom proxy --host 127.0.0.1 --port <TRUSTABLE_HEADROOM_PORT>
+```
+
+Defaults:
+
+- `TRUSTABLE_HEADROOM_MODE=proxy`
+- `TRUSTABLE_HEADROOM_PORT=8787`
+- `TRUSTABLE_HEADROOM_STATE_DIR=<workspacedir>/.trustable/headroom`
+
+The proxy binds only to `127.0.0.1`, writes state/logs under the configured
+state directory, and is terminated with the normal launch process group. Phase 1
+does **not** route OpenCode model traffic through Headroom and does **not**
+change the generated `opencode.json`; it only proves the image, process
+lifecycle, and pod-local proxy are viable. Unsupported modes fail launch with a
+clear error.
+
+The Headroom proxy environment sets `HEADROOM_WORKSPACE_DIR` to the configured
+state directory, `HEADROOM_CONFIG_DIR` to `<state>/config`, and
+`HEADROOM_CCR_SQLITE_PATH` to `<state>/ccr_store.db`, so Headroom runtime state,
+logs, savings, cache, compression retrieval state, and config stay on the
+mounted workspace instead of the container-layer `~/.headroom`.
+
+Any later mode that routes OpenCode traffic through Headroom must preserve the
+existing provider semantics for every supported Trustable provider: local
+Ollama, Ollama Cloud/Trustable Cloud, BestIA, and the Nuvolaris
+`api.nuvolaris.io` proxy path. It must not hardcode local Ollama assumptions;
+the generated provider base URL, API key, model IDs, OpenAI-compatible paths,
+streaming, and tool-call behavior remain authoritative.
+
 ## start process group
 
 Let <directory> be the canonical absolute path of `<workbenchdir>/<app>` after
