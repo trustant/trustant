@@ -868,11 +868,11 @@
                         </div>
                     </div>
                     <div class="p-3 flex flex-wrap gap-2">
-                        ${secondaryActionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon())}
-                        ${secondaryActionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon())}
-                        ${secondaryActionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon())}
+                        ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
+                        ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
+                        ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
-                            class="ml-auto px-3 py-2 text-sm rounded-md border border-red-200 text-red-700 hover:bg-red-50 transition-colors inline-flex items-center justify-center gap-1">
+                            class="ml-auto px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center justify-center gap-1">
                             ${trashIcon()}
                             Delete
                         </button>
@@ -913,10 +913,10 @@
                     <div>${statusBadge(hasProduction(app))}</div>
                     <div class="flex flex-wrap gap-2 md:justify-end">
                         <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
-                        ${secondaryActionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon())}
-                        ${secondaryActionButton('Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon())}
-                        ${secondaryActionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon())}
-                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md border border-red-200 text-red-700 hover:bg-red-50 transition-colors inline-flex items-center gap-1">${trashIcon()} Delete</button>
+                        ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
+                        ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
+                        ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
+                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center gap-1">${trashIcon()} Delete</button>
                     </div>
                 </div>`;
         }
@@ -1030,8 +1030,13 @@
             return `w-11 h-11 rounded-md ${colors[code % colors.length]} flex items-center justify-center font-bold text-sm shrink-0`;
         }
 
-        function secondaryActionButton(label, action, icon) {
-            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors inline-flex items-center justify-center gap-1">${icon}${label}</button>`;
+        function actionButton(label, action, icon, color) {
+            const colors = {
+                purple: 'bg-purple-600 hover:bg-purple-700',
+                indigo: 'bg-indigo-600 hover:bg-indigo-700',
+                teal: 'bg-teal-600 hover:bg-teal-700'
+            };
+            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md ${colors[color]} text-white transition-colors inline-flex items-center justify-center gap-1">${icon}${label}</button>`;
         }
 
         function editIcon(cls) {
