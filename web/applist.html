@@ -7,7 +7,7 @@
     <script src="tailwind.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen p-4 md:p-8">
-    <div id="mainContent" class="w-full max-w-6xl mx-auto">
+    <div id="mainContent" class="w-full max-w-7xl mx-auto">
         <!-- Header -->
         <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-4 md:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
             <div class="flex items-center gap-4">
@@ -72,9 +72,9 @@
                     </select>
                     <div class="inline-flex rounded-md border border-slate-300 overflow-hidden bg-white">
                         <button id="gridViewBtn" type="button" onclick="setAppView('grid')"
-                            class="px-3 py-2 text-sm font-medium bg-slate-900 text-white">Grid</button>
+                            class="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Grid</button>
                         <button id="listViewBtn" type="button" onclick="setAppView('list')"
-                            class="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">List</button>
+                            class="px-3 py-2 text-sm font-medium bg-slate-900 text-white">List</button>
                     </div>
                 </div>
             </div>
@@ -407,7 +407,7 @@
         let sshKeyAvailable = false;
         let allApps = [];
         let appFilter = 'all';
-        let appView = 'grid';
+        let appView = 'list';
 
         function isPublishAuthError(msg) {
             return typeof msg === 'string' && msg.indexOf('Publishing not authorized') !== -1;
@@ -883,7 +883,7 @@
         function renderAppTable(apps) {
             return `
                 <div class="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                    <div class="hidden md:grid grid-cols-[minmax(220px,1.3fr)_minmax(160px,1fr)_120px_360px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase text-slate-500">
+                    <div class="hidden xl:grid grid-cols-[minmax(220px,1.3fr)_minmax(160px,1fr)_120px_500px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase text-slate-500">
                         <div>Application</div>
                         <div>Repository</div>
                         <div>Status</div>
@@ -896,7 +896,7 @@
         function renderAppRow(app) {
             const links = appLinks(app);
             return `
-                <div class="grid md:grid-cols-[minmax(220px,1.3fr)_minmax(160px,1fr)_120px_360px] gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 items-center">
+                <div class="grid xl:grid-cols-[minmax(220px,1.3fr)_minmax(160px,1fr)_120px_500px] gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 items-center">
                     <div class="flex items-center gap-3 min-w-0">
                         <div class="${avatarClass(app.name)}">${initials(app.name)}</div>
                         <div class="min-w-0">
@@ -911,7 +911,7 @@
                         ${links.repo ? `<a href="${links.repo}" target="_blank" class="text-blue-600 hover:underline truncate block">${escapeHtml(links.repoLabel)}</a>` : '<span class="text-slate-400">No repository</span>'}
                     </div>
                     <div>${statusBadge(hasProduction(app))}</div>
-                    <div class="flex flex-wrap gap-2 md:justify-end">
+                    <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-end">
                         <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
