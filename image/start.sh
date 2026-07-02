@@ -15,6 +15,18 @@ if [ -n "$USERID" ] && [ "$USERID" != "769" ]
 then /usr/sbin/usermod -u $USERID trustable
 fi
 
+mkdir -p "$HOME/workspace/workbench"
+if [ -L "$HOME/workbench" ]; then
+  :
+elif [ -d "$HOME/workbench" ]; then
+  if find "$HOME/workbench" -mindepth 1 -maxdepth 1 | read -r _
+  then
+    cp -a "$HOME/workbench"/. "$HOME/workspace/workbench"/
+  fi
+  rm -rf "$HOME/workbench"
+fi
+ln -sfn "$HOME/workspace/workbench" "$HOME/workbench"
+
 echo "Changing permissions to workspace, file count:"
 chown -Rvf trustable:trustable "$HOME" | wc -l
 echo "Showing ops -info:"

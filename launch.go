@@ -531,6 +531,7 @@ func killPgid(pgid int) error {
 //  2. No pgid file, but an orphaned opencode/devel still holding 4096/5173 (the
 //     pgid file was removed while the process kept running) — reclaim the ports
 //     directly so the upcoming port-free check doesn't wedge the launch.
+//
 // A `current` file lingering without a pgid file is itself stale, so it is
 // cleared too.
 func terminateLeftoverProcesses() {
@@ -940,6 +941,77 @@ func ensureRequiredWorkbenchFolders(workbenchPath string) {
 	log.Printf("ensureRequiredWorkbenchFolders: scaffolded and committed %v", created)
 }
 
+func workspaceRepoExists(workspacePath string) bool {
+	if _, err := os.Stat(filepath.Join(workspacePath, "config")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(workspacePath, ".git", "config")); err == nil {
+		return true
+	}
+	return false
+}
+
+func ensureNodeDependencies(workbenchPath, app string) {
+	if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(workbenchPath, "node_modules")); err == nil {
+		return
+	}
+	log.Printf("Running npm install in workbench/%s...", app)
+	npmCmd := exec.Command("npm", "install")
+	npmCmd.Dir = workbenchPath
+	if output, err := npmCmd.CombinedOutput(); err != nil {
+		log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
+	}
+}
+
+func restoreMissingWorkbenchCheckouts() {
+	workspaceRoot := filepath.Join(WorkspaceDir, "workspace")
+	entries, err := os.ReadDir(workspaceRoot)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to read workspace repos for workbench restore: %s", err)
+		}
+		return
+	}
+	if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
+		log.Printf("Warning: failed to create workbench dir for restore: %s", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		app := entry.Name()
+		if !namePattern.MatchString(app) {
+			continue
+		}
+		workspacePath := filepath.Join(workspaceRoot, app)
+		if !workspaceRepoExists(workspacePath) {
+			continue
+		}
+		workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, app))
+		if _, err := os.Stat(workbenchPath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to inspect workbench/%s: %s", app, err)
+			continue
+		}
+		log.Printf("Restoring missing workbench/%s from workspace/%s...", app, app)
+		cloneCmd := exec.Command("git", "clone", workspacePath, workbenchPath)
+		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			log.Printf("Warning: failed to restore workbench/%s: %s, output: %s", app, err, string(output))
+			continue
+		}
+		if err := generateAppEnvFiles(app); err != nil {
+			log.Printf("Warning: failed to generate restored workbench .env for %s: %s", app, err)
+		}
+		ensureOpenCodeProjectID(workbenchPath, app)
+		cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
+	}
+}
+
 // handleLaunchGet handles GET /api/launch/<app>
 func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -980,25 +1052,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			log.Printf("Warning: failed to generate workbench .env: %s", err)
 		}
 
-		// Run npm install if package.json exists
-		if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err == nil {
-			log.Printf("Running npm install in workbench/%s...", app)
-			npmCmd := exec.Command("npm", "install")
-			npmCmd.Dir = workbenchPath
-			if output, err := npmCmd.CombinedOutput(); err != nil {
-				log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
-			}
-		}
+		ensureNodeDependencies(workbenchPath, app)
 
 		log.Printf("Workbench for %s set up successfully", app)
 	} else {
 		log.Printf("Workbench for %s already exists, reusing", app)
 		// On the reuse path, regenerate the .env files to keep them in sync with
-		// the current config (spec/4-launch.md). npm install runs only on the
-		// initial clone, not on reuse.
+		// the current config (spec/4-launch.md). A restored checkout may not yet
+		// have node_modules, so install dependencies when package.json exists and
+		// node_modules is absent.
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
 		}
+		ensureNodeDependencies(workbenchPath, app)
 	}
 
 	// Ensure the required folders exist (packages/, web/) after checkout.

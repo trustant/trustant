@@ -32,6 +32,19 @@ fallback before returning a "port not available" error.
 
 ## clone to workbench
 
+`<workbenchdir>` is exposed as the stable path used by Trustable and OpenCode,
+normally `/home/trustable/workbench`. In the pod it must survive image rebuilds
+and restarts by pointing into the persistent workspace volume
+(`/home/trustable/workspace/workbench`). This keeps OpenCode's persistent recent
+project paths valid.
+
+At server startup, after stale process cleanup, scan
+`<workspacedir>/workspace/*` for valid local git repos. For each app whose
+`<workbenchdir>/<name>` checkout is missing, clone the durable workspace repo
+back into the workbench and regenerate `.env` files. Do not run `ops ide login`,
+`ops ide deploy`, or start Vite/OpenCode during this restore; the full per-app
+runtime setup still happens only when `/api/launch/<name>` is called.
+
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
 
 Otherwise, clone the workspace into the workbench:
@@ -44,7 +57,10 @@ Then set up the workbench:
 The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global env defaults, and per-app development overrides. The `.env.production` contains per-app production values.
 - If `<workbenchdir>/<name>/package.json` exists, run `npm install` in `<workbenchdir>/<name>`
 
-When the workbench already exists (reuse path), also regenerate the `.env` files to keep them in sync with the current config.
+When the workbench already exists (reuse path), also regenerate the `.env` files
+to keep them in sync with the current config. If a restored checkout has
+`package.json` but no `node_modules`, run `npm install` during launch before the
+app runtime starts.
 
 ## opencode project bookkeeping
 

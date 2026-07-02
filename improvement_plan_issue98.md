@@ -177,6 +177,14 @@ Implemented in this refinement:
   on pod-local `localhost:4096` and `localhost:5173`, and the checker produced
   exactly the intended non-blocking warnings for `fattura.py` and
   `OrdersPage.tsx`.
+- Follow-up environment drift found after the pod rebuild: OpenCode persists
+  recent project paths, while `/home/trustable/workbench` was not on the
+  persistent workspace volume. After a restart, recent projects could point to
+  missing checkout paths such as `/home/trustable/workbench/truk8s`. The
+  proposed product fix is to keep `~/workbench` backed by the persistent
+  workspace volume and restore missing checkout directories from the durable
+  bare repos at startup, while still doing full per-app login/deploy only in
+  `/api/launch/<name>`.
 
 Important measured sizes:
 
