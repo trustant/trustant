@@ -22,7 +22,11 @@ Immediately **after the title** (below the version line, above the Applications 
 
 Show also in smaller font at the end of the page "Expiration date: <date>"
 
-It will list the applications, using the backend api.
+It will list the applications, using the backend api. The list is rendered as a
+responsive grid of application cards with a client-side search box, a simple
+sort selector, and a visible count of matching applications. Searching filters
+by app name, repository, production host, and production user without calling
+the backend again.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
 
