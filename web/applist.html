@@ -849,7 +849,7 @@
                                         ${links.repo ? `<a href="${links.repo}" target="_blank" class="block text-sm text-blue-600 hover:underline truncate mt-0.5">${escapeHtml(links.repoLabel)}</a>` : '<p class="text-sm text-slate-400 mt-0.5">No repository</p>'}
                                     </div>
                                     <button onclick="launchApp('${escapeAttr(app.name)}')"
-                                        class="shrink-0 px-3 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 transition-colors inline-flex items-center gap-1">
+                                        class="shrink-0 px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">
                                         ${editIcon('w-4 h-4')}
                                         Edit
                                     </button>
@@ -912,7 +912,7 @@
                     </div>
                     <div>${statusBadge(hasProduction(app))}</div>
                     <div class="flex flex-wrap gap-2 md:justify-end">
-                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
+                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${secondaryActionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon())}
                         ${secondaryActionButton('Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon())}
                         ${secondaryActionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon())}
