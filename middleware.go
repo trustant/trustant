@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -158,6 +159,31 @@ func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+func rewriteOpenCodeHomeDirectoryRequest(r *http.Request) {
+	if r.URL.Path != "/find/file" && r.URL.Path != "/file" {
+		return
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		return
+	}
+	q := r.URL.Query()
+	directory := q.Get("directory")
+	if directory == "" {
+		return
+	}
+	if filepath.Clean(directory) != filepath.Clean(home) {
+		return
+	}
+
+	q.Set("directory", WorkbenchDir)
+	if r.URL.Path == "/file" && filepath.Clean(q.Get("path")) == "workbench" {
+		q.Set("path", ".")
+	}
+	r.URL.RawQuery = q.Encode()
+	log.Printf("opencode: rewrote home-root file picker request to %s", WorkbenchDir)
+}
+
 // hostnameMiddleware wraps an http.Handler with hostname verification, IP redirect, and host-based routing
 func hostnameMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -207,6 +233,7 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			if redirectOpenCodeSession(w, r) {
 				return
 			}
+			rewriteOpenCodeHomeDirectoryRequest(r)
 			// Proxy pass to port 4096
 			opencodeProxy.ServeHTTP(w, r)
 		case "vite":

@@ -190,6 +190,11 @@ Implemented in this refinement:
   its file picker refuses home-root scans. After `opencode serve` starts,
   Trustable should explicitly seed each restored checkout through OpenCode's
   project-current API so the workbenches appear as openable/recent projects.
+- The browser still reaches OpenCode through Trustable's `opencode.<domain>`
+  proxy, so Trustable can also normalize OpenCode file-picker requests. When
+  OpenCode asks `/find/file` or `/file` with `directory=/home/trustable`,
+  rewrite that query to `$WORKBENCH_DIR` before proxying. This makes the modal
+  search show Trustable app checkouts instead of an empty home-root scan.
 
 Important measured sizes:
 

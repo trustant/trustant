@@ -68,4 +68,9 @@ The web application requires you always access the application with a full fqdn 
     handles stale browser tabs that still point at a previously edited app.
   This keeps OpenCode from falling back to stale global project state after the
   user exits a session view.
+- For OpenCode file picker compatibility, when `opencode.<domain>` requests
+  `/find/file` or `/file` with `directory=/home/trustable`, rewrite the query
+  to use `$WORKBENCH_DIR` before proxying. OpenCode 1.17 refuses FFF searches
+  rooted at the user's home directory, but Trustable workbench selection should
+  expose the app checkouts under `$WORKBENCH_DIR`.
 - if <host> is 'vite',  proxy pass to port 5173
