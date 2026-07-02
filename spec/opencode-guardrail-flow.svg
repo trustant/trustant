@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
   <title id="title">OpenServerless guardrail flow</title>
-  <desc id="desc">OpenCode reads the generated contract, edits app code, runs the checker, deploys with ops, and verifies through pod-local localhost before optional browser-visible FQDN checks.</desc>
+  <desc id="desc">OpenCode reads the generated contract, edits app code, runs the checker, deploys with ops, and verifies HTTP status, content type, and body shape through pod-local localhost before optional browser-visible FQDN checks.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#2f5d62"/>
@@ -27,13 +27,14 @@
   <rect x="740" y="40" width="190" height="100" class="warn"/>
   <text x="835" y="72" text-anchor="middle" class="text">Run checker</text>
   <text x="835" y="96" text-anchor="middle" class="small">scripts/check...</text>
-  <text x="835" y="116" text-anchor="middle" class="small">drift points back to contract</text>
+  <text x="835" y="116" text-anchor="middle" class="small">HTML-as-JSON warnings</text>
   <rect x="260" y="220" width="170" height="80" class="box"/>
   <text x="345" y="252" text-anchor="middle" class="text">Deploy</text>
   <text x="345" y="276" text-anchor="middle" class="small">ops ide deploy/setup</text>
   <rect x="510" y="220" width="180" height="80" class="box"/>
   <text x="600" y="252" text-anchor="middle" class="text">Verify locally</text>
-  <text x="600" y="276" text-anchor="middle" class="small">localhost:5173</text>
+  <text x="600" y="276" text-anchor="middle" class="small">curl -i localhost:5173</text>
+  <text x="600" y="292" text-anchor="middle" class="small">JSON vs text/html</text>
   <rect x="760" y="220" width="160" height="80" class="box"/>
   <text x="840" y="252" text-anchor="middle" class="text">Optional FQDN</text>
   <text x="840" y="276" text-anchor="middle" class="small">vite.&lt;domain&gt; after deploy</text>

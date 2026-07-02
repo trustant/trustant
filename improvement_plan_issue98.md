@@ -111,6 +111,73 @@ Issue-98 guardrails should therefore add:
 - a final CRUD matrix that checks create/list/update/delete for every resource
   before OpenCode declares the app finished.
 
+## Lessons from `trutestdb2`
+
+The `trutestdb2` session after the OpenCode upgrade shows a different class of
+drift. OpenCode used the OpenServerless MCP tools correctly to create and wire
+actions, but still made wrong assumptions about browser-facing HTTP semantics.
+
+Observed good behavior:
+
+- it created `v1/fattura` with `openserverless_action_new`;
+- it added PostgreSQL wiring with `openserverless_action_add_postgresql`;
+- it ran `check_openserverless_actions.sh` and `ops ide deploy` during the
+  workflow.
+
+Observed failures:
+
+- for "stampa fattura", the frontend used
+  `window.open("/api/my/v1/fattura/<id>?token=...")`, which expects a
+  browser-renderable response;
+- the action generated full HTML but returned it as app JSON:
+  `{"ok": true, "html": "<!DOCTYPE html>..."}`;
+- `curl -i` showed `Content-Type: application/json`, so a new browser window
+  displays JSON instead of a printable page;
+- OpenCode debugged authentication with invalid/system tokens before using a
+  real app session token;
+- it manually altered the live PostgreSQL schema with `psql` during debugging,
+  then updated `setup/database` afterwards. That can leave runtime state ahead
+  of source if setup/deploy validation is missed;
+- final validation was not expressed as a response-mode matrix: JSON API,
+  browser-opened printable HTML, setup migration, and app-session auth were not
+  separately proven.
+
+This indicates the missing guardrail is not simply "use the MCP". The MCP can
+create the action correctly while the assistant still gets the HTTP response
+contract wrong.
+
+Issue-98 guardrails should therefore also add:
+
+- a browser-opened/printable web action contract:
+  direct `window.open`, links, or form targets need a browser-native response;
+- explicit guidance that printable HTML must either return `text/html` with
+  HTML in the HTTP body, or the frontend must fetch JSON with `Authorization`
+  and write the extracted HTML into a new window before printing;
+- checker warnings when a Python action contains full HTML but returns it as
+  an `"html"` JSON field;
+- checker warnings when frontend code directly opens `/api/my/...`, requiring
+  `curl -i` proof of the expected content type;
+- a validation matrix row for browser-opened/download/print endpoints:
+  `curl -i`, status, content type, and body shape;
+- explicit warning that `~/.ops/config.json` auth is not an app session token;
+- a no-runtime-only-schema-drift rule: live `ALTER TABLE` during debugging must
+  be followed by equivalent idempotent setup code, `ops ide setup`, deploy, and
+  read-back proof before the task is complete.
+
+Implemented in this refinement:
+
+- `.openserverless-contract.md` now includes browser/printable response rules.
+- Embedded `opencode.md` now includes browser-opened/printable action guidance.
+- `check_openserverless_actions.sh` now warns on HTML returned as application
+  JSON and direct `window.open("/api/my/...")` targets.
+- Tests cover both checker warnings.
+- Local pod rebuild validation used
+  `ghcr.io/trustable-ai/trustable-app:local_issue98_webaction_26.183.0839`.
+  `trutestdb2` was relaunched on the rebuilt pod; OpenCode and Vite responded
+  on pod-local `localhost:4096` and `localhost:5173`, and the checker produced
+  exactly the intended non-blocking warnings for `fattura.py` and
+  `OrdersPage.tsx`.
+
 Important measured sizes:
 
 - `opencode.md`: 3,016 words, 20,854 bytes.

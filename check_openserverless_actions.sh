@@ -74,6 +74,20 @@ if [ -d packages ]; then
       fi
     fi
   done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+
+  while IFS= read -r module; do
+    if grep -Eq '<!DOCTYPE[[:space:]]+html|<html[[:space:]>]' "$module" && grep -Eq '["'\'']html["'\''][[:space:]]*:|return[[:space:]]+\{[^}]*html' "$module"; then
+      warn "$module" "Module appears to generate full HTML but return it as application JSON. If a browser opens this endpoint directly, return text/html as the HTTP body or make the frontend fetch JSON and write/print the extracted HTML."
+    fi
+  done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+fi
+
+if [ -d src ]; then
+  while IFS= read -r ui_file; do
+    if grep -Eq 'window\.open\([^)]*/api/my/|window\.open\([^)]*`/api/my/|window\.open\([^)]*"/api/my/|window\.open\([^)]*'\''/api/my/' "$ui_file"; then
+      warn "$ui_file" "Frontend opens a /api/my action URL directly. For printable/download/browser flows, validate with curl -i that the target returns the expected browser content type, not application/json containing embedded HTML."
+    fi
+  done < <(find src -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | sort)
 fi
 
 py_files=()

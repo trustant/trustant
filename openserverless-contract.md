@@ -63,6 +63,10 @@ Invalid examples:
   durable marker.
 - Migrations must be repeatable. Use `IF NOT EXISTS` where possible.
 - Drop/recreate derived views when their column shape changes.
+- Do not make a live DB-only schema fix with `psql`, PostgreSQL MCP, or ad hoc
+  SQL and then declare the app fixed. If you inspect or repair live state while
+  debugging, put the equivalent idempotent migration in `setup/database`, run
+  `ops ide setup`, then read back the schema/data.
 
 ## Web Action Route IDs
 
@@ -77,6 +81,25 @@ Invalid examples:
 - For each CRUD resource, test create/list/update/delete through
   `http://localhost:5173`, including `PUT` and `DELETE` with id in the URL.
 
+## Browser And Printable Responses
+
+- If the frontend opens an action URL with `window.open(...)`, the target must
+  be a browser response, not just app JSON.
+- For printable HTML such as an invoice, return HTML as the HTTP body with
+  `Content-Type: text/html; charset=utf-8`. Do not return
+  `{"ok": true, "html": "<!DOCTYPE html>..."}` when the browser opens the URL
+  directly.
+- If the generated wrapper nests module returns under JSON and cannot pass
+  headers/body through, use a frontend route that fetches JSON with
+  `Authorization`, extracts the HTML, writes it to a new window/document, and
+  then prints. Do not pretend that raw `window.open(/api/my/...)` will render
+  embedded JSON HTML as a page.
+- For opened/downloaded/printable URLs, verify with `curl -i` from inside the
+  pod and check both status and `Content-Type`.
+- Token-in-query is acceptable only when a new browser window cannot send the
+  `Authorization` header; prefer short-lived or app-session tokens and validate
+  with a real session token.
+
 ## Deploy And Verification
 
 - After setup action changes, run `timeout 120 ops ide setup`.
@@ -88,6 +111,11 @@ Invalid examples:
 - For write paths, write and then read back the changed value.
 - For delete paths, delete through the public HTTP route and then confirm the
   record is no longer returned.
+- If you used `psql` or a service MCP to inspect/repair live data during
+  debugging, also prove the source setup/action code recreates the same state.
+- For printable/browser-opened paths, prove the response shape with
+  `curl -i http://localhost:5173/...` and check that JSON endpoints return JSON
+  while printable HTML endpoints return `text/html`.
 - Use `vite.<domain>` only after deploy and only for external browser/ingress
   verification.
 - Do not hide failures with `|| true` or output truncation that masks the first

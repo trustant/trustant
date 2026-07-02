@@ -454,6 +454,54 @@ if (!response.ok || data?.ok === false || data?.error) {
 }
 ```
 
+## Browser-Opened And Printable Actions
+
+If the frontend opens an action URL directly with `window.open(...)`, an `<a>`
+link, or a form target, the endpoint must return a browser-native response. Do
+not return JSON that contains HTML and then claim the browser flow is complete.
+
+For printable HTML such as invoices, receipts, labels, reports, or documents,
+the correct behavior is one of these:
+
+1. The action returns a real HTML response:
+
+```python
+return {
+    "statusCode": 200,
+    "headers": {"Content-Type": "text/html; charset=utf-8"},
+    "body": html,
+}
+```
+
+This only works if the generated wrapper passes the envelope through to
+OpenWhisk. Verify with:
+
+```bash
+curl -i http://localhost:5173/api/my/v1/<action>/<id>...
+```
+
+The response must show `Content-Type: text/html`, and the body must begin with
+HTML, not with JSON.
+
+2. If the wrapper nests module output as application JSON, keep the action JSON
+and change the frontend flow: fetch with `Authorization`, extract `data.html`,
+open a new window, write the HTML into that window, and then call print. In
+that case do not use raw `window.open("/api/my/...")` as proof that printing
+works.
+
+Avoid this broken pattern for direct browser-opened endpoints:
+
+```python
+return {"ok": True, "html": html}
+```
+
+That renders as JSON in a new browser window. It is not a printable page.
+
+Token-in-query is acceptable only when a new window cannot send the
+`Authorization` header. Prefer short-lived app-session tokens, and validate with
+a real session token from the app database or login flow. Do not use the
+OpenServerless `~/.ops/config.json` auth value as an app session token.
+
 ## Authentication UI Rules
 
 When an app has login or registration:
@@ -498,6 +546,10 @@ When an app has login or registration:
 - Do not create missing tables or seed rows with PostgreSQL MCP write tools and
   then claim setup succeeded. The `setup/*` action must be able to recreate the
   state idempotently.
+- Do not make a live DB-only schema fix with `psql`, PostgreSQL MCP, or ad hoc
+  SQL and then claim the app is fixed. If you inspect or repair live state while
+  debugging, put the equivalent idempotent migration in `setup/database`, run
+  `ops ide setup`, and read back the schema/data through a bounded command.
 
 Examples of idempotent setup:
 
@@ -548,6 +600,10 @@ End backend-related work with proof:
   `PUT /api/my/v1/<resource>/<id>` and
   `DELETE /api/my/v1/<resource>/<id>` without relying only on `id` in the JSON
   body, then read back to confirm the updated value or deleted absence.
+- For browser-opened or printable endpoints, validate with `curl -i` and prove
+  the response status and content type match the browser use case. A direct
+  `window.open("/api/my/...")` target for printable HTML must not return
+  `application/json`.
 - Use `vite.<domain>` only after deploy and only for explicit external
   browser/ingress checks.
 - `ops action invoke` by itself is not enough proof when it only prints an
@@ -556,6 +612,9 @@ End backend-related work with proof:
 - If any action reports `Cannot start action`, `application error`, or
   `developer error`, run `timeout <seconds> ops logs --last` before changing
   strategy.
+- If `psql` or a service MCP was used to inspect or repair live database state,
+  prove the source setup/action code recreates that state. Runtime state alone
+  is not completion proof.
 - Verify JSON request fields, method, and headers are visible to the action.
 - Verify frontend fetch handling accepts the response shape actually returned.
 - Treat editor, LSP, TypeScript, lint, and tool diagnostics as validation

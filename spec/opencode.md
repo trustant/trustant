@@ -464,6 +464,28 @@ if (!response.ok || data?.ok === false || data?.error) {
 }
 ```
 
+## Browser-Opened And Printable Actions
+
+The embedded guidance must explicitly cover endpoints opened directly by the
+browser through `window.open(...)`, links, or form targets.
+
+It must say:
+
+- direct browser-opened endpoints must return browser-native responses, not
+  JSON that merely contains HTML;
+- printable HTML features such as invoices, receipts, labels, reports, or
+  documents must either return `Content-Type: text/html; charset=utf-8` with
+  HTML in the HTTP body, or the frontend must fetch JSON with `Authorization`
+  and write the extracted HTML into a new window/document;
+- `{"ok": true, "html": html}` is a broken response shape for a direct
+  `window.open("/api/my/...")` target;
+- assistants must verify opened/downloaded/printable endpoints with
+  `curl -i http://localhost:5173/...` and check status plus content type;
+- the OpenServerless `~/.ops/config.json` auth value is not an app session
+  token;
+- token-in-query is acceptable only when a new window cannot send
+  `Authorization`, and it must be validated with a real app session token.
+
 ## Authentication UI Rules
 
 When an app has login or registration, the embedded guidance must say:
@@ -510,6 +532,12 @@ details.`, assistants must immediately run `timeout <seconds> ops logs --last`
 and fix the first traceback. They must not create missing tables or seed rows
 with PostgreSQL MCP write tools and then claim setup succeeded; the `setup/*`
 action must be able to recreate the state idempotently.
+
+The embedded guidance must also forbid live DB-only schema fixes as completion
+proof. If assistants use `psql`, PostgreSQL MCP, or ad hoc SQL to inspect or
+repair live state while debugging, they must put the equivalent idempotent
+migration in `setup/database`, run `ops ide setup`, and read back the
+schema/data before marking the task complete.
 
 ## Dependencies
 
@@ -558,7 +586,11 @@ The embedded guidance must end backend-related changes with local proof:
 - for CRUD resources, validate the full create/list/update/delete matrix,
   including `PUT /api/my/v1/<resource>/<id>` and
   `DELETE /api/my/v1/<resource>/<id>` without relying only on `id` in the JSON
-  body, then read back to confirm the updated value or deleted absence;
+  body;
+- for browser-opened or printable endpoints, validate with `curl -i` and prove
+  the response status and content type match the browser use case. A direct
+  `window.open("/api/my/...")` target for printable HTML must not return
+  `application/json`;
 - use `vite.<domain>` only after deploy and only for explicit external
   browser/ingress checks;
 - treat `ops action invoke` as insufficient proof when it only prints an

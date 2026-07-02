@@ -545,6 +545,62 @@ func TestOpenServerlessCheckerWarnsOnFragileRouteIDParsing(t *testing.T) {
 	}
 }
 
+func TestOpenServerlessCheckerWarnsOnHTMLReturnedAsJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "invoice")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from invoice import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    html = "<!DOCTYPE html><html><body>Invoice</body></html>"
+    return {"ok": True, "html": html}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "invoice.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("HTML-as-JSON should warn, not fail, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "return it as application JSON") {
+		t.Fatalf("checker should warn about HTML returned as JSON, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerWarnsOnDirectWindowOpenAPI(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	ui := "export function InvoiceButton() {\n" +
+		"  return <button onClick={() => window.open(`/api/my/v1/invoice/${id}`, \"_blank\")}>Invoice</button>\n" +
+		"}\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "InvoiceButton.tsx"), []byte(ui), 0644); err != nil {
+		t.Fatalf("write ui: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("window.open /api/my should warn, not fail, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "opens a /api/my action URL directly") {
+		t.Fatalf("checker should warn about direct window.open API target, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
 // Without an AgentiReact() opt-in, no agentireact server is added.
 func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
