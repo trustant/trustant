@@ -78,6 +78,9 @@ The first implementation must be reversible:
 - Phase 1 code is implemented on branch `improvement/headroom-phase1`.
 - The implementation installs Headroom in the image definition and adds
   disabled-by-default launch support for a pod-local proxy.
+- The enable/disable switch is exposed in the Configure UI and saved in the
+  workspace `trustable.json` as `experimental.headroom.enabled`. Environment
+  variables remain only developer/operator overrides.
 - The current implementation does not route OpenCode traffic through Headroom
   and does not modify generated `opencode.json`.
 - Local image `ghcr.io/trustable-ai/trustable-app:local_headroom_phase1_26.183.2050`
@@ -110,7 +113,24 @@ prototype proves it is required.
 
 ### Runtime switch
 
-Add environment-driven flags read at Trustable startup:
+Add a user-facing switch in Configure:
+
+```json
+{
+  "experimental": {
+    "headroom": {
+      "enabled": false,
+      "mode": "proxy"
+    }
+  }
+}
+```
+
+The setting is stored in the workspace `trustable.json`. This makes the
+experiment controllable from the same place where the user configures providers
+and models, without asking the user to run shell commands.
+
+Keep environment variables as developer/operator overrides:
 
 ```bash
 TRUSTABLE_HEADROOM_ENABLED=false
@@ -121,9 +141,10 @@ TRUSTABLE_HEADROOM_STATE_DIR=/home/trustable/workspace/.trustable/headroom
 
 Rules:
 
-- absent or false means current behavior exactly: launch `opencode serve`
-  directly;
-- true enables the experiment for app launches;
+- absent or false saved config means current behavior exactly: launch
+  `opencode serve` directly;
+- true saved config enables the experiment for app launches;
+- if `TRUSTABLE_HEADROOM_ENABLED` is set, it overrides the saved UI value;
 - unsupported mode returns a clear launch error;
 - state/cache lives under the mounted workspace, not the container layer;
 - the proxy binds only to `127.0.0.1`.
@@ -139,7 +160,9 @@ plain proxy gives us a simpler, observable target first.
 Implementation outline:
 
 1. Add helper functions in `launch.go`:
-   - `headroomConfigFromEnv()`
+   - `headroomConfigForLaunch()`
+   - `headroomConfigFromTrustableConfig()`
+   - `applyHeadroomEnvOverrides()`
    - `ensureHeadroomProxy(ctx, env)`.
 2. When enabled, start or reuse:
 
@@ -243,15 +266,20 @@ Expected first PR files:
   - install pinned `headroom-ai[proxy]`;
   - verify `headroom --help` at build time.
 - `preflight.go`
-  - read optional `TRUSTABLE_HEADROOM_*` variables;
+  - log the effective Headroom setting from workspace config plus optional
+    `TRUSTABLE_HEADROOM_*` overrides;
   - do not fail startup when Headroom is disabled.
 - `launch.go`
-  - add Headroom env parsing and process startup helpers;
+  - add Headroom config parsing and process startup helpers;
   - keep normal `opencode serve` path unchanged when disabled;
   - add logs and lifecycle cleanup for enabled mode.
 - `configure.go`
-  - no change in Phase 1;
-  - possible Phase 2 only if provider injection is selected.
+  - persist `experimental.headroom.enabled` in workspace config;
+  - preserve the experimental block when older clients post config without it.
+- `web/configure.html`
+  - add an Experimental section with a Headroom checkbox.
+- `spec/2a-config.md`
+  - document the Configure UI switch.
 - `spec/4-launch.md`
   - document disabled default, lifecycle, and exact launch behavior.
 - `headroom_experiment_plan.md`
@@ -285,7 +313,7 @@ closed without touching the issue-98 guardrails or the OpenCode upgrade.
    - `GET /api/launch/<app>` starts OpenCode exactly as today;
    - no Headroom process is running;
    - generated `opencode.json` is unchanged.
-4. Enable `TRUSTABLE_HEADROOM_ENABLED=true` in the local pod/image.
+4. Enable Headroom from Configure for the test workspace.
 5. Verify Phase 1:
    - `headroom --version` or `headroom --help` works;
    - `headroom proxy` binds only to `127.0.0.1:<port>`;
@@ -295,11 +323,15 @@ closed without touching the issue-98 guardrails or the OpenCode upgrade.
      written to the container-layer `~/.headroom`;
    - `HEADROOM_CCR_SQLITE_PATH` points to `.trustable/headroom/ccr_store.db`,
      so compression retrieval state is also persisted in the workspace.
-6. Test candidate A (`headroom wrap opencode`) in a local branch.
-7. If candidate A does not show OpenCode traffic in stats, stop and design
+6. Disable Headroom again from Configure and verify relaunch returns to the
+   direct OpenCode path.
+7. Use `TRUSTABLE_HEADROOM_ENABLED=true|false` only for operator/dev override
+   tests, not as the normal user workflow.
+8. Test candidate A (`headroom wrap opencode`) in a local branch.
+9. If candidate A does not show OpenCode traffic in stats, stop and design
    candidate B explicitly.
-8. Run the same app-generation task with and without Headroom.
-9. Compare behavior and metrics before proposing default inclusion.
+10. Run the same app-generation task with and without Headroom.
+11. Compare behavior and metrics before proposing default inclusion.
 
 ## Metrics
 

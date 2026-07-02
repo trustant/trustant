@@ -466,6 +466,10 @@ Sections (rendered top to bottom in this order):
   - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map (and `opencode` defaults) from `status.trustable`. The dropdowns repopulate from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
 - **OpenCode Models** — two `<select>` dropdowns labelled "Default Model" and "Small Model". Both are populated from the keys of the active provider's `models` map. Selected values are written to `opencode.default` and `opencode.small`. Free-text input is no longer accepted.
 - **Git User** — name and email (unchanged).
+- **Experimental** — contains a Headroom checkbox. It is off by default and is
+  saved to `experimental.headroom.enabled` in the workspace `trustable.json`.
+  The UI does not expose Headroom port, mode, or state directory; those remain
+  developer/operator overrides.
 
 If the URL has `?reselect=1` (set by the splash or applist when `status[provider].modelsVersion` bumped — see "Model catalog → Version tracking (per provider)"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
 

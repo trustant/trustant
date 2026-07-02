@@ -61,6 +61,51 @@ func TestHeadroomConfigEnabledCustomValues(t *testing.T) {
 	}
 }
 
+func TestHeadroomConfigFromTrustableConfig(t *testing.T) {
+	withWorkspaceDir(t, t.TempDir())
+	cfg := &trustableConfig{
+		Experimental: &experimentalConfig{
+			Headroom: &headroomExperimentConfig{
+				Enabled: true,
+			},
+		},
+	}
+
+	got, err := applyHeadroomEnvOverrides(headroomConfigFromTrustableConfig(cfg))
+	if err != nil {
+		t.Fatalf("applyHeadroomEnvOverrides returned error: %v", err)
+	}
+	if !got.Enabled {
+		t.Fatalf("Headroom should be enabled from trustable config")
+	}
+	if got.Mode != "proxy" {
+		t.Fatalf("mode = %q, want proxy", got.Mode)
+	}
+	if got.Port != defaultHeadroomPort {
+		t.Fatalf("port = %d, want %d", got.Port, defaultHeadroomPort)
+	}
+}
+
+func TestHeadroomEnvOverridesTrustableConfig(t *testing.T) {
+	withWorkspaceDir(t, t.TempDir())
+	t.Setenv("TRUSTABLE_HEADROOM_ENABLED", "false")
+	cfg := &trustableConfig{
+		Experimental: &experimentalConfig{
+			Headroom: &headroomExperimentConfig{
+				Enabled: true,
+			},
+		},
+	}
+
+	got, err := applyHeadroomEnvOverrides(headroomConfigFromTrustableConfig(cfg))
+	if err != nil {
+		t.Fatalf("applyHeadroomEnvOverrides returned error: %v", err)
+	}
+	if got.Enabled {
+		t.Fatalf("Headroom env override should disable saved config")
+	}
+}
+
 func TestHeadroomConfigRejectsInvalidValues(t *testing.T) {
 	tests := []struct {
 		name string

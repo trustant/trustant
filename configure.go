@@ -26,6 +26,19 @@ type opencodeConfig struct {
 	Small   string `json:"small"`
 }
 
+// experimentalConfig holds disabled-by-default feature experiments controlled
+// from the configuration UI.
+type experimentalConfig struct {
+	Headroom *headroomExperimentConfig `json:"headroom,omitempty"`
+}
+
+type headroomExperimentConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Mode     string `json:"mode,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	StateDir string `json:"state_dir,omitempty"`
+}
+
 // ModelLimits is the per-model hint block from /api/v2/status and what we
 // persist in trustable.json under the active provider's `models` map.
 // All three fields are optional (omitempty); zero values are dropped.
@@ -91,6 +104,7 @@ type trustableConfig struct {
 	Models        map[string]*ModelLimits `json:"models,omitempty"`
 	Opencode      *opencodeConfig         `json:"opencode,omitempty"`
 	Git           *GitConfig              `json:"git,omitempty"`
+	Experimental  *experimentalConfig     `json:"experimental,omitempty"`
 	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
 	Current       string                  `json:"current,omitempty"`
 
@@ -249,10 +263,28 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 		result.Git = override.Git
 	}
 
+	if override.Experimental != nil {
+		result.Experimental = mergeExperimentalConfig(base.Experimental, override.Experimental)
+	}
+
 	if override.Apps != nil {
 		result.Apps = override.Apps
 	}
 
+	return &result
+}
+
+func mergeExperimentalConfig(base, override *experimentalConfig) *experimentalConfig {
+	if base == nil {
+		return override
+	}
+	if override == nil {
+		return base
+	}
+	result := *base
+	if override.Headroom != nil {
+		result.Headroom = override.Headroom
+	}
 	return &result
 }
 
@@ -1515,6 +1547,9 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		}
 		if wsCfg.Current != "" && cfg.Current == "" {
 			cfg.Current = wsCfg.Current
+		}
+		if wsCfg.Experimental != nil && cfg.Experimental == nil {
+			cfg.Experimental = wsCfg.Experimental
 		}
 	}
 

@@ -73,15 +73,6 @@ func loadEnv() error {
 		OpsSkills = "trustable-ai/skills"
 		os.Setenv("OPS_SKILLS", OpsSkills)
 	}
-	if headroomCfg, err := headroomConfigFromEnv(); err == nil {
-		HeadroomEnabled = headroomCfg.Enabled
-		HeadroomMode = headroomCfg.Mode
-		HeadroomPort = headroomCfg.Port
-		HeadroomStateDir = headroomCfg.StateDir
-	} else {
-		log.Printf("  Warning: invalid Headroom configuration: %s", err)
-	}
-
 	if WorkspaceDir == "" {
 		return fmt.Errorf("WORKSPACE_DIR is not set")
 	}
@@ -96,6 +87,14 @@ func loadEnv() error {
 	}
 	if AIPBaseURL == "" {
 		return fmt.Errorf("AIP_BASE_URL is not set")
+	}
+	if headroomCfg, err := headroomConfigForLaunch(); err == nil {
+		HeadroomEnabled = headroomCfg.Enabled
+		HeadroomMode = headroomCfg.Mode
+		HeadroomPort = headroomCfg.Port
+		HeadroomStateDir = headroomCfg.StateDir
+	} else {
+		log.Printf("  Warning: invalid Headroom configuration: %s", err)
 	}
 
 	return nil

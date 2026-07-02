@@ -439,13 +439,19 @@ defaulting anything unrecognized to `primary`. Best-effort — failures are logg
 Launch `opencode serve` with the variables from the workbench `.env` appended to
 the process environment.
 
-Headroom is an optional, disabled-by-default experiment. When
-`TRUSTABLE_HEADROOM_ENABLED` is absent or false, launch behavior is unchanged:
-start `opencode serve` directly and do not start any Headroom process.
+Headroom is an optional, disabled-by-default experiment. The user-facing
+setting lives in the workspace `trustable.json` as
+`experimental.headroom.enabled`, saved by `configure.html`. When that value is
+absent or false, launch behavior is unchanged: start `opencode serve` directly
+and do not start any Headroom process.
 
-When `TRUSTABLE_HEADROOM_ENABLED=true` and
-`TRUSTABLE_HEADROOM_MODE=proxy` (the default mode), launch starts a local
-Headroom proxy in the same process group as OpenCode:
+`TRUSTABLE_HEADROOM_ENABLED`, `TRUSTABLE_HEADROOM_MODE`,
+`TRUSTABLE_HEADROOM_PORT`, and `TRUSTABLE_HEADROOM_STATE_DIR` are
+developer/operator environment overrides. If `TRUSTABLE_HEADROOM_ENABLED` is
+set, it overrides the saved UI value.
+
+When Headroom is enabled and mode is `proxy` (the default mode), launch starts a
+local Headroom proxy in the same process group as OpenCode:
 
 ```
 headroom proxy --host 127.0.0.1 --port <TRUSTABLE_HEADROOM_PORT>

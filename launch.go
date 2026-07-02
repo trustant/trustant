@@ -504,8 +504,11 @@ func waitForPort(port int, timeout time.Duration) error {
 	return fmt.Errorf("port %d not listening after %v", port, timeout)
 }
 
-func parseOptionalBoolEnv(key string) (bool, error) {
+func parseOptionalBoolValue(key, raw string) (bool, error) {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if raw != "" {
+		value = strings.ToLower(strings.TrimSpace(raw))
+	}
 	switch value {
 	case "", "0", "false", "f", "no", "off":
 		return false, nil
@@ -514,6 +517,15 @@ func parseOptionalBoolEnv(key string) (bool, error) {
 	default:
 		return false, fmt.Errorf("%s must be true/false, got %q", key, os.Getenv(key))
 	}
+}
+
+func optionalBoolEnv(key string) (bool, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return false, false, nil
+	}
+	value, err := parseOptionalBoolValue(key, raw)
+	return value, true, err
 }
 
 func defaultHeadroomStateDir() string {
@@ -529,43 +541,82 @@ func defaultHeadroomStateDir() string {
 	return filepath.Join(base, ".trustable", "headroom")
 }
 
-func headroomConfigFromEnv() (headroomLaunchConfig, error) {
-	enabled, err := parseOptionalBoolEnv("TRUSTABLE_HEADROOM_ENABLED")
-	if err != nil {
+func defaultHeadroomConfig() headroomLaunchConfig {
+	return headroomLaunchConfig{
+		Enabled:  false,
+		Mode:     "proxy",
+		Port:     defaultHeadroomPort,
+		StateDir: defaultHeadroomStateDir(),
+	}
+}
+
+func headroomConfigFromTrustableConfig(cfg *trustableConfig) headroomLaunchConfig {
+	result := defaultHeadroomConfig()
+	if cfg == nil || cfg.Experimental == nil || cfg.Experimental.Headroom == nil {
+		return result
+	}
+	headroom := cfg.Experimental.Headroom
+	result.Enabled = headroom.Enabled
+	if strings.TrimSpace(headroom.Mode) != "" {
+		result.Mode = strings.TrimSpace(headroom.Mode)
+	}
+	if headroom.Port != 0 {
+		result.Port = headroom.Port
+	}
+	if strings.TrimSpace(headroom.StateDir) != "" {
+		result.StateDir = strings.TrimSpace(headroom.StateDir)
+	}
+	return result
+}
+
+func applyHeadroomEnvOverrides(cfg headroomLaunchConfig) (headroomLaunchConfig, error) {
+	if enabled, set, err := optionalBoolEnv("TRUSTABLE_HEADROOM_ENABLED"); err != nil {
 		return headroomLaunchConfig{}, err
+	} else if set {
+		cfg.Enabled = enabled
 	}
 
-	mode := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_MODE"))
-	if mode == "" {
-		mode = "proxy"
+	if mode := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_MODE")); mode != "" {
+		cfg.Mode = mode
 	}
-
-	port := defaultHeadroomPort
 	if rawPort := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_PORT")); rawPort != "" {
 		parsed, err := strconv.Atoi(rawPort)
 		if err != nil || parsed < 1 || parsed > 65535 {
 			return headroomLaunchConfig{}, fmt.Errorf("TRUSTABLE_HEADROOM_PORT must be 1-65535, got %q", rawPort)
 		}
-		port = parsed
+		cfg.Port = parsed
 	}
 
-	stateDir := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_STATE_DIR"))
-	if stateDir == "" {
-		stateDir = defaultHeadroomStateDir()
+	if stateDir := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_STATE_DIR")); stateDir != "" {
+		cfg.StateDir = stateDir
+	}
+	if strings.TrimSpace(cfg.Mode) == "" {
+		cfg.Mode = "proxy"
+	}
+	if cfg.Port < 1 || cfg.Port > 65535 {
+		return cfg, fmt.Errorf("Headroom port must be 1-65535, got %d", cfg.Port)
+	}
+	if strings.TrimSpace(cfg.StateDir) == "" {
+		cfg.StateDir = defaultHeadroomStateDir()
 	}
 
-	cfg := headroomLaunchConfig{
-		Enabled:  enabled,
-		Mode:     mode,
-		Port:     port,
-		StateDir: stateDir,
-	}
-
-	if enabled && mode != "proxy" {
-		return cfg, fmt.Errorf("unsupported TRUSTABLE_HEADROOM_MODE %q", mode)
+	if cfg.Enabled && cfg.Mode != "proxy" {
+		return cfg, fmt.Errorf("unsupported Headroom mode %q", cfg.Mode)
 	}
 
 	return cfg, nil
+}
+
+func headroomConfigFromEnv() (headroomLaunchConfig, error) {
+	return applyHeadroomEnvOverrides(defaultHeadroomConfig())
+}
+
+func headroomConfigForLaunch() (headroomLaunchConfig, error) {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return headroomLaunchConfig{}, err
+	}
+	return applyHeadroomEnvOverrides(headroomConfigFromTrustableConfig(cfg))
 }
 
 func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
@@ -593,7 +644,7 @@ func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
 }
 
 func ensureHeadroomProxy(pgid int) error {
-	cfg, err := headroomConfigFromEnv()
+	cfg, err := headroomConfigForLaunch()
 	if err != nil {
 		return err
 	}
