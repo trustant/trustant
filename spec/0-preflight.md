@@ -68,9 +68,14 @@ The web application requires you always access the application with a full fqdn 
     handles stale browser tabs that still point at a previously edited app.
   This keeps OpenCode from falling back to stale global project state after the
   user exits a session view.
-- For OpenCode file picker compatibility, when `opencode.<domain>` requests
-  `/find/file` or `/file` with `directory=/home/trustable`, rewrite the query
-  to use `$WORKBENCH_DIR` before proxying. OpenCode 1.17 refuses FFF searches
-  rooted at the user's home directory, but Trustable workbench selection should
-  expose the app checkouts under `$WORKBENCH_DIR`.
+- The OpenCode iframe is scoped to the app launched by Trustable. Before
+  proxying any `opencode.<domain>` request with a `directory` query parameter,
+  rewrite non-current directories to the current app directory from
+  `<workbenchdir>/current`. This prevents OpenCode's internal project switcher
+  from opening another Trustable app as a plain folder without the required
+  `ops ide login`, generated env, deploy, app-local `opencode.json`, and MCP
+  configuration. App switching must happen through Trustable `/api/launch/<app>`.
+- For the same reason, `GET /project` through `opencode.<domain>` returns only
+  the current app's OpenCode project, even if OpenCode's persistent DB contains
+  older projects from previous launches.
 - if <host> is 'vite',  proxy pass to port 5173

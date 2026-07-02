@@ -1012,43 +1012,6 @@ func restoreMissingWorkbenchCheckouts() {
 	}
 }
 
-func seedOpenCodeWorkbenchProjects(port int) {
-	entries, err := os.ReadDir(WorkbenchDir)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("Warning: failed to read workbench dirs for OpenCode seed: %s", err)
-		}
-		return
-	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		app := entry.Name()
-		if !namePattern.MatchString(app) {
-			continue
-		}
-		workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, app))
-		if !workspaceRepoExists(workbenchPath) {
-			continue
-		}
-		reqURL := fmt.Sprintf("http://localhost:%d/project/current?directory=%s", port, url.QueryEscape(workbenchPath))
-		resp, err := client.Get(reqURL)
-		if err != nil {
-			log.Printf("Warning: failed to seed OpenCode project for %s: %s", app, err)
-			continue
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			log.Printf("Warning: OpenCode project seed for %s returned %d: %s", app, resp.StatusCode, strings.TrimSpace(string(body)))
-			continue
-		}
-		log.Printf("OpenCode project seed ready for %s", app)
-	}
-}
-
 // handleLaunchGet handles GET /api/launch/<app>
 func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1359,7 +1322,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("opencode failed to start listening: %s", err)})
 		return
 	}
-	seedOpenCodeWorkbenchProjects(leftPort)
 	if err := waitForPort(rightPort, 30*time.Second); err != nil {
 		killPgid(pgid)
 		removePgidFile()

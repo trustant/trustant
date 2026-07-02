@@ -185,16 +185,15 @@ Implemented in this refinement:
   workspace volume and restore missing checkout directories from the durable
   bare repos at startup, while still doing full per-app login/deploy only in
   `/api/launch/<name>`.
-- Additional OpenCode 1.17 behavior: the project picker does not reliably
-  discover `~/workbench/*` by searching from the user home directory because
-  its file picker refuses home-root scans. After `opencode serve` starts,
-  Trustable should explicitly seed each restored checkout through OpenCode's
-  project-current API so the workbenches appear as openable/recent projects.
-- The browser still reaches OpenCode through Trustable's `opencode.<domain>`
-  proxy, so Trustable can also normalize OpenCode file-picker requests. When
-  OpenCode asks `/find/file` or `/file` with `directory=/home/trustable`,
-  rewrite that query to `$WORKBENCH_DIR` before proxying. This makes the modal
-  search show Trustable app checkouts instead of an empty home-root scan.
+- Correction from later testing: do not seed every restored checkout as an
+  OpenCode project. That lets OpenCode open another Trustable app as a plain
+  folder, bypassing `ops ide login`, generated env, deploy, app-local
+  `opencode.json`, and MCP configuration. The OpenCode iframe must stay scoped
+  to the app launched by Trustable; switching apps must go through
+  `/api/launch/<app>`. The `opencode.<domain>` proxy should rewrite API
+  requests carrying a non-current `directory` query back to the current app
+  directory, and should scope `GET /project` to only the current app even if
+  OpenCode's persistent DB still contains older projects.
 
 Important measured sizes:
 
