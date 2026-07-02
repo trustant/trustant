@@ -26,7 +26,7 @@ It will list the applications, using the backend api. The page includes compact
 summary metrics for total applications, production-configured applications,
 development-only applications, and repositories. The list supports client-side
 search, sort by name or repository, segmented filters for all/production/
-development-only, a grid view, a denser list view, and a visible count of
+development-only, a grid view, a denser list view as the default, and a visible count of
 matching applications. Searching filters by app name, repository, production
 host, and production user without calling the backend again.
 
