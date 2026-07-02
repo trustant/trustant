@@ -471,11 +471,11 @@ Wait that both the processes are up and running and ports are listening.
 When ok, execute a POST to the opencode session endpoint with header
 "X-Opencode-Directory: <directory>" and log the result of this invocation.
 
-The POST must target the **opencode host**, not localhost: take the request host,
-strip its port, swap the `trustable.` hostname prefix for `opencode.`, and POST to
-`http://opencode.<domain>:4096/session/`. In production opencode is reached through
-the ingress (which routes by the `opencode.` hostname prefix — see middleware.go),
-not over the loopback, so localhost would not resolve to the right server.
+This launch bootstrap is a pod-local sidecar call and must target
+`http://localhost:4096/session/`. Browser-visible OpenCode traffic is different:
+`opencode.<domain>` must route through the Trustable ingress/proxy path on port
+8910, where the middleware scopes project and directory requests before
+proxying to the same pod-local OpenCode server.
 
 then return:
 

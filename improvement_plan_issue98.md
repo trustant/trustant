@@ -499,6 +499,35 @@ Potential automation:
 - add app-level examples but avoid fake endpoint names;
 - expose a Trustable UI "Run backend smoke" later if enough patterns stabilize.
 
+## OpenCode ingress scoping follow-up
+
+The browser-visible `opencode.<domain>` host must not route directly to the
+OpenCode service port `4096`. It must route to the Trustable app port `8910`,
+where `middleware.go` can scope OpenCode requests to the current Trustable app
+before proxying to the pod-local OpenCode server.
+
+Failure mode observed with Playwright:
+
+- Trustable launched `trutestdb2`, but the OpenCode project API exposed older
+  projects such as `truk8s` because `opencode-ing` bypassed Trustable
+  middleware and pointed directly at service port `4096`.
+- When the browser path bypasses Trustable middleware, OpenCode can open another
+  workbench as a plain folder, without that app's `ops ide login`, generated
+  env, deploy, app-local `opencode.json`, and MCP context.
+- After patching `opencode-ing` to service port `8910`, Playwright saw
+  `/project` return only `trutestdb2`, and `/mcp` returned the expected
+  connected servers (`openserverless`, `postgres`, `redis`, `s3`, `milvus`).
+
+Host classification for this case:
+
+- `localhost:4096`: pod-local OpenCode sidecar/API used by Trustable launch
+  bootstrap;
+- `opencode.<domain>`: browser-visible host that must enter Trustable
+  middleware on port `8910`;
+- `localhost:5173`: pod-local app dev server started by `ops ide devel`;
+- `vite.<domain>`: browser-visible app host, used only after `ops ide deploy`
+  when external ingress routing is in scope.
+
 ## Proposed commit structure
 
 1. `docs: add issue 98 improvement plan`

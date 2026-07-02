@@ -836,9 +836,9 @@ func listOpencodeSessions(domain string, port int, directory string) []opencodeS
 
 // createOpencodeSession POSTs to opencode's /session/ endpoint with the
 // workbench directory header so the running opencode server scopes its session
-// to the launched app. The POST targets <domain>:<port> (not localhost) because
-// in production opencode is reached through an ingress, not the loopback (see
-// spec/4-launch.md). Failures are logged but non-fatal.
+// to the launched app. Launch runs in the same pod as OpenCode, so this is an
+// explicit pod-local sidecar call to localhost:4096. Browser traffic uses the
+// opencode.<domain> ingress and Trustable proxy path instead.
 func createOpencodeSession(domain string, port int, directory string) string {
 	url := fmt.Sprintf("http://%s:%d/session/", domain, port)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -1339,20 +1339,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
 
-	// Strip any port from the request host to get the bare domain.
-	domain := r.Host
-	if colonIdx := strings.LastIndex(domain, ":"); colonIdx != -1 {
-		if bracketIdx := strings.LastIndex(domain, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
-			domain = domain[:colonIdx]
-		}
-	}
-
-	// Notify opencode of the workbench directory so it scopes the session
-	// correctly. The request arrives on the trustable.<domain> host, but opencode
-	// is served on opencode.<domain> (the ingress routes by hostname prefix — see
-	// middleware.go), so swap the prefix before POSTing.
-	opencodeHost := strings.Replace(domain, "trustable.", "opencode.", 1)
-	sessionID := resolveOpencodeSession(opencodeHost, leftPort, absPath)
+	// Notify the pod-local OpenCode server of the workbench directory so it
+	// scopes the session correctly. Browser requests use opencode.<domain>
+	// through the ingress/proxy path; launch bootstrapping stays inside the pod.
+	sessionID := resolveOpencodeSession("localhost", leftPort, absPath)
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
