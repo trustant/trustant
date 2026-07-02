@@ -155,6 +155,11 @@ old embedded `tools/` plugins. It is installed globally in the image as
 }
 ```
 
+The runtime image pins OpenCode with `OPENCODE_VERSION` in `image/Dockerfile`.
+Whenever that pin changes, the image build must install
+`@opencode-ai/plugin` at the exact version returned by
+`/usr/local/bin/opencode --version`; a mismatch is a build/runtime regression.
+
 # if the app uses AgentiReact add the agentireact MCP server:
 
 Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either

@@ -1,13 +1,13 @@
 # OpenCode upgrade plan
 
-Date: 2026-07-01
+Date: 2026-07-02
 
 Related but separate plan: `improvement_plan_issue98.md`
 
 ## Goal
 
 Evaluate upgrading Trustable's pinned OpenCode version from `1.16.2` to the
-latest verified candidate, currently `1.17.12`, without mixing the version bump
+latest verified candidate, currently `1.17.13`, without mixing the version bump
 into the issue-98 guardrail PR.
 
 The upgrade looks useful, but it is not expected to be fully resolving by
@@ -16,10 +16,11 @@ primary fix for OpenServerless workflow drift.
 
 ## Current and candidate versions
 
-- Current Trustable image ARG: `OPENCODE_VERSION=1.16.2`.
-- Latest upstream/npm checked on 2026-07-01: `1.17.12`.
-- `opencode-ai` npm: `1.17.12`.
-- `@opencode-ai/plugin` npm: `1.17.12`.
+- Previous Trustable image ARG: `OPENCODE_VERSION=1.16.2`.
+- Updated Trustable image ARG: `OPENCODE_VERSION=1.17.13`.
+- Latest upstream/npm checked on 2026-07-02: `1.17.13`.
+- `opencode-ai` npm: `1.17.13`.
+- `@opencode-ai/plugin` npm: `1.17.13`.
 
 Sources:
 
@@ -55,16 +56,40 @@ These are strong reasons to test the upgrade. They do not remove the need for:
 - local `localhost:5173` verification discipline;
 - no-user-shell-delegation rules.
 
-## Proposed scope
+## Implementation scope
 
 Make this a separate improvement PR after, or parallel to, the guardrail PR:
 
-1. Bump `OPENCODE_VERSION` in the image build to `1.17.12`.
+1. Bump `OPENCODE_VERSION` in the image build to `1.17.13`.
 2. Ensure the installed `@opencode-ai/plugin` version still matches
    `/usr/local/bin/opencode --version`.
 3. Rebuild the Trustable image.
 4. Run launch/config/MCP tests.
 5. Validate a live app workflow inside `trustable-0`.
+
+## Local validation results
+
+Checked on 2026-07-02 with local image
+`ghcr.io/trustable-ai/trustable-app:local_opencode_upgrade_26.183.0553`:
+
+- `go test ./...` passed.
+- `git diff --check` passed.
+- Local image build completed for `linux/arm64`.
+- `trustable-0` rolled out successfully with the local image.
+- Inside the pod, `/usr/local/bin/opencode --version` returned `1.17.13`.
+- Inside the pod, `@opencode-ai/plugin` was installed at `1.17.13`.
+- `supervisorctl status` showed `ollama`, `sshd`, and `trustable` running.
+- `GET /api/launch/trutestdb2` succeeded and created an OpenCode session.
+- Pod-local `http://localhost:4096/` returned HTTP 200.
+- Pod-local `http://localhost:5173/` returned HTTP 200.
+- Generated `opencode.json` included the project-local
+  `.openserverless-contract.md` and `opencode.md` in `instructions`.
+- Generated `opencode.json` and `.mcp.json` included `openserverless`.
+- `check_openserverless_actions.sh .` passed with `0 warning(s)`.
+
+Note: `/api/version` still reported the prior local build label because the
+manual local-image flow did not regenerate `_build.txt`; the StatefulSet image
+tag and in-pod OpenCode checks are the authoritative validation for this run.
 
 ## Validation checklist
 
