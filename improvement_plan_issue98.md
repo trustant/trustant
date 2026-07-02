@@ -506,6 +506,13 @@ OpenCode service port `4096`. It must route to the Trustable app port `8910`,
 where `middleware.go` can scope OpenCode requests to the current Trustable app
 before proxying to the pod-local OpenCode server.
 
+The authoritative deployment manifests for this are under
+`olaris-bestia/trustable`. The older `olaris-trustable` checkout is deprecated
+and must not be used as the source of truth. In the current local test cluster,
+`olaris-bestia/trustable` already had `opencode-ing` on service port `8910`;
+the live cluster object had drifted/stayed stale on `4096`, so it had to be
+patched or redeployed from the active `olaris-bestia` manifest.
+
 Failure mode observed with Playwright:
 
 - Trustable launched `trutestdb2`, but the OpenCode project API exposed older
