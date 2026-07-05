@@ -52,6 +52,7 @@ func main() {
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/git/status/", handleGitStatus)
 	http.HandleFunc("/api/git/save", handleGitSave)
+	http.HandleFunc("/api/git/pull", handleGitPull)
 	http.HandleFunc("/api/publish/force-push", handlePublish)
 	http.HandleFunc("/api/sshkey", handleSSHKey)
 	http.HandleFunc("/api/configure", handleConfigure)

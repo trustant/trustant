@@ -41,8 +41,15 @@ You can
 - remove applications
 - edit applications
 - env (configure application environment variables)
+- git pull (pull fast-forward updates from the configured production repository when available, otherwise the original application repository)
 - git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
+
+Application action buttons should use a restrained visual style: white or very
+light neutral backgrounds, gray borders, gray text, and subtle hover states.
+Avoid assigning a different saturated color to every action. Destructive
+actions may keep a red text/border treatment, but should not use a solid red
+background in the normal state.
 
 ## Publishing gate
 
@@ -127,6 +134,24 @@ Once the repo is set, the backend saves it as `OPS_REPO` in production config, a
 If `needs_config` was not returned (already configured), skip the form and show the result directly.
 
 Show spinner during the operation and result on completion.
+
+# Git Pull
+
+Each app card has a "Git Pull" button. Clicking it calls
+`POST /api/git/pull` with the app name.
+
+The backend pulls from the configured production repository (`OPS_REPO`) when
+available, matching the Git Push target. If no production repository is
+configured, it pulls from the app's original `origin` repository. The operation
+updates Trustable's bare workspace repository and fast-forwards the active
+workbench checkout when it exists.
+
+The backend does not merge, rebase, hard reset, or overwrite unsaved workbench
+changes. If local changes or divergent commits exist, show the backend error in
+the same modal/result style used by Git Push.
+
+Show spinner during the operation and result on completion. On success, reload
+the app list so repository metadata remains current.
 
 # Publish
 
