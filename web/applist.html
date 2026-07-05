@@ -199,6 +199,27 @@
         </div>
     </div>
 
+    <!-- Git Pull Modal -->
+    <div id="gitPullModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="gitPullSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-gray-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-gray-600">Pulling updates...</p>
+            </div>
+            <div id="gitPullResult" class="hidden">
+                <h3 class="text-lg font-semibold mb-4">Git Pull</h3>
+                <div id="gitPullResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <button onclick="hideGitPullModal()"
+                    class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Git Push Modal -->
     <div id="gitPushModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
@@ -545,6 +566,52 @@
             document.getElementById('deleteModal').classList.remove('flex');
             appToDelete = null;
             loadApps();
+        }
+
+        // Git Pull functions
+        let gitPullApp = null;
+
+        async function handleGitPull(name) {
+            gitPullApp = name;
+            showGitPullModal();
+
+            try {
+                const response = await fetch('/api/git/pull', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showGitPullResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showGitPullResult((data.message || 'Pull completed successfully') + (data.output ? '\n' + data.output : ''), 'success');
+                    loadApps();
+                }
+            } catch (error) {
+                showGitPullResult('Failed: ' + error.message, 'error');
+            }
+        }
+
+        function showGitPullModal() {
+            document.getElementById('gitPullSpinner').classList.remove('hidden');
+            document.getElementById('gitPullResult').classList.add('hidden');
+            document.getElementById('gitPullModal').classList.remove('hidden');
+            document.getElementById('gitPullModal').classList.add('flex');
+        }
+
+        function hideGitPullModal() {
+            document.getElementById('gitPullModal').classList.add('hidden');
+            document.getElementById('gitPullModal').classList.remove('flex');
+            gitPullApp = null;
+        }
+
+        function showGitPullResult(message, type) {
+            document.getElementById('gitPullSpinner').classList.add('hidden');
+            const textEl = document.getElementById('gitPullResultText');
+            textEl.textContent = message;
+            textEl.className = (type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-700') + ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+            document.getElementById('gitPullResult').classList.remove('hidden');
         }
 
         // Git Push functions
@@ -1267,6 +1334,9 @@
                     !document.getElementById('gitPushForm').classList.contains('hidden')) {
                     hideGitPushModal();
                 }
+                if (!document.getElementById('gitPullResult').classList.contains('hidden')) {
+                    hideGitPullModal();
+                }
                 if (!document.getElementById('publishResult').classList.contains('hidden') ||
                     !document.getElementById('publishForm').classList.contains('hidden')) {
                     hidePublishModal();
@@ -1294,6 +1364,11 @@
         });
         document.getElementById('gitPushModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hideGitPushModal();
+        });
+        document.getElementById('gitPullModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('gitPullResult').classList.contains('hidden')) {
+                hideGitPullModal();
+            }
         });
         document.getElementById('publishModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hidePublishModal();
