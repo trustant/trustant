@@ -31,8 +31,9 @@ matching applications. Searching filters by app name, repository, production
 host, and production user without calling the backend again.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
-Application action buttons keep the standard solid color scheme: Edit is green,
-Env is purple, Git Push is indigo, Publish is teal, and Delete is red.
+In list view, reserve enough width for the Actions column so every action
+button stays on a single line. Button labels such as "Git Pull" and "Git Push"
+must not wrap.
 
 The Local link points to `<protocol>://<name>.<domain>` by replacing the first
 label of the current Trustable host. For example, from
@@ -53,11 +54,11 @@ You can
 - git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 
-Application action buttons should use a restrained visual style: white or very
-light neutral backgrounds, gray borders, gray text, and subtle hover states.
-Avoid assigning a different saturated color to every action. Destructive
-actions may keep a red text/border treatment, but should not use a solid red
-background in the normal state.
+Application action buttons should use a restrained visual style: very light
+blue backgrounds, light blue borders, dark neutral text, and subtle hover
+states. Avoid assigning a different saturated color to every action.
+Destructive actions may keep a red text/border treatment with a pale red
+background, but should not use a solid red background in the normal state.
 
 ## Publishing gate
 
