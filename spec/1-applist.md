@@ -31,6 +31,8 @@ matching applications. Searching filters by app name, repository, production
 host, and production user without calling the backend again.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
+The Development and Production app links should include a small web/external-link
+icon so they read clearly as browser links, not plain status labels.
 In list view, reserve enough width for the Actions column so every action
 button stays on a single line. Button labels such as "Git Pull" and "Git Push"
 must not wrap.
