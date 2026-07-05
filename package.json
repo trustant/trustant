@@ -1,0 +1,11 @@
+{
+  "name": "trustable-app-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "e2e:issue98": "./tests/e2e_issue98.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

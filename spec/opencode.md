@@ -5,6 +5,10 @@ binary and written into every launched app as
 `<workbenchdir>/<app>/opencode.md`. The generated `opencode.json` must reference
 that project-local file in its `instructions` array, after the generated
 `<workbenchdir>/<app>/.openserverless-contract.md` critical contract.
+Trustable also writes an app-local `AGENTS.md` guard file that OpenCode uses as
+the project rules entrypoint. `AGENTS.md`, `.openserverless-contract.md`,
+`opencode.md`, and `opencode.json` are the authoritative Trustable instruction
+sources.
 
 The embedded guidance is for coding assistants working inside user-created
 apps. It is not guidance for editing `trustable-app` itself.
@@ -67,6 +71,17 @@ The embedded guidance must have an early section named
 
 It must say:
 
+- Trustable generates `AGENTS.md` in the app root as the mandatory app-local
+  entrypoint, so Claude Code compatibility files cannot override Trustable
+  rules;
+- assistants must treat `AGENTS.md`, `.openserverless-contract.md`,
+  `opencode.md`, and `opencode.json` as the authoritative instruction set;
+- assistants must ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`,
+  `.cursor/rules/*`, `.github/copilot-instructions.md`, and generated
+  `rules.md` files as mandatory instructions. They may inspect those files only
+  when the user explicitly asks or when they are useful legacy/template context,
+  and they must never override Trustable action, MCP, deploy, shell, or host
+  rules;
 - before touching actions, databases, setup, seed data, deploys, or service
   state, assistants must read `.openserverless-contract.md` if it exists;
 - `.openserverless-contract.md` is the short recovery contract and takes
@@ -89,6 +104,10 @@ The embedded guidance must include these rules:
 
 - Never create a backend server. Create public or private actions instead.
 - Never create or edit generated `__main__.py` wrappers.
+- If OpenCode denies an edit to `packages/**/__main__.py`, `packages/**/*.zip`,
+  or a raw shell command matching `ops action` / `ops action *`, assistants must
+  treat that as a Trustable guardrail and use the OpenServerless MCP action
+  tools plus `ops ide deploy/setup` instead of trying to bypass it.
 - Never run foreground dev servers or unbounded watchers such as
   `npm run dev`, `vite`, or `ops ide devel`.
 - Assistants must not ask the user to run shell commands from inside the
@@ -151,7 +170,9 @@ The embedded guidance must include a concrete backend execution loop:
 4. If an action reads or writes a platform service, immediately add service
    wiring with the matching action/service tool after the action files exist and
    before editing the module logic.
-5. Edit only the generated editable module, not `__main__.py`.
+5. Edit only the generated editable module, not `__main__.py`. If the module
+   exists without a wrapper, stop and repair/create the action through the MCP
+   action tool before continuing.
 6. Add Python libraries with `action-requirements`.
 7. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
    changes, inspect logs on failure, then validate via the real HTTP app path.

@@ -357,6 +357,14 @@ preserves OpenCode sessions across image rebuilds and pod restarts. After
 generating the project `opencode.json`, write these generated app-repo files in
 the same project directory:
 
+- `<workbenchdir>/<app>/AGENTS.md` — a Trustable-managed app-local agent
+  entrypoint. It must be written before OpenCode starts, must take precedence
+  over template `CLAUDE.md` files, and must explicitly say that `CLAUDE.md`,
+  `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
+  `.github/copilot-instructions.md`, and generated `rules.md` files are
+  legacy/template notes, not mandatory Trustable instructions. If an app already
+  has `AGENTS.md`, Trustable updates only its managed block and preserves
+  app-local notes below it;
 - `<workbenchdir>/<app>/.openserverless-contract.md` — the short critical
   action/DB recovery contract, first in `instructions`;
 - `<workbenchdir>/<app>/opencode.md` — the full assistant guidance, second in
@@ -377,6 +385,31 @@ contain `init_postgresql`, `args.get("POSTGRES_URL")`, `os.getenv("POSTGRES_URL"
 not business logic and must not be a hard failure. Hard failures should remain
 limited to high-confidence wrapper drift such as SQL statements, web servers, or
 hand-written business behavior in `__main__.py`.
+
+For setup/seed modules, the checker should warn on bulk `INSERT INTO` logic
+only when it cannot find an obvious idempotency guard. Accepted low-noise guards
+include explicit seed marker names such as `seed_state`, `seed_marker`,
+`demo_seed`, `applied_at`, `already_populated`, and the common
+`SELECT COUNT(*) FROM ...` before inserting demo rows.
+
+The generated `opencode.json` must also include OpenCode permission guardrails:
+
+- allow normal edits by default;
+- deny direct edits to `packages/**/__main__.py`;
+- deny direct edits to generated `packages/**/*.zip` deploy artifacts;
+- deny raw shell commands matching `ops action` / `ops action *`.
+
+These permission guards are defense-in-depth. The OpenServerless MCP tools may
+still create or repair generated action wrappers, while assistant file edits and
+raw action-shell shortcuts are blocked or caught by the checker.
+
+The checker must hard-fail if an action module exists at
+`packages/<package>/<action>/<module>.py` without a sibling generated
+`__main__.py`. It must also hard-fail when a wrapper defines `main()` but lacks
+generated action/service markers such as `#--kind`, `#--web`,
+`## build-context ##`, or `init_<service>` wiring. This catches the observed
+drift where an assistant creates or repairs backend wrappers by hand after
+ignoring the MCP action tools.
 
 The action tools are no longer copied as an embedded `tools/` folder; they are
 provided by the `openserverless` MCP server wired into the `mcp` section.

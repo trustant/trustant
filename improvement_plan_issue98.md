@@ -499,6 +499,136 @@ Potential automation:
 - add app-level examples but avoid fake endpoint names;
 - expose a Trustable UI "Run backend smoke" later if enough patterns stabilize.
 
+## Enforced drift guard proposal from the latest app test
+
+The `truemployeesturn` test showed that `opencode.md` and
+`.openserverless-contract.md` can be present and still not be enough by
+themselves: OpenCode may start with ordinary file tools, create backend files by
+hand, then use MCP only after the project shape is already wrong. That means
+issue 98 needs enforcement, not only better wording.
+
+Immediate enforcement layer:
+
+- generate an OpenCode `permission` block that allows normal app edits but
+  denies direct edits to `packages/**/__main__.py` and `packages/**/*.zip`;
+- deny raw shell commands matching `ops action` / `ops action *`, keeping
+  action creation and service wiring on the OpenServerless MCP path;
+- keep the checker as the authoritative drift detector because shell commands
+  can still create files outside the edit tool;
+- hard-fail if an action module exists without a generated sibling
+  `__main__.py`;
+- hard-fail if `__main__.py` defines `main()` but lacks generated
+  action/service markers such as `#--kind`, `#--web`, `## build-context ##`, or
+  `init_<service>`.
+
+Recovery behavior:
+
+- if a permission is denied, OpenCode must not try to bypass it with shell
+  redirection or raw `ops` commands;
+- if the checker reports drift, OpenCode must re-read
+  `.openserverless-contract.md` and repair the action via MCP tools before
+  editing module logic again;
+- valid generated wrappers with PostgreSQL wiring remain allowed, including
+  `init_postgresql`, `POSTGRES_URL` lookup inside the wrapper, `psycopg`, and
+  `ctx.POSTGRESQL` assignment.
+
+## End-to-end regression test
+
+### Claude compatibility file guard
+
+Follow-up observation: some app templates include `CLAUDE.md`. OpenCode can
+load `CLAUDE.md` as a Claude Code compatibility project rules file when no
+`AGENTS.md` takes precedence, and a prompt that asks for "all instructions" may
+also make it read that file directly. In Trustable templates this can skew the
+assistant toward generic frontend-only guidance and away from the
+OpenServerless action contract.
+
+Mitigation added to this PR:
+
+- Trustable writes a managed app-local `AGENTS.md` on launch;
+- the managed block is first in the file and explicitly says that
+  `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
+  `.github/copilot-instructions.md`, and generated `rules.md` files are
+  legacy/template notes, not mandatory Trustable instructions;
+- if an app already has `AGENTS.md`, Trustable replaces only the managed block
+  and preserves app-local notes below it;
+- `.openserverless-contract.md` and `opencode.md` repeat the same precedence
+  rule so that direct reads of legacy files cannot override Trustable workflow.
+
+Initial harness added:
+
+- `tests/e2e_issue98.sh`
+- `tests/issue98.spec.mjs`
+- `tests/playwright.config.mjs`
+- `tests/issue98-e2e.md`
+- `spec/8-e2e.md`
+- `spec/issue98-e2e-flow.svg`
+
+The test is opt-in because it uses a live cluster, launches OpenCode/Vite, and
+may create/delete app users. It can run against an existing app with
+`TRUSTABLE_E2E_APP=<app>` or create a fresh app when `TRUSTABLE_E2E_REPO` is
+provided.
+
+The deleted app is not a fixture; fresh app mode creates a unique app name for
+the run.
+
+Target scenario:
+
+1. create a fresh Trustable app with a unique name such as
+   `trudriftguard-<timestamp>`;
+2. launch it through the Trustable UI/API and wait for OpenCode plus
+   `ops ide devel`;
+3. verify browser-visible `opencode.<domain>` is scoped through Trustable
+   middleware and exposes only the active project;
+4. verify `/mcp` shows the expected connected servers, including
+   `openserverless` and configured service MCPs;
+5. submit a basic-user prompt that asks for CRUD with login or document upload,
+   without technical instructions;
+6. monitor OpenCode logs/session events and fail if it edits
+   `packages/**/__main__.py`, creates action modules without wrappers, or uses
+   raw `ops action` / `ops action *`;
+7. run `timeout 60 check_openserverless_actions.sh .`;
+8. run `ops ide deploy`/`ops ide setup` as appropriate;
+9. validate via `http://localhost:5173` from inside the pod: create/list/update
+   and delete must all work, including URL-id `PUT`/`DELETE`;
+10. only after deploy, optionally repeat through `vite.<domain>` when ingress is
+    in scope;
+11. assert OpenCode session persistence by restarting/relaunching and verifying
+    the previous session is still listed for the canonical workbench path.
+
+Current automated coverage:
+
+- Trustable UI through `trustable.<domain>`;
+- `/api/launch/<app>` result;
+- `opencode.<domain>/project` scoping;
+- session listing for canonical workbench path;
+- `opencode.<domain>/mcp` contains `openserverless`;
+- app-local `AGENTS.md` exists and explicitly demotes `CLAUDE.md` and other
+  legacy/template agent files from mandatory Trustable instructions;
+- app-local `opencode.json` instructions, permissions, and MCP;
+- `check_openserverless_actions.sh .` inside the pod;
+- pod-local `localhost:5173`;
+- browser-visible `vite.<domain>`.
+- optional OpenCode prompt execution via `TRUSTABLE_E2E_RUN_PROMPT=1`;
+- prompt-session polling with failures on pending questions, unexpected
+  permissions, raw `ops action`, failed tools, and post-prompt checker errors.
+
+Remaining enhancement:
+
+- grow the optional prompt layer from the default read-only checker prompt into
+  controlled "basic user" scenarios such as small CRUD and document-upload
+  features. These should remain opt-in because they are slower,
+  model-dependent, and can consume significant tokens.
+
+Pass criteria:
+
+- app-local `opencode.json` has instructions, permissions, and MCP servers;
+- OpenCode uses MCP action tools before generated action files appear;
+- no hand-authored generated wrapper drift is left in the repo;
+- checker passes with no hard errors;
+- CRUD/browser behaviors work through pod-local `localhost:5173`;
+- browser-visible OpenCode remains scoped to the launched app.
+
 ## OpenCode ingress scoping follow-up
 
 The browser-visible `opencode.<domain>` host must not route directly to the
@@ -573,9 +703,10 @@ go test ./... -run 'OpenCode|Opencode|MCP|Config'
 For a live pod/app check:
 
 ```bash
-ops ide deploy
-ops action invoke v1/refresh-db --result
-curl http://<app-host>/api/my/v1/<read-action>
+timeout 60 check_openserverless_actions.sh .
+timeout 120 ops ide setup   # only when setup actions changed
+timeout 120 ops ide deploy
+curl http://localhost:5173/api/my/v1/<read-action>
 ```
 
 ## Decisions and open questions before implementation

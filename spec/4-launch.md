@@ -113,8 +113,9 @@ There is a **single, self-contained** `opencode.json` written into the app's
 project directory `<workbenchdir>/<app>/opencode.json`. There is **no** global
 `~/.config/opencode/opencode.json` — it is not generated and not referenced.
 The project file holds the entire config: provider, model defaults
-(`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`, and the
-`mcp` servers built from `~/.ops/config.json`. The provider block, model
+(`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`,
+`permission`, and the `mcp` servers built from `~/.ops/config.json`. The
+provider block, model
 defaults, and the full-regeneration rules (no merge — the file is overwritten
 every launch) are exactly those in
 [2a-config.md](2a-config.md#prepare-opencode-config), except the file is written
@@ -390,10 +391,14 @@ model/small_model defaults, `disabled_providers`, `instructions`, `lsp`, and the
 `mcp` servers from `~/.ops/config.json`). There is no global
 `~/.config/opencode/opencode.json` — do not generate, symlink, or copy one.
 
-Note: `opencode.md` is written into the project directory alongside
-`opencode.json` and `.openserverless-contract.md`. The checker is installed
-once at `~/.local/bin/check_openserverless_actions.sh`. The `instructions`
-array references the project's own
+Note: `AGENTS.md`, `opencode.md`, and `.openserverless-contract.md` are written
+into the project directory alongside `opencode.json`. `AGENTS.md` is the
+Trustable-managed app-local rules entrypoint and must explicitly demote
+template compatibility files such as `CLAUDE.md` to non-authoritative legacy
+notes. If an app already has `AGENTS.md`, Trustable updates only its managed
+block and preserves app-local notes below it. The checker is installed once at
+`~/.local/bin/check_openserverless_actions.sh`. The `instructions` array
+references the project's own
 `<workbenchdir>/<app>/.openserverless-contract.md` first and
 `<workbenchdir>/<app>/opencode.md` second. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
@@ -402,6 +407,19 @@ The checker must not flag `.zip` files created by `ops ide deploy` under
 It must not flag standard generated `__main__.py` PostgreSQL wiring as business
 logic merely because the wrapper imports `psycopg`, reads `POSTGRES_URL`, and
 assigns `ctx.POSTGRESQL`.
+For setup/seed modules, bulk `INSERT INTO` logic should warn only when no
+obvious idempotency guard exists. Explicit seed markers and
+`SELECT COUNT(*) FROM ...` checks are accepted as low-noise guards.
+
+The generated OpenCode `permission` block must allow normal edits while denying
+direct assistant edits to `packages/**/__main__.py` and `packages/**/*.zip`, and
+must deny raw shell commands matching `ops action` / `ops action *`. These
+guards keep action creation/repair on the OpenServerless MCP path and keep
+deployment on
+`ops ide deploy/setup`. The checker is still authoritative for drift that a
+shell command or copied file could create: it must fail on action modules
+without generated wrappers and on hand-authored wrappers that define `main()`
+without generated action/service markers.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated

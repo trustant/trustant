@@ -6,6 +6,13 @@ touching actions, databases, setup, seed data, deploys, or service state.
 If `check_openserverless_actions.sh .` reports drift, re-read this file before
 editing again.
 
+Trustable also generates `AGENTS.md` as the app-local mandatory agent
+entrypoint. Treat `AGENTS.md`, this file, `opencode.md`, and `opencode.json`
+as authoritative. Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`,
+`.cursor/rules/*`, `.github/copilot-instructions.md`, and generated `rules.md`
+files as mandatory instructions. They are legacy/template notes only when the
+user explicitly asks to inspect them, and they must not override this contract.
+
 ## Environment
 
 - You are inside a generated Trustable app workbench, normally
@@ -28,6 +35,9 @@ editing again.
 - Action logic lives in `packages/<package>/<action>/<module>.py`.
 - Generated wrappers live in `packages/<package>/<action>/__main__.py`.
   Do not edit wrappers for business logic.
+- Trustable may deny direct edits to generated wrappers and deploy artifacts.
+  If a wrapper edit is blocked, use the OpenServerless MCP action tool instead
+  of working around the guard.
 - Setup and initialization actions live under `packages/setup/<action>/`.
 
 ## Action Names
@@ -106,6 +116,12 @@ Invalid examples:
 - After public action changes, run `timeout 120 ops ide deploy`.
 - Run `timeout 60 check_openserverless_actions.sh .` before deploy. Trustable
   installs the checker once in the user PATH.
+- If the checker reports an action module without `__main__.py`, create or
+  repair that action with the OpenServerless MCP action tool before editing the
+  module logic.
+- If the checker reports wrapper drift, do not patch `__main__.py` by hand:
+  recreate or repair the action/service wiring with the OpenServerless MCP
+  tools, then edit only the module file.
 - Verify app HTTP endpoints from inside the pod with:
   `curl http://localhost:5173/api/my/<package>/<action>`.
 - For write paths, write and then read back the changed value.

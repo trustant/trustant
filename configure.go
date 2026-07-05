@@ -458,6 +458,21 @@ func defaultOpenCodeLSPConfig() map[string]interface{} {
 	}
 }
 
+func defaultOpenCodePermissionConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"edit": map[string]string{
+			"*":                       "allow",
+			"packages/**/__main__.py": "deny",
+			"packages/**/*.zip":       "deny",
+		},
+		"bash": map[string]string{
+			"*":            "allow",
+			"ops action":   "deny",
+			"ops action *": "deny",
+		},
+	}
+}
+
 func defaultDisabledOpenCodeProviders() []string {
 	return []string{
 		"302ai",
@@ -903,6 +918,51 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	return generateOpencodeConfigInDir(cfg, projectDir, mcp)
 }
 
+const (
+	trustableAgentsBegin = "<!-- TRUSTABLE-MANAGED-AGENTS-BEGIN -->"
+	trustableAgentsEnd   = "<!-- TRUSTABLE-MANAGED-AGENTS-END -->"
+)
+
+func managedAppAgentsContent() string {
+	return trustableAgentsBegin + "\n" + strings.TrimSpace(appAgentsMd) + "\n" + trustableAgentsEnd + "\n"
+}
+
+func mergeManagedAppAgents(existing string) string {
+	managed := managedAppAgentsContent()
+	start := strings.Index(existing, trustableAgentsBegin)
+	end := strings.Index(existing, trustableAgentsEnd)
+	if start >= 0 && end >= start {
+		end += len(trustableAgentsEnd)
+		rest := strings.TrimSpace(existing[end:])
+		if rest == "" {
+			return managed
+		}
+		if strings.HasPrefix(rest, "## App-local notes") {
+			return managed + "\n" + rest + "\n"
+		}
+		return managed + "\n## App-local notes\n\n" + rest + "\n"
+	}
+
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return managed
+	}
+	return managed + "\n## App-local notes\n\n" + existing + "\n"
+}
+
+func writeManagedAppAgents(projectDir string) error {
+	agentsPath := filepath.Join(projectDir, "AGENTS.md")
+	existingBytes, err := os.ReadFile(agentsPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: %w", agentsPath, err)
+	}
+	content := mergeManagedAppAgents(string(existingBytes))
+	if err := os.WriteFile(agentsPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", agentsPath, err)
+	}
+	return nil
+}
+
 // generateOpencodeConfigInDir writes the full opencode.json plus generated
 // OpenServerless guidance into projectDir. The file is fully regenerated on
 // every launch; custom provider/lsp/mcp entries from a previous opencode.json
@@ -934,6 +994,7 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		"instructions":       []string{contractPath, mdPath},
 		"provider":           providers,
 		"lsp":                defaultOpenCodeLSPConfig(),
+		"permission":         defaultOpenCodePermissionConfig(),
 	}
 	// The mcp section is built from ~/.ops/config.json (nil when no service
 	// blocks are configured); custom mcp entries from an existing opencode.json
@@ -992,8 +1053,13 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 
 	log.Printf("  - Written to %s", configPath)
 
-	// Write the short OpenServerless contract and the longer opencode.md
-	// instructions alongside the config in the project dir.
+	// Write the app-local AGENTS.md guard, short OpenServerless contract, and
+	// longer opencode.md instructions alongside the config in the project dir.
+	if err := writeManagedAppAgents(projectDir); err != nil {
+		return err
+	}
+	log.Printf("  - Written to %s", filepath.Join(projectDir, "AGENTS.md"))
+
 	if err := os.WriteFile(contractPath, []byte(openserverlessContractMd), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", contractPath, err)
 	}

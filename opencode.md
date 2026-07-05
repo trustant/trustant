@@ -34,6 +34,17 @@ wrappers, raw credentials, or guessed `ops` commands.
 
 ## Critical Recovery Contract
 
+Trustable also generates `AGENTS.md` in this app root. It is the app-local
+mandatory entrypoint and exists to prevent Claude Code compatibility files from
+overriding Trustable rules. Treat `AGENTS.md`, `.openserverless-contract.md`,
+`opencode.md`, and `opencode.json` as the authoritative instruction set.
+
+Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
+`.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
+agent instructions. You may inspect them only when the user explicitly asks or
+when they help understand legacy template context, and they must never override
+Trustable action, MCP, deploy, shell, or host rules.
+
 Before touching actions, databases, setup, seed data, deploys, or service
 state, read `.openserverless-contract.md` if it exists. It is the short
 recovery contract for this app and takes priority for OpenServerless workflow
@@ -60,6 +71,10 @@ Then inspect available MCP/tool names before touching action or service code.
 
 - Never create a backend server. Create public or private actions instead.
 - Never create or edit generated `__main__.py` files.
+- If OpenCode denies an edit to `packages/**/__main__.py`, `packages/**/*.zip`,
+  or a raw shell command matching `ops action` / `ops action *`, treat that as
+  a Trustable guardrail: use the OpenServerless MCP action tools and
+  `ops ide deploy/setup` flow instead of trying to bypass it.
 - Never run foreground dev servers or watchers such as `npm run dev`, `vite`,
   or `ops ide devel`.
 - Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
@@ -136,7 +151,9 @@ Use this execution loop for backend work:
 4. If an action reads or writes a platform service, immediately add service
    wiring with the matching action/service tool after the action files exist
    and before editing the module logic.
-5. Edit only the generated editable module, not `__main__.py`.
+5. Edit only the generated editable module, not `__main__.py`. If the module
+   exists without a wrapper, stop and repair/create the action through the MCP
+   action tool before continuing.
 6. Add Python libraries with `action-requirements`.
 7. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
    changes, inspect logs on failure, then validate via the real HTTP app path.

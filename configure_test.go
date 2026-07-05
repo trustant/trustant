@@ -167,10 +167,10 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 // The opencode.json is a single, self-contained file fully regenerated in the
 // app's workbench project folder on every launch: provider + model defaults +
 // lsp, instructions pointing at the project's own contract/opencode.md, the
-// checker script, and the openserverless MCP server wired in. There is no
-// merge — any pre-existing content in the file (custom providers/lsp/mcp, stale
-// managed entries) is discarded so the result always reflects the current
-// config.
+// AGENTS.md guard that shadows CLAUDE.md, the checker script, and the
+// openserverless MCP server wired in. There is no merge — any pre-existing
+// content in the file (custom providers/lsp/mcp, stale managed entries) is
+// discarded so the result always reflects the current config.
 func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
@@ -245,6 +245,18 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if _, present := lsp["custom-lsp"]; present {
 		t.Fatalf("custom lsp should be discarded by full regeneration: %#v", lsp)
 	}
+	permission, ok := got["permission"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("generated permission config missing: %#v", got["permission"])
+	}
+	editPerm, ok := permission["edit"].(map[string]interface{})
+	if !ok || editPerm["packages/**/__main__.py"] != "deny" || editPerm["packages/**/*.zip"] != "deny" {
+		t.Fatalf("generated edit guardrails missing: %#v", permission["edit"])
+	}
+	bashPerm, ok := permission["bash"].(map[string]interface{})
+	if !ok || bashPerm["ops action"] != "deny" || bashPerm["ops action *"] != "deny" {
+		t.Fatalf("generated bash guardrails missing: %#v", permission["bash"])
+	}
 
 	// instructions must point first at the project's own OpenServerless
 	// contract, then at opencode.md.
@@ -255,9 +267,19 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 		t.Fatalf("instructions should reference %s then %s, got %#v", wantContract, wantMd, got["instructions"])
 	}
 
-	// The contract and opencode.md must be written in the project dir, not under
-	// ~/.config. The checker is installed once in the configured bin path and is
-	// executable; it is not duplicated into every app repo.
+	// AGENTS.md, the contract, and opencode.md must be written in the project dir,
+	// not under ~/.config. The checker is installed once in the configured bin
+	// path and is executable; it is not duplicated into every app repo.
+	agentsData, err := os.ReadFile(filepath.Join(appDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("AGENTS.md not written to project dir: %s", err)
+	}
+	agents := string(agentsData)
+	if !strings.Contains(agents, "TRUSTABLE-MANAGED-AGENTS-BEGIN") ||
+		!strings.Contains(agents, "Ignore `CLAUDE.md`") ||
+		!strings.Contains(agents, ".openserverless-contract.md") {
+		t.Fatalf("AGENTS.md missing Trustable managed guardrails: %s", agents)
+	}
 	if _, err := os.Stat(wantContract); err != nil {
 		t.Fatalf(".openserverless-contract.md not written to project dir: %s", err)
 	}
@@ -314,6 +336,22 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	}
 	if cOss["type"] != "stdio" || cOss["command"] != "openserverless-mcp" {
 		t.Fatalf("unexpected .mcp.json openserverless entry: %#v", cOss)
+	}
+}
+
+func TestManagedAppAgentsPreservesExistingNotesWithoutDuplication(t *testing.T) {
+	first := mergeManagedAppAgents("Existing template guidance\n")
+	if !strings.Contains(first, trustableAgentsBegin) ||
+		!strings.Contains(first, "## App-local notes\n\nExisting template guidance") {
+		t.Fatalf("managed AGENTS.md should prepend guard and preserve notes: %s", first)
+	}
+
+	second := mergeManagedAppAgents(first)
+	if strings.Count(second, "## App-local notes") != 1 {
+		t.Fatalf("managed AGENTS.md should not duplicate App-local notes: %s", second)
+	}
+	if strings.Count(second, trustableAgentsBegin) != 1 {
+		t.Fatalf("managed AGENTS.md should replace, not duplicate, managed block: %s", second)
 	}
 }
 
@@ -456,6 +494,60 @@ def main(args, ctx=None):
 	output := string(out)
 	if strings.Contains(output, "Generated wrapper appears") || strings.Contains(output, "POSTGRES_URL") {
 		t.Fatalf("checker should not report standard wrapper wiring or ignored POSTGRES_URL, got=%s", strings.TrimSpace(output))
+	}
+}
+
+func TestOpenServerlessCheckerFailsManualWrapperWithoutGeneratedMarkers(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "contacts")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `import contacts
+
+def main(args, ctx=None):
+    return contacts.main(args, ctx=ctx)
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "contacts.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should fail manual wrapper drift, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "lacks generated action/service markers") {
+		t.Fatalf("checker should explain manual wrapper drift, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerFailsActionModuleWithoutWrapper(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "contacts")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "contacts.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should fail module without wrapper, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Action module exists without generated __main__.py") {
+		t.Fatalf("checker should explain missing wrapper, got=%s", strings.TrimSpace(string(out)))
 	}
 }
 

@@ -38,12 +38,27 @@ if [ ! -f "$CONTRACT" ]; then
 fi
 
 if [ -d packages ]; then
+  declare -A action_dirs_without_wrapper=()
+  while IFS= read -r module; do
+    action_dir="$(dirname "$module")"
+    if [ ! -f "$action_dir/__main__.py" ]; then
+      action_dirs_without_wrapper["$action_dir"]=1
+    fi
+  done < <(find packages -mindepth 3 -maxdepth 3 -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+  for action_dir in "${!action_dirs_without_wrapper[@]}"; do
+    error "$action_dir" "Action module exists without generated __main__.py. Create or repair the action with the OpenServerless MCP action tool before editing module logic."
+  done
+
   while IFS= read -r wrapper; do
     action_dir="$(dirname "$wrapper")"
     error "$action_dir" "Invalid nested action path. Use action or package/action only, for example v1/register."
   done < <(find packages -mindepth 4 -maxdepth 4 -type f -name __main__.py 2>/dev/null | sort)
 
   while IFS= read -r wrapper; do
+    if grep -Eq '^[[:space:]]*def[[:space:]]+main[[:space:]]*\(' "$wrapper" &&
+      ! grep -Eq '#--(kind|web|param|timeout)|##[[:space:]]*build-context[[:space:]]*##|init_(postgresql|redis|s3|milvus)' "$wrapper"; then
+      error "$wrapper" "Wrapper defines main() but lacks generated action/service markers. Do not hand-author generated wrappers; recreate or repair the action with the OpenServerless MCP action tool."
+    fi
     if grep -Eiq 'CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|CREATE[[:space:]]+(OR[[:space:]]+REPLACE[[:space:]]+)?VIEW|INSERT[[:space:]]+INTO|UPDATE[[:space:]]+[A-Za-z_]|DELETE[[:space:]]+FROM|import[[:space:]]+(flask|fastapi)|from[[:space:]]+(flask|fastapi)[[:space:]]+import' "$wrapper"; then
       error "$wrapper" "Generated wrapper appears to contain business logic or direct DB/server code. Move logic to the editable module."
     fi
@@ -56,7 +71,8 @@ if [ -d packages ]; then
   done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
 
   while IFS= read -r seedfile; do
-    if grep -Eiq 'INSERT[[:space:]]+INTO' "$seedfile" && ! grep -Eiq 'seed_state|seed_marker|demo_seed|applied_at|already_populated' "$seedfile"; then
+    if grep -Eiq 'INSERT[[:space:]]+INTO' "$seedfile" &&
+      ! grep -Eiq 'seed_state|seed_marker|demo_seed|applied_at|already_populated|SELECT[[:space:]]+COUNT[[:space:]]*\([[:space:]]*\*[[:space:]]*\)[[:space:]]+FROM' "$seedfile"; then
       warn "$seedfile" "Seed-like action inserts rows but no durable seed marker was detected."
     fi
   done < <(find packages -type f -name '*.py' \( -path '*/setup/*' -o -iname '*seed*' -o -iname '*mocks*' -o -iname '*refresh*' -o -iname '*database*' \) 2>/dev/null | sort)
