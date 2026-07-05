@@ -58,3 +58,61 @@ Execute the following git commands in sequence:
 
 If any step fails, return `{"error": <error message>}`.
 If successful, return `{"message": "saved successfully"}`.
+
+# POST /api/git/pull
+
+`{
+   "name": <name>
+}`
+
+Synchronize the app from a remote repository into Trustable's local git state.
+When the app has production `OPS_REPO` configured, pull from that same
+repository used by the app-list Git Push action. Otherwise pull from the
+workspace bare repository's original `origin` remote.
+
+Trustable keeps two git locations for an app:
+
+- `$WORKSPACE_DIR/workspace/<name>`: bare durable repository. Its `origin`
+  remote points to the original GitHub repository used when the app was added.
+  When `OPS_REPO` is configured, it may also have a `production` remote.
+- `$WORKBENCH_DIR/<name>`: active checkout. Its `origin` remote points to the
+  local bare workspace repository.
+
+The pull operation is intentionally fast-forward only:
+
+1. validate the app name and ensure the bare workspace repo exists;
+2. if the workbench checkout exists, fail when `git status --porcelain` is not
+   empty;
+3. if the workbench checkout exists, fetch its local `origin` and fail when the
+   workbench `HEAD` is not an ancestor of `origin/main`, because that means
+   there are local-only commits or divergent history that should be saved or
+   resolved first;
+4. in the bare workspace repo, configure `production` from `OPS_REPO` when
+   present, then run `git fetch <remote> main`;
+5. if `refs/heads/main` already equals `FETCH_HEAD`, report that the app is
+   already up to date;
+6. otherwise fail unless `refs/heads/main` is an ancestor of
+   `FETCH_HEAD`;
+7. update `refs/heads/main` to `FETCH_HEAD`;
+8. if the workbench checkout exists, fetch from its local `origin` and run
+   `git merge --ff-only origin/main`;
+9. when the workbench checkout was updated, run `ops ide clean` and
+   `ops ide deploy` in the workbench so the local dev server reflects the
+   pulled code.
+
+Return JSON:
+
+```
+{
+  "message": <summary>,
+  "output": <combined command output>,
+  "updated": <true when new commits were pulled>,
+  "workbench_updated": <true when the active checkout moved>
+}
+```
+
+On failures return JSON with `error` and `output` when command output is
+available. The endpoint must not perform an implicit merge commit, rebase, or
+hard reset.
+
+See [git-pull-flow.svg](git-pull-flow.svg).

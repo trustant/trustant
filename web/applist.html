@@ -199,6 +199,27 @@
         </div>
     </div>
 
+    <!-- Git Pull Modal -->
+    <div id="gitPullModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+            <div id="gitPullSpinner" class="mb-4 hidden">
+                <svg class="animate-spin h-12 w-12 text-gray-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-gray-600">Pulling updates...</p>
+            </div>
+            <div id="gitPullResult" class="hidden">
+                <h3 class="text-lg font-semibold mb-4">Git Pull</h3>
+                <div id="gitPullResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <button onclick="hideGitPullModal()"
+                    class="px-6 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Git Push Modal -->
     <div id="gitPushModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
@@ -547,6 +568,52 @@
             loadApps();
         }
 
+        // Git Pull functions
+        let gitPullApp = null;
+
+        async function handleGitPull(name) {
+            gitPullApp = name;
+            showGitPullModal();
+
+            try {
+                const response = await fetch('/api/git/pull', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showGitPullResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showGitPullResult((data.message || 'Pull completed successfully') + (data.output ? '\n' + data.output : ''), 'success');
+                    loadApps();
+                }
+            } catch (error) {
+                showGitPullResult('Failed: ' + error.message, 'error');
+            }
+        }
+
+        function showGitPullModal() {
+            document.getElementById('gitPullSpinner').classList.remove('hidden');
+            document.getElementById('gitPullResult').classList.add('hidden');
+            document.getElementById('gitPullModal').classList.remove('hidden');
+            document.getElementById('gitPullModal').classList.add('flex');
+        }
+
+        function hideGitPullModal() {
+            document.getElementById('gitPullModal').classList.add('hidden');
+            document.getElementById('gitPullModal').classList.remove('flex');
+            gitPullApp = null;
+        }
+
+        function showGitPullResult(message, type) {
+            document.getElementById('gitPullSpinner').classList.add('hidden');
+            const textEl = document.getElementById('gitPullResultText');
+            textEl.textContent = message;
+            textEl.className = (type === 'error' ? 'mb-4 text-red-600' : 'mb-4 text-green-700') + ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+            document.getElementById('gitPullResult').classList.remove('hidden');
+        }
+
         // Git Push functions
         let gitPushApp = null;
 
@@ -849,7 +916,7 @@
                                         ${links.repo ? `<a href="${links.repo}" target="_blank" class="block text-sm text-blue-600 hover:underline truncate mt-0.5">${escapeHtml(links.repoLabel)}</a>` : '<p class="text-sm text-slate-400 mt-0.5">No repository</p>'}
                                     </div>
                                     <button onclick="launchApp('${escapeAttr(app.name)}')"
-                                        class="shrink-0 px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">
+                                        class="shrink-0 px-3 py-2 border border-slate-300 bg-white text-slate-700 text-sm rounded-md hover:bg-slate-50 transition-colors inline-flex items-center gap-1">
                                         ${editIcon('w-4 h-4')}
                                         Edit
                                     </button>
@@ -869,10 +936,11 @@
                     </div>
                     <div class="p-3 flex flex-wrap gap-2">
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
+                        ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
-                            class="ml-auto px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center justify-center gap-1">
+                            class="ml-auto px-3 py-2 text-sm rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors inline-flex items-center justify-center gap-1">
                             ${trashIcon()}
                             Delete
                         </button>
@@ -912,11 +980,12 @@
                     </div>
                     <div>${statusBadge(hasProduction(app))}</div>
                     <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-end">
-                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
+                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 border border-slate-300 bg-white text-slate-700 text-sm rounded-md hover:bg-slate-50 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
+                        ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
-                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center gap-1">${trashIcon()} Delete</button>
+                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 transition-colors inline-flex items-center gap-1">${trashIcon()} Delete</button>
                     </div>
                 </div>`;
         }
@@ -1032,11 +1101,12 @@
 
         function actionButton(label, action, icon, color) {
             const colors = {
-                purple: 'bg-purple-600 hover:bg-purple-700',
-                indigo: 'bg-indigo-600 hover:bg-indigo-700',
-                teal: 'bg-teal-600 hover:bg-teal-700'
+                purple: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
+                indigo: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
+                teal: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
+                neutral: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
             };
-            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md ${colors[color]} text-white transition-colors inline-flex items-center justify-center gap-1">${icon}${label}</button>`;
+            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md border ${colors[color]} transition-colors inline-flex items-center justify-center gap-1">${icon}${label}</button>`;
         }
 
         function editIcon(cls) {
@@ -1049,6 +1119,10 @@
 
         function uploadIcon() {
             return '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/></svg>';
+        }
+
+        function downloadIcon() {
+            return '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/></svg>';
         }
 
         function globeIcon() {
@@ -1263,6 +1337,9 @@
                     !document.getElementById('gitPushForm').classList.contains('hidden')) {
                     hideGitPushModal();
                 }
+                if (!document.getElementById('gitPullResult').classList.contains('hidden')) {
+                    hideGitPullModal();
+                }
                 if (!document.getElementById('publishResult').classList.contains('hidden') ||
                     !document.getElementById('publishForm').classList.contains('hidden')) {
                     hidePublishModal();
@@ -1290,6 +1367,11 @@
         });
         document.getElementById('gitPushModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hideGitPushModal();
+        });
+        document.getElementById('gitPullModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && !document.getElementById('gitPullResult').classList.contains('hidden')) {
+                hideGitPullModal();
+            }
         });
         document.getElementById('publishModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) hidePublishModal();
