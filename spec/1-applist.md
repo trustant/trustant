@@ -30,9 +30,10 @@ development-only, a grid view, a denser list view as the default, and a visible 
 matching applications. Searching filters by app name, repository, production
 host, and production user without calling the backend again.
 
-For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
-Application action buttons keep the standard solid color scheme: Edit is green,
-Env is purple, Git Push is indigo, Publish is teal, and Delete is red.
+For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link. Development and Production links show an external-link icon so they are recognizable as links.
+Application action buttons use restrained, light styling and fixed inline labels:
+Edit, Env, Git Push, Publish, and Delete must not wrap inside the list view.
+Delete keeps a distinct pale red treatment.
 
 The Local link points to `<protocol>://<name>.<domain>` by replacing the first
 label of the current Trustable host. For example, from
