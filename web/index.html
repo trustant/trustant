@@ -52,15 +52,19 @@
             </div>
 
             <div onclick="selectBestia()" role="button"
-                class="nu-card mt-4 flex flex-col sm:flex-row sm:items-center gap-4 p-4 transition-colors cursor-pointer">
+                class="nu-card mt-4 grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)] gap-4 p-4 transition-colors cursor-pointer">
                 <img src="bestia-head.png" alt="Bestia" class="h-16 w-auto flex-shrink-0">
-                <p class="flex-1 text-sm text-[color:var(--nu-muted)]">
-                    For our BestIA customers with dedicated GPU and unlimited app publishing.
-                </p>
-                <button onclick="event.stopPropagation(); window.open('https://nuvolaris.io/bestia', '_blank')"
-                    class="nu-btn nu-btn-secondary flex-shrink-0">
-                    Contact Us for our Deployment Solutions
-                </button>
+                <div class="min-w-0">
+                    <p class="text-sm text-[color:var(--nu-muted)]">
+                        For our BestIA customers with dedicated GPU and unlimited app publishing.
+                    </p>
+                    <div class="mt-3 flex sm:justify-start">
+                        <button onclick="event.stopPropagation(); window.open('https://nuvolaris.io/bestia', '_blank')"
+                            class="nu-btn nu-btn-secondary w-full sm:w-auto">
+                            Contact Us for our Deployment Solutions
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

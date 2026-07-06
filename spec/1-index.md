@@ -43,7 +43,7 @@ The Provider Choice modal is centered and shows two cards:
 - **Ollama** — "Free forever. Publishing not available." Picking this card opens a second sub-modal that asks the user to pick between **Use internal Ollama with recommended cloud models** and **Use my own Ollama with currently installed models** (see "Ollama mode selection" in [2a-config.md](2a-config.md)).
 - **Trustable Cloud** — "Free until 30 June 2026, then \$20/month. Includes 1000 credits/month and one app published on nuvolaris.dev."
 
-Below the two cards, a third full-width **BestIA** card is shown for dedicated-GPU customers. Its body reads "For our BestIA customers with dedicated GPU and unlimited app publishing." and it has a **Contact Us for our Deployment Solutions** button. The button opens `https://nuvolaris.io/bestia` in a new tab and does **not** trigger card selection (it stops event propagation); clicking anywhere else on the card starts the BestIA flow (see "## BestIA selected").
+Below the two cards, a third full-width **BestIA** card is shown for dedicated-GPU customers. Its body reads "For our BestIA customers with dedicated GPU and unlimited app publishing." and it has a **Contact Us for our Deployment Solutions** button. Keep the body text and contact button in the same content column beside/below the BestIA image so the body text does not collapse into a narrow desktop column. The button opens `https://nuvolaris.io/bestia` in a new tab and does **not** trigger card selection (it stops event propagation); clicking anywhere else on the card starts the BestIA flow (see "## BestIA selected").
 
 ## Ollama selected
 
