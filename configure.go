@@ -458,6 +458,21 @@ func defaultOpenCodeLSPConfig() map[string]interface{} {
 	}
 }
 
+func defaultOpenCodePermissionConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"edit": map[string]string{
+			"*":                       "allow",
+			"packages/**/__main__.py": "deny",
+			"packages/**/*.zip":       "deny",
+		},
+		"bash": map[string]string{
+			"*":            "allow",
+			"ops action":   "deny",
+			"ops action *": "deny",
+		},
+	}
+}
+
 func defaultDisabledOpenCodeProviders() []string {
 	return []string{
 		"302ai",
@@ -893,18 +908,66 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 // single, self-contained <workbench>/<app>/opencode.json — there is no global
 // ~/.config/opencode/opencode.json. It holds the provider, model defaults,
 // disabled_providers, instructions, lsp, and the mcp servers built from
-// ~/.ops/config.json. opencode.md and the tools/ folder are written alongside it
-// in the project folder and referenced by project-relative path.
+// ~/.ops/config.json. The OpenServerless contract and opencode.md are written
+// alongside it in the project folder and referenced by absolute path where
+// OpenCode expects instruction files. The checker is installed once in the
+// user's local bin and invoked with the project path.
 func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 	projectDir := filepath.Join(WorkbenchDir, appName)
 	mcp := buildLaunchMCPConfig()
 	return generateOpencodeConfigInDir(cfg, projectDir, mcp)
 }
 
-// generateOpencodeConfigInDir writes the full opencode.json (plus opencode.md)
-// into projectDir, merging against any existing opencode.json there to preserve
-// custom providers/lsp/mcp entries. The action tools are provided by the
-// openserverless MCP server wired into the mcp section, not copied as files.
+const (
+	trustableAgentsBegin = "<!-- TRUSTABLE-MANAGED-AGENTS-BEGIN -->"
+	trustableAgentsEnd   = "<!-- TRUSTABLE-MANAGED-AGENTS-END -->"
+)
+
+func managedAppAgentsContent() string {
+	return trustableAgentsBegin + "\n" + strings.TrimSpace(appAgentsMd) + "\n" + trustableAgentsEnd + "\n"
+}
+
+func mergeManagedAppAgents(existing string) string {
+	managed := managedAppAgentsContent()
+	start := strings.Index(existing, trustableAgentsBegin)
+	end := strings.Index(existing, trustableAgentsEnd)
+	if start >= 0 && end >= start {
+		end += len(trustableAgentsEnd)
+		rest := strings.TrimSpace(existing[end:])
+		if rest == "" {
+			return managed
+		}
+		if strings.HasPrefix(rest, "## App-local notes") {
+			return managed + "\n" + rest + "\n"
+		}
+		return managed + "\n## App-local notes\n\n" + rest + "\n"
+	}
+
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return managed
+	}
+	return managed + "\n## App-local notes\n\n" + existing + "\n"
+}
+
+func writeManagedAppAgents(projectDir string) error {
+	agentsPath := filepath.Join(projectDir, "AGENTS.md")
+	existingBytes, err := os.ReadFile(agentsPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: %w", agentsPath, err)
+	}
+	content := mergeManagedAppAgents(string(existingBytes))
+	if err := os.WriteFile(agentsPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", agentsPath, err)
+	}
+	return nil
+}
+
+// generateOpencodeConfigInDir writes the full opencode.json plus generated
+// OpenServerless guidance into projectDir. The file is fully regenerated on
+// every launch; custom provider/lsp/mcp entries from a previous opencode.json
+// are not preserved. The action tools are provided by the openserverless MCP
+// server wired into the mcp section, not copied as plugins.
 func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
 	providers := make(map[string]interface{})
 
@@ -922,12 +985,16 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
 
+	contractPath := filepath.Join(projectDir, ".openserverless-contract.md")
+	mdPath := filepath.Join(projectDir, "opencode.md")
+
 	config := map[string]interface{}{
 		"$schema":            "https://opencode.ai/config.json",
 		"disabled_providers": defaultDisabledOpenCodeProviders(),
-		"instructions":       []string{filepath.Join(projectDir, "opencode.md")},
+		"instructions":       []string{contractPath, mdPath},
 		"provider":           providers,
 		"lsp":                defaultOpenCodeLSPConfig(),
+		"permission":         defaultOpenCodePermissionConfig(),
 	}
 	// The mcp section is built from ~/.ops/config.json (nil when no service
 	// blocks are configured); custom mcp entries from an existing opencode.json
@@ -986,12 +1053,28 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 
 	log.Printf("  - Written to %s", configPath)
 
-	// Write opencode.md instructions file alongside the config in the project dir
-	mdPath := filepath.Join(projectDir, "opencode.md")
+	// Write the app-local AGENTS.md guard, short OpenServerless contract, and
+	// longer opencode.md instructions alongside the config in the project dir.
+	if err := writeManagedAppAgents(projectDir); err != nil {
+		return err
+	}
+	log.Printf("  - Written to %s", filepath.Join(projectDir, "AGENTS.md"))
+
+	if err := os.WriteFile(contractPath, []byte(openserverlessContractMd), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", contractPath, err)
+	}
+	log.Printf("  - Written to %s", contractPath)
+
 	if err := os.WriteFile(mdPath, []byte(opencodeMd), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", mdPath, err)
 	}
 	log.Printf("  - Written to %s", mdPath)
+
+	checkerPath, err := ensureOpenServerlessCheckerInstalled()
+	if err != nil {
+		return err
+	}
+	log.Printf("  - OpenServerless checker available at %s", checkerPath)
 
 	// The action tools are no longer copied into the project dir as embedded
 	// @opencode-ai/plugin scripts; they are now provided by the openserverless
@@ -1010,19 +1093,50 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	return nil
 }
 
-// appUsesAgentiReact reports whether the app's Vite config opts into Agentic
-// React. It checks vite.config.js and vite.config.ts in projectDir for the
-// @agentic-react/vite plugin (imported and invoked as `AgenticReact()`); a
-// missing or unreadable config means false. The match is on the plugin package
-// `@agentic-react/vite` because that import is unambiguous regardless of the
-// local name the app binds the default export to.
+var openServerlessCheckerInstallPathOverride string
+
+func openServerlessCheckerInstallPath() (string, error) {
+	if openServerlessCheckerInstallPathOverride != "" {
+		return openServerlessCheckerInstallPathOverride, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home dir for OpenServerless checker: %w", err)
+	}
+	return filepath.Join(home, ".local", "bin", "check_openserverless_actions.sh"), nil
+}
+
+func ensureOpenServerlessCheckerInstalled() (string, error) {
+	checkerPath, err := openServerlessCheckerInstallPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(checkerPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create %s: %w", filepath.Dir(checkerPath), err)
+	}
+	content := []byte(openserverlessCheckerSh)
+	if existing, err := os.ReadFile(checkerPath); err == nil && bytes.Equal(existing, content) {
+		if err := os.Chmod(checkerPath, 0755); err != nil {
+			return "", fmt.Errorf("failed to chmod %s: %w", checkerPath, err)
+		}
+		return checkerPath, nil
+	}
+	if err := os.WriteFile(checkerPath, content, 0755); err != nil {
+		return "", fmt.Errorf("failed to write %s: %w", checkerPath, err)
+	}
+	return checkerPath, nil
+}
+
+// appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.
+// It checks vite.config.js and vite.config.ts in projectDir for a call to
+// AgentiReact(); a missing or unreadable config means false.
 func appUsesAgentiReact(projectDir string) bool {
 	for _, name := range []string{"vite.config.js", "vite.config.ts"} {
 		data, err := os.ReadFile(filepath.Join(projectDir, name))
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), "@agentic-react/vite") {
+		if strings.Contains(string(data), "AgentiReact()") {
 			return true
 		}
 	}
@@ -1034,6 +1148,7 @@ func appUsesAgentiReact(projectDir string) bool {
 //   - type "local" (command array + optional environment) -> stdio (command
 //     string + args + env)
 //   - type "remote" (url) -> http (url)
+//
 // OpenCode-only fields (enabled, timeout) are dropped.
 func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 	servers := make(map[string]interface{})

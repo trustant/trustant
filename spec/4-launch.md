@@ -32,6 +32,19 @@ fallback before returning a "port not available" error.
 
 ## clone to workbench
 
+`<workbenchdir>` is exposed as the stable path used by Trustable and OpenCode,
+normally `/home/trustable/workbench`. In the pod it must survive image rebuilds
+and restarts by pointing into the persistent workspace volume
+(`/home/trustable/workspace/workbench`). This keeps OpenCode's persistent recent
+project paths valid.
+
+At server startup, after stale process cleanup, scan
+`<workspacedir>/workspace/*` for valid local git repos. For each app whose
+`<workbenchdir>/<name>` checkout is missing, clone the durable workspace repo
+back into the workbench and regenerate `.env` files. Do not run `ops ide login`,
+`ops ide deploy`, or start Vite/OpenCode during this restore; the full per-app
+runtime setup still happens only when `/api/launch/<name>` is called.
+
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
 
 Otherwise, clone the workspace into the workbench:
@@ -44,25 +57,10 @@ Then set up the workbench:
 The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global env defaults, and per-app development overrides. The `.env.production` contains per-app production values.
 - If `<workbenchdir>/<name>/package.json` exists, run `npm install` in `<workbenchdir>/<name>`
 
-When the workbench already exists (reuse path), also regenerate the `.env` files to keep them in sync with the current config.
-
-## ensure required folders
-
-After the workbench checkout is ready (clone or reuse), verify the required
-folders exist in `<workbenchdir>/<name>` and scaffold any that are missing:
-
-- If there is no `packages` folder, create it with an empty `packages/.gitkeep` file.
-- If there is no `web` folder, create it and seed it from the embedded assets:
-  - `web/index.html` from the embedded `web/template.html`
-  - `web/favicon.ico` and `web/trustable-head.png` (the template references both
-    by relative path).
-
-  Only do this when the `web` folder did **not** already exist — if the app already
-  ships its own `web/`, leave it untouched (do not overwrite its files).
-
-If anything was created, `git add` the created files (`packages/.gitkeep`,
-`web/index.html`, and, when seeded, `web/favicon.ico` and `web/trustable-head.png`)
-and commit them with the message `adding required web and packages`.
+When the workbench already exists (reuse path), also regenerate the `.env` files
+to keep them in sync with the current config. If a restored checkout has
+`package.json` but no `node_modules`, run `npm install` during launch before the
+app runtime starts.
 
 ## opencode project bookkeeping
 
@@ -115,18 +113,27 @@ There is a **single, self-contained** `opencode.json` written into the app's
 project directory `<workbenchdir>/<app>/opencode.json`. There is **no** global
 `~/.config/opencode/opencode.json` — it is not generated and not referenced.
 The project file holds the entire config: provider, model defaults
-(`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`, and the
-`mcp` servers built from `~/.ops/config.json`. The provider block, model
+(`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`,
+`permission`, and the `mcp` servers built from `~/.ops/config.json`. The
+provider block, model
 defaults, and the full-regeneration rules (no merge — the file is overwritten
 every launch) are exactly those in
 [2a-config.md](2a-config.md#prepare-opencode-config), except the file is written
 to the project directory instead of `~/.config/opencode/`.
 
-`opencode.md` is written **alongside** the config in the project directory, and
-`instructions` references the project's own `<workbenchdir>/<app>/opencode.md`
-(not an absolute `~/.config` path). The OpenServerless action tools are no longer
-written as embedded plugin files; they are provided by the `openserverless` MCP
-server wired into the `mcp` section (see below).
+`.openserverless-contract.md` and `opencode.md` are written **alongside** the
+config in the project directory. `instructions` references the project's own
+`<workbenchdir>/<app>/.openserverless-contract.md` first and
+`<workbenchdir>/<app>/opencode.md` second (not absolute `~/.config` paths).
+The OpenServerless action tools are no longer written as embedded plugin files;
+they are provided by the `openserverless` MCP server wired into the `mcp`
+section (see below).
+
+The launch/config generation also installs
+`~/.local/bin/check_openserverless_actions.sh` with executable mode. This
+checker is installed once per Trustable user, not duplicated into every app
+repo. The generated app contract tells OpenCode to run it with the current app
+path before deploy.
 
 The full file looks like (lsp + mcp shown; provider/model/instructions sections
 per the rules above):
@@ -165,12 +172,16 @@ old embedded `tools/` plugins. It is installed globally in the image as
 }
 ```
 
-# if the app uses Agentic React add the agentireact MCP server:
+The runtime image pins OpenCode with `OPENCODE_VERSION` in `image/Dockerfile`.
+Whenever that pin changes, the image build must install
+`@opencode-ai/plugin` at the exact version returned by
+`/usr/local/bin/opencode --version`; a mismatch is a build/runtime regression.
+
+# if the app uses AgentiReact add the agentireact MCP server:
 
 Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
 `vite.config.js` or `vite.config.ts`). If that file exists and its contents
-reference the `@agentic-react/vite` plugin (imported and invoked as
-`AgenticReact()`), the running app exposes an MCP endpoint over HTTP at
+contain `AgentiReact()`, the running app exposes an MCP endpoint over HTTP at
 `http://localhost:5173/mcp` (the `opsdevel` dev server on port 5173). Add a
 remote MCP server pointing at it:
 
@@ -182,7 +193,7 @@ remote MCP server pointing at it:
 }
 ```
 
-If no `vite.config.*` exists or none references `@agentic-react/vite`, skip this server.
+If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
 
 # if config.s3.host is defined and not empty add:
 
@@ -380,10 +391,35 @@ model/small_model defaults, `disabled_providers`, `instructions`, `lsp`, and the
 `mcp` servers from `~/.ops/config.json`). There is no global
 `~/.config/opencode/opencode.json` — do not generate, symlink, or copy one.
 
-Note: `opencode.md` is written into the project directory alongside
-`opencode.json`, and `instructions` references the project's own
-`<workbenchdir>/<app>/opencode.md`. The action tools come from the
+Note: `AGENTS.md`, `opencode.md`, and `.openserverless-contract.md` are written
+into the project directory alongside `opencode.json`. `AGENTS.md` is the
+Trustable-managed app-local rules entrypoint and must explicitly demote
+template compatibility files such as `CLAUDE.md` to non-authoritative legacy
+notes. If an app already has `AGENTS.md`, Trustable updates only its managed
+block and preserves app-local notes below it. The checker is installed once at
+`~/.local/bin/check_openserverless_actions.sh`. The `instructions` array
+references the project's own
+`<workbenchdir>/<app>/.openserverless-contract.md` first and
+`<workbenchdir>/<app>/opencode.md` second. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
+The checker must not flag `.zip` files created by `ops ide deploy` under
+`packages/` as failures merely because they exist.
+It must not flag standard generated `__main__.py` PostgreSQL wiring as business
+logic merely because the wrapper imports `psycopg`, reads `POSTGRES_URL`, and
+assigns `ctx.POSTGRESQL`.
+For setup/seed modules, bulk `INSERT INTO` logic should warn only when no
+obvious idempotency guard exists. Explicit seed markers and
+`SELECT COUNT(*) FROM ...` checks are accepted as low-noise guards.
+
+The generated OpenCode `permission` block must allow normal edits while denying
+direct assistant edits to `packages/**/__main__.py` and `packages/**/*.zip`, and
+must deny raw shell commands matching `ops action` / `ops action *`. These
+guards keep action creation/repair on the OpenServerless MCP path and keep
+deployment on
+`ops ide deploy/setup`. The checker is still authoritative for drift that a
+shell command or copied file could create: it must fail on action modules
+without generated wrappers and on hand-authored wrappers that define `main()`
+without generated action/service markers.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated
@@ -423,7 +459,12 @@ the process environment.
 
 ## start process group
 
-Let <directory> be the absolute path of `<workbenchdir>/<app>`
+Let <directory> be the canonical absolute path of `<workbenchdir>/<app>` after
+resolving symlinks. This matters in the pod because `/home/trustable/workbench`
+can point at the persistent `/home/trustable/workspace/workbench`; OpenCode
+stores sessions by the resolved worktree path, so the launch response and
+session lookup must use the same canonical value to preserve/reopen previous
+sessions.
 
 Execute  opencode changing to this directory as
 
@@ -450,21 +491,14 @@ If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`
 
 Wait that both the processes are up and running and ports are listening.
 
+When ok, execute a POST to the opencode session endpoint with header
+"X-Opencode-Directory: <directory>" and log the result of this invocation.
 
-When ok, query `GET http://localhost:4096/session?directory=<directory>&roots=true&limit=20`.
-If it returns existing root sessions, prefer the newest non-empty session. A
-session is non-empty when it has token activity or a title other than the
-default `New session - ...` placeholder. If no non-empty session exists, reuse
-the newest returned session. Only when no session exists, execute a POST to
-`http://localhost:4096/session/` with header `X-Opencode-Directory: <directory>`
-and log the result of this invocation.
-
-
-The POST must target the **opencode host**, not localhost: take the request host,
-strip its port, swap the `trustable.` hostname prefix for `opencode.`, and POST to
-`http://opencode.<domain>:4096/session/`. In production opencode is reached through
-the ingress (which routes by the `opencode.` hostname prefix — see middleware.go),
-not over the loopback, so localhost would not resolve to the right server.
+This launch bootstrap is a pod-local sidecar call and must target
+`http://localhost:4096/session/`. Browser-visible OpenCode traffic is different:
+`opencode.<domain>` must route through the Trustable ingress/proxy path on port
+8910, where the middleware scopes project and directory requests before
+proxying to the same pod-local OpenCode server.
 
 then return:
 
@@ -473,7 +507,7 @@ then return:
   "right": <opsdeve-port>,
   "b64dir": <base64-urlsafe-encoded directory>,
   "encdir": <absolute directory>,
-  "session_id": <reused-or-created-opencode-session-id>,
+  "session_id": <id returned by the opencode session POST, or "">,
   "skills_added": <true if skills were freshly added this launch>
 }`
 
