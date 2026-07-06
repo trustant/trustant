@@ -14,11 +14,12 @@ Show also in smaller font "Expiration date: <date>"
 
 The splash and all provider/sign-in/configuration modals use the shared
 Nuvolaris-style Trustable visual system defined in [1-applist.md](1-applist.md)
-under "Shared Trustable visual system". This page is a real splash/choice page,
-so a centered first-run composition is acceptable, but it should still use Work
-Sans, the shared palette tokens, compact modal/card geometry, and restrained
-professional SaaS controls. Provider selection behavior and iframe recovery
-flows must remain unchanged during visual migration.
+under "Shared Trustable visual system" and linked from `web/trustable-ui.css`.
+This page is a real splash/choice page, so a centered first-run composition is
+acceptable, but it should still use Work Sans, the shared palette tokens,
+compact modal/card geometry, and restrained professional SaaS controls. Provider
+selection behavior and iframe recovery flows must remain unchanged during visual
+migration.
 
 # Provider choice
 
