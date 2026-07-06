@@ -22,9 +22,18 @@ Immediately **after the title** (below the version line, above the Applications 
 
 Show also in smaller font at the end of the page "Expiration date: <date>"
 
-It will list the applications, using the backend api.
+It will list the applications, using the backend api. The page includes compact
+summary metrics for total applications, production-configured applications,
+development-only applications, and repositories. The list supports client-side
+search, sort by name or repository, segmented filters for all/production/
+development-only, a grid view, a denser list view as the default, and a visible count of
+matching applications. Searching filters by app name, repository, production
+host, and production user without calling the backend again.
 
-For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link.
+For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link. Development and Production links show an external-link icon so they are recognizable as links.
+Application action buttons use restrained, light styling and fixed inline labels:
+Edit, Env, Git Push, Publish, and Delete must not wrap inside the list view.
+Delete keeps a distinct pale red treatment.
 
 The Local link points to `<protocol>://<name>.<domain>` by replacing the first
 label of the current Trustable host. For example, from
