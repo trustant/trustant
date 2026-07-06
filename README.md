@@ -184,7 +184,7 @@ git submodule update --init --recursive
 ## Testing
 
 - **Unit tests:** `go test ./...` runs the Go `*_test.go` tests. Coverage is intentionally minimal — mostly [configure_test.go](configure_test.go).
-- **End-to-end scenarios:** [tests/](tests/) holds **manual** end-to-end scenarios, each a spec markdown file paired with a runnable script (e.g. `1-reset.sh` wipes the miniops users and the workspace, then runs `air`). These are **not** part of `go test` and must be run by hand.
+- **End-to-end scenarios:** [tests/](tests/) holds **manual** end-to-end scenarios, each a spec markdown file paired with a runnable script. These are **not** part of `go test` and must be run by hand. The issue 98 guardrail test is documented in [tests/issue98-e2e.md](tests/issue98-e2e.md) and launched with `TRUSTABLE_E2E_APP=<app> ./tests/e2e_issue98.sh`. Its optional model-driven second step is enabled with `TRUSTABLE_E2E_RUN_PROMPT=1`.
 
 ## Conventions
 
