@@ -32,7 +32,7 @@ host, and production user without calling the backend again.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link. Development and Production links show an external-link icon so they are recognizable as links.
 Application action buttons use restrained, light styling and fixed inline labels:
-Edit, Env, Git Push, Publish, and Delete must not wrap inside the list view.
+Edit, Env, Git Pull, Git Push, Publish, and Delete must not wrap inside the list view.
 Delete keeps a distinct pale red treatment.
 
 The Local link points to `<protocol>://<name>.<domain>` by replacing the first
@@ -50,8 +50,15 @@ You can
 - remove applications
 - edit applications
 - env (configure application environment variables)
+- git pull (pull fast-forward updates from the configured production repository when available, otherwise the original application repository)
 - git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
+
+Application action buttons should use a restrained visual style: white or very
+light neutral backgrounds, gray borders, gray text, and subtle hover states.
+Avoid assigning a different saturated color to every action. Destructive
+actions may keep a red text/border treatment, but should not use a solid red
+background in the normal state.
 
 ## Publishing gate
 
@@ -136,6 +143,24 @@ Once the repo is set, the backend saves it as `OPS_REPO` in production config, a
 If `needs_config` was not returned (already configured), skip the form and show the result directly.
 
 Show spinner during the operation and result on completion.
+
+# Git Pull
+
+Each app card has a "Git Pull" button. Clicking it calls
+`POST /api/git/pull` with the app name.
+
+The backend pulls from the configured production repository (`OPS_REPO`) when
+available, matching the Git Push target. If no production repository is
+configured, it pulls from the app's original `origin` repository. The operation
+updates Trustable's bare workspace repository and fast-forwards the active
+workbench checkout when it exists.
+
+The backend does not merge, rebase, hard reset, or overwrite unsaved workbench
+changes. If local changes or divergent commits exist, show the backend error in
+the same modal/result style used by Git Push.
+
+Show spinner during the operation and result on completion. On success, reload
+the app list so repository metadata remains current.
 
 # Publish
 
