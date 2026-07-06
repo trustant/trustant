@@ -4,6 +4,10 @@ image/opencode.md
 workspace
 workbench
 tmp/
+node_modules/
+test-results/
+playwright-report/
+blob-report/
 .env*
 .key
 .ops/
