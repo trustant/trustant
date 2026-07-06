@@ -6,6 +6,7 @@
     <title>Trustable App</title>
     <script src="tailwind.js"></script>
     <script src="js/marked.min.js"></script>
+    <link rel="stylesheet" href="trustable-ui.css">
     <style>
         html, body {
             height: 100%;
@@ -14,43 +15,43 @@
         }
     </style>
 </head>
-<body class="bg-gray-100 h-full flex flex-col">
+<body class="h-full flex flex-col">
     <!-- Top Bar (10% height) -->
-    <div class="h-[10%] bg-white shadow-md flex items-center px-4">
+    <div class="h-[10%] nu-topbar flex items-center px-4 gap-3">
         <!-- Left group: logo, app name, config pulldown -->
-        <div class="flex items-center gap-3 h-full">
+        <div class="flex items-center gap-3 h-full shrink-0">
             <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
-            <h1 id="appName" class="text-xl font-bold text-gray-800"></h1>
-            <div id="creditsBox" class="hidden items-center gap-1 px-2 py-1 rounded-full border border-gray-300 bg-gray-50 text-xs text-gray-700">
+            <h1 id="appName" class="text-xl font-medium text-[color:var(--nu-ink)] whitespace-nowrap"></h1>
+            <div id="creditsBox" class="hidden items-center gap-1 px-2 py-1 nu-status-pill text-xs">
                 <span class="font-medium">Credits:</span>
                 <span id="creditsValue">…</span>
             </div>
             <button id="topupBtn" onclick="showTopupModal()"
-                class="hidden px-3 py-1.5 bg-amber-500 text-white text-sm rounded-md hover:bg-amber-600 transition-colors items-center gap-1">
+                class="hidden nu-btn nu-btn-secondary items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Top-up
             </button>
             <div class="relative">
                 <button id="configBtn" onclick="toggleConfigMenu()"
-                    class="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors flex items-center gap-1">
+                    class="nu-btn nu-btn-secondary flex items-center gap-1">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
                     Config
                     <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div id="configMenu" class="hidden absolute left-0 top-full mt-1 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50 min-w-[160px]">
+                <div id="configMenu" class="hidden absolute left-0 top-full mt-1 nu-dropdown py-1 z-50 min-w-[160px]">
                     <button onclick="hideConfigMenu(); showEnvModal()"
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
                         Env
                     </button>
                     <button onclick="hideConfigMenu(); showSkillsModal()"
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
                         Skills
                     </button>
                     <button onclick="hideConfigMenu(); showMemoryModal()"
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
                         Memory
                     </button>
                 </div>
@@ -59,52 +60,52 @@
         </div>
         <div class="flex-1"></div>
         <!-- Right group: git status, commit, utils, route, query, back -->
-        <div class="flex items-center gap-3">
-            <div id="gitStatus" class="flex items-center gap-1 text-sm text-gray-500">
+        <div class="flex items-center gap-2 shrink-0">
+            <div id="gitStatus" class="nu-status-pill flex items-center gap-1 px-2 py-1 text-xs">
                 <span id="gitDot" class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
                 <span id="gitText">No changes</span>
             </div>
             <button id="saveBtn" onclick="showSaveModal()" disabled
-                class="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-1">
+                class="nu-btn nu-btn-primary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                 Commit
             </button>
             <div class="relative">
                 <button id="utilsBtn" onclick="toggleUtilsMenu()"
-                    class="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-md hover:bg-orange-700 transition-colors flex items-center gap-1">
+                    class="nu-btn nu-btn-secondary flex items-center gap-1">
                     Utils
                     <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
-                <div id="utilsMenu" class="hidden absolute right-0 top-full mt-1 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50 min-w-[160px]">
+                <div id="utilsMenu" class="hidden absolute right-0 top-full mt-1 nu-dropdown py-1 z-50 min-w-[160px]">
                     <button id="utilsRevert" onclick="hideUtilsMenu(); showRevertModal()" disabled
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:text-gray-400 disabled:hover:bg-transparent disabled:cursor-not-allowed flex items-center gap-2">
-                        <svg class="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a5 5 0 010 10H9M3 10l4-4m-4 4l4 4"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-signal)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a5 5 0 010 10H9M3 10l4-4m-4 4l4 4"/></svg>
                         Revert
                     </button>
                     <button onclick="hideUtilsMenu(); redeploy()"
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-6.463 0 4.493 4.493 0 006.463 0zm8.1-2.093a4.493 4.493 0 00-.052-6.32 4.493 4.493 0 00-6.32-.052"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-6.463 0 4.493 4.493 0 006.463 0zm8.1-2.093a4.493 4.493 0 00-.052-6.32 4.493 4.493 0 00-6.32-.052"/></svg>
                         Redeploy
                     </button>
                     <button onclick="hideUtilsMenu(); openDebugWindow()"
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
                         Debug
                     </button>
                     <button onclick="hideUtilsMenu(); triggerUpload()"
-                        class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
-                        <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/></svg>
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/></svg>
                         Upload
                     </button>
                 </div>
             </div>
             <button id="routeBtn" onclick="showRouteModal()"
-                class="px-3 py-1.5 bg-teal-600 text-white text-sm rounded-md hover:bg-teal-700 transition-colors flex items-center gap-1">
+                class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
                 Route: <span id="routeLabel">/</span>
             </button>
             <button onclick="goBack()"
-                class="px-3 py-1.5 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700 transition-colors flex items-center gap-1">
+                class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
                 Back
             </button>
@@ -113,36 +114,36 @@
 
     <!-- Body with two iframes (90% height), resizable horizontally -->
     <div id="iframeContainer" class="h-[90%] flex">
-        <iframe id="leftFrame" class="h-full border-r border-gray-300" style="width: 50%; min-width: 100px;"></iframe>
-        <div id="divider" class="w-1.5 bg-gray-300 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors"></div>
+        <iframe id="leftFrame" class="h-full border-r border-[color:var(--nu-rule)]" style="width: 50%; min-width: 100px;"></iframe>
+        <div id="divider" class="w-1.5 bg-[color:var(--nu-rule)] hover:bg-[color:var(--nu-brand)] cursor-col-resize flex-shrink-0 transition-colors"></div>
         <iframe id="rightFrame" class="h-full flex-1" style="min-width: 100px;"></iframe>
     </div>
 
     <!-- Save Confirmation Modal -->
-    <div id="saveModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+    <div id="saveModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
             <div id="saveSpinner" class="mb-4 hidden">
-                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-12 w-12 text-[color:var(--nu-brand)] mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             </div>
-            <h3 id="saveTitle" class="text-lg font-semibold mb-2">Commit Changes</h3>
-            <p id="saveMessage" class="text-gray-600 mb-4">Commit all changes to workspace?</p>
+            <h3 id="saveTitle" class="text-lg font-medium mb-2">Commit Changes</h3>
+            <p id="saveMessage" class="text-[color:var(--nu-muted)] mb-4">Commit all changes to workspace?</p>
             <div id="saveConfirmButtons" class="flex gap-3">
                 <button onclick="hideSaveModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
                 <button onclick="confirmSave()"
-                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="nu-btn nu-btn-primary flex-1">
                     Commit
                 </button>
             </div>
             <div id="saveResult" class="hidden">
-                <div id="saveResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <div id="saveResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideSaveModal()"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="nu-btn nu-btn-primary">
                     Continue
                 </button>
             </div>
@@ -150,17 +151,17 @@
     </div>
 
     <!-- Unsaved Changes Warning Modal -->
-    <div id="unsavedModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
-            <h3 class="text-lg font-semibold mb-2 text-yellow-600">Uncommitted Changes</h3>
-            <p class="text-gray-600 mb-4">You have uncommitted changes. If you go back, changes will be lost.</p>
+    <div id="unsavedModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
+            <h3 class="text-lg font-medium mb-2 text-[color:var(--nu-signal)]">Uncommitted Changes</h3>
+            <p class="text-[color:var(--nu-muted)] mb-4">You have uncommitted changes. If you go back, changes will be lost.</p>
             <div class="flex gap-3">
                 <button onclick="hideUnsavedModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
                 <button onclick="forceGoBack()"
-                    class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                    class="nu-btn nu-btn-danger flex-1">
                     Go back anyway
                 </button>
             </div>
@@ -168,40 +169,40 @@
     </div>
 
     <!-- Upload Modal -->
-    <div id="uploadModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+    <div id="uploadModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
             <div id="uploadSpinner" class="mb-4 hidden">
-                <svg class="animate-spin h-12 w-12 text-green-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-12 w-12 text-[color:var(--nu-brand)] mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p class="mt-2 text-gray-600">Uploading...</p>
+                <p class="mt-2 text-[color:var(--nu-muted)]">Uploading...</p>
             </div>
             <div id="uploadResult" class="hidden">
-                <h3 class="text-lg font-semibold mb-2">File Uploaded</h3>
-                <p class="text-gray-600 mb-2">File path:</p>
+                <h3 class="text-lg font-medium mb-2">File Uploaded</h3>
+                <p class="text-[color:var(--nu-muted)] mb-2">File path:</p>
                 <div class="flex items-center gap-2 mb-4">
                     <input type="text" id="uploadedFilePath" readonly
-                        class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono">
+                        class="nu-input nu-code flex-1 px-3 py-2 text-sm">
                     <button onclick="copyFilePath()"
-                        class="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                        class="nu-btn nu-btn-secondary"
                         title="Copy to clipboard">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                     </button>
                 </div>
-                <p id="copyFeedback" class="text-green-600 text-sm mb-2 hidden">Copied to clipboard!</p>
+                <p id="copyFeedback" class="text-green-700 text-sm mb-2 hidden">Copied to clipboard!</p>
                 <button onclick="hideUploadModal()"
-                    class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                    class="nu-btn nu-btn-primary">
                     Close
                 </button>
             </div>
             <div id="uploadError" class="hidden">
-                <h3 class="text-lg font-semibold mb-2 text-red-600">Upload Failed</h3>
-                <div id="uploadErrorText" class="text-red-600 mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <h3 class="text-lg font-medium mb-2 text-[color:var(--nu-danger)]">Upload Failed</h3>
+                <div id="uploadErrorText" class="text-red-700 mb-4 max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideUploadModal()"
-                    class="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                    class="nu-btn nu-btn-secondary">
                     Close
                 </button>
             </div>
@@ -209,30 +210,30 @@
     </div>
 
     <!-- Revert Confirmation Modal -->
-    <div id="revertModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+    <div id="revertModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
             <div id="revertSpinner" class="mb-4 hidden">
-                <svg class="animate-spin h-12 w-12 text-orange-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-12 w-12 text-[color:var(--nu-signal)] mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             </div>
-            <h3 id="revertTitle" class="text-lg font-semibold mb-2">Revert Changes</h3>
-            <p id="revertMessage" class="text-gray-600 mb-4">Are you sure you want to revert all uncommitted changes?</p>
+            <h3 id="revertTitle" class="text-lg font-medium mb-2">Revert Changes</h3>
+            <p id="revertMessage" class="text-[color:var(--nu-muted)] mb-4">Are you sure you want to revert all uncommitted changes?</p>
             <div id="revertConfirmButtons" class="flex gap-3">
                 <button onclick="hideRevertModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
                 <button onclick="confirmRevert()"
-                    class="flex-1 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors">
+                    class="nu-btn nu-btn-danger flex-1">
                     Revert
                 </button>
             </div>
             <div id="revertResult" class="hidden">
-                <div id="revertResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <div id="revertResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideRevertModal()"
-                    class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="nu-btn nu-btn-primary">
                     Continue
                 </button>
             </div>
@@ -240,74 +241,74 @@
     </div>
 
     <!-- Skills Modal -->
-    <div id="skillsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
-            <div class="flex items-center justify-between p-4 border-b">
-                <h3 class="text-lg font-semibold">Skills</h3>
-                <button onclick="hideSkillsModal()" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+    <div id="skillsModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-[color:var(--nu-rule)]">
+                <h3 class="text-lg font-medium">Skills</h3>
+                <button onclick="hideSkillsModal()" class="nu-close text-2xl leading-none">&times;</button>
             </div>
-            <div id="skillsSource" class="px-4 pt-3 text-sm text-gray-600"></div>
-            <div id="skillsLoading" class="p-8 text-center text-gray-500">Loading skills...</div>
+            <div id="skillsSource" class="px-4 pt-3 text-sm text-[color:var(--nu-muted)]"></div>
+            <div id="skillsLoading" class="p-8 text-center text-[color:var(--nu-muted)]">Loading skills...</div>
             <div id="skillsContent" class="hidden flex-1 flex flex-col min-h-0">
-                <div id="skillsTabs" class="flex border-b px-4 gap-1 overflow-x-auto flex-shrink-0"></div>
+                <div id="skillsTabs" class="flex border-b border-[color:var(--nu-rule)] px-4 gap-1 overflow-x-auto flex-shrink-0"></div>
                 <div id="skillsBody" class="flex-1 overflow-y-auto p-4"></div>
             </div>
-            <div id="skillsEmpty" class="hidden p-8 text-center text-gray-500">No skills found. Click "Update Skills to Latest" to install.</div>
-            <div id="skillsError" class="hidden p-4 text-left text-red-600 text-sm font-mono bg-gray-50 rounded mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+            <div id="skillsEmpty" class="hidden p-8 text-center text-[color:var(--nu-muted)]">No skills found. Click "Update Skills to Latest" to install.</div>
+            <div id="skillsError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
         </div>
     </div>
 
     <!-- Env Modal (read-only) -->
-    <div id="envModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
-            <div class="flex items-center justify-between p-4 border-b">
-                <h3 class="text-lg font-semibold">Environment Variables</h3>
-                <button onclick="hideEnvModal()" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+    <div id="envModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-[color:var(--nu-rule)]">
+                <h3 class="text-lg font-medium">Environment Variables</h3>
+                <button onclick="hideEnvModal()" class="nu-close text-2xl leading-none">&times;</button>
             </div>
-            <div id="envLoading" class="p-8 text-center text-gray-500">Loading...</div>
+            <div id="envLoading" class="p-8 text-center text-[color:var(--nu-muted)]">Loading...</div>
             <div id="envContent" class="hidden flex-1 overflow-y-auto p-4">
-                <table class="w-full text-sm">
+                <table class="nu-table text-sm">
                     <thead>
-                        <tr class="border-b">
-                            <th class="text-left py-2 px-2">VARIABLE</th>
-                            <th class="text-left py-2 px-2">Development</th>
-                            <th class="text-left py-2 px-2">Production</th>
+                        <tr>
+                            <th class="text-left">Variable</th>
+                            <th class="text-left">Development</th>
+                            <th class="text-left">Production</th>
                         </tr>
                     </thead>
                     <tbody id="envTableBody"></tbody>
                 </table>
-                <p class="text-sm text-gray-500 mt-4 italic">To edit environment variables, use the Env button from the app list.</p>
+                <p class="text-sm text-[color:var(--nu-muted)] mt-4 italic">To edit environment variables, use the Env button from the app list.</p>
             </div>
-            <div id="envError" class="hidden p-4 text-left text-red-600 text-sm font-mono bg-gray-50 rounded mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+            <div id="envError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
         </div>
     </div>
 
     <!-- Skills Update Confirmation Modal -->
-    <div id="skillsUpdateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-[60]">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+    <div id="skillsUpdateModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-[60]">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
             <div id="skillsUpdateSpinner" class="mb-4 hidden">
-                <svg class="animate-spin h-12 w-12 text-purple-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-12 w-12 text-[color:var(--nu-brand)] mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p class="mt-2 text-gray-600">Updating skills...</p>
+                <p class="mt-2 text-[color:var(--nu-muted)]">Updating skills...</p>
             </div>
-            <h3 id="skillsUpdateTitle" class="text-lg font-semibold mb-2 text-yellow-600">Update Skills</h3>
-            <p id="skillsUpdateMessage" class="text-gray-600 mb-4">Warning: I will remove current skills and replace with the latest.</p>
+            <h3 id="skillsUpdateTitle" class="text-lg font-medium mb-2 text-[color:var(--nu-signal)]">Update Skills</h3>
+            <p id="skillsUpdateMessage" class="text-[color:var(--nu-muted)] mb-4">Warning: I will remove current skills and replace with the latest.</p>
             <div id="skillsUpdateConfirmButtons" class="flex gap-3">
                 <button onclick="hideSkillsUpdateModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
                 <button onclick="confirmSkillsUpdate()"
-                    class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
+                    class="nu-btn nu-btn-primary flex-1">
                     Update
                 </button>
             </div>
             <div id="skillsUpdateResult" class="hidden">
-                <div id="skillsUpdateResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap"></div>
+                <div id="skillsUpdateResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideSkillsUpdateModal(); loadSkills();"
-                    class="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
+                    class="nu-btn nu-btn-primary">
                     Continue
                 </button>
             </div>
@@ -315,25 +316,25 @@
     </div>
 
     <!-- Route & Query Modal (combined) -->
-    <div id="routeModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 class="text-lg font-semibold mb-4">Route & Query</h3>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Route</label>
-            <input type="text" id="routeInput" class="w-full px-3 py-2 border border-gray-300 rounded-md mb-4 text-sm font-mono" value="/">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Query Parameters</label>
+    <div id="routeModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-medium mb-4">Route & Query</h3>
+            <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Route</label>
+            <input type="text" id="routeInput" class="nu-input nu-code w-full px-3 py-2 mb-4 text-sm" value="/">
+            <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Query Parameters</label>
             <div id="queryPairs" class="space-y-2 mb-2 max-h-60 overflow-y-auto"></div>
             <button onclick="addQueryPair()"
-                class="text-sm text-teal-600 hover:text-teal-800 mb-4 flex items-center gap-1">
+                class="nu-link text-sm mb-4 flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Add parameter
             </button>
             <div class="flex gap-3">
                 <button onclick="hideRouteModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
                 <button onclick="confirmRoute()"
-                    class="flex-1 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors">
+                    class="nu-btn nu-btn-primary flex-1">
                     OK
                 </button>
             </div>
@@ -341,37 +342,37 @@
     </div>
 
     <!-- Memory Modal (AGENTS.md editor) -->
-    <div id="memoryModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
-            <div class="flex items-center justify-between p-4 border-b">
-                <h3 class="text-lg font-semibold">Memory — AGENTS.md</h3>
-                <button onclick="hideMemoryModal()" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+    <div id="memoryModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-[color:var(--nu-rule)]">
+                <h3 class="text-lg font-medium">Memory — AGENTS.md</h3>
+                <button onclick="hideMemoryModal()" class="nu-close text-2xl leading-none">&times;</button>
             </div>
-            <div id="memoryLoading" class="p-8 text-center text-gray-500">Loading...</div>
+            <div id="memoryLoading" class="p-8 text-center text-[color:var(--nu-muted)]">Loading...</div>
             <div id="memoryEditorWrap" class="hidden flex-1 flex flex-col min-h-0 p-4">
-                <div id="memoryEditor" class="flex-1 min-h-[300px] border border-gray-300 rounded-md p-3 font-mono text-sm overflow-auto bg-white" style="white-space: pre-wrap; tab-size: 2;"></div>
+                <div id="memoryEditor" class="nu-input nu-code flex-1 min-h-[300px] p-3 text-sm overflow-auto bg-white" style="white-space: pre-wrap; tab-size: 2;"></div>
                 <div class="flex gap-3 mt-4 justify-end">
                     <button onclick="hideMemoryModal()"
-                        class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                        class="nu-btn nu-btn-secondary">
                         Cancel
                     </button>
                     <button onclick="saveMemory()"
-                        class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors">
+                        class="nu-btn nu-btn-primary">
                         Save
                     </button>
                 </div>
             </div>
-            <div id="memoryError" class="hidden p-4 text-left text-red-600 text-sm font-mono bg-gray-50 rounded mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+            <div id="memoryError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
         </div>
     </div>
 
     <!-- Top-up Iframe Overlay (same pattern as the registration overlay) -->
-    <div id="topupOverlay" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl flex flex-col" style="width:80%;height:80%;">
-            <div class="flex items-center justify-between px-4 py-2 border-b">
+    <div id="topupOverlay" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal flex flex-col" style="width:80%;height:80%;">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-[color:var(--nu-rule)]">
                 <span class="text-sm font-medium">Top up credits</span>
                 <button onclick="cancelTopup()"
-                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">Close</button>
+                    class="nu-btn nu-btn-secondary nu-btn-compact">Close</button>
             </div>
             <iframe id="topupIframe" class="flex-1 w-full" src="about:blank"></iframe>
         </div>
@@ -572,20 +573,20 @@
                 const data = await response.json();
                 document.getElementById('saveSpinner').classList.add('hidden');
 
-                const saveBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+                const saveBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap';
                 if (data.error) {
                     document.getElementById('saveResultText').textContent = data.error;
-                    document.getElementById('saveResultText').className = 'mb-4 text-red-600' + saveBaseClasses;
+                    document.getElementById('saveResultText').className = 'mb-4 text-red-700' + saveBaseClasses;
                 } else {
                     document.getElementById('saveResultText').textContent = data.message || 'Committed successfully';
-                    document.getElementById('saveResultText').className = 'mb-4 text-green-600' + saveBaseClasses;
+                    document.getElementById('saveResultText').className = 'mb-4 text-green-700' + saveBaseClasses;
                     refreshGitStatus();
                 }
                 document.getElementById('saveResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('saveSpinner').classList.add('hidden');
                 document.getElementById('saveResultText').textContent = error.message;
-                document.getElementById('saveResultText').className = 'mb-4 text-red-600 max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+                document.getElementById('saveResultText').className = 'mb-4 text-red-700 max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap';
                 document.getElementById('saveResult').classList.remove('hidden');
             }
         }
@@ -623,20 +624,20 @@
                 const data = await response.json();
                 document.getElementById('revertSpinner').classList.add('hidden');
 
-                const revertBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+                const revertBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap';
                 if (response.ok && !data.error) {
                     document.getElementById('revertResultText').textContent = data.output || 'Revert completed successfully';
-                    document.getElementById('revertResultText').className = 'mb-4 text-green-600' + revertBaseClasses;
+                    document.getElementById('revertResultText').className = 'mb-4 text-green-700' + revertBaseClasses;
                     refreshGitStatus();
                 } else {
                     document.getElementById('revertResultText').textContent = data.error || data.output || 'Revert failed';
-                    document.getElementById('revertResultText').className = 'mb-4 text-red-600' + revertBaseClasses;
+                    document.getElementById('revertResultText').className = 'mb-4 text-red-700' + revertBaseClasses;
                 }
                 document.getElementById('revertResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('revertSpinner').classList.add('hidden');
                 document.getElementById('revertResultText').textContent = error.message;
-                document.getElementById('revertResultText').className = 'mb-4 text-red-600' + revertBaseClasses;
+                document.getElementById('revertResultText').className = 'mb-4 text-red-700' + revertBaseClasses;
                 document.getElementById('revertResult').classList.remove('hidden');
             }
         }
@@ -806,9 +807,9 @@
             const row = document.createElement('div');
             row.className = 'flex items-center gap-2';
             row.innerHTML = `
-                <input type="text" placeholder="key" value="${escapeHtml(key)}" class="flex-1 px-2 py-1 border border-gray-300 rounded text-sm font-mono query-key">
-                <input type="text" placeholder="value" value="${escapeHtml(value)}" class="flex-1 px-2 py-1 border border-gray-300 rounded text-sm font-mono query-value">
-                <button onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 text-lg leading-none">&times;</button>
+                <input type="text" placeholder="key" value="${escapeHtml(key)}" class="nu-input nu-code flex-1 px-2 py-1 text-sm query-key">
+                <input type="text" placeholder="value" value="${escapeHtml(value)}" class="nu-input nu-code flex-1 px-2 py-1 text-sm query-value">
+                <button onclick="this.parentElement.remove()" class="nu-close text-lg leading-none">&times;</button>
             `;
             container.appendChild(row);
         }
@@ -912,7 +913,7 @@
                 // Disable pointer events on iframes while dragging
                 leftFrame.style.pointerEvents = 'none';
                 rightFrame.style.pointerEvents = 'none';
-                divider.classList.add('bg-blue-500');
+                divider.classList.add('bg-[color:var(--nu-brand)]');
             });
 
             document.addEventListener('mousemove', (e) => {
@@ -931,7 +932,7 @@
                 isDragging = false;
                 leftFrame.style.pointerEvents = '';
                 rightFrame.style.pointerEvents = '';
-                divider.classList.remove('bg-blue-500');
+                divider.classList.remove('bg-[color:var(--nu-brand)]');
             });
         })();
 
@@ -962,13 +963,13 @@
 
                 const tbody = document.getElementById('envTableBody');
                 if (vars.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No variables configured</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-[color:var(--nu-muted)]">No variables configured</td></tr>';
                 } else {
                     tbody.innerHTML = vars.map(v => `
-                        <tr class="border-b">
-                            <td class="py-2 px-2 font-mono text-xs">${escapeHtml(v.name)}</td>
-                            <td class="py-2 px-2 text-xs text-gray-600">${escapeHtml(v.dev_value)}</td>
-                            <td class="py-2 px-2 text-xs text-gray-600">${escapeHtml(v.prod_value)}</td>
+                        <tr>
+                            <td class="nu-code text-xs">${escapeHtml(v.name)}</td>
+                            <td class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.dev_value)}</td>
+                            <td class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.prod_value)}</td>
                         </tr>`).join('');
                 }
 
@@ -1015,14 +1016,14 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <span class="font-medium">Source:</span>
-                            <a href="https://github.com/${data.source}" target="_blank" class="text-blue-600 hover:underline">${data.source}</a>
+                            <a href="https://github.com/${data.source}" target="_blank" class="nu-link">${data.source}</a>
                         </div>
                         <button onclick="showSkillsUpdateModal()"
-                            class="px-3 py-1 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors">
+                            class="nu-btn nu-btn-secondary nu-btn-compact">
                             Update Skills to Latest
                         </button>
                     </div>
-                    <p class="text-xs text-gray-400 mt-1">Configure OPS_SKILLS in main window to use your own skill repo.</p>
+                    <p class="text-xs text-[color:var(--nu-muted)] mt-1">Configure OPS_SKILLS in main window to use your own skill repo.</p>
                 `;
 
                 if (!data.skills || data.skills.length === 0) {
@@ -1048,8 +1049,8 @@
                 const tab = document.createElement('button');
                 tab.textContent = skill.name;
                 tab.className = index === 0
-                    ? 'px-4 py-2 text-sm font-medium border-b-2 border-purple-600 text-purple-600'
-                    : 'px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700';
+                    ? 'px-4 py-2 text-sm font-medium border-b-2 border-[color:var(--nu-ink)] text-[color:var(--nu-ink)]'
+                    : 'px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[color:var(--nu-muted)] hover:text-[color:var(--nu-ink)]';
                 tab.onclick = () => selectSkillTab(skills, index);
                 tabsDiv.appendChild(tab);
             });
@@ -1062,8 +1063,8 @@
             const tabs = document.getElementById('skillsTabs').children;
             for (let i = 0; i < tabs.length; i++) {
                 tabs[i].className = i === selectedIndex
-                    ? 'px-4 py-2 text-sm font-medium border-b-2 border-purple-600 text-purple-600'
-                    : 'px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700';
+                    ? 'px-4 py-2 text-sm font-medium border-b-2 border-[color:var(--nu-ink)] text-[color:var(--nu-ink)]'
+                    : 'px-4 py-2 text-sm font-medium border-b-2 border-transparent text-[color:var(--nu-muted)] hover:text-[color:var(--nu-ink)]';
             }
             renderSkillBody(skills[selectedIndex]);
         }
@@ -1074,9 +1075,9 @@
 
             // Front matter as key-value table
             if (skill.front_matter && Object.keys(skill.front_matter).length > 0) {
-                html += '<table class="w-full text-sm mb-4 border border-gray-200 rounded">';
+                html += '<table class="nu-table text-sm mb-4">';
                 for (const [key, value] of Object.entries(skill.front_matter)) {
-                    html += `<tr class="border-b border-gray-100"><td class="px-3 py-1.5 font-medium text-gray-700 bg-gray-50 w-1/4">${escapeHtml(key)}</td><td class="px-3 py-1.5 text-gray-600">${escapeHtml(value)}</td></tr>`;
+                    html += `<tr><td class="font-medium text-[color:var(--nu-ink)] w-1/4">${escapeHtml(key)}</td><td class="text-[color:var(--nu-muted)]">${escapeHtml(value)}</td></tr>`;
                 }
                 html += '</table>';
             }
@@ -1128,19 +1129,19 @@
                 const data = await resp.json();
                 document.getElementById('skillsUpdateSpinner').classList.add('hidden');
 
-                const skillsBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm font-mono bg-gray-50 rounded p-3 whitespace-pre-wrap';
+                const skillsBaseClasses = ' max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap';
                 if (data.error) {
                     document.getElementById('skillsUpdateResultText').textContent = data.error;
-                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600' + skillsBaseClasses;
+                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-700' + skillsBaseClasses;
                 } else {
                     document.getElementById('skillsUpdateResultText').textContent = 'Skills updated successfully';
-                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-green-600' + skillsBaseClasses;
+                    document.getElementById('skillsUpdateResultText').className = 'mb-4 text-green-700' + skillsBaseClasses;
                 }
                 document.getElementById('skillsUpdateResult').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('skillsUpdateSpinner').classList.add('hidden');
                 document.getElementById('skillsUpdateResultText').textContent = error.message;
-                document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-600' + skillsBaseClasses;
+                document.getElementById('skillsUpdateResultText').className = 'mb-4 text-red-700' + skillsBaseClasses;
                 document.getElementById('skillsUpdateResult').classList.remove('hidden');
             }
         }

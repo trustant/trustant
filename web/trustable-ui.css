@@ -78,6 +78,43 @@ body {
     box-shadow: 0 24px 60px rgb(0 0 0 / .14);
 }
 
+.nu-dropdown {
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--nu-paper) 96%, white);
+    box-shadow: 0 16px 36px rgb(0 0 0 / .12);
+}
+
+.nu-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .5rem .75rem;
+    color: var(--nu-ink);
+    font-size: .875rem;
+    text-align: left;
+}
+
+.nu-menu-item:hover:not(:disabled) {
+    background: var(--nu-accent);
+}
+
+.nu-menu-item:disabled {
+    cursor: not-allowed;
+    color: var(--nu-muted);
+    opacity: .55;
+}
+
+.nu-close {
+    color: var(--nu-muted);
+    line-height: 1;
+}
+
+.nu-close:hover {
+    color: var(--nu-ink);
+}
+
 .nu-btn {
     display: inline-flex;
     align-items: center;
@@ -91,6 +128,10 @@ body {
     font-weight: 500;
     white-space: nowrap;
     transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.nu-btn.hidden {
+    display: none;
 }
 
 .nu-btn:disabled {
@@ -156,6 +197,20 @@ body {
     outline: 2px solid color-mix(in oklab, var(--nu-brand) 28%, transparent);
     outline-offset: 1px;
     border-color: var(--nu-brand);
+}
+
+.nu-output {
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--nu-paper) 88%, white);
+    color: var(--nu-ink);
+}
+
+.nu-status-pill {
+    border: 1px solid var(--nu-rule);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--nu-paper) 92%, white);
+    color: var(--nu-muted);
 }
 
 .nu-chip {
