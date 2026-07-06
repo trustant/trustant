@@ -4,87 +4,259 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <script src="tailwind.js"></script>
+    <style>
+        :root {
+            --nu-ink: oklch(18% .005 286);
+            --nu-paper: oklch(98.5% .002 95);
+            --nu-muted: oklch(44% .005 286);
+            --nu-rule: oklch(92% .003 286);
+            --nu-brand: oklch(68% .12 230);
+            --nu-brand-soft: oklch(88% .05 225);
+            --nu-accent: oklch(96% .01 225);
+            --nu-signal: oklch(70% .18 47);
+            --nu-danger: oklch(55% .22 27);
+        }
+
+        html {
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        body {
+            font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+            font-feature-settings: "ss01", "cv11";
+            background: var(--nu-paper);
+            color: var(--nu-ink);
+        }
+
+        .nu-mono {
+            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+
+        .nu-shell {
+            width: min(100%, 1320px);
+            margin: 0 auto;
+        }
+
+        .nu-topbar {
+            border-bottom: 1px solid var(--nu-rule);
+            background: color-mix(in oklab, var(--nu-paper) 94%, white);
+        }
+
+        .nu-panel {
+            border: 1px solid var(--nu-rule);
+            background: color-mix(in oklab, var(--nu-paper) 88%, white);
+            border-radius: 4px;
+        }
+
+        .nu-card {
+            border: 1px solid var(--nu-rule);
+            background: color-mix(in oklab, var(--nu-paper) 92%, white);
+            border-radius: 4px;
+        }
+
+        .nu-card:hover {
+            border-color: color-mix(in oklab, var(--nu-brand) 28%, var(--nu-rule));
+        }
+
+        .nu-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: .375rem;
+            min-height: 2.25rem;
+            border: 1px solid var(--nu-rule);
+            border-radius: 4px;
+            padding: .5rem .75rem;
+            font-size: .875rem;
+            font-weight: 500;
+            white-space: nowrap;
+            transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+        }
+
+        .nu-btn-primary {
+            background: var(--nu-ink);
+            border-color: var(--nu-ink);
+            color: var(--nu-paper);
+        }
+
+        .nu-btn-primary:hover {
+            background: black;
+            border-color: black;
+        }
+
+        .nu-btn-secondary {
+            background: color-mix(in oklab, var(--nu-paper) 92%, white);
+            color: var(--nu-ink);
+        }
+
+        .nu-btn-secondary:hover {
+            background: var(--nu-accent);
+            border-color: var(--nu-brand-soft);
+        }
+
+        .nu-btn-danger {
+            background: color-mix(in oklab, var(--nu-danger) 7%, white);
+            border-color: color-mix(in oklab, var(--nu-danger) 24%, white);
+            color: var(--nu-danger);
+        }
+
+        .nu-btn-danger:hover {
+            background: color-mix(in oklab, var(--nu-danger) 12%, white);
+        }
+
+        .nu-input {
+            border: 1px solid var(--nu-rule);
+            border-radius: 4px;
+            background: white;
+            color: var(--nu-ink);
+        }
+
+        .nu-input:focus {
+            outline: 2px solid color-mix(in oklab, var(--nu-brand) 28%, transparent);
+            outline-offset: 1px;
+            border-color: var(--nu-brand);
+        }
+
+        .nu-chip {
+            border: 1px solid var(--nu-rule);
+            border-radius: 999px;
+            color: var(--nu-muted);
+            background: transparent;
+        }
+
+        .nu-chip-active {
+            border-color: var(--nu-ink);
+            background: var(--nu-ink);
+            color: var(--nu-paper);
+        }
+
+        .nu-link {
+            color: color-mix(in oklab, var(--nu-brand) 75%, var(--nu-ink));
+        }
+
+        .nu-link:hover {
+            color: var(--nu-ink);
+            text-decoration: underline;
+        }
+
+        .nu-avatar-a {
+            background: var(--nu-accent);
+            border-color: var(--nu-brand-soft);
+            color: var(--nu-ink);
+        }
+
+        .nu-avatar-b {
+            background: white;
+            border-color: var(--nu-rule);
+            color: var(--nu-ink);
+        }
+
+        .nu-avatar-c {
+            background: var(--nu-brand-soft);
+            border-color: var(--nu-brand-soft);
+            color: var(--nu-ink);
+        }
+
+        .nu-avatar-d {
+            background: color-mix(in oklab, var(--nu-signal) 12%, white);
+            border-color: color-mix(in oklab, var(--nu-signal) 26%, white);
+            color: var(--nu-ink);
+        }
+
+        .nu-avatar-e {
+            background: color-mix(in oklab, var(--nu-danger) 8%, white);
+            border-color: color-mix(in oklab, var(--nu-danger) 22%, white);
+            color: var(--nu-ink);
+        }
+    </style>
 </head>
-<body class="bg-slate-100 min-h-screen p-4 md:p-8">
-    <div id="mainContent" class="w-full max-w-7xl mx-auto">
-        <!-- Header -->
-        <div class="bg-white border border-slate-200 rounded-lg shadow-sm p-4 md:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
+<body class="min-h-screen">
+    <header class="nu-topbar">
+        <div class="nu-shell px-4 md:px-8 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div class="flex items-center gap-4">
-                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-20 h-20">
+                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-16 h-16">
                 <div>
-                    <h1 id="versionText" class="text-2xl md:text-3xl font-bold text-slate-950">Trustable</h1>
-                    <p class="text-sm text-slate-500 mt-1">Application workbench</p>
+                    <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
+                    <h1 class="text-2xl md:text-3xl font-semibold text-[color:var(--nu-ink)]">Trustable</h1>
+                    <p id="versionText" class="nu-mono text-xs text-[color:var(--nu-muted)] mt-1">Version loading...</p>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 md:justify-end">
                 <a href="configure.html"
-                    class="px-4 py-2 border border-slate-300 bg-white rounded-md hover:bg-slate-50 transition-colors text-sm font-medium">
+                    class="nu-btn nu-btn-secondary">
                     Configure
                 </a>
                 <button onclick="showAddModal()"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm font-medium">
+                    class="nu-btn nu-btn-primary">
                     Add App
                 </button>
             </div>
         </div>
+    </header>
 
-        <div id="statusMessage" class="hidden bg-blue-50 border border-blue-200 text-blue-900 rounded-md px-4 py-2 mb-4 text-sm text-center"></div>
+    <div id="mainContent" class="nu-shell px-4 md:px-8 py-6 md:py-8">
+        <div id="statusMessage" class="hidden nu-card px-4 py-2 mb-4 text-sm text-center nu-link"></div>
 
         <div id="appSummary" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-            <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                <p class="text-xs font-medium uppercase text-slate-500">Applications</p>
-                <p id="totalAppsMetric" class="text-2xl font-bold text-slate-950 mt-1">-</p>
+            <div class="nu-card p-4">
+                <p class="nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">Applications</p>
+                <p id="totalAppsMetric" class="text-2xl font-semibold text-[color:var(--nu-ink)] mt-1">-</p>
             </div>
-            <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                <p class="text-xs font-medium uppercase text-slate-500">Production</p>
-                <p id="productionAppsMetric" class="text-2xl font-bold text-emerald-700 mt-1">-</p>
+            <div class="nu-card p-4">
+                <p class="nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">Production</p>
+                <p id="productionAppsMetric" class="text-2xl font-semibold text-[color:var(--nu-brand)] mt-1">-</p>
             </div>
-            <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                <p class="text-xs font-medium uppercase text-slate-500">Development</p>
-                <p id="developmentAppsMetric" class="text-2xl font-bold text-blue-700 mt-1">-</p>
+            <div class="nu-card p-4">
+                <p class="nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">Development</p>
+                <p id="developmentAppsMetric" class="text-2xl font-semibold text-[color:var(--nu-brand)] mt-1">-</p>
             </div>
-            <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
-                <p class="text-xs font-medium uppercase text-slate-500">Repositories</p>
-                <p id="repoAppsMetric" class="text-2xl font-bold text-indigo-700 mt-1">-</p>
+            <div class="nu-card p-4">
+                <p class="nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">Repositories</p>
+                <p id="repoAppsMetric" class="text-2xl font-semibold text-[color:var(--nu-brand)] mt-1">-</p>
             </div>
         </div>
 
         <!-- Applications List -->
-        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4 md:p-6 mb-6">
+        <div class="nu-panel p-4 md:p-6 mb-6">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
                 <div>
-                    <h2 class="text-xl font-semibold text-slate-950">Applications</h2>
-                    <p id="appCount" class="text-sm text-slate-500 mt-1">Loading...</p>
+                    <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Workbench inventory</p>
+                    <h2 class="text-xl font-semibold text-[color:var(--nu-ink)] mt-1">Applications</h2>
+                    <p id="appCount" class="text-sm text-[color:var(--nu-muted)] mt-1">Loading...</p>
                 </div>
                 <div class="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
                     <div class="relative flex-1 lg:w-80">
-                        <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <svg class="absolute left-3 top-2.5 h-4 w-4 text-[color:var(--nu-muted)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"/>
                         </svg>
                         <input id="appSearch" type="search" placeholder="Search apps or repositories"
-                            class="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                            class="nu-input w-full pl-9 pr-3 py-2 text-sm">
                     </div>
                     <select id="appSort"
-                        class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
+                        class="nu-input px-3 py-2 text-sm">
                         <option value="name">Name</option>
                         <option value="repo">Repository</option>
                     </select>
-                    <div class="inline-flex rounded-md border border-slate-300 overflow-hidden bg-white">
+                    <div class="inline-flex rounded border border-[color:var(--nu-rule)] overflow-hidden bg-white">
                         <button id="gridViewBtn" type="button" onclick="setAppView('grid')"
-                            class="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">Grid</button>
+                            class="px-3 py-2 text-sm font-medium text-[color:var(--nu-muted)] hover:bg-[color:var(--nu-accent)]">Grid</button>
                         <button id="listViewBtn" type="button" onclick="setAppView('list')"
-                            class="px-3 py-2 text-sm font-medium bg-slate-900 text-white">List</button>
+                            class="px-3 py-2 text-sm font-medium bg-[color:var(--nu-ink)] text-[color:var(--nu-paper)]">List</button>
                     </div>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 mb-4">
                 <button id="filterAllBtn" type="button" onclick="setAppFilter('all')"
-                    class="px-3 py-1.5 text-sm font-medium rounded-full bg-slate-900 text-white">All</button>
+                    class="nu-chip nu-chip-active px-3 py-1.5 text-sm font-medium">All</button>
                 <button id="filterProductionBtn" type="button" onclick="setAppFilter('production')"
-                    class="px-3 py-1.5 text-sm font-medium rounded-full border border-slate-300 text-slate-700 hover:bg-slate-50">Production</button>
+                    class="nu-chip px-3 py-1.5 text-sm font-medium hover:bg-[color:var(--nu-accent)]">Production</button>
                 <button id="filterDevelopmentBtn" type="button" onclick="setAppFilter('development')"
-                    class="px-3 py-1.5 text-sm font-medium rounded-full border border-slate-300 text-slate-700 hover:bg-slate-50">Development only</button>
+                    class="nu-chip px-3 py-1.5 text-sm font-medium hover:bg-[color:var(--nu-accent)]">Development only</button>
             </div>
             <div id="appList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 <p class="text-gray-500 text-center py-4">Loading...</p>
@@ -810,17 +982,17 @@
 
             if (!allApps || allApps.length === 0) {
                 appList.innerHTML = `
-                    <div class="md:col-span-2 xl:col-span-3 border border-dashed border-slate-300 rounded-lg p-8 text-center bg-slate-50">
-                        <p class="text-slate-700 font-medium">No applications yet</p>
-                        <p class="text-sm text-slate-500 mt-1">Create the first app to start working.</p>
+                    <div class="md:col-span-2 xl:col-span-3 border border-dashed border-[color:var(--nu-rule)] rounded p-8 text-center bg-[color:var(--nu-accent)]">
+                        <p class="text-[color:var(--nu-ink)] font-medium">No applications yet</p>
+                        <p class="text-sm text-[color:var(--nu-muted)] mt-1">Create the first app to start working.</p>
                     </div>`;
                 return;
             }
             if (apps.length === 0) {
                 appList.innerHTML = `
-                    <div class="md:col-span-2 xl:col-span-3 border border-dashed border-slate-300 rounded-lg p-8 text-center bg-slate-50">
-                        <p class="text-slate-700 font-medium">No matching applications</p>
-                        <p class="text-sm text-slate-500 mt-1">Try a different search or filter.</p>
+                    <div class="md:col-span-2 xl:col-span-3 border border-dashed border-[color:var(--nu-rule)] rounded p-8 text-center bg-[color:var(--nu-accent)]">
+                        <p class="text-[color:var(--nu-ink)] font-medium">No matching applications</p>
+                        <p class="text-sm text-[color:var(--nu-muted)] mt-1">Try a different search or filter.</p>
                     </div>`;
                 return;
             }
@@ -838,33 +1010,33 @@
             const links = appLinks(app);
             const status = hasProduction(app);
             return `
-                <div class="border border-slate-200 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                <div class="nu-card overflow-hidden transition-colors">
                     <div class="p-4">
                         <div class="flex items-start gap-3">
                             <div class="${avatarClass(app.name)}">${initials(app.name)}</div>
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-start justify-between gap-3">
                                     <div class="min-w-0">
-                                        <h3 class="text-lg font-semibold text-slate-950 truncate">${escapeHtml(app.name)}</h3>
-                                        ${links.repo ? `<a href="${links.repo}" target="_blank" class="block text-sm text-blue-600 hover:underline truncate mt-0.5">${escapeHtml(links.repoLabel)}</a>` : '<p class="text-sm text-slate-400 mt-0.5">No repository</p>'}
+                                        <h3 class="text-lg font-semibold text-[color:var(--nu-ink)] truncate">${escapeHtml(app.name)}</h3>
+                                        ${links.repo ? `<a href="${links.repo}" target="_blank" class="nu-link block text-sm truncate mt-0.5">${escapeHtml(links.repoLabel)}</a>` : '<p class="text-sm text-[color:var(--nu-muted)] mt-0.5">No repository</p>'}
                                     </div>
                                     <button onclick="launchApp('${escapeAttr(app.name)}')"
-                                        class="shrink-0 px-3 py-2 border border-sky-200 bg-sky-50 text-slate-800 text-sm rounded-md hover:bg-sky-100 transition-colors inline-flex items-center gap-1 whitespace-nowrap">
+                                        class="nu-btn nu-btn-primary shrink-0">
                                         ${editIcon('w-4 h-4')}
                                         Edit
                                     </button>
                                 </div>
                                 <div class="flex flex-wrap gap-1.5 mt-3">
                                     ${statusBadge(status)}
-                                    ${links.repo ? '<span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">Repo</span>' : '<span class="px-2 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-medium">No repo</span>'}
+                                    ${links.repo ? '<span class="nu-chip px-2 py-1 text-xs font-medium">Repo</span>' : '<span class="nu-chip px-2 py-1 text-xs font-medium">No repo</span>'}
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div class="px-4 py-3 border-y border-slate-100 bg-slate-50">
+                    <div class="px-4 py-3 border-y border-[color:var(--nu-rule)] bg-[color:var(--nu-accent)]">
                         <div class="grid grid-cols-2 gap-2 text-sm">
-                            <a href="${links.local}" target="_blank" class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-center inline-flex items-center justify-center gap-1">${weblinkIcon()} Development</a>
-                            ${links.production ? `<a href="${links.production}" target="_blank" class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-center inline-flex items-center justify-center gap-1">${weblinkIcon()} Production</a>` : '<span class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-400 text-center">No production</span>'}
+                            <a href="${links.local}" target="_blank" class="nu-btn nu-btn-secondary">${weblinkIcon()} Development</a>
+                            ${links.production ? `<a href="${links.production}" target="_blank" class="nu-btn nu-btn-secondary">${weblinkIcon()} Production</a>` : '<span class="nu-btn border-[color:var(--nu-rule)] text-[color:var(--nu-muted)] bg-white">No production</span>'}
                         </div>
                     </div>
                     <div class="p-3 flex flex-wrap gap-2">
@@ -872,7 +1044,7 @@
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
-                            class="ml-auto px-3 py-2 text-sm rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors inline-flex items-center justify-center gap-1 whitespace-nowrap">
+                            class="nu-btn nu-btn-danger ml-auto">
                             ${trashIcon()}
                             Delete
                         </button>
@@ -882,8 +1054,8 @@
 
         function renderAppTable(apps) {
             return `
-                <div class="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                    <div class="hidden xl:grid grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_520px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase text-slate-500">
+                <div class="overflow-hidden nu-card">
+                    <div class="hidden xl:grid grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_520px] gap-3 px-4 py-3 bg-[color:var(--nu-accent)] border-b border-[color:var(--nu-rule)] nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">
                         <div>Application</div>
                         <div>Repository</div>
                         <div>Status</div>
@@ -896,27 +1068,27 @@
         function renderAppRow(app) {
             const links = appLinks(app);
             return `
-                <div class="grid xl:grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_520px] gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 items-center">
+                <div class="grid xl:grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_520px] gap-3 px-4 py-3 border-b border-[color:var(--nu-rule)] last:border-b-0 items-center hover:bg-[color:var(--nu-accent)] transition-colors">
                     <div class="flex items-center gap-3 min-w-0">
                         <div class="${avatarClass(app.name)}">${initials(app.name)}</div>
                         <div class="min-w-0">
-                            <div class="font-semibold text-slate-950 truncate">${escapeHtml(app.name)}</div>
+                            <div class="font-semibold text-[color:var(--nu-ink)] truncate">${escapeHtml(app.name)}</div>
                             <div class="flex gap-3 text-sm mt-1">
-                                <a href="${links.local}" target="_blank" class="inline-flex items-center gap-1 text-blue-600 hover:underline">${weblinkIcon('w-3.5 h-3.5')} Development</a>
-                                ${links.production ? `<a href="${links.production}" target="_blank" class="inline-flex items-center gap-1 text-blue-600 hover:underline">${weblinkIcon('w-3.5 h-3.5')} Production</a>` : ''}
+                                <a href="${links.local}" target="_blank" class="nu-link inline-flex items-center gap-1">${weblinkIcon('w-3.5 h-3.5')} Development</a>
+                                ${links.production ? `<a href="${links.production}" target="_blank" class="nu-link inline-flex items-center gap-1">${weblinkIcon('w-3.5 h-3.5')} Production</a>` : ''}
                             </div>
                         </div>
                     </div>
                     <div class="text-sm min-w-0">
-                        ${links.repo ? `<a href="${links.repo}" target="_blank" class="text-blue-600 hover:underline truncate block">${escapeHtml(links.repoLabel)}</a>` : '<span class="text-slate-400">No repository</span>'}
+                        ${links.repo ? `<a href="${links.repo}" target="_blank" class="nu-link truncate block">${escapeHtml(links.repoLabel)}</a>` : '<span class="text-[color:var(--nu-muted)]">No repository</span>'}
                     </div>
                     <div>${statusBadge(hasProduction(app))}</div>
                     <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-end">
-                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 border border-sky-200 bg-sky-50 text-slate-800 text-sm rounded-md hover:bg-sky-100 transition-colors inline-flex items-center gap-1 whitespace-nowrap">${editIcon('w-3.5 h-3.5')} Edit</button>
+                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="nu-btn nu-btn-primary">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
-                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors inline-flex items-center gap-1 whitespace-nowrap">${trashIcon()} Delete</button>
+                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="nu-btn nu-btn-danger">${trashIcon()} Delete</button>
                     </div>
                 </div>`;
         }
@@ -937,17 +1109,17 @@
                 const el = document.getElementById(id);
                 if (!el) return;
                 el.className = key === appFilter
-                    ? 'px-3 py-1.5 text-sm font-medium rounded-full bg-slate-900 text-white'
-                    : 'px-3 py-1.5 text-sm font-medium rounded-full border border-slate-300 text-slate-700 hover:bg-slate-50';
+                    ? 'nu-chip nu-chip-active px-3 py-1.5 text-sm font-medium'
+                    : 'nu-chip px-3 py-1.5 text-sm font-medium hover:bg-[color:var(--nu-accent)]';
             });
             const grid = document.getElementById('gridViewBtn');
             const list = document.getElementById('listViewBtn');
             if (grid) grid.className = appView === 'grid'
-                ? 'px-3 py-2 text-sm font-medium bg-slate-900 text-white'
-                : 'px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50';
+                ? 'px-3 py-2 text-sm font-medium bg-[color:var(--nu-ink)] text-[color:var(--nu-paper)]'
+                : 'px-3 py-2 text-sm font-medium text-[color:var(--nu-muted)] hover:bg-[color:var(--nu-accent)]';
             if (list) list.className = appView === 'list'
-                ? 'px-3 py-2 text-sm font-medium bg-slate-900 text-white'
-                : 'px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50';
+                ? 'px-3 py-2 text-sm font-medium bg-[color:var(--nu-ink)] text-[color:var(--nu-paper)]'
+                : 'px-3 py-2 text-sm font-medium text-[color:var(--nu-muted)] hover:bg-[color:var(--nu-accent)]';
         }
 
         function updateAppSummary(apps) {
@@ -1003,8 +1175,8 @@
 
         function statusBadge(productionReady) {
             return productionReady
-                ? '<span class="inline-flex items-center px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">Production</span>'
-                : '<span class="inline-flex items-center px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">Development</span>';
+                ? '<span class="inline-flex items-center px-2 py-1 rounded-full border border-[color:var(--nu-brand-soft)] bg-[color:var(--nu-accent)] text-[color:var(--nu-ink)] text-xs font-medium">Production</span>'
+                : '<span class="inline-flex items-center px-2 py-1 rounded-full border border-[color:var(--nu-rule)] text-[color:var(--nu-muted)] text-xs font-medium">Development</span>';
         }
 
         function initials(name) {
@@ -1017,26 +1189,26 @@
 
         function avatarClass(name) {
             const colors = [
-                'bg-blue-100 text-blue-800',
-                'bg-emerald-100 text-emerald-800',
-                'bg-indigo-100 text-indigo-800',
-                'bg-amber-100 text-amber-800',
-                'bg-rose-100 text-rose-800'
+                'nu-avatar-a',
+                'nu-avatar-b',
+                'nu-avatar-c',
+                'nu-avatar-d',
+                'nu-avatar-e'
             ];
             const value = String(name || 'a');
             const code = value.toLowerCase().startsWith('tru') && value.length > 3
                 ? value.charCodeAt(3)
                 : value.charCodeAt(0);
-            return `w-11 h-11 rounded-md ${colors[code % colors.length]} flex items-center justify-center font-bold text-sm shrink-0`;
+            return `w-11 h-11 rounded border ${colors[code % colors.length]} flex items-center justify-center font-semibold text-sm shrink-0`;
         }
 
         function actionButton(label, action, icon, color) {
             const colors = {
-                purple: 'border border-sky-200 bg-sky-50 text-slate-800 hover:bg-sky-100',
-                indigo: 'border border-sky-200 bg-sky-50 text-slate-800 hover:bg-sky-100',
-                teal: 'border border-sky-200 bg-sky-50 text-slate-800 hover:bg-sky-100'
+                purple: 'nu-btn-secondary',
+                indigo: 'nu-btn-secondary',
+                teal: 'nu-btn-secondary'
             };
-            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md ${colors[color]} transition-colors inline-flex items-center justify-center gap-1 whitespace-nowrap">${icon}${label}</button>`;
+            return `<button onclick="${action}" class="nu-btn ${colors[color]}">${icon}${label}</button>`;
         }
 
         function editIcon(cls) {
@@ -1401,7 +1573,7 @@
                     return;
                 }
                 if (data.version) {
-                    document.getElementById('versionText').textContent = data.version;
+                    document.getElementById('versionText').textContent = String(data.version).replace(/^Trustable\s+Trustable\s+/, 'Trustable ');
                 }
                 if (data.build) {
                     document.getElementById('buildText').textContent = 'Build: ' + data.build;
