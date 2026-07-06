@@ -3,7 +3,12 @@
 This file specifies the `opencode.md` guidance embedded into the Trustable
 binary and written into every launched app as
 `<workbenchdir>/<app>/opencode.md`. The generated `opencode.json` must reference
-that project-local file in its `instructions` array.
+that project-local file in its `instructions` array, after the generated
+`<workbenchdir>/<app>/.openserverless-contract.md` critical contract.
+Trustable also writes an app-local `AGENTS.md` guard file that OpenCode uses as
+the project rules entrypoint. `AGENTS.md`, `.openserverless-contract.md`,
+`opencode.md`, and `opencode.json` are the authoritative Trustable instruction
+sources.
 
 The embedded guidance is for coding assistants working inside user-created
 apps. It is not guidance for editing `trustable-app` itself.
@@ -24,7 +29,8 @@ set of free-form Python modules:
 - setup work lives in private setup actions and must be idempotent;
 - OpenServerless web actions have specific request parameter, metadata, and
   response-shape semantics;
-- validation must use bounded checks and real action invocations.
+- validation must use bounded checks, pod-local app checks through
+  `localhost:5173`, and real action invocations.
 
 ## Required Structure
 
@@ -40,21 +46,57 @@ debugging inside a Trustable workbench.
 It must then contain these sections, in this order:
 
 1. Serverless operating model.
-2. Non-negotiable rules.
-3. Project layout.
-4. Application development workflow.
-5. OpenServerless action tools.
-6. Action endpoint grammar.
-7. MCP servers and service access.
-8. PostgreSQL action pattern.
-9. Skills.
-10. Web action request rules.
-11. Web action response rules.
-12. Authentication UI rules.
-13. Setup and service initialization.
-14. Dependencies.
-15. Data/service restrictions.
-16. Validation checklist.
+2. Critical recovery contract.
+3. Non-negotiable rules.
+4. Project layout.
+5. Application development workflow.
+6. OpenServerless action tools.
+7. Action endpoint grammar.
+8. MCP servers and service access.
+9. Runtime host rules.
+10. PostgreSQL action pattern.
+11. Skills.
+12. Web action request rules.
+13. Web action response rules.
+14. Authentication UI rules.
+15. Setup and service initialization.
+16. Dependencies.
+17. Data/service restrictions.
+18. Validation checklist.
+
+## Critical Recovery Contract
+
+The embedded guidance must have an early section named
+`Critical Recovery Contract`.
+
+It must say:
+
+- Trustable generates `AGENTS.md` in the app root as the mandatory app-local
+  entrypoint, so Claude Code compatibility files cannot override Trustable
+  rules;
+- assistants must treat `AGENTS.md`, `.openserverless-contract.md`,
+  `opencode.md`, and `opencode.json` as the authoritative instruction set;
+- assistants must ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`,
+  `.cursor/rules/*`, `.github/copilot-instructions.md`, and generated
+  `rules.md` files as mandatory instructions. They may inspect those files only
+  when the user explicitly asks or when they are useful legacy/template context,
+  and they must never override Trustable action, MCP, deploy, shell, or host
+  rules;
+- before touching actions, databases, setup, seed data, deploys, or service
+  state, assistants must read `.openserverless-contract.md` if it exists;
+- `.openserverless-contract.md` is the short recovery contract and takes
+  priority for OpenServerless workflow details;
+- Trustable installs `check_openserverless_actions.sh` once in the user PATH;
+  assistants must run `timeout 60 check_openserverless_actions.sh .` before
+  deploying backend changes when the checker is available;
+- if the checker reports hard failures, assistants must fix them before deploy
+  and re-read `.openserverless-contract.md` before editing again;
+- if the contract is missing or the checker is unavailable in PATH, assistants
+  must report that and fall back to `opencode.md`;
+- after compaction, assistants must not continue from memory; they must re-read
+  `opencode.md`, `.openserverless-contract.md` if present, `opencode.json`,
+  git status, and available MCP/tool names before touching action or service
+  code.
 
 ## Non-Negotiable Rules
 
@@ -62,8 +104,18 @@ The embedded guidance must include these rules:
 
 - Never create a backend server. Create public or private actions instead.
 - Never create or edit generated `__main__.py` wrappers.
+- If OpenCode denies an edit to `packages/**/__main__.py`, `packages/**/*.zip`,
+  or a raw shell command matching `ops action` / `ops action *`, assistants must
+  treat that as a Trustable guardrail and use the OpenServerless MCP action
+  tools plus `ops ide deploy/setup` instead of trying to bypass it.
 - Never run foreground dev servers or unbounded watchers such as
   `npm run dev`, `vite`, or `ops ide devel`.
+- Assistants must not ask the user to run shell commands from inside the
+  Trustable pod when the assistant has shell access. They must run bounded
+  checks themselves, including `ops ide deploy`, `curl`, `npm run build`,
+  `python3 -m compileall`, and `git diff --check`. They may ask the user only
+  when shell/tool access is missing or the task requires credentials or
+  physical access only the user has.
 - Never build or deploy the whole product manually; Trustable manages the
   long-running dev server. Use bounded checks and action deploy/setup commands
   only when needed for validation.
@@ -104,20 +156,25 @@ The embedded guidance must describe the normal way to build a Trustable app:
    actions.
 6. Use the generated MCP servers and CLI wrappers to inspect service state
    during debugging.
-7. Run bounded validation against the real public endpoint and browser-visible
-   app host.
+7. Run bounded validation against the pod-local app endpoint at
+   `localhost:5173`, and use browser-visible FQDN hosts only when external
+   routing is in scope.
 
 The embedded guidance must include a concrete backend execution loop:
 
-1. Design action endpoint names and reject invalid nested names before creating
+1. Read `.openserverless-contract.md` if present and run the checker before
+   deploy when it exists.
+2. Design action endpoint names and reject invalid nested names before creating
    files.
-2. Create actions with the OpenServerless MCP action tool.
-3. If an action reads or writes a platform service, immediately add service
+3. Create actions with the OpenServerless MCP action tool.
+4. If an action reads or writes a platform service, immediately add service
    wiring with the matching action/service tool after the action files exist and
    before editing the module logic.
-4. Edit only the generated editable module, not `__main__.py`.
-5. Add Python libraries with `action-requirements`.
-6. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
+5. Edit only the generated editable module, not `__main__.py`. If the module
+   exists without a wrapper, stop and repair/create the action through the MCP
+   action tool before continuing.
+6. Add Python libraries with `action-requirements`.
+7. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
    changes, inspect logs on failure, then validate via the real HTTP app path.
 
 The guidance must tell assistants how to choose the backend shape:
@@ -258,6 +315,29 @@ names when inspecting PostgreSQL. For schemas, use `postgres_list_schemas`. For
 tables/views in a schema, use `postgres_list_objects`. It must explicitly forbid
 generic invented names such as `list_schemas`.
 
+## Runtime Host Rules
+
+The embedded guidance must classify runtime hosts from OpenCode's point of
+view inside the Trustable pod:
+
+- `localhost:5173` is the pod-local app dev server started by `ops ide devel`
+  and is the default target for app HTTP validation from OpenCode's shell;
+- `localhost:4096` is the pod-local OpenCode server;
+- `trustable.<domain>` is the browser-visible Trustable UI/API host;
+- `vite.<domain>` is the browser-visible app host through Trustable
+  proxy/ingress and must be used only after `ops ide deploy` succeeds and only
+  when external browser or ingress routing is in scope;
+- `opencode.<domain>` is the browser-visible OpenCode host;
+- `OPS_APIHOST` is the configured OpenServerless API host.
+
+The embedded guidance must tell assistants not to invent pod IPs, raw service
+names, public domains, or replacement localhost URLs for app verification.
+For app endpoint checks from OpenCode's shell, it must prefer:
+
+```bash
+curl http://localhost:5173/api/my/<package>/<action>
+```
+
 ## PostgreSQL Action Pattern
 
 The embedded guidance must explain the generated PostgreSQL action wiring. After
@@ -357,6 +437,21 @@ If a raw or non-JSON request body is needed, the guidance must mention
 `__ow_body` and say to handle decoding explicitly. Most app JSON endpoints
 should not need raw body handling.
 
+For REST-style item routes, the embedded guidance must say not to assume one
+fixed `__ow_path` shape. It must tell assistants to use body `id` only as a
+fallback, not as the only way update/delete works. It must include a compact
+route-id helper or equivalent guidance that supports suffix forms such as
+`123`, `/123`, `/contacts/123`, and `/api/my/v1/contacts/123`.
+
+The embedded guidance must also say that CRUD validation is incomplete if it
+only calls `/api/my/v1/<resource>` with `{"id": ...}` in the body. Assistants
+must test REST-style item routes such as:
+
+```bash
+curl -X PUT http://localhost:5173/api/my/v1/<resource>/<id> ...
+curl -X DELETE http://localhost:5173/api/my/v1/<resource>/<id> ...
+```
+
 ## Web Action Response Rules
 
 The embedded guidance must distinguish OpenWhisk web action envelopes from
@@ -389,6 +484,28 @@ if (!response.ok || data?.ok === false || data?.error) {
   throw new Error(data?.error || `Request failed: ${response.status}`);
 }
 ```
+
+## Browser-Opened And Printable Actions
+
+The embedded guidance must explicitly cover endpoints opened directly by the
+browser through `window.open(...)`, links, or form targets.
+
+It must say:
+
+- direct browser-opened endpoints must return browser-native responses, not
+  JSON that merely contains HTML;
+- printable HTML features such as invoices, receipts, labels, reports, or
+  documents must either return `Content-Type: text/html; charset=utf-8` with
+  HTML in the HTTP body, or the frontend must fetch JSON with `Authorization`
+  and write the extracted HTML into a new window/document;
+- `{"ok": true, "html": html}` is a broken response shape for a direct
+  `window.open("/api/my/...")` target;
+- assistants must verify opened/downloaded/printable endpoints with
+  `curl -i http://localhost:5173/...` and check status plus content type;
+- the OpenServerless `~/.ops/config.json` auth value is not an app session
+  token;
+- token-in-query is acceptable only when a new window cannot send
+  `Authorization`, and it must be validated with a real app session token.
 
 ## Authentication UI Rules
 
@@ -437,6 +554,12 @@ and fix the first traceback. They must not create missing tables or seed rows
 with PostgreSQL MCP write tools and then claim setup succeeded; the `setup/*`
 action must be able to recreate the state idempotently.
 
+The embedded guidance must also forbid live DB-only schema fixes as completion
+proof. If assistants use `psql`, PostgreSQL MCP, or ad hoc SQL to inspect or
+repair live state while debugging, they must put the equivalent idempotent
+migration in `setup/database`, run `ops ide setup`, and read back the
+schema/data before marking the task complete.
+
 ## Dependencies
 
 The embedded guidance must say:
@@ -475,10 +598,22 @@ The embedded guidance must tell assistants to retrieve the current user with
 
 The embedded guidance must end backend-related changes with local proof:
 
+- run `timeout 60 check_openserverless_actions.sh .` before deploy when the
+  checker is available;
 - after changing an action module, run the appropriate deploy/redeploy path;
 - after changing setup actions, run `ops ide setup`;
 - validate public actions with bounded HTTP checks against
-  `/api/my/<package>/<action>`;
+  `http://localhost:5173/api/my/<package>/<action>` from inside the pod;
+- for CRUD resources, validate the full create/list/update/delete matrix,
+  including `PUT /api/my/v1/<resource>/<id>` and
+  `DELETE /api/my/v1/<resource>/<id>` without relying only on `id` in the JSON
+  body;
+- for browser-opened or printable endpoints, validate with `curl -i` and prove
+  the response status and content type match the browser use case. A direct
+  `window.open("/api/my/...")` target for printable HTML must not return
+  `application/json`;
+- use `vite.<domain>` only after deploy and only for explicit external
+  browser/ingress checks;
 - treat `ops action invoke` as insufficient proof when it only prints an
   activation id such as `ok: invoked ...`; assistants must inspect the action
   result/logs or validate through the HTTP endpoint;
@@ -505,8 +640,11 @@ The embedded guidance must end backend-related changes with local proof:
 This file is the source of truth for embedded assistant guidance. Related
 runtime generation details live in:
 
-- `spec/2a-config.md`: `opencode.json` generation and writing embedded
-  `opencode.md`;
+- `spec/2a-config.md`: `opencode.json` generation, writing embedded
+  `.openserverless-contract.md` / `opencode.md`, and installing
+  `check_openserverless_actions.sh`;
 - `spec/4-launch.md`: MCP server generation, service CLI wrappers, and launch
   behavior;
-- `spec/7-skills.md`: installed app skills under `.agents/skills`.
+- `spec/7-skills.md`: installed app skills under `.agents/skills`;
+- `spec/opencode-guardrail-flow.svg`: flow diagram for contract, checker,
+  deploy, and runtime verification.
