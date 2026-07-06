@@ -849,7 +849,7 @@
                                         ${links.repo ? `<a href="${links.repo}" target="_blank" class="block text-sm text-blue-600 hover:underline truncate mt-0.5">${escapeHtml(links.repoLabel)}</a>` : '<p class="text-sm text-slate-400 mt-0.5">No repository</p>'}
                                     </div>
                                     <button onclick="launchApp('${escapeAttr(app.name)}')"
-                                        class="shrink-0 px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">
+                                        class="shrink-0 px-3 py-2 border border-sky-200 bg-sky-50 text-slate-800 text-sm rounded-md hover:bg-sky-100 transition-colors inline-flex items-center gap-1 whitespace-nowrap">
                                         ${editIcon('w-4 h-4')}
                                         Edit
                                     </button>
@@ -863,8 +863,8 @@
                     </div>
                     <div class="px-4 py-3 border-y border-slate-100 bg-slate-50">
                         <div class="grid grid-cols-2 gap-2 text-sm">
-                            <a href="${links.local}" target="_blank" class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-center">Development</a>
-                            ${links.production ? `<a href="${links.production}" target="_blank" class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-center">Production</a>` : '<span class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-400 text-center">No production</span>'}
+                            <a href="${links.local}" target="_blank" class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-center inline-flex items-center justify-center gap-1">${weblinkIcon()} Development</a>
+                            ${links.production ? `<a href="${links.production}" target="_blank" class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-colors text-center inline-flex items-center justify-center gap-1">${weblinkIcon()} Production</a>` : '<span class="px-3 py-2 rounded-md border border-slate-200 bg-white text-slate-400 text-center">No production</span>'}
                         </div>
                     </div>
                     <div class="p-3 flex flex-wrap gap-2">
@@ -872,7 +872,7 @@
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
-                            class="ml-auto px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center justify-center gap-1">
+                            class="ml-auto px-3 py-2 text-sm rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors inline-flex items-center justify-center gap-1 whitespace-nowrap">
                             ${trashIcon()}
                             Delete
                         </button>
@@ -883,7 +883,7 @@
         function renderAppTable(apps) {
             return `
                 <div class="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                    <div class="hidden xl:grid grid-cols-[minmax(220px,1.3fr)_minmax(160px,1fr)_120px_500px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase text-slate-500">
+                    <div class="hidden xl:grid grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_520px] gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase text-slate-500">
                         <div>Application</div>
                         <div>Repository</div>
                         <div>Status</div>
@@ -896,14 +896,14 @@
         function renderAppRow(app) {
             const links = appLinks(app);
             return `
-                <div class="grid xl:grid-cols-[minmax(220px,1.3fr)_minmax(160px,1fr)_120px_500px] gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 items-center">
+                <div class="grid xl:grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_520px] gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 items-center">
                     <div class="flex items-center gap-3 min-w-0">
                         <div class="${avatarClass(app.name)}">${initials(app.name)}</div>
                         <div class="min-w-0">
                             <div class="font-semibold text-slate-950 truncate">${escapeHtml(app.name)}</div>
                             <div class="flex gap-3 text-sm mt-1">
-                                <a href="${links.local}" target="_blank" class="text-blue-600 hover:underline">Development</a>
-                                ${links.production ? `<a href="${links.production}" target="_blank" class="text-blue-600 hover:underline">Production</a>` : ''}
+                                <a href="${links.local}" target="_blank" class="inline-flex items-center gap-1 text-blue-600 hover:underline">${weblinkIcon('w-3.5 h-3.5')} Development</a>
+                                ${links.production ? `<a href="${links.production}" target="_blank" class="inline-flex items-center gap-1 text-blue-600 hover:underline">${weblinkIcon('w-3.5 h-3.5')} Production</a>` : ''}
                             </div>
                         </div>
                     </div>
@@ -912,11 +912,11 @@
                     </div>
                     <div>${statusBadge(hasProduction(app))}</div>
                     <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-end">
-                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors inline-flex items-center gap-1">${editIcon('w-3.5 h-3.5')} Edit</button>
+                        <button onclick="launchApp('${escapeAttr(app.name)}')" class="px-3 py-2 border border-sky-200 bg-sky-50 text-slate-800 text-sm rounded-md hover:bg-sky-100 transition-colors inline-flex items-center gap-1 whitespace-nowrap">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
-                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center gap-1">${trashIcon()} Delete</button>
+                        <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="px-3 py-2 text-sm rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors inline-flex items-center gap-1 whitespace-nowrap">${trashIcon()} Delete</button>
                     </div>
                 </div>`;
         }
@@ -1032,11 +1032,11 @@
 
         function actionButton(label, action, icon, color) {
             const colors = {
-                purple: 'bg-purple-600 hover:bg-purple-700',
-                indigo: 'bg-indigo-600 hover:bg-indigo-700',
-                teal: 'bg-teal-600 hover:bg-teal-700'
+                purple: 'border border-sky-200 bg-sky-50 text-slate-800 hover:bg-sky-100',
+                indigo: 'border border-sky-200 bg-sky-50 text-slate-800 hover:bg-sky-100',
+                teal: 'border border-sky-200 bg-sky-50 text-slate-800 hover:bg-sky-100'
             };
-            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md ${colors[color]} text-white transition-colors inline-flex items-center justify-center gap-1">${icon}${label}</button>`;
+            return `<button onclick="${action}" class="px-3 py-2 text-sm rounded-md ${colors[color]} transition-colors inline-flex items-center justify-center gap-1 whitespace-nowrap">${icon}${label}</button>`;
         }
 
         function editIcon(cls) {
@@ -1053,6 +1053,10 @@
 
         function globeIcon() {
             return '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+        }
+
+        function weblinkIcon(cls = 'w-3.5 h-3.5') {
+            return `<svg class="${cls}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H18a2 2 0 012 2v10a2 2 0 01-2 2H8a2 2 0 01-2-2v-4.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M10 14L20 4m0 0h-6m6 0v6"/></svg>`;
         }
 
         function trashIcon() {
