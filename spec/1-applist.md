@@ -31,9 +31,10 @@ matching applications. Searching filters by app name, repository, production
 host, and production user without calling the backend again.
 
 The visual language follows the current Nuvolaris website system: Work Sans for
-UI text, JetBrains Mono for small operational labels, a near-paper background,
-small 4px radii, thin neutral rules, black primary actions, restrained outline
-secondary actions, and controlled cyan/teal accents.
+UI text, lightweight headings, a near-paper background, small 4px radii, thin
+neutral rules, black primary actions, restrained outline secondary actions, and
+controlled cyan/teal accents. JetBrains Mono is reserved only for rare symbolic
+or code-like accents, not for ordinary operational labels.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link. Development and Production links show an external-link icon so they are recognizable as links.
 Application action buttons use restrained, light styling and fixed inline labels:
