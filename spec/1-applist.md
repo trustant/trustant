@@ -71,9 +71,9 @@ Shared primitives:
   handler, provider choice path, model selection flow, launch link, git action,
   and app environment editing behavior while restyling.
 - Keep the frontend plain HTML plus Tailwind loaded from `web/tailwind.js`.
-  Prefer extracting the shared CSS into one static stylesheet when the rollout
-  begins; if extraction creates unnecessary risk, duplicate the current
-  `applist.html` visual block page-by-page first and extract after parity.
+  Shared visual primitives live in `web/trustable-ui.css`; pages should link
+  that stylesheet rather than reintroducing page-local copies of the same
+  palette, typography, button, panel, table, and input rules.
 
 Authentication is a separate future stream. Do not add sign-in, account,
 session, or authorization controls in this visual-system migration; leave

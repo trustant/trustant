@@ -5,44 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable - App Configuration</title>
     <script src="tailwind.js"></script>
+    <link rel="stylesheet" href="trustable-ui.css">
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
-    <div class="w-full max-w-4xl">
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center gap-3">
-                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-12 h-12">
-                <h1 class="text-2xl font-bold text-gray-800">Configure <span id="appNameTitle"></span></h1>
+<body class="min-h-screen">
+    <header class="nu-topbar">
+        <div class="nu-shell-wide px-4 md:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div class="flex items-center gap-4 min-w-0">
+                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-14 h-14 shrink-0">
+                <div class="min-w-0">
+                    <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)]">Application environment</p>
+                    <h1 class="text-3xl font-light text-[color:var(--nu-ink)] truncate">Configure <span id="appNameTitle"></span></h1>
+                </div>
             </div>
-            <button onclick="closeConfig()" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">Close</button>
+            <button onclick="closeConfig()" class="nu-btn nu-btn-secondary">Close</button>
         </div>
+    </header>
 
+    <main class="nu-shell-wide px-4 md:px-6 py-6">
         <!-- Env Table -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <table class="w-full text-sm">
+        <div class="nu-card p-5 mb-4 overflow-x-auto">
+            <table class="nu-table text-sm min-w-[760px]">
                 <thead>
-                    <tr class="border-b">
-                        <th class="text-left py-2 px-2">VARIABLE</th>
-                        <th class="text-left py-2 px-2">Development</th>
-                        <th class="text-left py-2 px-2">Production</th>
-                        <th class="text-right py-2 px-2">Actions</th>
+                    <tr>
+                        <th class="text-left">Variable</th>
+                        <th class="text-left">Development</th>
+                        <th class="text-left">Production</th>
+                        <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="envTableBody">
-                    <tr><td colspan="4" class="text-center py-4 text-gray-500">Loading...</td></tr>
+                    <tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">Loading...</td></tr>
                 </tbody>
             </table>
             <div class="mt-4 flex flex-wrap gap-2">
                 <button onclick="addVariable()"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    class="nu-btn nu-btn-primary">
                     Add Variable
                 </button>
                 <button onclick="importEnvFile('development')"
-                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors text-sm">
+                    class="nu-btn nu-btn-secondary">
                     Import .env
                 </button>
                 <button onclick="importEnvFile('production')"
-                    class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors text-sm">
+                    class="nu-btn nu-btn-secondary">
                     Import .env.production
                 </button>
                 <input id="envImportFile" type="file" accept=".env,.env.production,text/plain"
@@ -53,15 +58,15 @@
         <!-- Actions -->
         <div class="flex gap-3">
             <button onclick="saveAppConfig()"
-                class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                class="nu-btn nu-btn-primary flex-1">
                 Commit
             </button>
             <button onclick="closeConfig()"
-                class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors text-center">
+                class="nu-btn nu-btn-secondary flex-1">
                 Close
             </button>
         </div>
-    </div>
+    </main>
 
     <script>
         const params = new URLSearchParams(window.location.search);
@@ -103,39 +108,39 @@
         function renderTable() {
             const tbody = document.getElementById('envTableBody');
             if (envVars.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">No variables</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">No variables</td></tr>';
                 return;
             }
 
             tbody.innerHTML = envVars.map((v, i) => {
                 const nameField = v.readonly
-                    ? `<span class="font-mono text-xs">${escapeHtml(v.name)}</span>`
+                    ? `<span class="nu-code text-xs">${escapeHtml(v.name)}</span>`
                     : v.fixed
-                        ? `<span class="font-mono text-xs">${escapeHtml(v.name)}</span>`
+                        ? `<span class="nu-code text-xs">${escapeHtml(v.name)}</span>`
                         : `<input type="text" value="${escapeHtml(v.name)}" onchange="updateVar(${i}, 'name', this.value)"
-                            class="w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500">`;
+                            class="nu-input nu-code w-full px-2 py-1 text-xs">`;
 
                 const devField = v.readonly
-                    ? `<span class="text-xs text-gray-600">${escapeHtml(v.dev_value)}</span>`
+                    ? `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.dev_value)}</span>`
                     : `<input type="text" value="${escapeHtml(v.dev_value)}" onchange="updateVar(${i}, 'dev_value', this.value)"
-                        class="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">`;
+                        class="nu-input w-full px-2 py-1 text-xs">`;
 
                 const prodField = `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="updateVar(${i}, 'prod_value', this.value)"
-                    class="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">`;
+                    class="nu-input w-full px-2 py-1 text-xs">`;
 
                 const removeBtn = (v.readonly || v.fixed)
                     ? ''
                     : `<button onclick="removeVar(${i})"
-                        class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">
+                        class="nu-btn nu-btn-danger nu-btn-compact">
                         Remove
                     </button>`;
 
                 return `
-                <tr class="border-b">
-                    <td class="py-2 px-2">${nameField}</td>
-                    <td class="py-2 px-2">${devField}</td>
-                    <td class="py-2 px-2">${prodField}</td>
-                    <td class="py-2 px-2 text-right">${removeBtn}</td>
+                <tr>
+                    <td>${nameField}</td>
+                    <td>${devField}</td>
+                    <td>${prodField}</td>
+                    <td class="text-right">${removeBtn}</td>
                 </tr>`;
             }).join('');
         }

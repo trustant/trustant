@@ -1,0 +1,243 @@
+@import url("https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root {
+    --nu-ink: oklch(18% .005 286);
+    --nu-paper: oklch(98.5% .002 95);
+    --nu-muted: oklch(44% .005 286);
+    --nu-rule: oklch(92% .003 286);
+    --nu-brand: oklch(68% .12 230);
+    --nu-brand-soft: oklch(88% .05 225);
+    --nu-accent: oklch(96% .01 225);
+    --nu-signal: oklch(70% .18 47);
+    --nu-danger: oklch(55% .22 27);
+}
+
+html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+body {
+    font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    background: var(--nu-paper);
+    color: var(--nu-ink);
+}
+
+.nu-mono {
+    font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+.nu-code {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.nu-shell {
+    width: min(100%, 1320px);
+    margin: 0 auto;
+}
+
+.nu-shell-narrow {
+    width: min(100%, 760px);
+    margin: 0 auto;
+}
+
+.nu-shell-wide {
+    width: min(100%, 1080px);
+    margin: 0 auto;
+}
+
+.nu-topbar {
+    border-bottom: 1px solid var(--nu-rule);
+    background: color-mix(in oklab, var(--nu-paper) 94%, white);
+}
+
+.nu-panel,
+.nu-card {
+    border: 1px solid var(--nu-rule);
+    background: color-mix(in oklab, var(--nu-paper) 92%, white);
+    border-radius: 4px;
+}
+
+.nu-panel {
+    background: color-mix(in oklab, var(--nu-paper) 88%, white);
+}
+
+.nu-card:hover {
+    border-color: color-mix(in oklab, var(--nu-brand) 28%, var(--nu-rule));
+}
+
+.nu-modal-scrim {
+    background: rgb(0 0 0 / .5);
+}
+
+.nu-modal {
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--nu-paper) 92%, white);
+    box-shadow: 0 24px 60px rgb(0 0 0 / .14);
+}
+
+.nu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .375rem;
+    min-height: 2.25rem;
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    padding: .5rem .75rem;
+    font-size: .875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.nu-btn:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
+.nu-btn-compact {
+    min-height: 1.75rem;
+    padding: .25rem .5rem;
+    font-size: .75rem;
+}
+
+.nu-btn-primary {
+    background: var(--nu-ink);
+    border-color: var(--nu-ink);
+    color: var(--nu-paper);
+}
+
+.nu-btn-primary:hover {
+    background: black;
+    border-color: black;
+}
+
+.nu-btn-secondary {
+    background: color-mix(in oklab, var(--nu-paper) 92%, white);
+    color: var(--nu-ink);
+}
+
+.nu-btn-secondary:hover {
+    background: var(--nu-accent);
+    border-color: var(--nu-brand-soft);
+}
+
+.nu-btn-danger {
+    background: color-mix(in oklab, var(--nu-danger) 7%, white);
+    border-color: color-mix(in oklab, var(--nu-danger) 24%, white);
+    color: var(--nu-danger);
+}
+
+.nu-btn-danger:hover {
+    background: color-mix(in oklab, var(--nu-danger) 12%, white);
+}
+
+.nu-btn-success {
+    background: color-mix(in oklab, var(--nu-signal) 14%, var(--nu-ink));
+    border-color: color-mix(in oklab, var(--nu-signal) 24%, var(--nu-ink));
+    color: white;
+}
+
+.nu-btn-success:hover {
+    background: color-mix(in oklab, var(--nu-signal) 24%, var(--nu-ink));
+}
+
+.nu-input {
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    background: white;
+    color: var(--nu-ink);
+}
+
+.nu-input:focus {
+    outline: 2px solid color-mix(in oklab, var(--nu-brand) 28%, transparent);
+    outline-offset: 1px;
+    border-color: var(--nu-brand);
+}
+
+.nu-chip {
+    border: 1px solid var(--nu-rule);
+    border-radius: 999px;
+    color: var(--nu-muted);
+    background: transparent;
+}
+
+.nu-chip-active {
+    border-color: var(--nu-ink);
+    background: var(--nu-ink);
+    color: var(--nu-paper);
+}
+
+.nu-link {
+    color: color-mix(in oklab, var(--nu-brand) 75%, var(--nu-ink));
+}
+
+.nu-link:hover {
+    color: var(--nu-ink);
+    text-decoration: underline;
+}
+
+.nu-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.nu-table th {
+    border-bottom: 1px solid var(--nu-rule);
+    color: var(--nu-muted);
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    padding: .55rem .5rem;
+    text-transform: uppercase;
+}
+
+.nu-table td {
+    border-bottom: 1px solid var(--nu-rule);
+    padding: .55rem .5rem;
+    vertical-align: middle;
+}
+
+.nu-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.nu-banner {
+    border: 1px solid color-mix(in oklab, var(--nu-signal) 30%, white);
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--nu-signal) 10%, white);
+    color: var(--nu-ink);
+}
+
+.nu-avatar-a {
+    background: var(--nu-accent);
+    border-color: var(--nu-brand-soft);
+    color: var(--nu-ink);
+}
+
+.nu-avatar-b {
+    background: white;
+    border-color: var(--nu-rule);
+    color: var(--nu-ink);
+}
+
+.nu-avatar-c {
+    background: var(--nu-brand-soft);
+    border-color: var(--nu-brand-soft);
+    color: var(--nu-ink);
+}
+
+.nu-avatar-d {
+    background: color-mix(in oklab, var(--nu-signal) 12%, white);
+    border-color: color-mix(in oklab, var(--nu-signal) 26%, white);
+    color: var(--nu-ink);
+}
+
+.nu-avatar-e {
+    background: color-mix(in oklab, var(--nu-danger) 8%, white);
+    border-color: color-mix(in oklab, var(--nu-danger) 22%, white);
+    color: var(--nu-ink);
+}
