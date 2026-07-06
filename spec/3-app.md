@@ -55,6 +55,14 @@ Each item triggers the same behavior previously documented in the "Revert", "Red
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
+The workbench chrome, menus, modals, and toolbar controls use the shared
+Nuvolaris-style Trustable visual system defined in
+[1-applist.md](1-applist.md) under "Shared Trustable visual system". Preserve
+the full-height two-iframe layout and all existing ids, cookies, launch URLs,
+git/status polling, route/query controls, credits/top-up behavior, and utility
+actions. Restyling should make the toolbar more professional and compact
+without changing the command model.
+
 Get the URLDIR from the cookie then show the iframe. URLDIR must be the raw or
 URL-encoded absolute application directory. For compatibility, if URLDIR is a
 base64-url-safe path or is missing while B64DIR is present, decode it first.
@@ -193,6 +201,11 @@ When clicked:
 # Debug
 
 The **Debug** entry in the Utils pulldown opens a separate browser window at `debug.html?app=<NAME>`.
+
+`debug.html` is a first-party Trustable utility page in the visual rollout. It
+may keep a dark log area for readability, but its header, status text, and
+Restart / Stop / Close controls should follow the shared typography, spacing,
+border, and button system.
 
 The debug window opens an EventSource to `GET /api/activations/poll?name=<NAME>` and displays the streamed activation log.
 

@@ -489,6 +489,14 @@ To switch providers from this screen, the user clicks the **Change Provider** bu
 
 The page header shows a "Current provider: <Ollama|Trustable>" line and a **Change Provider** button (navigates to `index.html?choose=1`).
 
+The page uses the shared Nuvolaris-style Trustable visual system defined in
+[1-applist.md](1-applist.md) under "Shared Trustable visual system". Keep the
+configuration UI compact and operational: neutral panels, thin table rules,
+Work Sans typography, restrained buttons, 4px radii, and no marketing hero.
+Restyling must preserve all existing field ids, provider switching,
+own-host/BestIA discovery, model table editing, dropdown selection, save/test
+behavior, and redirects.
+
 Sections (rendered top to bottom in this order):
 
 - **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
@@ -525,6 +533,12 @@ On any error: replace the strip with a red error box containing the error text a
 # App config UI (appconfig.html)
 
 Shows a table with columns: VARIABLE, Development, Production, Actions.
+
+The app config editor uses the same shared Trustable visual system. Treat it as
+a dense data-entry page: compact table rows, aligned inputs, restrained import /
+commit actions, and no decorative hero content. Preserve all environment import,
+edit, save, unsaved-warning, and close behavior while restyling.
+
 - Fixed readonly rows for OPS_USER, OPS_PASSWORD, OPS_APIHOST
 - Custom variables that can be added/removed (per-app `development` / `production` only — there is no global `env` section)
 - Include separate Import `.env` and Import `.env.production` actions. Import
