@@ -51,7 +51,11 @@ fi
 
 echo "CI passed. Pushing olaris-bestia..."
 cd olaris-bestia
-git commit -m $TAG -a
+if git diff --quiet && git diff --cached --quiet; then
+    echo "No olaris-bestia changes to commit."
+else
+    git commit -m "$TAG" -a
+fi
 git push origin main --tags
 
 echo "Done. Published $TAG successfully."
