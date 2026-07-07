@@ -860,9 +860,9 @@ func listOpencodeSessions(domain string, port int, directory string) []opencodeS
 
 // createOpencodeSession POSTs to opencode's /session/ endpoint with the
 // workbench directory header so the running opencode server scopes its session
-// to the launched app. The POST targets <domain>:<port> (not localhost) because
-// in production opencode is reached through an ingress, not the loopback (see
-// spec/4-launch.md). Failures are logged but non-fatal.
+// to the launched app. Launch runs in the same pod as OpenCode, so this is an
+// explicit pod-local sidecar call to localhost:4096. Browser traffic uses the
+// opencode.<domain> ingress and Trustable proxy path instead.
 func createOpencodeSession(domain string, port int, directory string) string {
 	url := fmt.Sprintf("http://%s:%d/session/", domain, port)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -965,6 +965,77 @@ func ensureRequiredWorkbenchFolders(workbenchPath string) {
 	log.Printf("ensureRequiredWorkbenchFolders: scaffolded and committed %v", created)
 }
 
+func workspaceRepoExists(workspacePath string) bool {
+	if _, err := os.Stat(filepath.Join(workspacePath, "config")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(workspacePath, ".git", "config")); err == nil {
+		return true
+	}
+	return false
+}
+
+func ensureNodeDependencies(workbenchPath, app string) {
+	if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(workbenchPath, "node_modules")); err == nil {
+		return
+	}
+	log.Printf("Running npm install in workbench/%s...", app)
+	npmCmd := exec.Command("npm", "install")
+	npmCmd.Dir = workbenchPath
+	if output, err := npmCmd.CombinedOutput(); err != nil {
+		log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
+	}
+}
+
+func restoreMissingWorkbenchCheckouts() {
+	workspaceRoot := filepath.Join(WorkspaceDir, "workspace")
+	entries, err := os.ReadDir(workspaceRoot)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to read workspace repos for workbench restore: %s", err)
+		}
+		return
+	}
+	if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
+		log.Printf("Warning: failed to create workbench dir for restore: %s", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		app := entry.Name()
+		if !namePattern.MatchString(app) {
+			continue
+		}
+		workspacePath := filepath.Join(workspaceRoot, app)
+		if !workspaceRepoExists(workspacePath) {
+			continue
+		}
+		workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, app))
+		if _, err := os.Stat(workbenchPath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to inspect workbench/%s: %s", app, err)
+			continue
+		}
+		log.Printf("Restoring missing workbench/%s from workspace/%s...", app, app)
+		cloneCmd := exec.Command("git", "clone", workspacePath, workbenchPath)
+		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			log.Printf("Warning: failed to restore workbench/%s: %s, output: %s", app, err, string(output))
+			continue
+		}
+		if err := generateAppEnvFiles(app); err != nil {
+			log.Printf("Warning: failed to generate restored workbench .env for %s: %s", app, err)
+		}
+		ensureOpenCodeProjectID(workbenchPath, app)
+		cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
+	}
+}
+
 // handleLaunchGet handles GET /api/launch/<app>
 func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1009,25 +1080,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			log.Printf("Warning: failed to generate workbench .env: %s", err)
 		}
 
-		// Run npm install if package.json exists
-		if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err == nil {
-			log.Printf("Running npm install in workbench/%s...", app)
-			npmCmd := exec.Command("npm", "install")
-			npmCmd.Dir = workbenchPath
-			if output, err := npmCmd.CombinedOutput(); err != nil {
-				log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
-			}
-		}
+		ensureNodeDependencies(workbenchPath, app)
 
 		log.Printf("Workbench for %s set up successfully", app)
 	} else {
 		log.Printf("Workbench for %s already exists, reusing", app)
 		// On the reuse path, regenerate the .env files to keep them in sync with
-		// the current config (spec/4-launch.md). npm install runs only on the
-		// initial clone, not on reuse.
+		// the current config (spec/4-launch.md). A restored checkout may not yet
+		// have node_modules, so install dependencies when package.json exists and
+		// node_modules is absent.
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
 		}
+		ensureNodeDependencies(workbenchPath, app)
 	}
 
 	// Ensure the required folders exist (packages/, web/) after checkout.
@@ -1300,22 +1365,13 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
 		return
 	}
+	absPath = canonicalPath(absPath)
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
 
-	// Strip any port from the request host to get the bare domain.
-	domain := r.Host
-	if colonIdx := strings.LastIndex(domain, ":"); colonIdx != -1 {
-		if bracketIdx := strings.LastIndex(domain, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
-			domain = domain[:colonIdx]
-		}
-	}
-
-	// Notify opencode of the workbench directory so it scopes the session
-	// correctly. The request arrives on the trustable.<domain> host, but opencode
-	// is served on opencode.<domain> (the ingress routes by hostname prefix — see
-	// middleware.go), so swap the prefix before POSTing.
-	opencodeHost := strings.Replace(domain, "trustable.", "opencode.", 1)
-	sessionID := resolveOpencodeSession(opencodeHost, leftPort, absPath)
+	// Notify the pod-local OpenCode server of the workbench directory so it
+	// scopes the session correctly. Browser requests use opencode.<domain>
+	// through the ingress/proxy path; launch bootstrapping stays inside the pod.
+	sessionID := resolveOpencodeSession("localhost", leftPort, absPath)
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{

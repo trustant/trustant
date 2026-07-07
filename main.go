@@ -48,6 +48,11 @@ func main() {
 	// Terminate any leftover processes from previous run (kept for backward compatibility)
 	terminateLeftoverProcesses()
 
+	// Recreate missing ephemeral checkouts from durable bare repos. OpenCode
+	// stores recent project paths persistently, so those paths must keep existing
+	// across pod rebuilds and restarts.
+	restoreMissingWorkbenchCheckouts()
+
 	// Parse version info
 	parseVersion(buildTxt)
 

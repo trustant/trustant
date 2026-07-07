@@ -97,6 +97,7 @@ func currentOpenCodeDirectory() (encodedDir, directory string) {
 	if err != nil {
 		return "", ""
 	}
+	directory = canonicalPath(directory)
 	encodedDir = base64.RawURLEncoding.EncodeToString([]byte(directory))
 	return encodedDir, directory
 }
@@ -179,6 +180,59 @@ func samePath(a, b string) bool {
 	return canonicalPath(a) == canonicalPath(b)
 }
 
+func rewriteOpenCodeDirectoryQueryToCurrent(r *http.Request) {
+	q := r.URL.Query()
+	directory := q.Get("directory")
+	if directory == "" {
+		return
+	}
+	_, currentDirectory := currentOpenCodeDirectory()
+	if currentDirectory == "" {
+		return
+	}
+	currentCanonical := canonicalPath(currentDirectory)
+	requestedCanonical := canonicalPath(directory)
+	if requestedCanonical == currentCanonical && filepath.Clean(directory) == currentDirectory {
+		return
+	}
+	q.Set("directory", currentDirectory)
+	r.URL.RawQuery = q.Encode()
+	log.Printf("opencode: rewrote directory %s to current app %s", directory, currentDirectory)
+}
+
+func handleScopedOpenCodeProjectList(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet || r.URL.Path != "/project" {
+		return false
+	}
+	_, currentDirectory := currentOpenCodeDirectory()
+	if currentDirectory == "" {
+		return false
+	}
+
+	reqURL := fmt.Sprintf("http://localhost:4096/project/current?directory=%s", url.QueryEscape(currentDirectory))
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(reqURL)
+	if err != nil {
+		log.Printf("opencode project list: failed to query current project for %s: %s", currentDirectory, err)
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("opencode project list: current project query for %s returned %d", currentDirectory, resp.StatusCode)
+		return false
+	}
+	var project json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
+		log.Printf("opencode project list: failed to decode current project for %s: %s", currentDirectory, err)
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte("["))
+	w.Write(project)
+	w.Write([]byte("]"))
+	return true
+}
+
 // hostnameMiddleware wraps an http.Handler with hostname verification, IP redirect, and host-based routing
 func hostnameMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +282,10 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			if redirectOpenCodeSession(w, r) {
 				return
 			}
+			if handleScopedOpenCodeProjectList(w, r) {
+				return
+			}
+			rewriteOpenCodeDirectoryQueryToCurrent(r)
 			// Proxy pass to port 4096
 			opencodeProxy.ServeHTTP(w, r)
 		case "vite":

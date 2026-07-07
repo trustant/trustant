@@ -57,7 +57,11 @@ The web application requires you always access the application with a full fqdn 
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
 - if <host> is 'trustable', serve the folder `web`
-- if <host> is 'opencode', proxy pass to port 4096. Before proxying, normalize
+- if <host> is 'opencode', proxy pass to the pod-local OpenCode server on port
+  4096. In Kubernetes/browser deployments the `opencode.<domain>` ingress must
+  route to the Trustable app port 8910, not directly to service port 4096, so
+  this middleware can scope OpenCode requests before proxying. Before proxying,
+  normalize
   OpenCode document routes that lost their explicit session id:
   - `/` redirects to the latest root session for the app named by the current
     workbench marker, when one exists.
@@ -74,4 +78,17 @@ The web application requires you always access the application with a full fqdn 
   `/home/trustable/workspace/workbench`; OpenCode stores sessions under the
   resolved path, so looking up the symlink path returns no sessions and reopens
   the project picker instead of the persisted session.
+- The OpenCode iframe is scoped to the app launched by Trustable. Before
+  proxying any `opencode.<domain>` request with a `directory` query parameter,
+  rewrite it to the current app directory from `<workbenchdir>/current` when it
+  points at another app or when it points at the same app through a symlink.
+  The value sent to OpenCode must be the canonical path because OpenCode stores
+  sessions under the resolved worktree path. This prevents OpenCode's internal
+  project switcher from opening another Trustable app as a plain folder without
+  the required `ops ide login`, generated env, deploy, app-local
+  `opencode.json`, and MCP configuration. App switching must happen through
+  Trustable `/api/launch/<app>`.
+- For the same reason, `GET /project` through `opencode.<domain>` returns only
+  the current app's OpenCode project, even if OpenCode's persistent DB contains
+  older projects from previous launches.
 - if <host> is 'vite',  proxy pass to port 5173
