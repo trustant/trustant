@@ -19,6 +19,19 @@ type gitPullResponse struct {
 	WorkbenchUpdated bool   `json:"workbench_updated"`
 }
 
+type gitStatusEntry struct {
+	line string
+	code string
+	path string
+}
+
+var gitPullGeneratedFiles = map[string]bool{
+	".mcp.json":                   true,
+	".openserverless-contract.md": true,
+	"opencode.md":                 true,
+	"opencode.json":               true,
+}
+
 // handleGitStatus handles GET /api/git/status/<name>
 func handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -138,6 +151,12 @@ func gitOutput(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(output)), err
 }
 
+func gitOutputRaw(dir string, args ...string) (string, error) {
+	cmd := gitCommand(dir, args...)
+	output, err := cmd.Output()
+	return string(output), err
+}
+
 func gitRefEquals(dir, left, right string) bool {
 	leftSha, leftErr := gitOutput(dir, "rev-parse", "--verify", left)
 	rightSha, rightErr := gitOutput(dir, "rev-parse", "--verify", right)
@@ -147,6 +166,99 @@ func gitRefEquals(dir, left, right string) bool {
 func gitIsAncestor(dir, ancestor, descendant string) bool {
 	cmd := gitCommand(dir, "merge-base", "--is-ancestor", ancestor, descendant)
 	return cmd.Run() == nil
+}
+
+func parseGitStatusEntries(status string) []gitStatusEntry {
+	var entries []gitStatusEntry
+	for _, line := range strings.Split(strings.TrimRight(status, "\n"), "\n") {
+		if line == "" || len(line) < 4 {
+			continue
+		}
+		path := strings.TrimSpace(line[3:])
+		if strings.Contains(path, " -> ") {
+			parts := strings.Split(path, " -> ")
+			path = parts[len(parts)-1]
+		}
+		path = strings.Trim(path, `"`)
+		entries = append(entries, gitStatusEntry{
+			line: line,
+			code: line[:2],
+			path: path,
+		})
+	}
+	return entries
+}
+
+func splitGitPullStatus(workbenchPath, status string) (generated []gitStatusEntry, user []gitStatusEntry) {
+	for _, entry := range parseGitStatusEntries(status) {
+		if isGitPullGeneratedEntry(workbenchPath, entry) {
+			generated = append(generated, entry)
+		} else {
+			user = append(user, entry)
+		}
+	}
+	return generated, user
+}
+
+func isGitPullGeneratedEntry(workbenchPath string, entry gitStatusEntry) bool {
+	if gitPullGeneratedFiles[entry.path] {
+		return true
+	}
+	if entry.path == "AGENTS.md" {
+		return agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, entry.path))
+	}
+	return false
+}
+
+func agentsHasOnlyTrustableManagedBlock(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+	start := strings.Index(content, trustableAgentsBegin)
+	end := strings.Index(content, trustableAgentsEnd)
+	if start < 0 || end < start {
+		return false
+	}
+	end += len(trustableAgentsEnd)
+	return strings.TrimSpace(content[:start]) == "" && strings.TrimSpace(content[end:]) == ""
+}
+
+func cleanGeneratedGitPullStatus(workbenchPath string, output *bytes.Buffer, entries []gitStatusEntry) error {
+	var staged []string
+	var restore []string
+	var clean []string
+	for _, entry := range entries {
+		if entry.code[0] != '?' && entry.code[0] != ' ' {
+			staged = append(staged, entry.path)
+		}
+		if entry.code != "??" && entry.code[0] != 'A' {
+			restore = append(restore, entry.path)
+		}
+		if entry.code == "??" || entry.code[0] == 'A' {
+			clean = append(clean, entry.path)
+		}
+	}
+	if len(staged) > 0 {
+		args := append([]string{"restore", "--staged", "--"}, staged...)
+		if err := runGitCommand(workbenchPath, output, args...); err != nil {
+			return err
+		}
+	}
+	if len(restore) > 0 {
+		args := append([]string{"restore", "--"}, restore...)
+		if err := runGitCommand(workbenchPath, output, args...); err != nil {
+			return err
+		}
+	}
+	if len(clean) > 0 {
+		args := append([]string{"clean", "-f", "--"}, clean...)
+		if err := runGitCommand(workbenchPath, output, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func configuredProductionRepo(name string) string {
@@ -248,17 +360,32 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if workbenchExists {
-		status, err := gitOutput(workbenchPath, "status", "--porcelain")
+		status, err := gitOutputRaw(workbenchPath, "status", "--porcelain")
 		if err != nil {
 			writeGitJSON(w, http.StatusInternalServerError, map[string]string{"error": "git status failed: " + err.Error()})
 			return
 		}
 		if status != "" {
-			writeGitJSON(w, http.StatusConflict, map[string]string{
-				"error":  "workbench has unsaved changes; save or revert before pulling",
-				"output": status,
-			})
-			return
+			generatedEntries, userEntries := splitGitPullStatus(workbenchPath, status)
+			if len(userEntries) > 0 {
+				var userStatus strings.Builder
+				for _, entry := range userEntries {
+					userStatus.WriteString(entry.line)
+					userStatus.WriteByte('\n')
+				}
+				writeGitJSON(w, http.StatusConflict, map[string]string{
+					"error":  "workbench has unsaved changes; save or revert before pulling",
+					"output": strings.TrimSpace(userStatus.String()),
+				})
+				return
+			}
+			if err := cleanGeneratedGitPullStatus(workbenchPath, &output, generatedEntries); err != nil {
+				writeGitJSON(w, http.StatusInternalServerError, map[string]string{
+					"error":  "failed to clean generated Trustable files before pull: " + err.Error(),
+					"output": output.String(),
+				})
+				return
+			}
 		}
 		if err := runGitCommand(workbenchPath, &output, "fetch", "origin", "main:refs/remotes/origin/main"); err != nil {
 			writeGitJSON(w, http.StatusInternalServerError, map[string]string{

@@ -1270,9 +1270,9 @@ type testModelResult struct {
 	Error        string
 }
 
-// runTestModel sends a "hello" prompt to cfg.Opencode.Small using cfg.BaseURL
-// / cfg.APIKey and classifies the response. Shared by GET /api/testmodel and
-// the testmodel step of POST /api/configuration.
+// runTestModel sends a "hello" prompt to cfg.Opencode.Small using the resolved
+// provider URL and cfg.APIKey, then classifies the response. Shared by
+// GET /api/testmodel and the testmodel step of POST /api/configuration.
 func runTestModel(cfg *trustableConfig) testModelResult {
 	if cfg == nil {
 		return testModelResult{Error: "configuration not loaded"}
@@ -1286,6 +1286,10 @@ func runTestModel(cfg *trustableConfig) testModelResult {
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if baseURL == "" {
 		return testModelResult{Error: "base_url not defined in trustable.json"}
+	}
+	if cfg.Provider == "ollama" {
+		ollamaRoot, _ := resolveOllamaRoot(cfg)
+		baseURL = strings.TrimRight(ollamaRoot, "/") + "/v1"
 	}
 
 	log.Printf("Testing model %s at %s...", model, baseURL)
@@ -1426,7 +1430,8 @@ var ollamaConnectURLPattern = regexp.MustCompile(`https://ollama\.com/connect\S*
 
 func runOllamaSignin() string {
 	cmd := exec.Command("ollama", "signin")
-	log.Printf("ollama signin: running %s", strings.Join(cmd.Args, " "))
+	cmd.Env = ollamaSigninEnv()
+	log.Printf("ollama signin: running %s with HOME=%s", strings.Join(cmd.Args, " "), envValue(cmd.Env, "HOME"))
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -1438,6 +1443,27 @@ func runOllamaSignin() string {
 		log.Printf("ollama signin: output:\n%s", output)
 	}
 	return ollamaConnectURLPattern.FindString(output)
+}
+
+func ollamaSigninEnv() []string {
+	env := os.Environ()
+	if home := strings.TrimSpace(WorkspaceDir); home != "" {
+		env = append(env, "HOME="+home)
+	}
+	if endpoint := strings.TrimSpace(OllamaEndpoint); endpoint != "" {
+		env = append(env, "OLLAMA_HOST="+endpoint)
+	}
+	return env
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if strings.HasPrefix(env[i], prefix) {
+			return strings.TrimPrefix(env[i], prefix)
+		}
+	}
+	return ""
 }
 
 // handleDiscoverModels proxies GET <base_url>/models against any

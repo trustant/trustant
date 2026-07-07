@@ -1,0 +1,291 @@
+Trustable issue98 E2E
+  domain:     miniops.me
+  namespace:  nuvolaris
+  pod:        trustable-0
+  app:        <create if TRUSTABLE_E2E_REPO is set>
+
+
+Running 1 test using 1 worker
+
+(node:278930) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:278930) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety (3.7m)
+
+
+  1) [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety › send prompt and wait for model/tool loop 
+
+    Error: [{"type":"tool","tool":"edit","callID":"xgMPD580u","state":{"status":"error","input":{"filePath":"/home/trustable/workspace/workbench/regstkmistral/packages/v1/stack-check/stack_check.py","oldString":"    if milvus_client:\n        try:\n            from pymilvus import utility as milvus_utility\n            \n            collection_name = \"stack_e2e_issue98_mrags5sh_mongo\"\n            \n            # Check if collection exists, create only if needed\n            if not milvus_utility.has_collection(collection_name):\n                from pymilvus import DataType, CollectionSchema, FieldSchema\n                fields = [\n                    FieldSchema(\"id\", DataType.VARCHAR, is_primary=True, max_length=100),\n                    FieldSchema(\"key\", DataType.VARCHAR, max_length=100),\n                    FieldSchema(\"value\", DataType.VARCHAR, max_length=200),\n                ]\n                schema = CollectionSchema(fields, description=\"Stack check collection\")\n                pymilvus.create_collection(collection_name, schema)\n            \n            # Insert/update\n            milvus_client.insert(\n                collection_name=collection_name,\n                data=[[\"1\", \"stack-e2e-issue98-mrags5sh\", \"stack-ok-42\"]],\n                field_names=[\"id\", \"key\", \"value\"],\n            )\n            milvus_updated = \"successo\"\n            \n            # Read back\n            search_result = milvus_client.query(\n                collection_name=collection_name,\n                expr='key == \"stack-e2e-issue98-mrags5sh\"',\n                output_fields=[\"value\"]\n            )\n            if search_result:\n                milvus_value = search_result[0][\"value\"]\n                milvus_status = \"ok\"\n            else:\n                milvus_status = \"valore non trovato\""},"error":"The edit tool was called with invalid arguments: SchemaError(Missing key\n  at [\"newString\"]).\nPlease rewrite the input so it satisfies the expected schema.","time":{"start":1783417651151,"end":1783417651154}},"id":"prt_f3bf9b31b001ZtPd2XdVh6e5bl","sessionID":"ses_0c4074bbaffeXmN3v8GsDiVo2k","messageID":"msg_f3bf9b0c3001QZxzRYwbDiHRIT"},{"type":"tool","tool":"edit","callID":"7Uds8NBs5","state":{"status":"error","input":{"filePath":"/home/trustable/workspace/workbench/regstkmistral/src/pages/Index.tsx","oldString":"const Index = () => {\n  return (\n    <div className=\"flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted\">\n      <div className=\"w-full max-w-md px-6\">\n        <div className=\"flex flex-col items-center space-y-8\">\n          {/* Logo */}\n          <div className=\"animate-in fade-in zoom-in duration-500\">\n            <img\n              src=\"/trustable.png\"\n              alt=\"Trustable Logo\"\n              className=\"h-24 w-auto\"\n            />\n          </div>\n\n          {/* Welcome Card */}\n          <div className=\"w-full animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150\">\n            <div className=\"rounded-2xl border bg-card p-8 shadow-elegant\">\n              <h1 className=\"mb-2 text-2xl font-bold text-foreground\">\n                Welcome\n              </h1>\n              <p className=\"mb-6 text-muted-foreground\">\n                Try the following prompts to start\n              </p>\n\n              <ul className=\"space-y-3 text-base text-foreground\">\n                <li>✅ Change the home page in a Todo list</li>\n                <li>📒 Change the home page in an Address book</li>\n                <li>⏱️ Change the home page in a Pomodoro timer</li>\n                <li>🧮 Change the home page in an Unit converter</li>\n              </ul>\n            </div>\n          </div>\n\n          {/* Info Text */}\n          <p className=\"animate-in fade-in duration-1000 delay-300 text-center text-sm text-muted-foreground\">\n            Powered by Trustable\n          </p>\n\n          {/* Upcoming Features */}\n          <p className=\"animate-in fade-in duration-1000 delay-500 text-center text-xs text-muted-foreground/70 max-w-sm\">\n            Upcoming in next releases: full support for AI, databases (SQL, NoSQL, vector), Redis and S3 with serverless backend\n          </p>\n        </div>\n      </div>\n    </div>\n  );\n};","newString":"import { useEffect } from \"react\";\n\nconst Index = () => {\n  useEffect(() => {\n    fetch(\"/api/my/v1/stack-check\")\n      .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(t))))\n      .then((data) => {\n        const results = data?.stack_check?.risultati || [];\n        results.forEach((r) => {\n          const statusEl = document.getElementById(`${r.componente.toLowerCase()}-status`);\n          const valueEl = document.getElementById(`${r.componente.toLowerCase()}-value`);\n          const updatedEl = document.getElementById(`${r.componente.toLowerCase()}-updated`);\n          if (statusEl) statusEl.textContent = r.stato;\n          if (valueEl) valueEl.textContent = String(r.valore_letto);\n          if (updatedEl) updatedEl.textContent = String(r.ultimo_aggiornamento);\n        });\n      })\n      .catch(() => {\n        // leave UI as-is if fetch fails\n      });\n  }, []);\n\n  return (\n    <div className=\"flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted\">\n      <div className=\"w-full max-w-md px-6\">\n        <div className=\"flex flex-col items-center space-y-8\">\n          {/* Logo */}\n          <div className=\"animate-in fade-in zoom-in duration-500\">\n            <img\n              src=\"/trustable.png\"\n              alt=\"Trustable Logo\"\n              className=\"h-24 w-auto\"\n            />\n          </div>\n\n          {/* Welcome Card */}\n          <div className=\"w-full animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150\">\n            <div className=\"rounded-2xl border bg-card p-8 shadow-elegant\">\n              <h1 className=\"mb-2 text-2xl font-bold text-foreground\">\n                Welcome\n              </h1>\n              <p className=\"mb-6 text-muted-foreground\">\n                Try the following prompts to start\n              </p>\n\n              <ul className=\"space-y-3 text-base text-foreground\">\n                <li>✅ Change the home page in a Todo list</li>\n                <li>📒 Change the home page in an Address book</li>\n                <li>⏱️ Change the home page in a Pomodoro timer</li>\n                <li>🧮 Change the home page in an Unit converter</li>\n              </ul>\n            </div>\n          </div>\n\n          {/* Stack Nuvolaris Section */}\n          <div className=\"w-full animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-700\">\n            <div className=\"rounded-2xl border bg-card/80 p-6 shadow-elegant\">\n              <h2 className=\"mb-4 text-xl font-semibold text-foreground\">Stack Nuvolaris</h2>\n              <div className=\"overflow-x-auto\">\n                <table className=\"w-full text-sm\">\n                  <thead>\n                    <tr>\n                      <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Componente</th>\n                      <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Stato</th>\n                      <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Valore letto</th>\n                      <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Ultimo aggiornamento</th>\n                    </tr>\n                  </thead>\n                  <tbody>\n                    <tr className=\"border-t border-border/50\">\n                      <td className=\"px-3 py-2 font-medium text-foreground\">Redis</td>\n                      <td className=\"px-3 py-2\" id=\"redis-status\">in attesa...</td>\n                      <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"redis-value\"></td>\n                      <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"redis-updated\"></td>\n                    </tr>\n                    <tr className=\"border-t border-border/50\">\n                      <td className=\"px-3 py-2 font-medium text-foreground\">PostgreSQL</td>\n                      <td className=\"px-3 py-2\" id=\"postgres-status\">in attesa...</td>\n                      <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"postgres-value\"></td>\n                      <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"postgres-updated\"></td>\n                    </tr>\n                    <tr className=\"border-t border-border/50\">\n                      <td className=\"px-3 py-2 font-medium text-foreground\">S3</td>\n                      <td className=\"px-3 py-2\" id=\"s3-status\">in attesa...</td>\n                      <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"s3-value\"></td>\n                      <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"s3-updated\"></td>\n                    </tr>\n                    <tr className=\"border-t border-border/50\">\n                      <td className=\"px-3 py-2 font-medium text-foreground\">MongoDB</td>\n                      <td className=\"px-3 py-2\" id=\"mongodb-status\">in attesa...</td>\n                      <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"mongodb-value\"></td>\n                      <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"mongodb-updated\"></td>\n                    </tr>\n                  </tbody>\n                </table>\n              </div>\n            </div>\n          </div>\n\n          {/* Info Text */}\n          <p className=\"animate-in fade-in duration-1000 delay-300 text-center text-sm text-muted-foreground\">\n            Powered by Trustable\n          </p>\n\n          {/* Upcoming Features */}\n          <p className=\"animate-in fade-in duration-1000 delay-500 text-center text-xs text-muted-foreground/70 max-w-sm\">\n            Upcoming in next releases: full support for AI, databases (SQL, NoSQL, vector), Redis and S3 with serverless backend\n          </p>\n        </div>\n      </div>\n    </div>\n  );\n};"},"error":"Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.","time":{"start":1783417779931,"end":1783417779936}},"id":"prt_f3bfb74dd001Ux5BQcde3MkkKa","sessionID":"ses_0c4074bbaffeXmN3v8GsDiVo2k","messageID":"msg_f3bfb7282001nAtsiktAeJ94W3"}]
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -   1[39m
+    [31m+ Received  + 238[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "callID": "xgMPD580u",[39m
+    [31m+     "id": "prt_f3bf9b31b001ZtPd2XdVh6e5bl",[39m
+    [31m+     "messageID": "msg_f3bf9b0c3001QZxzRYwbDiHRIT",[39m
+    [31m+     "sessionID": "ses_0c4074bbaffeXmN3v8GsDiVo2k",[39m
+    [31m+     "state": Object {[39m
+    [31m+       "error": "The edit tool was called with invalid arguments: SchemaError(Missing key[39m
+    [31m+   at [\"newString\"]).[39m
+    [31m+ Please rewrite the input so it satisfies the expected schema.",[39m
+    [31m+       "input": Object {[39m
+    [31m+         "filePath": "/home/trustable/workspace/workbench/regstkmistral/packages/v1/stack-check/stack_check.py",[39m
+    [31m+         "oldString": "    if milvus_client:[39m
+    [31m+         try:[39m
+    [31m+             from pymilvus import utility as milvus_utility[39m
+    [31m+             [39m
+    [31m+             collection_name = \"stack_e2e_issue98_mrags5sh_mongo\"[39m
+    [31m+             [39m
+    [31m+             # Check if collection exists, create only if needed[39m
+    [31m+             if not milvus_utility.has_collection(collection_name):[39m
+    [31m+                 from pymilvus import DataType, CollectionSchema, FieldSchema[39m
+    [31m+                 fields = [[39m
+    [31m+                     FieldSchema(\"id\", DataType.VARCHAR, is_primary=True, max_length=100),[39m
+    [31m+                     FieldSchema(\"key\", DataType.VARCHAR, max_length=100),[39m
+    [31m+                     FieldSchema(\"value\", DataType.VARCHAR, max_length=200),[39m
+    [31m+                 ][39m
+    [31m+                 schema = CollectionSchema(fields, description=\"Stack check collection\")[39m
+    [31m+                 pymilvus.create_collection(collection_name, schema)[39m
+    [31m+             [39m
+    [31m+             # Insert/update[39m
+    [31m+             milvus_client.insert([39m
+    [31m+                 collection_name=collection_name,[39m
+    [31m+                 data=[[\"1\", \"stack-e2e-issue98-mrags5sh\", \"stack-ok-42\"]],[39m
+    [31m+                 field_names=[\"id\", \"key\", \"value\"],[39m
+    [31m+             )[39m
+    [31m+             milvus_updated = \"successo\"[39m
+    [31m+             [39m
+    [31m+             # Read back[39m
+    [31m+             search_result = milvus_client.query([39m
+    [31m+                 collection_name=collection_name,[39m
+    [31m+                 expr='key == \"stack-e2e-issue98-mrags5sh\"',[39m
+    [31m+                 output_fields=[\"value\"][39m
+    [31m+             )[39m
+    [31m+             if search_result:[39m
+    [31m+                 milvus_value = search_result[0][\"value\"][39m
+    [31m+                 milvus_status = \"ok\"[39m
+    [31m+             else:[39m
+    [31m+                 milvus_status = \"valore non trovato\"",[39m
+    [31m+       },[39m
+    [31m+       "status": "error",[39m
+    [31m+       "time": Object {[39m
+    [31m+         "end": 1783417651154,[39m
+    [31m+         "start": 1783417651151,[39m
+    [31m+       },[39m
+    [31m+     },[39m
+    [31m+     "tool": "edit",[39m
+    [31m+     "type": "tool",[39m
+    [31m+   },[39m
+    [31m+   Object {[39m
+    [31m+     "callID": "7Uds8NBs5",[39m
+    [31m+     "id": "prt_f3bfb74dd001Ux5BQcde3MkkKa",[39m
+    [31m+     "messageID": "msg_f3bfb7282001nAtsiktAeJ94W3",[39m
+    [31m+     "sessionID": "ses_0c4074bbaffeXmN3v8GsDiVo2k",[39m
+    [31m+     "state": Object {[39m
+    [31m+       "error": "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",[39m
+    [31m+       "input": Object {[39m
+    [31m+         "filePath": "/home/trustable/workspace/workbench/regstkmistral/src/pages/Index.tsx",[39m
+    [31m+         "newString": "import { useEffect } from \"react\";[39m
+    [31m+[39m
+    [31m+ const Index = () => {[39m
+    [31m+   useEffect(() => {[39m
+    [31m+     fetch(\"/api/my/v1/stack-check\")[39m
+    [31m+       .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(t))))[39m
+    [31m+       .then((data) => {[39m
+    [31m+         const results = data?.stack_check?.risultati || [];[39m
+    [31m+         results.forEach((r) => {[39m
+    [31m+           const statusEl = document.getElementById(`${r.componente.toLowerCase()}-status`);[39m
+    [31m+           const valueEl = document.getElementById(`${r.componente.toLowerCase()}-value`);[39m
+    [31m+           const updatedEl = document.getElementById(`${r.componente.toLowerCase()}-updated`);[39m
+    [31m+           if (statusEl) statusEl.textContent = r.stato;[39m
+    [31m+           if (valueEl) valueEl.textContent = String(r.valore_letto);[39m
+    [31m+           if (updatedEl) updatedEl.textContent = String(r.ultimo_aggiornamento);[39m
+    [31m+         });[39m
+    [31m+       })[39m
+    [31m+       .catch(() => {[39m
+    [31m+         // leave UI as-is if fetch fails[39m
+    [31m+       });[39m
+    [31m+   }, []);[39m
+    [31m+[39m
+    [31m+   return ([39m
+    [31m+     <div className=\"flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted\">[39m
+    [31m+       <div className=\"w-full max-w-md px-6\">[39m
+    [31m+         <div className=\"flex flex-col items-center space-y-8\">[39m
+    [31m+           {/* Logo */}[39m
+    [31m+           <div className=\"animate-in fade-in zoom-in duration-500\">[39m
+    [31m+             <img[39m
+    [31m+               src=\"/trustable.png\"[39m
+    [31m+               alt=\"Trustable Logo\"[39m
+    [31m+               className=\"h-24 w-auto\"[39m
+    [31m+             />[39m
+    [31m+           </div>[39m
+    [31m+[39m
+    [31m+           {/* Welcome Card */}[39m
+    [31m+           <div className=\"w-full animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150\">[39m
+    [31m+             <div className=\"rounded-2xl border bg-card p-8 shadow-elegant\">[39m
+    [31m+               <h1 className=\"mb-2 text-2xl font-bold text-foreground\">[39m
+    [31m+                 Welcome[39m
+    [31m+               </h1>[39m
+    [31m+               <p className=\"mb-6 text-muted-foreground\">[39m
+    [31m+                 Try the following prompts to start[39m
+    [31m+               </p>[39m
+    [31m+[39m
+    [31m+               <ul className=\"space-y-3 text-base text-foreground\">[39m
+    [31m+                 <li>✅ Change the home page in a Todo list</li>[39m
+    [31m+                 <li>📒 Change the home page in an Address book</li>[39m
+    [31m+                 <li>⏱️ Change the home page in a Pomodoro timer</li>[39m
+    [31m+                 <li>🧮 Change the home page in an Unit converter</li>[39m
+    [31m+               </ul>[39m
+    [31m+             </div>[39m
+    [31m+           </div>[39m
+    [31m+[39m
+    [31m+           {/* Stack Nuvolaris Section */}[39m
+    [31m+           <div className=\"w-full animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-700\">[39m
+    [31m+             <div className=\"rounded-2xl border bg-card/80 p-6 shadow-elegant\">[39m
+    [31m+               <h2 className=\"mb-4 text-xl font-semibold text-foreground\">Stack Nuvolaris</h2>[39m
+    [31m+               <div className=\"overflow-x-auto\">[39m
+    [31m+                 <table className=\"w-full text-sm\">[39m
+    [31m+                   <thead>[39m
+    [31m+                     <tr>[39m
+    [31m+                       <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Componente</th>[39m
+    [31m+                       <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Stato</th>[39m
+    [31m+                       <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Valore letto</th>[39m
+    [31m+                       <th className=\"text-left font-medium text-muted-foreground px-3 py-1.5\">Ultimo aggiornamento</th>[39m
+    [31m+                     </tr>[39m
+    [31m+                   </thead>[39m
+    [31m+                   <tbody>[39m
+    [31m+                     <tr className=\"border-t border-border/50\">[39m
+    [31m+                       <td className=\"px-3 py-2 font-medium text-foreground\">Redis</td>[39m
+    [31m+                       <td className=\"px-3 py-2\" id=\"redis-status\">in attesa...</td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"redis-value\"></td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"redis-updated\"></td>[39m
+    [31m+                     </tr>[39m
+    [31m+                     <tr className=\"border-t border-border/50\">[39m
+    [31m+                       <td className=\"px-3 py-2 font-medium text-foreground\">PostgreSQL</td>[39m
+    [31m+                       <td className=\"px-3 py-2\" id=\"postgres-status\">in attesa...</td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"postgres-value\"></td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"postgres-updated\"></td>[39m
+    [31m+                     </tr>[39m
+    [31m+                     <tr className=\"border-t border-border/50\">[39m
+    [31m+                       <td className=\"px-3 py-2 font-medium text-foreground\">S3</td>[39m
+    [31m+                       <td className=\"px-3 py-2\" id=\"s3-status\">in attesa...</td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"s3-value\"></td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"s3-updated\"></td>[39m
+    [31m+                     </tr>[39m
+    [31m+                     <tr className=\"border-t border-border/50\">[39m
+    [31m+                       <td className=\"px-3 py-2 font-medium text-foreground\">MongoDB</td>[39m
+    [31m+                       <td className=\"px-3 py-2\" id=\"mongodb-status\">in attesa...</td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-blue-600 dark:text-blue-400\" id=\"mongodb-value\"></td>[39m
+    [31m+                       <td className=\"px-3 py-2 text-xs text-muted-foreground\" id=\"mongodb-updated\"></td>[39m
+    [31m+                     </tr>[39m
+    [31m+                   </tbody>[39m
+    [31m+                 </table>[39m
+    [31m+               </div>[39m
+    [31m+             </div>[39m
+    [31m+           </div>[39m
+    [31m+[39m
+    [31m+           {/* Info Text */}[39m
+    [31m+           <p className=\"animate-in fade-in duration-1000 delay-300 text-center text-sm text-muted-foreground\">[39m
+    [31m+             Powered by Trustable[39m
+    [31m+           </p>[39m
+    [31m+[39m
+    [31m+           {/* Upcoming Features */}[39m
+    [31m+           <p className=\"animate-in fade-in duration-1000 delay-500 text-center text-xs text-muted-foreground/70 max-w-sm\">[39m
+    [31m+             Upcoming in next releases: full support for AI, databases (SQL, NoSQL, vector), Redis and S3 with serverless backend[39m
+    [31m+           </p>[39m
+    [31m+         </div>[39m
+    [31m+       </div>[39m
+    [31m+     </div>[39m
+    [31m+   );[39m
+    [31m+ };",[39m
+    [31m+         "oldString": "const Index = () => {[39m
+    [31m+   return ([39m
+    [31m+     <div className=\"flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-muted\">[39m
+    [31m+       <div className=\"w-full max-w-md px-6\">[39m
+    [31m+         <div className=\"flex flex-col items-center space-y-8\">[39m
+    [31m+           {/* Logo */}[39m
+    [31m+           <div className=\"animate-in fade-in zoom-in duration-500\">[39m
+    [31m+             <img[39m
+    [31m+               src=\"/trustable.png\"[39m
+    [31m+               alt=\"Trustable Logo\"[39m
+    [31m+               className=\"h-24 w-auto\"[39m
+    [31m+             />[39m
+    [31m+           </div>[39m
+    [31m+[39m
+    [31m+           {/* Welcome Card */}[39m
+    [31m+           <div className=\"w-full animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150\">[39m
+    [31m+             <div className=\"rounded-2xl border bg-card p-8 shadow-elegant\">[39m
+    [31m+               <h1 className=\"mb-2 text-2xl font-bold text-foreground\">[39m
+    [31m+                 Welcome[39m
+    [31m+               </h1>[39m
+    [31m+               <p className=\"mb-6 text-muted-foreground\">[39m
+    [31m+                 Try the following prompts to start[39m
+    [31m+               </p>[39m
+    [31m+[39m
+    [31m+               <ul className=\"space-y-3 text-base text-foreground\">[39m
+    [31m+                 <li>✅ Change the home page in a Todo list</li>[39m
+    [31m+                 <li>📒 Change the home page in an Address book</li>[39m
+    [31m+                 <li>⏱️ Change the home page in a Pomodoro timer</li>[39m
+    [31m+                 <li>🧮 Change the home page in an Unit converter</li>[39m
+    [31m+               </ul>[39m
+    [31m+             </div>[39m
+    [31m+           </div>[39m
+    [31m+[39m
+    [31m+           {/* Info Text */}[39m
+    [31m+           <p className=\"animate-in fade-in duration-1000 delay-300 text-center text-sm text-muted-foreground\">[39m
+    [31m+             Powered by Trustable[39m
+    [31m+           </p>[39m
+    [31m+[39m
+    [31m+           {/* Upcoming Features */}[39m
+    [31m+           <p className=\"animate-in fade-in duration-1000 delay-500 text-center text-xs text-muted-foreground/70 max-w-sm\">[39m
+    [31m+             Upcoming in next releases: full support for AI, databases (SQL, NoSQL, vector), Redis and S3 with serverless backend[39m
+    [31m+           </p>[39m
+    [31m+         </div>[39m
+    [31m+       </div>[39m
+    [31m+     </div>[39m
+    [31m+   );[39m
+    [31m+ };",[39m
+    [31m+       },[39m
+    [31m+       "status": "error",[39m
+    [31m+       "time": Object {[39m
+    [31m+         "end": 1783417779936,[39m
+    [31m+         "start": 1783417779931,[39m
+    [31m+       },[39m
+    [31m+     },[39m
+    [31m+     "tool": "edit",[39m
+    [31m+     "type": "tool",[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      220 |   const failedTools = toolParts.filter((part) => part.state?.status === "error");
+      221 |   if (env.TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS !== "1") {
+    > 222 |     expect(failedTools, JSON.stringify(failedTools)).toEqual([]);
+          |                                                      ^
+      223 |   }
+      224 |
+      225 |   const rawOpsAction = toolParts.filter((part) => {
+        at assertPromptToolSafety (/home/msciab/trustable-app/tests/issue98.spec.mjs:222:54)
+        at runPromptStep (/home/msciab/trustable-app/tests/issue98.spec.mjs:263:3)
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:398:9
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:397:7
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety 
+E2E_RC=1
+E2E_SECONDS=223
+E2E_MODEL=mistral-small-4-119b
+E2E_APP=regstkmistral

@@ -68,6 +68,9 @@ if [ -d packages ]; then
     if grep -Eq 'os\.getenv\(["'\'']POSTGRES_URL["'\'']\)|args\.get\(["'\'']POSTGRES_URL["'\'']\)|psycopg2?\.connect\(.*POSTGRES_URL|psycopg2?\.connect\(.*getenv' "$module"; then
       warn "$module" "Business module reads POSTGRES_URL. Prefer ctx.POSTGRESQL when wrapper wiring provides it."
     fi
+    if grep -Eiq 'mongo(db)?|MONGODB|MONGO_' "$module" && grep -Eq 'MILVUS|pymilvus|milvus_cli|MilvusClient' "$module"; then
+      error "$module" "MongoDB is a separate document database capability. Do not use Milvus/vector tooling as a MongoDB substitute; report MongoDB as non configurato when the official capability is absent."
+    fi
   done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
 
   while IFS= read -r seedfile; do

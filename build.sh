@@ -1,26 +1,43 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname $0)"
-if ! test -e ~/Library/Application\ Support/Trustable/id_ed25519
-then echo "This script must be run on Mac after installing Trustable"
+cd "$(dirname "$0")"
+
+MODE="${TRUSTABLE_BUILD_MODE:-auto}"
+MAC_DIR="${TRUSTABLE_MAC_SUPPORT_DIR:-$HOME/Library/Application Support/Trustable}"
+MAC_ID="$MAC_DIR/id_ed25519"
+MAC_IP="$MAC_DIR/current.ip"
+
+if [ "$MODE" = "server" ]; then
+    exec ./build-server.sh "$@"
+fi
+
+if [ "$MODE" = "auto" ] && { [ ! -e "$MAC_ID" ] || [ ! -e "$MAC_IP" ]; }; then
+    exec ./build-server.sh "$@"
+fi
+
+if [ "$MODE" != "auto" ] && [ "$MODE" != "mac" ]; then
+    echo "Unsupported TRUSTABLE_BUILD_MODE=$MODE (expected auto, mac, or server)" >&2
+    exit 1
+fi
+
+if ! test -e "$MAC_ID"
+then echo "This script must be run on Mac after installing Trustable, or on a Linux k3s server with ./build-server.sh"
      exit 1
 fi
 
-ID=~/Library/Application\ Support/Trustable/id_ed25519
-IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
+ID="$MAC_ID"
+IP="$(cat "$MAC_IP")"
 
 KEY=${1:-trustable}
 VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
-IMAGE=ghcr.io/trustable-ai/trustable-app
-TAG=$(git tag) # use to re-read, skip the following
-TAG="${KEY}_${VERSION}_$(date +%y.%j.%H%M)"
+IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
+TAG="${TRUSTABLE_BUILD_TAG:-${KEY}_${VERSION}_$(date +%y.%j.%H%M)}"
 echo "New Tag: $TAG"
 
-git tag -d $(git tag)
+git tag -f "$TAG"
 echo -e "Version: ${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
-git tag $TAG
 
 OPSROOT="./olaris-bestia/opsroot.json"
 jq --arg img "$IMAGE:$TAG" '.config.images.'$KEY' = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"
@@ -36,6 +53,11 @@ env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
 cp -v trustable.json image/trustable.json
 
 image/image.sh "$TAG"
+
+if [ "${TRUSTABLE_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
+    echo "TRUSTABLE_BUILD_SKIP_DEPLOY=1, skipping Mac VM deploy"
+    exit 0
+fi
 
 ops bestia trustable undeploy
 ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all

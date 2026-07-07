@@ -57,7 +57,7 @@ RUN \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 
-# installing lsp: ts py, mcp: postgres, redis, milvus, cli: milvus
+# installing lsp: ts py, mcp: postgres, redis, milvus, mongodb, cli: milvus
 RUN \
     curl -LsSf https://astral.sh/uv/install.sh | \
     env UV_INSTALL_DIR="/usr/bin" INSTALLER_NO_MODIFY_PATH=1 sh ;\
@@ -79,7 +79,7 @@ RUN \
     headroom --help >/dev/null
 
 RUN \
-    npm install -g typescript-language-server typescript tsx ;\
+    npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.13.0 ;\
     npm install -g tsx github:apache/openserverless-mcp ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\

@@ -184,7 +184,10 @@ The guidance must tell assistants how to choose the backend shape:
 - use S3 for object/file data;
 - use PostgreSQL for relational data;
 - use Redis for cache/ephemeral state;
+- use MongoDB for document data only when the official MongoDB capability is
+  configured;
 - use Milvus for vector search;
+- never use Milvus as a replacement for MongoDB;
 - use AgentiReact MCP only when the app is configured with AgentiReact.
 
 ## OpenServerless Action Tools
@@ -287,6 +290,8 @@ Required MCP/service guidance:
   is `redis-cli`.
 - `milvus` is present only when Milvus is configured. The companion CLI wrapper
   is `milvus_cli`.
+- `mongodb` is present only when MongoDB is configured as an official
+  OpenServerless capability in `~/.ops/config.json`.
 
 The guidance must say that service MCP servers are generated from
 `~/.ops/config.json` after `ops ide login`, and that missing service blocks mean
@@ -296,6 +301,13 @@ tokens when the MCP server or generated environment already provides them.
 Assistants may inspect `~/.ops/config.json` only to understand which services
 exist; they must not copy values from it into app code, wrapper code, logs,
 docs, or frontend configuration.
+
+The guidance must say that MongoDB is a document database capability, separate
+from Milvus/vector search. If the user asks for MongoDB and the `mongodb` MCP
+server or official MongoDB environment is absent, assistants must implement a
+deterministic `non configurato`/error state in the app and README. They must
+not ask the user how to configure MongoDB, invent connection details, or use
+Milvus, `MILVUS_*`, `pymilvus`, or `milvus_cli` as a substitute.
 
 The launch process also writes `<workbenchdir>/<app>/.mcp.json` in Claude Code
 format with the same MCP servers. The embedded guidance can mention this for
@@ -543,6 +555,8 @@ The embedded guidance must say:
 - table creation belongs in `setup/database`;
 - Redis key preparation belongs in `setup/cache`;
 - Milvus collection creation belongs in `setup/collection`;
+- MongoDB collection/index preparation belongs in an idempotent setup action
+  only when MongoDB is configured;
 - private S3 data preload belongs in `setup/upload`;
 - public web assets belong in `public/`, not in setup uploads;
 - run `ops ide setup` after creating or changing setup actions.
@@ -576,7 +590,7 @@ The embedded guidance must say:
 - editor, LSP, TypeScript, lint, and tool diagnostics that mention generated or
   edited files are validation failures. Assistants must fix the diagnostic or
   explain why it is stale with a successful bounded command that proves it;
-- PostgreSQL, Redis, S3, Milvus, and secrets are added with the corresponding
+- PostgreSQL, Redis, S3, Milvus, MongoDB, and secrets are added with the corresponding
   action/service tool, not by manually editing generated wrapper code or
   hardcoding credentials.
 
@@ -588,6 +602,8 @@ The embedded guidance must tell assistants to retrieve the current user with
 - PostgreSQL database is named after the user; the default schema is
   `<user>_schema`.
 - Milvus database is named after the user.
+- MongoDB is available only when the official post-login config exposes a
+  MongoDB block or derived connection string.
 - Redis writable keys must be prefixed with `<user>:`.
 - S3 writable buckets are `<user>-data` for private app data and `<user>-web`
   for public web assets.

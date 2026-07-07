@@ -66,6 +66,11 @@ Invalid examples:
 - Add PostgreSQL wiring with the OpenServerless action tool.
 - Use `conn = ctx.POSTGRESQL` in editable action modules.
 - Do not reconnect with `POSTGRES_URL` when `ctx.POSTGRESQL` is provided.
+- MongoDB is a separate document database capability. Use it only when the
+  official MongoDB capability is present in generated config/environment.
+- If MongoDB is absent, show `non configurato` or an error state and document
+  that state. Do not ask the user for infrastructure details and do not use
+  Milvus/vector search as a substitute for MongoDB.
 - Do not hardcode database URLs, hosts, users, passwords, schemas, buckets, or
   service ports in source code.
 - Every write must commit.

@@ -360,6 +360,43 @@ with:
 {{.Token}} = <config.milvus.token>
 {{.DbName}} = <config.milvus.db.name>
 
+# if config.mongodb is defined and has a connection string add:
+
+MongoDB follows the same service-MCP gating as S3, PostgreSQL, Redis, and
+Milvus. It is generated only from the official post-login config surface read
+from `~/.ops/config.json`, never from arbitrary workbench environment
+variables. Enable it when either:
+
+- `config.mongodb.uri`, `config.mongodb.url`, or
+  `config.mongodb.connection_string` is non-empty;
+- top-level `config.MONGODB_URI` is non-empty and was produced by the
+  OpenServerless login/config path;
+- `config.mongodb.host` and `config.mongodb.database` are both present, in
+  which case derive `mongodb://<user>:<password>@<host>:<port>/<database>` from
+  the same official block, with optional `auth_source` rendered as
+  `authSource`.
+
+Do not enable MongoDB MCP from a casual `MONGODB_URI` in a copied `.env` file.
+If the official MongoDB capability is absent, the app agent must treat MongoDB
+as `non configurato` rather than asking the user for infrastructure details or
+mapping MongoDB to Milvus/vector search.
+
+```
+"mongodb": {
+  "type": "local",
+  "command": ["mongodb-mcp-server"],
+  "environment": {
+    "MDB_MCP_CONNECTION_STRING": "<resolved mongodb connection string>"
+  },
+  "enabled": true,
+  "timeout": 30000
+}
+```
+
+The Trustable runtime image installs the official MongoDB MCP server at build
+time as `mongodb-mcp-server`, so launch must not use `npx` or download packages
+at runtime.
+
 
 ## clean
 
@@ -424,7 +461,7 @@ without generated action/service markers.
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated
 opencode.json `mcp` section (including `openserverless`, the optional
-`agentireact`, and any of `s3`/`postgres`/`redis`/`milvus` that were added). This
+`agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` that were added). This
 keeps the same servers available to Claude-format clients for compatibility.
 
 Translate each opencode server entry to Claude's `mcpServers` schema:

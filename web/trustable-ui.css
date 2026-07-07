@@ -206,6 +206,38 @@ body {
     color: var(--nu-ink);
 }
 
+.nu-feedback {
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--nu-paper) 90%, white);
+    color: var(--nu-ink);
+}
+
+.nu-feedback-info {
+    border-color: color-mix(in oklab, var(--nu-brand) 24%, var(--nu-rule));
+    background: color-mix(in oklab, var(--nu-brand) 7%, white);
+}
+
+.nu-feedback-success {
+    border-color: color-mix(in oklab, var(--nu-signal) 28%, var(--nu-rule));
+    background: color-mix(in oklab, var(--nu-signal) 8%, white);
+}
+
+.nu-feedback-warning {
+    border-color: color-mix(in oklab, var(--nu-signal) 34%, var(--nu-rule));
+    background: color-mix(in oklab, var(--nu-signal) 11%, white);
+}
+
+.nu-feedback-error {
+    border-color: color-mix(in oklab, var(--nu-danger) 26%, var(--nu-rule));
+    background: color-mix(in oklab, var(--nu-danger) 7%, white);
+}
+
+.nu-feedback a {
+    color: color-mix(in oklab, var(--nu-brand) 75%, var(--nu-ink));
+    text-decoration: underline;
+}
+
 .nu-status-pill {
     border: 1px solid var(--nu-rule);
     border-radius: 999px;

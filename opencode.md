@@ -165,7 +165,10 @@ Choose the backend shape this way:
 - Use S3 for object/file data.
 - Use PostgreSQL for relational data.
 - Use Redis for cache or ephemeral state.
+- Use MongoDB for document data only when the official MongoDB capability is
+  configured.
 - Use Milvus for vector search.
+- Do not use Milvus as a replacement for MongoDB.
 - Use AgentiReact MCP only when the app is configured with AgentiReact.
 
 ## OpenServerless Action Tools
@@ -251,12 +254,21 @@ servers and generated CLI wrappers instead of inventing connection details.
   `redis-cli`.
 - `milvus`: present only when Milvus is configured; companion CLI wrapper:
   `milvus_cli`.
+- `mongodb`: present only when MongoDB is configured as an official
+  OpenServerless capability in `~/.ops/config.json`.
 
 Service MCP servers are generated from `~/.ops/config.json` after
 `ops ide login`. If a service block is missing, the corresponding MCP server is
 intentionally absent. Do not hardcode service hosts, ports, credentials, bucket
 names, database names, or tokens when the MCP server or generated environment
 already provides them.
+
+MongoDB is a document database capability, separate from Milvus/vector search.
+If the user asks for MongoDB and the `mongodb` MCP server or official MongoDB
+environment is absent, implement a deterministic `non configurato`/error state
+in the app and README. Do not ask the user how to configure MongoDB, do not
+invent connection details, and do not use Milvus, `MILVUS_*`, `pymilvus`, or
+`milvus_cli` as a substitute.
 
 You may inspect `~/.ops/config.json` only to understand which services exist.
 Do not copy values from it into app code, wrapper code, logs, docs, or frontend
@@ -553,6 +565,8 @@ When an app has login or registration:
 - Table creation belongs in `setup/database`.
 - Redis key preparation belongs in `setup/cache`.
 - Milvus collection creation belongs in `setup/collection`.
+- MongoDB collection/index preparation belongs in an idempotent setup action
+  only when MongoDB is configured.
 - Private S3 data preload belongs in `setup/upload`.
 - Public web assets belong in `public/`, not in setup uploads.
 - Run `ops ide setup` after creating or changing setup actions.
@@ -574,6 +588,7 @@ Examples of idempotent setup:
 - `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...`
 - Redis `SET ... NX` for keys that should only be seeded once.
 - Check Milvus collection existence before creating it.
+- Check MongoDB collection/index existence before creating it.
 - Upload S3 objects only when missing or changed.
 
 ## Dependencies
@@ -585,7 +600,7 @@ Examples of idempotent setup:
   redeploy the action.
 - If action logs show `ModuleNotFoundError`, fix the dependency or import before
   doing any other validation. Do not mark the feature complete.
-- Add PostgreSQL, Redis, S3, Milvus, and secrets with the corresponding
+- Add PostgreSQL, Redis, S3, Milvus, MongoDB, and secrets with the corresponding
   action/service tool. Do not hardcode credentials and do not manually edit
   generated wrapper code.
 
@@ -597,6 +612,8 @@ restrictions are enforced by the platform:
 - PostgreSQL database is named after the user; the default schema is
   `<user>_schema`.
 - Milvus database is named after the user.
+- MongoDB is available only when the official post-login config exposes a
+  MongoDB block or derived connection string.
 - Redis writable keys must be prefixed with `<user>:`.
 - S3 writable buckets are `<user>-data` for private app data and `<user>-web`
   for public web assets.

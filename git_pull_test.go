@@ -121,6 +121,54 @@ func TestGitPullRejectsDirtyWorkbench(t *testing.T) {
 	}
 }
 
+func TestGitPullCleansGeneratedWorkbenchFiles(t *testing.T) {
+	workspace, workbench := testSetWorkspaceDirs(t)
+	remote := testRemoteRepo(t)
+	testCommitFile(t, remote, ".openserverless-contract.md", "tracked\n", "tracked generated file")
+	app := "generatedapp"
+	bare := testCloneBareWorkspace(t, remote, workspace, app)
+	workbenchPath := filepath.Join(workbench, app)
+	testGit(t, "", "clone", bare, workbenchPath)
+	if err := os.WriteFile(filepath.Join(workbenchPath, ".openserverless-contract.md"), []byte("generated update\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workbenchPath, ".mcp.json"), []byte("{}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workbenchPath, "AGENTS.md"), []byte(managedAppAgentsContent()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, payload := testGitPullRequest(t, app)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %#v", rec.Code, payload)
+	}
+	if status := testGit(t, workbenchPath, "status", "--porcelain"); status != "" {
+		t.Fatalf("expected generated files to be cleaned, got status %q", status)
+	}
+}
+
+func TestGitPullRejectsAgentsWithLocalNotes(t *testing.T) {
+	workspace, workbench := testSetWorkspaceDirs(t)
+	remote := testRemoteRepo(t)
+	app := "agentsnotes"
+	bare := testCloneBareWorkspace(t, remote, workspace, app)
+	workbenchPath := filepath.Join(workbench, app)
+	testGit(t, "", "clone", bare, workbenchPath)
+	agents := managedAppAgentsContent() + "\n## App-local notes\n\nkeep this\n"
+	if err := os.WriteFile(filepath.Join(workbenchPath, "AGENTS.md"), []byte(agents), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec, payload := testGitPullRequest(t, app)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %#v", rec.Code, payload)
+	}
+	if !strings.Contains(payload["output"].(string), "AGENTS.md") {
+		t.Fatalf("expected AGENTS.md in dirty output, got %#v", payload)
+	}
+}
+
 func TestGitPullFastForwardsWorkbenchAndRefreshesOps(t *testing.T) {
 	workspace, workbench := testSetWorkspaceDirs(t)
 	remote := testRemoteRepo(t)

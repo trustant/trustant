@@ -76,6 +76,18 @@ type opsConfig struct {
 			Name string `json:"name"`
 		} `json:"db"`
 	} `json:"milvus"`
+	MongoDB struct {
+		URI              string `json:"uri"`
+		URL              string `json:"url"`
+		ConnectionString string `json:"connection_string"`
+		Host             string `json:"host"`
+		Port             int    `json:"port"`
+		Database         string `json:"database"`
+		Username         string `json:"username"`
+		Password         string `json:"password"`
+		AuthSource       string `json:"auth_source"`
+	} `json:"mongodb"`
+	MongoDBURI string `json:"MONGODB_URI"`
 }
 
 // opsConfigPath returns the path to ~/.ops/config.json.
@@ -193,6 +205,18 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 		}
 	}
 
+	if uri := mongodbConnectionString(cfg); uri != "" {
+		mcp["mongodb"] = map[string]interface{}{
+			"type":    "local",
+			"command": []string{"mongodb-mcp-server"},
+			"environment": map[string]string{
+				"MDB_MCP_CONNECTION_STRING": uri,
+			},
+			"enabled": true,
+			"timeout": 30000,
+		}
+	}
+
 	if len(mcp) == 0 {
 		return nil
 	}
@@ -205,7 +229,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 // uses this to drop any that leaked into a global config written by older code.
 func isTrustableManagedMCPServer(name string) bool {
 	switch name {
-	case "s3", "postgres", "redis", "milvus", "openserverless":
+	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless":
 		return true
 	}
 	return false
@@ -229,6 +253,7 @@ func logOpsServiceBlocks(app string) {
 		{"postgres", cfg.Postgres.Database != ""},
 		{"redis", cfg.Redis.URL != "" || cfg.Redis.Port != 0},
 		{"milvus", cfg.Milvus.Host != ""},
+		{"mongodb", mongodbConnectionString(cfg) != ""},
 	} {
 		if s.present {
 			log.Printf("  - service %q configured for %s; MCP server will be generated", s.name, app)
@@ -236,6 +261,52 @@ func logOpsServiceBlocks(app string) {
 			log.Printf("  - service %q absent from ~/.ops/config.json for %s; MCP server will be skipped", s.name, app)
 		}
 	}
+}
+
+// mongodbConnectionString returns a MongoDB URI only from the official
+// post-login config surface. Arbitrary workbench env vars do not enable MongoDB.
+func mongodbConnectionString(cfg *opsConfig) string {
+	for _, direct := range []string{
+		cfg.MongoDB.URI,
+		cfg.MongoDB.URL,
+		cfg.MongoDB.ConnectionString,
+		cfg.MongoDBURI,
+	} {
+		if direct = strings.TrimSpace(direct); direct != "" {
+			return direct
+		}
+	}
+
+	host := strings.TrimSpace(cfg.MongoDB.Host)
+	database := strings.Trim(strings.TrimSpace(cfg.MongoDB.Database), "/")
+	if host == "" || database == "" {
+		return ""
+	}
+	if strings.Contains(host, "://") {
+		return host
+	}
+
+	u := url.URL{
+		Scheme: "mongodb",
+		Host:   host,
+		Path:   "/" + database,
+	}
+	if cfg.MongoDB.Port != 0 && !strings.Contains(host, ":") {
+		u.Host = net.JoinHostPort(host, fmt.Sprintf("%d", cfg.MongoDB.Port))
+	}
+	if cfg.MongoDB.Username != "" {
+		if cfg.MongoDB.Password != "" {
+			u.User = url.UserPassword(cfg.MongoDB.Username, cfg.MongoDB.Password)
+		} else {
+			u.User = url.User(cfg.MongoDB.Username)
+		}
+	}
+	if cfg.MongoDB.AuthSource != "" {
+		q := u.Query()
+		q.Set("authSource", cfg.MongoDB.AuthSource)
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
 }
 
 // redisUsername derives the Redis user from the config prefix: the prefix with
@@ -262,10 +333,10 @@ func localBinPrefix() string {
 }
 
 // setupServiceTooling writes the CLI wrapper scripts into ~/.local/bin that
-// accompany the MCP servers (see spec/4-launch.md): `rclone` (s3), `psql`
-// (postgres), `redis-cli` (redis), and `milvus_cli` (milvus). Each is gated on
-// the same config block that gates its MCP server and is best-effort — failures
-// are logged, never fatal to a launch.
+// accompany service MCP servers with companion CLIs (see spec/4-launch.md):
+// `rclone` (s3), `psql` (postgres), `redis-cli` (redis), and `milvus_cli`
+// (milvus). Each is gated on the same config block that gates its MCP server
+// and is best-effort — failures are logged, never fatal to a launch.
 //
 // Every wrapper sets PATH to localBinPrefix() and then invokes the real binary
 // by bare name (rather than an absolute path) so it reaches the system binary
