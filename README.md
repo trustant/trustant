@@ -109,7 +109,7 @@ cp .env.dist .env
 $EDITOR .env
 
 # 3. Dev loop: frees ports 8910/5173/4096, runs `air` for hot reload,
-#    and opens the UI via `ops trustable signin`.
+#    and prints the UI URL. Ollama sign-in happens inside Trustable.
 ./run.sh
 ```
 
@@ -135,7 +135,7 @@ $EDITOR .env
 
 ```bash
 ./setup.sh       # One-time bootstrap (VM check, kubeconfig extract, tool install)
-./run.sh         # Dev loop: free ports, `air` hot reload, open via `ops trustable signin`
+./run.sh         # Dev loop: free ports, `air` hot reload, print the Trustable URL
 ./build.sh       # Compatibility build entrypoint: Mac VM when available, Linux/k3s server otherwise
 ./build-server.sh # Force Linux/k3s server build, import, StatefulSet patch, rollout wait
 ./publish.sh     # Push the latest git tag, watch CI, then push the olaris-bestia submodule

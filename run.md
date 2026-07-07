@@ -11,7 +11,6 @@ create run.sh invoking the app with air:
 - namespace -n nuvolaris
 - forward the following services: redis nuvolaris-milvus seaweedfs nuvolaris-postgres nuvolaris-mongodb-svc
 
-5. open the browser `ops trustable signin http://localhost:8910`
+5. print the browser URL; Trustable handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
 
 6. wait until you press ^c and terminate everything
-

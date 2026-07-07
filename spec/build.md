@@ -23,8 +23,8 @@ Server build environment:
   `ghcr.io/trustable-ai/trustable-app`.
 - `TRUSTABLE_BUILD_TAG`: explicit image tag. If omitted, the tag is
   `<key>_<version>_<yy.jjj.HHMM>`.
-- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: build the image but do not import or patch
-  k3s.
+- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: build the image but do not require local
+  k3s/kubectl access, import the image, or patch k3s.
 - `TRUSTABLE_K8S_NAMESPACE`: namespace, default `nuvolaris`.
 - `TRUSTABLE_K8S_STATEFULSET`: StatefulSet name, default `trustable`.
 - `TRUSTABLE_K8S_CONTAINER`: container name, default `trustable`.

@@ -22,7 +22,7 @@ Linux server development uses local access to the Trustable k3s cluster with `ku
 
 ```bash
 ./setup.sh       # One-time bootstrap: verifies running VM, extracts kubeconfig, installs ops/go/air/opencode
-./run.sh         # Dev loop: kills ports 8910/5173/4096, runs `air` for hot reload, opens via `ops trustable signin`
+./run.sh         # Dev loop: kills ports 8910/5173/4096, runs `air` for hot reload, prints the Trustable URL
 ./build.sh       # Compatibility build: Mac VM when available, Linux/k3s server otherwise
 ./build-server.sh # Force Linux/k3s server build, import, StatefulSet patch, rollout wait
 ./publish.sh     # Pushes the latest git tag, watches CI, then pushes the olaris-bestia submodule

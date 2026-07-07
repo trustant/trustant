@@ -21,19 +21,6 @@ CONTAINER="${TRUSTABLE_K8S_CONTAINER:-trustable}"
 
 need docker
 need go
-need kubectl
-need sudo
-
-if ! sudo -n k3s ctr images list >/dev/null 2>&1; then
-    echo "Cannot access local k3s containerd with sudo -n k3s." >&2
-    echo "Run this on the Trustable k3s server with passwordless sudo for k3s." >&2
-    exit 1
-fi
-
-if ! kubectl -n "$NAMESPACE" get statefulset "$STATEFULSET" >/dev/null 2>&1; then
-    echo "StatefulSet $NAMESPACE/$STATEFULSET not found." >&2
-    exit 1
-fi
 
 echo "Server build tag: $TAG"
 printf "Version: %s\nBuild: %s\nExpiry: %s\n" "$VERSION" "$TAG" "$EXPIRY" > _build.txt
@@ -49,6 +36,20 @@ image/image.sh "$TAG"
 if [ "${TRUSTABLE_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
     echo "TRUSTABLE_BUILD_SKIP_DEPLOY=1, skipping local k3s deploy"
     exit 0
+fi
+
+need kubectl
+need sudo
+
+if ! sudo -n k3s ctr images list >/dev/null 2>&1; then
+    echo "Cannot access local k3s containerd with sudo -n k3s." >&2
+    echo "Run this on the Trustable k3s server with passwordless sudo for k3s." >&2
+    exit 1
+fi
+
+if ! kubectl -n "$NAMESPACE" get statefulset "$STATEFULSET" >/dev/null 2>&1; then
+    echo "StatefulSet $NAMESPACE/$STATEFULSET not found." >&2
+    exit 1
 fi
 
 echo "Importing $IMAGE:$TAG into local k3s"

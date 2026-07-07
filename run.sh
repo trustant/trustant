@@ -49,8 +49,11 @@ sudo kubefwd svc \
     -n nuvolaris  &
 KUBEFWD_PIDS+=($!)
 
-# 5. open the browser
-ops trustable signin http://localhost:8910
+# 5. Trustable handles Ollama Cloud sign-in from the web UI via
+#    /api/ollama-connect. Do not call `ops trustable signin` here: that helper
+#    can invoke legacy Docker-based Ollama commands that are not valid for Lima
+#    dev environments.
+echo "Trustable running at http://trustable.127.0.0.1.nip.io:8910/"
 
 # wait until ^c
 wait "$AIR_PID"

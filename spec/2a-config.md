@@ -435,7 +435,7 @@ Returns the merged configuration (base + workspace overrides) as JSON.
 The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs two steps in order and returns a single JSON result:
 
 1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
-2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `opencode.small` using the top-level `base_url` / `api_key` of the just-saved merged config).
+2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `opencode.small` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process.
 
 This endpoint does **not** write any `opencode.json`. The OpenCode config is a single self-contained file generated per-app in the workbench project directory at launch (see [4-launch.md](4-launch.md)); the new model defaults take effect on the next launch.
 
@@ -459,7 +459,7 @@ Rationale for the single endpoint: testmodel must see the just-persisted config.
 
 # GET /api/testmodel
 
-Tests the AI model connection by sending a "hello" prompt to `opencode.small` from the merged config, using the top-level `base_url` and `api_key`. There is no separate `testmodel` field — the small OpenCode model is always used for the connection test, in both Ollama and Trustable modes.
+Tests the AI model connection by sending a "hello" prompt to `opencode.small` from the merged config, using the resolved provider URL and `api_key`. For internal Ollama, the resolved URL is derived from `OLLAMA_ENDPOINT` rather than the persisted localhost `base_url`; in the Trustable pod that endpoint is the pod-local `ollama serve` process. For own-host Ollama, Trustable, and BestIA it is the configured provider URL. There is no separate `testmodel` field — the small OpenCode model is always used for the connection test, in both Ollama and Trustable modes.
 
 # Per-app configuration: GET /api/appconfig/<name>
 
