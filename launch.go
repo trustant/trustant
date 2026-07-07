@@ -426,6 +426,25 @@ func readCurrentApp() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
+// canonicalWorkbenchPath returns the path OpenCode uses to store project and
+// session state. In the pod /home/trustable/workbench may be a symlink into the
+// persistent workspace volume, so resolve the parent even before the app
+// checkout exists.
+func canonicalWorkbenchPath(app string) (string, error) {
+	workbenchPath, err := filepath.Abs(filepath.Join(WorkbenchDir, app))
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(workbenchPath); err == nil {
+		return resolved, nil
+	}
+	parent := filepath.Dir(workbenchPath)
+	if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
+		return filepath.Join(resolvedParent, filepath.Base(workbenchPath)), nil
+	}
+	return workbenchPath, nil
+}
+
 // removeCurrentFile removes the current app name file and clears it from workspace config
 func removeCurrentFile() {
 	os.Remove(getCurrentFile())
@@ -531,6 +550,7 @@ func killPgid(pgid int) error {
 //  2. No pgid file, but an orphaned opencode/devel still holding 4096/5173 (the
 //     pgid file was removed while the process kept running) — reclaim the ports
 //     directly so the upcoming port-free check doesn't wedge the launch.
+//
 // A `current` file lingering without a pgid file is itself stale, so it is
 // cleared too.
 func terminateLeftoverProcesses() {
@@ -772,6 +792,26 @@ func (s opencodeSession) hasActivity() bool {
 	return title != "" && !strings.HasPrefix(title, "New session - ")
 }
 
+func chooseOpenCodeSessionID(sessions []opencodeSession) string {
+	var best, newest *opencodeSession
+	for i := range sessions {
+		s := &sessions[i]
+		if newest == nil || s.Time.Updated > newest.Time.Updated {
+			newest = s
+		}
+		if s.hasActivity() && (best == nil || s.Time.Updated > best.Time.Updated) {
+			best = s
+		}
+	}
+	if best != nil {
+		return best.ID
+	}
+	if newest != nil {
+		return newest.ID
+	}
+	return ""
+}
+
 // resolveOpencodeSession returns the id of the session to use for the launched
 // app. It first queries opencode's root sessions for the workbench directory and
 // prefers the newest non-empty session; if none are non-empty it reuses the
@@ -780,24 +820,9 @@ func (s opencodeSession) hasActivity() bool {
 func resolveOpencodeSession(domain string, port int, directory string) string {
 	sessions := listOpencodeSessions(domain, port, directory)
 	if len(sessions) > 0 {
-		// Newest non-empty session, else newest session overall. The list is
-		// scanned for the max updated time in each category.
-		var best, newest *opencodeSession
-		for i := range sessions {
-			s := &sessions[i]
-			if newest == nil || s.Time.Updated > newest.Time.Updated {
-				newest = s
-			}
-			if s.hasActivity() && (best == nil || s.Time.Updated > best.Time.Updated) {
-				best = s
-			}
-		}
-		chosen := best
-		if chosen == nil {
-			chosen = newest
-		}
-		log.Printf("opencode: reusing session %s (active=%t) for %s", chosen.ID, best != nil, directory)
-		return chosen.ID
+		sessionID := chooseOpenCodeSessionID(sessions)
+		log.Printf("opencode: reusing session %s for %s", sessionID, directory)
+		return sessionID
 	}
 	return createOpencodeSession(domain, port, directory)
 }
@@ -962,7 +987,11 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	// Clone to workbench if not already present
 	// Use absolute path so child processes (Vite) resolve watches correctly
-	workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, app))
+	workbenchPath, err := canonicalWorkbenchPath(app)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to resolve workbench path: %s", err)})
+		return
+	}
 	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
 		log.Printf("Cloning workspace/%s to workbench/%s...", app, app)
 		if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
@@ -1401,7 +1430,11 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 
 	req := struct{ Name string }{Name: name}
 
-	workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, req.Name))
+	workbenchPath, err := canonicalWorkbenchPath(req.Name)
+	if err != nil {
+		http.Error(w, "Failed to resolve workbench path", http.StatusInternalServerError)
+		return
+	}
 	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
 		http.Error(w, "Workbench not found", http.StatusNotFound)
 		return
