@@ -110,6 +110,15 @@ Avoid assigning a different saturated color to every action. Destructive
 actions may keep a red text/border treatment, but should not use a solid red
 background in the normal state.
 
+Feedback UI on the app list uses the shared Trustable primitives from
+`web/trustable-ui.css`: status banners, progress masks, confirmation dialogs,
+result blocks, and error/success/warning messages are rendered as `nu-modal`,
+`nu-btn`, `nu-input`, and `nu-feedback` surfaces. Destructive confirmations such
+as app Delete remain clearly marked with the pale danger treatment, but the
+confirming button is not a saturated solid-red button. Result text and command
+output use JetBrains Mono inside the feedback block; ordinary dialog copy stays
+in Work Sans.
+
 ## Publishing gate
 
 The Git Push and Publish buttons are always rendered and always call their respective backend APIs. The backend verifies the user's ai-proxy API key signature (see [6-publish.md](6-publish.md) and [10-validate_key.md](10-validate_key.md)) and returns HTTP 403 with `{"error": "Publishing not authorized: ..."}` when the key cannot be verified. The frontend surfaces that error verbatim in the existing result modal — no separate "publishing disabled" UI.
