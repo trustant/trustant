@@ -16,9 +16,11 @@ if [ -z "$TAG" ]; then
 fi
 echo "Publishing tag: $TAG"
 
-# Push main and tags
-echo "Pushing to origin..."
-git push origin main --tags
+# Push the current HEAD to the selected release branch plus tags.
+CURRENT_BRANCH=$(git branch --show-current)
+TARGET_BRANCH="${TRUSTABLE_PUBLISH_BRANCH:-$CURRENT_BRANCH}"
+echo "Pushing HEAD to origin/$TARGET_BRANCH plus tags..."
+git push origin "HEAD:$TARGET_BRANCH" --tags
 
 # Wait for a workflow run matching this tag to appear
 echo "Waiting for CI run for tag $TAG..."
