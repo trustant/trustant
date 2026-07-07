@@ -103,6 +103,7 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	cfg.Milvus.Port = 19530
 	cfg.Milvus.Token = "app:tok"
 	cfg.Milvus.DB.Name = "appdb"
+	cfg.MongoDB.URI = "mongodb://app:pw@mongodb:27017/appdb"
 
 	mcp := buildMCPFromOpsConfig(&cfg)
 
@@ -151,7 +152,16 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 		t.Fatalf("unexpected redis environment: %#v", redisEnv)
 	}
 
-	for _, name := range []string{"redis", "milvus"} {
+	mongodb := mcp["mongodb"].(map[string]interface{})
+	if cmd := mongodb["command"].([]string); len(cmd) != 1 || cmd[0] != "mongodb-mcp-server" {
+		t.Fatalf("unexpected mongodb command: %#v", mongodb["command"])
+	}
+	mongodbEnv := mongodb["environment"].(map[string]string)
+	if mongodbEnv["MDB_MCP_CONNECTION_STRING"] != "mongodb://app:pw@mongodb:27017/appdb" {
+		t.Fatalf("unexpected mongodb connection string: %#v", mongodbEnv)
+	}
+
+	for _, name := range []string{"redis", "milvus", "mongodb"} {
 		server := mcp[name].(map[string]interface{})
 		if server["enabled"] != true {
 			t.Fatalf("%s MCP should be enabled: %#v", name, server)
@@ -161,6 +171,29 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	// No service blocks -> no mcp section.
 	if got := buildMCPFromOpsConfig(&opsConfig{}); got != nil {
 		t.Fatalf("empty ops config should yield nil mcp, got %#v", got)
+	}
+}
+
+func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
+	var cfg opsConfig
+	cfg.MongoDB.Host = "mongodb"
+	cfg.MongoDB.Port = 27017
+	cfg.MongoDB.Database = "appdb"
+	cfg.MongoDB.Username = "app"
+	cfg.MongoDB.Password = "pw"
+	cfg.MongoDB.AuthSource = "admin"
+
+	mcp := buildMCPFromOpsConfig(&cfg)
+	mongodb := mcp["mongodb"].(map[string]interface{})
+	env := mongodb["environment"].(map[string]string)
+	if got := env["MDB_MCP_CONNECTION_STRING"]; got != "mongodb://app:pw@mongodb:27017/appdb?authSource=admin" {
+		t.Fatalf("unexpected derived mongodb connection string: %s", got)
+	}
+
+	var noOfficialCapability opsConfig
+	noOfficialCapability.MongoDB.Host = "mongodb"
+	if got := buildMCPFromOpsConfig(&noOfficialCapability); got != nil {
+		t.Fatalf("incomplete mongodb block should not enable MCP, got %#v", got)
 	}
 }
 
@@ -442,6 +475,37 @@ func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
 		t.Fatalf("checker should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
 	}
 	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsMongoMilvusSubstitution(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from stack import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `from pymilvus import MilvusClient
+
+def main(args, ctx=None):
+    return {"component": "MongoDB", "client": MilvusClient}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject MongoDB implemented with Milvus, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Do not use Milvus/vector tooling as a MongoDB substitute") {
 		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
 	}
 }
