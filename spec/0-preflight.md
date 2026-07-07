@@ -68,4 +68,10 @@ The web application requires you always access the application with a full fqdn 
     handles stale browser tabs that still point at a previously edited app.
   This keeps OpenCode from falling back to stale global project state after the
   user exits a session view.
+  The current-app directory used for session lookup and stale-route comparison
+  must be the canonical real path of `<workbenchdir>/<app>` after resolving
+  symlinks. In the pod `/home/trustable/workbench` can point at
+  `/home/trustable/workspace/workbench`; OpenCode stores sessions under the
+  resolved path, so looking up the symlink path returns no sessions and reopens
+  the project picker instead of the persisted session.
 - if <host> is 'vite',  proxy pass to port 5173

@@ -23,10 +23,6 @@ var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 var opencodeProxy = newSilentProxy("localhost:4096")
 var viteProxy = newSilentProxy("localhost:5173")
 
-type opencodeSessionSummary struct {
-	ID string `json:"id"`
-}
-
 // newSilentProxy creates a reverse proxy that silently returns 502 when the backend is unavailable
 func newSilentProxy(host string) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: host})
@@ -60,7 +56,7 @@ func latestOpenCodeSessionID(directory string) string {
 	if directory == "" {
 		return ""
 	}
-	sessionURL := fmt.Sprintf("http://localhost:4096/session?directory=%s&roots=true&limit=1", url.QueryEscape(directory))
+	sessionURL := fmt.Sprintf("http://localhost:4096/session?directory=%s&roots=true&limit=20", url.QueryEscape(directory))
 	client := http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(sessionURL)
 	if err != nil {
@@ -72,15 +68,12 @@ func latestOpenCodeSessionID(directory string) string {
 		log.Printf("opencode redirect: latest session query for %s returned %d", directory, resp.StatusCode)
 		return ""
 	}
-	var sessions []opencodeSessionSummary
+	var sessions []opencodeSession
 	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
 		log.Printf("opencode redirect: failed to decode latest session for %s: %s", directory, err)
 		return ""
 	}
-	if len(sessions) == 0 {
-		return ""
-	}
-	return sessions[0].ID
+	return chooseOpenCodeSessionID(sessions)
 }
 
 func decodeOpenCodeDirectory(encoded string) string {
@@ -100,7 +93,7 @@ func currentOpenCodeDirectory() (encodedDir, directory string) {
 	if err != nil || app == "" {
 		return "", ""
 	}
-	directory, err = filepath.Abs(filepath.Join(WorkbenchDir, app))
+	directory, err = canonicalWorkbenchPath(app)
 	if err != nil {
 		return "", ""
 	}
@@ -149,13 +142,41 @@ func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
 	if requestedDirectory == "" {
 		return false
 	}
-	if requestedDirectory != currentDirectory {
+	if !samePath(requestedDirectory, currentDirectory) {
 		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
 	}
+	if requestedEncodedDir != currentEncodedDir {
+		target := fmt.Sprintf("/%s/session", currentEncodedDir)
+		if len(parts) == 3 {
+			target += "/" + url.PathEscape(parts[2])
+		}
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+		return true
+	}
 	if len(parts) == 2 {
-		return redirectToLatestOpenCodeSession(w, r, requestedEncodedDir, requestedDirectory)
+		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
 	}
 	return false
+}
+
+func canonicalPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(path)
+}
+
+func samePath(a, b string) bool {
+	return canonicalPath(a) == canonicalPath(b)
 }
 
 // hostnameMiddleware wraps an http.Handler with hostname verification, IP redirect, and host-based routing
