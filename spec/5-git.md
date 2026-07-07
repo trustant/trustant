@@ -81,22 +81,28 @@ Trustable keeps two git locations for an app:
 The pull operation is intentionally fast-forward only:
 
 1. validate the app name and ensure the bare workspace repo exists;
-2. if the workbench checkout exists, fail when `git status --porcelain` is not
-   empty;
-3. if the workbench checkout exists, fetch its local `origin` and fail when the
+2. if the workbench checkout exists, inspect `git status --porcelain`;
+3. if the status contains app/user changes, fail and return only those dirty
+   lines in `output`;
+4. if the status contains only Trustable-generated launch files
+   (`.mcp.json`, `.openserverless-contract.md`, `opencode.md`,
+   `opencode.json`, or a generated-only `AGENTS.md` with no app-local notes),
+   clean those generated files before continuing because they are regenerated
+   on launch;
+5. if the workbench checkout exists, fetch its local `origin` and fail when the
    workbench `HEAD` is not an ancestor of `origin/main`, because that means
    there are local-only commits or divergent history that should be saved or
    resolved first;
-4. in the bare workspace repo, configure `production` from `OPS_REPO` when
+6. in the bare workspace repo, configure `production` from `OPS_REPO` when
    present, then run `git fetch <remote> main`;
-5. if `refs/heads/main` already equals `FETCH_HEAD`, report that the app is
+7. if `refs/heads/main` already equals `FETCH_HEAD`, report that the app is
    already up to date;
-6. otherwise fail unless `refs/heads/main` is an ancestor of
+8. otherwise fail unless `refs/heads/main` is an ancestor of
    `FETCH_HEAD`;
-7. update `refs/heads/main` to `FETCH_HEAD`;
-8. if the workbench checkout exists, fetch from its local `origin` and run
+9. update `refs/heads/main` to `FETCH_HEAD`;
+10. if the workbench checkout exists, fetch from its local `origin` and run
    `git merge --ff-only origin/main`;
-9. when the workbench checkout was updated, run `ops ide clean` and
+11. when the workbench checkout was updated, run `ops ide clean` and
    `ops ide deploy` in the workbench so the local dev server reflects the
    pulled code.
 

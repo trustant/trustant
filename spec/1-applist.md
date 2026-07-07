@@ -215,8 +215,11 @@ updates Trustable's bare workspace repository and fast-forwards the active
 workbench checkout when it exists.
 
 The backend does not merge, rebase, hard reset, or overwrite unsaved workbench
-changes. If local changes or divergent commits exist, show the backend error in
-the same modal/result style used by Git Push.
+changes. Trustable-generated launch files may be cleaned by the backend before
+the pull because they are regenerated on app launch; app/user changes and
+`AGENTS.md` with app-local notes remain blocking. If local changes or divergent
+commits exist, show the backend error in the same modal/result style used by Git
+Push.
 
 Show spinner during the operation and result on completion. On success, reload
 the app list so repository metadata remains current.
