@@ -36,9 +36,53 @@ neutral rules, black primary actions, restrained outline secondary actions, and
 controlled cyan/teal accents. JetBrains Mono is reserved only for rare symbolic
 or code-like accents, not for ordinary operational labels.
 
+# Shared Trustable visual system
+
+`applist.html` is the source of truth for the Trustable first-party visual
+system. Apply the same Nuvolaris-style graphic language to these Trustable
+pages as they are migrated:
+
+- `web/index.html` — splash, provider choice, sign-in/configuration modals.
+- `web/configure.html` — provider, model, OpenCode, and Git user settings.
+- `web/app.html` — workbench top bar, menus, dialogs, and utility modals.
+- `web/appconfig.html` — per-app environment editor.
+- `web/debug.html` — activation log utility window; it may keep a dark log
+  canvas, but its top controls should still use the shared typography,
+  spacing, and restrained button language.
+
+Do not include `web/template.html` in this rollout. It is embedded as a
+generated application placeholder (see [4-launch.md](4-launch.md)), not a
+first-party Trustable page.
+
+Shared primitives:
+
+- Load Work Sans on every first-party page and keep JetBrains Mono only for
+  code, logs, paths, keys, and command output.
+- Keep the current Nuvolaris palette tokens: `--nu-ink`, `--nu-paper`,
+  `--nu-muted`, `--nu-rule`, `--nu-brand`, `--nu-brand-soft`, `--nu-accent`,
+  `--nu-signal`, and `--nu-danger`.
+- Reuse compact shells, top bars, panels/cards, modal surfaces, tables, form
+  controls, segmented controls/chips, status pills, dropdowns, and primary /
+  secondary / danger buttons from the applist visual language.
+- Use thin neutral borders, near-paper backgrounds, 4px radii for most
+  rectangular UI, and restrained accent color. Keep saturated colors only for
+  clear semantic states or existing product imagery.
+- Preserve every existing DOM id, API call, cookie, URL, form field, button
+  handler, provider choice path, model selection flow, launch link, git action,
+  and app environment editing behavior while restyling.
+- Keep the frontend plain HTML plus Tailwind loaded from `web/tailwind.js`.
+  Shared visual primitives live in `web/trustable-ui.css`; pages should link
+  that stylesheet rather than reintroducing page-local copies of the same
+  palette, typography, button, panel, table, and input rules.
+
+Authentication is a separate future stream. Do not add sign-in, account,
+session, or authorization controls in this visual-system migration; leave
+header/action layouts flexible enough that a later auth stream can add its own
+hook without reworking the page structure.
+
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link. Development and Production links show an external-link icon so they are recognizable as links.
 Application action buttons use restrained, light styling and fixed inline labels:
-Edit, Env, Git Push, Publish, and Delete must not wrap inside the list view.
+Edit, Env, Git Pull, Git Push, Publish, and Delete must not wrap inside the list view.
 Delete keeps a distinct pale red treatment.
 
 The Local link points to `<protocol>://<name>.<domain>` by replacing the first

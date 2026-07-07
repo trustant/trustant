@@ -5,50 +5,56 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable - Configuration</title>
     <script src="tailwind.js"></script>
+    <link rel="stylesheet" href="trustable-ui.css">
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
-    <div class="w-full max-w-2xl">
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center gap-3">
-                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-12 h-12">
-                <h1 class="text-2xl font-bold text-gray-800">Configuration</h1>
+<body class="min-h-screen">
+    <header class="nu-topbar">
+        <div class="nu-shell-narrow px-4 md:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-14 h-14">
+                <div>
+                    <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)]">Trustable settings</p>
+                    <h1 class="text-3xl font-light text-[color:var(--nu-ink)]">Configuration</h1>
+                </div>
             </div>
-            <div class="flex gap-2">
-                <a href="index.html?choose=1" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">Change Provider</a>
-                <a href="applist.html" class="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">Back</a>
+            <div class="flex flex-wrap gap-2">
+                <a href="index.html?choose=1" class="nu-btn nu-btn-primary">Change Provider</a>
+                <a href="applist.html" class="nu-btn nu-btn-secondary">Back</a>
             </div>
         </div>
-        <div class="mb-4 text-sm text-gray-600">
-            Current provider: <span id="currentProvider" class="font-semibold">—</span>
+    </header>
+
+    <main class="nu-shell-narrow px-4 md:px-6 py-6">
+        <div class="nu-panel px-4 py-3 mb-4 text-sm text-[color:var(--nu-muted)]">
+            Current provider: <span id="currentProvider" class="font-semibold text-[color:var(--nu-ink)]">—</span>
         </div>
 
         <!-- Reselect banner (shown when ?reselect=1 or version mismatch detected) -->
-        <div id="reselectBanner" class="hidden mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-900">
+        <div id="reselectBanner" class="hidden mb-4 p-4 nu-banner text-sm">
             Model catalog updated. Please re-select the default and small OpenCode models below, then click <strong>Save &amp; Configure</strong>.
         </div>
 
         <!-- Ollama Host (only when provider == "ollama") -->
-        <div id="ollamaHostSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
-            <h2 class="text-xl font-semibold mb-4">Ollama Host</h2>
-            <p id="ollamaInternalNote" class="text-sm text-gray-700 hidden">
+        <div id="ollamaHostSection" class="nu-card p-5 mb-4 hidden">
+            <h2 class="text-lg font-medium mb-4">Ollama Host</h2>
+            <p id="ollamaInternalNote" class="text-sm text-[color:var(--nu-muted)] hidden">
                 Using internal Ollama — click <strong>Change Provider</strong> if you want to use your own.
             </p>
             <div id="ollamaOwnHostBody" class="hidden">
-                <div class="flex items-center gap-1 font-mono text-sm">
-                    <span class="text-gray-700">http://</span>
+                <div class="flex flex-wrap items-center gap-2 nu-code text-sm">
+                    <span class="text-[color:var(--nu-muted)]">http://</span>
                     <input type="text" id="ollamaHost" placeholder="hostname"
-                        class="flex-1 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <span class="text-gray-700">:</span>
+                        class="nu-input flex-1 min-w-[12rem] px-2 py-1">
+                    <span class="text-[color:var(--nu-muted)]">:</span>
                     <input type="text" id="ollamaPort" placeholder="port" inputmode="numeric"
-                        class="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <span class="text-gray-700">/v1</span>
+                        class="nu-input w-24 px-2 py-1">
+                    <span class="text-[color:var(--nu-muted)]">/v1</span>
                     <button id="ollamaTestBtn" onclick="testOllamaHost()"
-                        class="ml-2 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                        class="nu-btn nu-btn-secondary">
                         Test
                     </button>
                 </div>
-                <ul id="ollamaOwnHostHelp" class="text-xs text-gray-600 mt-3 list-disc list-inside space-y-1">
+                <ul id="ollamaOwnHostHelp" class="text-xs text-[color:var(--nu-muted)] mt-3 list-disc list-inside space-y-1">
                     <li>Provide the IP of your local machine or intranet server (NOT 127.0.0.1).</li>
                     <li>Enable network access on that machine so Trustable can reach it.</li>
                     <li>It must be accessible via HTTP without authentication.</li>
@@ -58,111 +64,121 @@
         </div>
 
         <!-- BestIA Host (only when provider == "bestia") -->
-        <div id="bestiaHostSection" class="bg-white rounded-lg shadow-md p-6 mb-6 hidden">
-            <h2 class="text-xl font-semibold mb-4">BestIA Host</h2>
-            <p class="text-sm text-gray-700">
+        <div id="bestiaHostSection" class="nu-card p-5 mb-4 hidden">
+            <h2 class="text-lg font-medium mb-4">BestIA Host</h2>
+            <p class="text-sm text-[color:var(--nu-muted)]">
                 Using BestIA dedicated infrastructure
             </p>
         </div>
 
         <!-- Provider Models -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="nu-card p-5 mb-4">
             <div class="flex items-center justify-between mb-4">
-                <h2 id="modelsHeading" class="text-xl font-semibold">Models</h2>
+                <h2 id="modelsHeading" class="text-lg font-medium">Models</h2>
                 <button id="addModelBtn" onclick="showAddModelModal()"
-                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    class="nu-btn nu-btn-primary">
                     Add Model
                 </button>
                 <button id="refreshModelsBtn" onclick="refreshModelsFromStatus()"
-                    class="hidden px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                    class="hidden nu-btn nu-btn-secondary">
                     Refresh
                 </button>
             </div>
-            <table class="w-full text-sm">
+            <table class="nu-table text-sm">
                 <thead>
-                    <tr class="border-b">
-                        <th class="text-left py-2 px-2">Model</th>
-                        <th class="text-left py-2 px-2">Context Size</th>
-                        <th class="text-right py-2 px-2">Actions</th>
+                    <tr>
+                        <th class="text-left">Model</th>
+                        <th class="text-left">Context Size</th>
+                        <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="modelTableBody">
-                    <tr><td colspan="3" class="text-center py-4 text-gray-500">Loading...</td></tr>
+                    <tr><td colspan="3" class="text-center py-4 text-[color:var(--nu-muted)]">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
 
         <!-- OpenCode Models -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 class="text-xl font-semibold mb-4">OpenCode Models</h2>
+        <div class="nu-card p-5 mb-4">
+            <h2 class="text-lg font-medium mb-4">OpenCode Models</h2>
             <div class="space-y-3">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Default Model</label>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Default Model</label>
                     <select id="opencodeDefault"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
+                        class="nu-input w-full px-3 py-2 text-sm bg-white">
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Small Model</label>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Small Model</label>
                     <select id="opencodeSmall"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
+                        class="nu-input w-full px-3 py-2 text-sm bg-white">
                     </select>
                 </div>
             </div>
         </div>
 
         <!-- Git User -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 class="text-xl font-semibold mb-4">Git User</h2>
+        <div class="nu-card p-5 mb-4">
+            <h2 class="text-lg font-medium mb-4">Git User</h2>
             <div class="space-y-3">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">User Name</label>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">User Name</label>
                     <input type="text" id="gitUser"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        class="nu-input w-full px-3 py-2 text-sm">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Email</label>
                     <input type="text" id="gitEmail"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        class="nu-input w-full px-3 py-2 text-sm">
                 </div>
             </div>
+        </div>
+
+        <!-- Experimental -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Experimental</h2>
+            <label class="flex items-center justify-between gap-4 cursor-pointer">
+                <span class="text-sm font-medium text-gray-700">Headroom</span>
+                <input id="headroomEnabled" type="checkbox"
+                    class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+            </label>
         </div>
 
         <!-- Actions -->
         <div class="flex flex-col gap-3">
             <div class="flex gap-3">
                 <button id="saveBtn" onclick="saveAndConfigure()"
-                    class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors">
+                    class="nu-btn nu-btn-primary flex-1">
                     Save &amp; Configure
                 </button>
             </div>
-            <div id="saveStatus" class="hidden text-sm"></div>
+            <div id="saveStatus" class="hidden nu-card px-4 py-3 text-sm"></div>
         </div>
-    </div>
+    </main>
 
     <!-- Add Model Modal -->
-    <div id="addModelModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 class="text-lg font-semibold mb-4">Add Model</h3>
+    <div id="addModelModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-medium mb-4">Add Model</h3>
             <div class="space-y-3">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Model Name</label>
                     <input type="text" id="newModelName" placeholder="e.g. qwen3-coder:480b-cloud"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        class="nu-input w-full px-3 py-2 text-sm">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Context Size</label>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Context Size</label>
                     <input type="text" id="newModelContext" placeholder="e.g. 256K"
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        class="nu-input w-full px-3 py-2 text-sm">
                 </div>
             </div>
             <div class="flex gap-3 mt-4">
                 <button onclick="hideAddModelModal()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
                 <button onclick="addModel()"
-                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="nu-btn nu-btn-primary flex-1">
                     Add
                 </button>
             </div>
@@ -201,6 +217,7 @@
                 renderOpencodeSelects();
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
+                document.getElementById('headroomEnabled').checked = !!config.experimental?.headroom?.enabled;
                 if (config.provider === 'bestia') {
                     await loadBestiaModels();
                 }
@@ -356,17 +373,17 @@
             document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama' || config.provider === 'bestia');
 
             if (keys.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">No models configured</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-[color:var(--nu-muted)]">No models configured</td></tr>';
                 return;
             }
             tbody.innerHTML = keys.map(name => `
-                <tr class="border-b">
-                    <td class="py-2 px-2 font-mono text-xs">${escapeHtml(name)}</td>
-                    <td class="py-2 px-2">${escapeHtml(formatContextSize(models[name]))}</td>
-                    <td class="py-2 px-2 text-right">
+                <tr>
+                    <td class="nu-code text-xs">${escapeHtml(name)}</td>
+                    <td>${escapeHtml(formatContextSize(models[name]))}</td>
+                    <td class="text-right">
                         ${editable ? `
                             <button onclick="removeModel('${escapeAttr(name)}')"
-                                class="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors">
+                                class="nu-btn nu-btn-danger nu-btn-compact">
                                 Remove
                             </button>
                         ` : ''}
@@ -525,6 +542,14 @@
                 const port = document.getElementById('ollamaPort').value.trim();
                 baseURL = `http://${host}:${port}/v1`;
             }
+            const experimental = {
+                ...(config.experimental || {}),
+                headroom: {
+                    ...(config.experimental?.headroom || {}),
+                    enabled: document.getElementById('headroomEnabled').checked,
+                    mode: config.experimental?.headroom?.mode || 'proxy'
+                }
+            };
             return {
                 provider: config.provider || '',
                 base_url: baseURL,
@@ -539,6 +564,7 @@
                     user: document.getElementById('gitUser').value.trim(),
                     email: document.getElementById('gitEmail').value.trim()
                 },
+                experimental,
                 apps: config.apps || {}
             };
         }
@@ -558,9 +584,9 @@
 
         function setSaveStatus(msg, kind) {
             const el = document.getElementById('saveStatus');
-            el.classList.remove('hidden', 'text-gray-600', 'text-green-700', 'text-red-700', 'bg-red-50', 'border', 'border-red-200', 'rounded-md', 'p-3');
+            el.classList.remove('hidden', 'text-[color:var(--nu-muted)]', 'text-green-700', 'text-red-700', 'bg-red-50', 'border-red-200');
             if (kind === 'error') {
-                el.classList.add('text-red-700', 'bg-red-50', 'border', 'border-red-200', 'rounded-md', 'p-3');
+                el.classList.add('text-red-700', 'bg-red-50', 'border-red-200');
                 el.innerHTML = '';
                 const span = document.createElement('span');
                 span.textContent = msg;
@@ -568,14 +594,14 @@
                 el.appendChild(document.createTextNode(' '));
                 const retry = document.createElement('button');
                 retry.textContent = 'Retry';
-                retry.className = 'ml-2 px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700';
+                retry.className = 'nu-btn nu-btn-danger text-xs min-h-0 ml-2 px-3 py-1';
                 retry.onclick = saveAndConfigure;
                 el.appendChild(retry);
             } else if (kind === 'ok') {
                 el.classList.add('text-green-700');
                 el.textContent = msg;
             } else {
-                el.classList.add('text-gray-600');
+                el.classList.add('text-[color:var(--nu-muted)]');
                 el.textContent = msg;
             }
         }

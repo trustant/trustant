@@ -26,7 +26,7 @@ Aligned to the right:
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
 - the button "Back" (gray, chevron left icon)
 
-All buttons use inline SVG icons (monochrome white, matching the button text).
+Toolbar buttons use inline SVG icons that inherit the current button text color.
 
 # Config Pulldown
 
@@ -54,6 +54,19 @@ The button shows the label "Utils" and a chevron-down icon. Clicking it toggles 
 Each item triggers the same behavior previously documented in the "Revert", "Redeploy", "Debug", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
+
+The workbench chrome, menus, modals, and toolbar controls use the shared
+Nuvolaris-style Trustable visual system defined in
+[1-applist.md](1-applist.md) under "Shared Trustable visual system" and loaded
+from `web/trustable-ui.css`. The top bar uses the shared near-paper surface,
+thin border, Work Sans typography, compact app identity, status pill, restrained
+buttons, and shared dropdown/menu styling. Dialogs, read-only environment and
+skills views, memory editor shell, top-up iframe shell, route/query popup, and
+git/upload/revert/skills result boxes use the same modal, input, table, button,
+and code-output primitives. Preserve the full-height two-iframe layout and all
+existing ids, cookies, launch URLs, git/status polling, route/query controls,
+credits/top-up behavior, and utility actions. Restyling should make the toolbar
+more professional and compact without changing the command model.
 
 Get the URLDIR from the cookie then show the iframe. URLDIR must be the raw or
 URL-encoded absolute application directory. For compatibility, if URLDIR is a
@@ -193,6 +206,11 @@ When clicked:
 # Debug
 
 The **Debug** entry in the Utils pulldown opens a separate browser window at `debug.html?app=<NAME>`.
+
+`debug.html` is a first-party Trustable utility page in the visual rollout. It
+may keep a dark log area for readability, but its header, status text, and
+Restart / Stop / Close controls should follow the shared typography, spacing,
+border, and button system.
 
 The debug window opens an EventSource to `GET /api/activations/poll?name=<NAME>` and displays the streamed activation log.
 

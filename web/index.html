@@ -5,44 +5,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable</title>
     <script src="tailwind.js"></script>
+    <link rel="stylesheet" href="trustable-ui.css">
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
     <!-- Splash Screen -->
-    <div id="splashContent" class="flex flex-col items-center">
+    <div id="splashContent" class="flex flex-col items-center text-center">
         <img src="trustable-logo.svg" alt="Trustable Logo" class="w-32 h-32">
-        <h1 class="text-3xl font-bold text-gray-800 mt-6">Trustable Cloud</h1>
-        <p class="text-sm text-gray-500 mt-1">powered by Regolo.AI</p>
-        <h2 id="versionText" class="text-2xl font-semibold text-gray-700 mt-2"></h2>
-        <p id="expireText" class="text-sm text-gray-500 mt-2"></p>
+        <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)] mt-6">powered by Regolo.AI</p>
+        <h1 class="text-4xl font-light text-[color:var(--nu-ink)] mt-1">Trustable Cloud</h1>
+        <h2 id="versionText" class="text-xl font-medium text-[color:var(--nu-muted)] mt-3"></h2>
+        <p id="expireText" class="text-sm text-[color:var(--nu-muted)] mt-2"></p>
     </div>
 
     <!-- Provider Choice Modal -->
-    <div id="providerModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-40">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl mx-4">
-            <h3 class="text-xl font-semibold mb-4 text-center">Choose your AI provider</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 items-stretch">
+    <div id="providerModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-40">
+        <div class="nu-modal p-6 w-full max-w-2xl mx-4">
+            <h3 class="text-xl font-light mb-2 text-center">Choose your AI provider</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-5 items-stretch">
                 <div class="flex flex-col items-center h-full">
                     <img src="regolo-head.png" alt="Trustable Cloud powered by Regolo.AI" class="h-24 w-auto mb-3">
                     <button onclick="selectTrustable()"
-                        class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                        <div class="font-semibold text-lg mb-2">Register on Trustable Cloud,</div>
-                        <div class="text-sm text-gray-600">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="text-blue-600 hover:underline">Regolo.AI</a></div>
-                        <div class="text-sm text-gray-600 mt-2">100 Credits FREE when registering</div>
-                        <div class="text-sm text-gray-600 font-bold">Special Offer until September 2026</div>
-                        <ul class="text-sm text-gray-600 list-disc list-inside">
+                        class="nu-card w-full flex-1 text-left p-5 transition-colors">
+                        <div class="font-medium text-lg mb-2">Register on Trustable Cloud,</div>
+                        <div class="text-sm text-[color:var(--nu-muted)]">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="nu-link">Regolo.AI</a></div>
+                        <div class="text-sm text-[color:var(--nu-muted)] mt-2">100 Credits FREE when registering</div>
+                        <div class="text-sm text-[color:var(--nu-ink)] font-medium">Special Offer until September 2026</div>
+                        <ul class="text-sm text-[color:var(--nu-muted)] list-disc list-inside mt-2">
                             <li>FREE Credits Top Up (fair use policy applies)</li>
-                            <li>FREE App for publishing (request it emailing <a href="mailto:redeem@nuvolaris.io" onclick="event.stopPropagation()" class="text-blue-600 hover:underline">redeem@nuvolaris.io</a>)</li>
+                            <li>FREE App for publishing (request it emailing <a href="mailto:redeem@nuvolaris.io" onclick="event.stopPropagation()" class="nu-link">redeem@nuvolaris.io</a>)</li>
                         </ul>
                     </button>
                 </div>
                 <div class="flex flex-col items-center h-full">
                     <img src="ollama-head.png" alt="Ollama" class="h-24 w-auto mb-3">
                     <button onclick="selectOllama()"
-                        class="w-full flex-1 text-left p-5 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                        <div class="font-semibold text-lg mb-2">Ollama</div>
-                        <div class="text-sm text-gray-600">You can use Trustable for free for local use <strong>without publishing</strong></div>
-                        <div class="text-sm text-gray-600 mt-2">You can use:</div>
-                        <ul class="text-sm text-gray-600 list-disc list-inside">
+                        class="nu-card w-full flex-1 text-left p-5 transition-colors">
+                        <div class="font-medium text-lg mb-2">Ollama</div>
+                        <div class="text-sm text-[color:var(--nu-muted)]">You can use Trustable for free for local use <strong>without publishing</strong></div>
+                        <div class="text-sm text-[color:var(--nu-muted)] mt-2">You can use:</div>
+                        <ul class="text-sm text-[color:var(--nu-muted)] list-disc list-inside mt-2">
                             <li>Our embedded ollama server using <strong>your Ollama cloud account</strong></li>
                             <li>Your local server, only if <strong>accessible in HTTP without authentication</strong></li>
                         </ul>
@@ -51,46 +52,50 @@
             </div>
 
             <div onclick="selectBestia()" role="button"
-                class="mt-6 pt-6 border-t border-gray-200 flex items-center gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors cursor-pointer">
+                class="nu-card mt-4 grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)] gap-4 p-4 transition-colors cursor-pointer">
                 <img src="bestia-head.png" alt="Bestia" class="h-16 w-auto flex-shrink-0">
-                <p class="flex-1 text-sm text-gray-700">
-                    For our BestIA customers with dedicated GPU and unlimited app publishing.
-                </p>
-                <button onclick="event.stopPropagation(); window.open('https://nuvolaris.io/bestia', '_blank')"
-                    class="flex-shrink-0 px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors">
-                    Contact Us for our Deployment Solutions
-                </button>
+                <div class="min-w-0">
+                    <p class="text-sm text-[color:var(--nu-muted)]">
+                        For our BestIA customers with dedicated GPU and unlimited app publishing.
+                    </p>
+                    <div class="mt-3 flex sm:justify-start">
+                        <button onclick="event.stopPropagation(); window.open('https://nuvolaris.io/bestia', '_blank')"
+                            class="nu-btn nu-btn-secondary w-full sm:w-auto">
+                            Contact Us for our Deployment Solutions
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Ollama Mode Sub-Modal -->
-    <div id="ollamaModeModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4">
-            <h3 class="text-xl font-semibold mb-4 text-center">Choose Ollama mode</h3>
+    <div id="ollamaModeModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-light mb-4 text-center">Choose Ollama mode</h3>
             <div class="space-y-3">
-                <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                <label class="nu-card flex items-start gap-3 p-3 cursor-pointer">
                     <input type="radio" name="ollamaMode" value="internal" class="mt-1" checked>
                     <span>
-                        <span class="block font-semibold">Use internal Ollama with recommended cloud models</span>
-                        <span class="block text-sm text-gray-600">Embedded Ollama server bundled with Trustable.</span>
+                        <span class="block font-medium">Use internal Ollama with recommended cloud models</span>
+                        <span class="block text-sm text-[color:var(--nu-muted)]">Embedded Ollama server bundled with Trustable.</span>
                     </span>
                 </label>
-                <label class="flex items-start gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
+                <label class="nu-card flex items-start gap-3 p-3 cursor-pointer">
                     <input type="radio" name="ollamaMode" value="own" class="mt-1">
                     <span>
-                        <span class="block font-semibold">Use my own Ollama with currently installed models</span>
-                        <span class="block text-sm text-gray-600">Point Trustable at an Ollama server on your network. You'll be asked for its host on the next screen.</span>
+                        <span class="block font-medium">Use my own Ollama with currently installed models</span>
+                        <span class="block text-sm text-[color:var(--nu-muted)]">Point Trustable at an Ollama server on your network. You'll be asked for its host on the next screen.</span>
                     </span>
                 </label>
             </div>
             <div class="flex gap-3 mt-6">
                 <button onclick="cancelOllamaMode()"
-                    class="flex-1 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                    class="nu-btn nu-btn-secondary flex-1">
                     Back
                 </button>
                 <button onclick="confirmOllamaMode()"
-                    class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                    class="nu-btn nu-btn-primary flex-1">
                     Continue
                 </button>
             </div>
@@ -98,35 +103,35 @@
     </div>
 
     <!-- Trustable Register Iframe Overlay -->
-    <div id="registerOverlay" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl flex flex-col" style="width:80%;height:80%;">
-            <div class="flex items-center justify-between px-4 py-2 border-b">
+    <div id="registerOverlay" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal flex flex-col" style="width:80%;height:80%;">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-[color:var(--nu-rule)]">
                 <span class="text-sm font-medium">Trustable Cloud sign-up</span>
                 <button onclick="cancelRegister()"
-                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+                    class="nu-btn nu-btn-secondary nu-btn-compact">Cancel</button>
             </div>
             <iframe id="registerIframe" class="flex-1 w-full" src="about:blank"></iframe>
         </div>
     </div>
 
     <!-- Configuring Modal -->
-    <div id="configModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
+    <div id="configModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
             <div id="configSpinner" class="mb-4">
-                <svg class="animate-spin h-12 w-12 text-blue-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-12 w-12 text-[color:var(--nu-brand)] mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
             </div>
-            <h3 class="text-lg font-semibold mb-2">Configuring</h3>
-            <p class="text-sm text-gray-500 mb-3">Pulling models and generating configuration...</p>
-            <div id="configMessages" class="text-left text-sm font-mono bg-gray-50 rounded p-3 max-h-48 overflow-y-auto mb-4"></div>
+            <h3 class="text-lg font-medium mb-2">Configuring</h3>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-3">Pulling models and generating configuration...</p>
+            <div id="configMessages" class="nu-code text-left text-sm nu-panel p-3 max-h-48 overflow-y-auto mb-4"></div>
             <div id="configDone" class="hidden flex gap-3 justify-center">
-                <button id="configRetryBtn" onclick="runConfiguration()" class="hidden px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                <button id="configRetryBtn" onclick="runConfiguration()" class="hidden nu-btn nu-btn-primary">
                     Retry
                 </button>
                 <button onclick="hideConfigModal()"
-                    class="px-6 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors">
+                    class="nu-btn nu-btn-secondary">
                     Continue
                 </button>
             </div>
@@ -134,19 +139,19 @@
     </div>
 
     <!-- Sign-in Required Modal -->
-    <div id="signinModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 text-center">
-            <h3 class="text-lg font-semibold mb-4 text-red-600">Sign-in Required</h3>
+    <div id="signinModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
+            <h3 class="text-lg font-medium mb-4 text-[color:var(--nu-danger)]">Sign-in Required</h3>
             <div id="signinWithLink" class="hidden mb-6">
                 <a id="ollamaConnectLink" href="#" target="_blank"
-                    class="text-lg text-blue-600 hover:underline font-semibold">Click here to login to Ollama Cloud</a>
+                    class="text-lg nu-link font-medium">Click here to login to Ollama Cloud</a>
             </div>
             <div id="signinWithoutLink" class="mb-6">
-                <p class="text-gray-700 mb-2">You are not logged in to ollama cloud.</p>
-                <p class="text-gray-700">Please execute <code class="bg-gray-100 px-2 py-1 rounded text-sm">ollama signin</code> and click Retry.</p>
+                <p class="text-[color:var(--nu-muted)] mb-2">You are not logged in to ollama cloud.</p>
+                <p class="text-[color:var(--nu-muted)]">Please execute <code class="nu-code nu-panel px-2 py-1 text-sm">ollama signin</code> and click Retry.</p>
             </div>
             <button onclick="retryOpenAITest()"
-                class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                class="nu-btn nu-btn-primary">
                 Retry
             </button>
         </div>

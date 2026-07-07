@@ -24,9 +24,17 @@ import (
 )
 
 const (
-	opencodePort = 4096
-	opsdevelPort = 5173
+	opencodePort        = 4096
+	opsdevelPort        = 5173
+	defaultHeadroomPort = 8787
 )
+
+type headroomLaunchConfig struct {
+	Enabled  bool
+	Mode     string
+	Port     int
+	StateDir string
+}
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
@@ -515,6 +523,216 @@ func waitForPort(port int, timeout time.Duration) error {
 	return fmt.Errorf("port %d not listening after %v", port, timeout)
 }
 
+func parseOptionalBoolValue(key, raw string) (bool, error) {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if raw != "" {
+		value = strings.ToLower(strings.TrimSpace(raw))
+	}
+	switch value {
+	case "", "0", "false", "f", "no", "off":
+		return false, nil
+	case "1", "true", "t", "yes", "on":
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be true/false, got %q", key, os.Getenv(key))
+	}
+}
+
+func optionalBoolEnv(key string) (bool, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return false, false, nil
+	}
+	value, err := parseOptionalBoolValue(key, raw)
+	return value, true, err
+}
+
+func defaultHeadroomStateDir() string {
+	base := WorkspaceDir
+	if base == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			base = filepath.Join(home, "workspace")
+		}
+	}
+	if base == "" {
+		base = "/home/trustable/workspace"
+	}
+	return filepath.Join(base, ".trustable", "headroom")
+}
+
+func defaultHeadroomConfig() headroomLaunchConfig {
+	return headroomLaunchConfig{
+		Enabled:  false,
+		Mode:     "proxy",
+		Port:     defaultHeadroomPort,
+		StateDir: defaultHeadroomStateDir(),
+	}
+}
+
+func headroomConfigFromTrustableConfig(cfg *trustableConfig) headroomLaunchConfig {
+	result := defaultHeadroomConfig()
+	if cfg == nil || cfg.Experimental == nil || cfg.Experimental.Headroom == nil {
+		return result
+	}
+	headroom := cfg.Experimental.Headroom
+	result.Enabled = headroom.Enabled
+	if strings.TrimSpace(headroom.Mode) != "" {
+		result.Mode = strings.TrimSpace(headroom.Mode)
+	}
+	if headroom.Port != 0 {
+		result.Port = headroom.Port
+	}
+	if strings.TrimSpace(headroom.StateDir) != "" {
+		result.StateDir = strings.TrimSpace(headroom.StateDir)
+	}
+	return result
+}
+
+func applyHeadroomEnvOverrides(cfg headroomLaunchConfig) (headroomLaunchConfig, error) {
+	if enabled, set, err := optionalBoolEnv("TRUSTABLE_HEADROOM_ENABLED"); err != nil {
+		return headroomLaunchConfig{}, err
+	} else if set {
+		cfg.Enabled = enabled
+	}
+
+	if mode := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_MODE")); mode != "" {
+		cfg.Mode = mode
+	}
+	if rawPort := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_PORT")); rawPort != "" {
+		parsed, err := strconv.Atoi(rawPort)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			return headroomLaunchConfig{}, fmt.Errorf("TRUSTABLE_HEADROOM_PORT must be 1-65535, got %q", rawPort)
+		}
+		cfg.Port = parsed
+	}
+
+	if stateDir := strings.TrimSpace(os.Getenv("TRUSTABLE_HEADROOM_STATE_DIR")); stateDir != "" {
+		cfg.StateDir = stateDir
+	}
+	if strings.TrimSpace(cfg.Mode) == "" {
+		cfg.Mode = "proxy"
+	}
+	if cfg.Port < 1 || cfg.Port > 65535 {
+		return cfg, fmt.Errorf("Headroom port must be 1-65535, got %d", cfg.Port)
+	}
+	if strings.TrimSpace(cfg.StateDir) == "" {
+		cfg.StateDir = defaultHeadroomStateDir()
+	}
+
+	if cfg.Enabled && cfg.Mode != "proxy" {
+		return cfg, fmt.Errorf("unsupported Headroom mode %q", cfg.Mode)
+	}
+
+	return cfg, nil
+}
+
+func headroomConfigFromEnv() (headroomLaunchConfig, error) {
+	return applyHeadroomEnvOverrides(defaultHeadroomConfig())
+}
+
+func headroomConfigForLaunch() (headroomLaunchConfig, error) {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return headroomLaunchConfig{}, err
+	}
+	return applyHeadroomEnvOverrides(headroomConfigFromTrustableConfig(cfg))
+}
+
+func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
+	cacheDir := filepath.Join(cfg.StateDir, "cache")
+	dataDir := filepath.Join(cfg.StateDir, "data")
+	stateDir := filepath.Join(cfg.StateDir, "state")
+	logPath := filepath.Join(cfg.StateDir, "proxy.jsonl")
+
+	env := append([]string{}, base...)
+	env = append(env,
+		"HEADROOM_HOST=127.0.0.1",
+		"HEADROOM_PORT="+strconv.Itoa(cfg.Port),
+		"HEADROOM_WORKSPACE_DIR="+cfg.StateDir,
+		"HEADROOM_CONFIG_DIR="+filepath.Join(cfg.StateDir, "config"),
+		"HEADROOM_LOG_FILE="+logPath,
+		"HEADROOM_MEMORY_DB_PATH="+filepath.Join(cfg.StateDir, "memory.db"),
+		"HEADROOM_CCR_SQLITE_PATH="+filepath.Join(cfg.StateDir, "ccr_store.db"),
+		"HEADROOM_NO_SUBSCRIPTION_TRACKING=true",
+		"HEADROOM_TELEMETRY=off",
+		"XDG_CACHE_HOME="+cacheDir,
+		"XDG_DATA_HOME="+dataDir,
+		"XDG_STATE_HOME="+stateDir,
+	)
+	return env
+}
+
+func ensureHeadroomProxy(pgid int) error {
+	cfg, err := headroomConfigForLaunch()
+	if err != nil {
+		return err
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+
+	if cfg.Mode != "proxy" {
+		return fmt.Errorf("unsupported Headroom mode %q", cfg.Mode)
+	}
+
+	if isPortListening(cfg.Port) {
+		log.Printf("headroom: proxy already listening on 127.0.0.1:%d, reusing", cfg.Port)
+		return nil
+	}
+	if !isPortFree(cfg.Port) && !reclaimPort(cfg.Port) {
+		return fmt.Errorf("headroom proxy port %d is not available", cfg.Port)
+	}
+
+	if err := os.MkdirAll(cfg.StateDir, 0755); err != nil {
+		return fmt.Errorf("create Headroom state dir %s: %w", cfg.StateDir, err)
+	}
+
+	bin, err := exec.LookPath("headroom")
+	if err != nil {
+		return fmt.Errorf("headroom is enabled but `headroom` is not in PATH")
+	}
+
+	args := []string{
+		"proxy",
+		"--host", "127.0.0.1",
+		"--port", strconv.Itoa(cfg.Port),
+		"--no-telemetry",
+		"--log-file", filepath.Join(cfg.StateDir, "proxy.jsonl"),
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = cfg.StateDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = headroomProxyEnv(os.Environ(), cfg)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
+
+	log.Printf("headroom: starting proxy binary=%s cmd=`%s` dir=%s", bin, strings.Join(append([]string{"headroom"}, args...), " "), cfg.StateDir)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start Headroom proxy: %w", err)
+	}
+
+	exited := make(chan error, 1)
+	go func() {
+		exited <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-exited:
+		if err != nil {
+			return fmt.Errorf("Headroom proxy exited early: %w", err)
+		}
+		return fmt.Errorf("Headroom proxy exited early")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	if err := waitForPort(cfg.Port, 15*time.Second); err != nil {
+		return fmt.Errorf("Headroom proxy failed to listen on 127.0.0.1:%d: %w", cfg.Port, err)
+	}
+
+	log.Printf("headroom: proxy ready on 127.0.0.1:%d state=%s", cfg.Port, cfg.StateDir)
+	return nil
+}
+
 // readPgid reads the process group ID from the pgid file
 func readPgid() (int, error) {
 	data, err := os.ReadFile(getPgidFile())
@@ -860,9 +1078,9 @@ func listOpencodeSessions(domain string, port int, directory string) []opencodeS
 
 // createOpencodeSession POSTs to opencode's /session/ endpoint with the
 // workbench directory header so the running opencode server scopes its session
-// to the launched app. The POST targets <domain>:<port> (not localhost) because
-// in production opencode is reached through an ingress, not the loopback (see
-// spec/4-launch.md). Failures are logged but non-fatal.
+// to the launched app. Launch runs in the same pod as OpenCode, so this is an
+// explicit pod-local sidecar call to localhost:4096. Browser traffic uses the
+// opencode.<domain> ingress and Trustable proxy path instead.
 func createOpencodeSession(domain string, port int, directory string) string {
 	url := fmt.Sprintf("http://%s:%d/session/", domain, port)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -965,6 +1183,77 @@ func ensureRequiredWorkbenchFolders(workbenchPath string) {
 	log.Printf("ensureRequiredWorkbenchFolders: scaffolded and committed %v", created)
 }
 
+func workspaceRepoExists(workspacePath string) bool {
+	if _, err := os.Stat(filepath.Join(workspacePath, "config")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(workspacePath, ".git", "config")); err == nil {
+		return true
+	}
+	return false
+}
+
+func ensureNodeDependencies(workbenchPath, app string) {
+	if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(workbenchPath, "node_modules")); err == nil {
+		return
+	}
+	log.Printf("Running npm install in workbench/%s...", app)
+	npmCmd := exec.Command("npm", "install")
+	npmCmd.Dir = workbenchPath
+	if output, err := npmCmd.CombinedOutput(); err != nil {
+		log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
+	}
+}
+
+func restoreMissingWorkbenchCheckouts() {
+	workspaceRoot := filepath.Join(WorkspaceDir, "workspace")
+	entries, err := os.ReadDir(workspaceRoot)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to read workspace repos for workbench restore: %s", err)
+		}
+		return
+	}
+	if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
+		log.Printf("Warning: failed to create workbench dir for restore: %s", err)
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		app := entry.Name()
+		if !namePattern.MatchString(app) {
+			continue
+		}
+		workspacePath := filepath.Join(workspaceRoot, app)
+		if !workspaceRepoExists(workspacePath) {
+			continue
+		}
+		workbenchPath, _ := filepath.Abs(filepath.Join(WorkbenchDir, app))
+		if _, err := os.Stat(workbenchPath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to inspect workbench/%s: %s", app, err)
+			continue
+		}
+		log.Printf("Restoring missing workbench/%s from workspace/%s...", app, app)
+		cloneCmd := exec.Command("git", "clone", workspacePath, workbenchPath)
+		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			log.Printf("Warning: failed to restore workbench/%s: %s, output: %s", app, err, string(output))
+			continue
+		}
+		if err := generateAppEnvFiles(app); err != nil {
+			log.Printf("Warning: failed to generate restored workbench .env for %s: %s", app, err)
+		}
+		ensureOpenCodeProjectID(workbenchPath, app)
+		cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
+	}
+}
+
 // handleLaunchGet handles GET /api/launch/<app>
 func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1009,25 +1298,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			log.Printf("Warning: failed to generate workbench .env: %s", err)
 		}
 
-		// Run npm install if package.json exists
-		if _, err := os.Stat(filepath.Join(workbenchPath, "package.json")); err == nil {
-			log.Printf("Running npm install in workbench/%s...", app)
-			npmCmd := exec.Command("npm", "install")
-			npmCmd.Dir = workbenchPath
-			if output, err := npmCmd.CombinedOutput(); err != nil {
-				log.Printf("Warning: npm install failed: %s, output: %s", err, string(output))
-			}
-		}
+		ensureNodeDependencies(workbenchPath, app)
 
 		log.Printf("Workbench for %s set up successfully", app)
 	} else {
 		log.Printf("Workbench for %s already exists, reusing", app)
 		// On the reuse path, regenerate the .env files to keep them in sync with
-		// the current config (spec/4-launch.md). npm install runs only on the
-		// initial clone, not on reuse.
+		// the current config (spec/4-launch.md). A restored checkout may not yet
+		// have node_modules, so install dependencies when package.json exists and
+		// node_modules is absent.
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to regenerate workbench .env: %s", err)
 		}
+		ensureNodeDependencies(workbenchPath, app)
 	}
 
 	// Ensure the required folders exist (packages/, web/) after checkout.
@@ -1231,6 +1514,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		log.Printf("opencode: pid=%d still alive after 500ms, serving on port %d", opencodeCmd.Process.Pid, leftPort)
 	}
 
+	if err := ensureHeadroomProxy(pgid); err != nil {
+		killPgid(pgid)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start Headroom proxy: %s", err)})
+		return
+	}
+
 	// Write pgid and current app name to files
 	if err := writePgid(pgid); err != nil {
 		killPgid(pgid)
@@ -1300,22 +1589,13 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
 		return
 	}
+	absPath = canonicalPath(absPath)
 	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
 
-	// Strip any port from the request host to get the bare domain.
-	domain := r.Host
-	if colonIdx := strings.LastIndex(domain, ":"); colonIdx != -1 {
-		if bracketIdx := strings.LastIndex(domain, "]"); bracketIdx == -1 || colonIdx > bracketIdx {
-			domain = domain[:colonIdx]
-		}
-	}
-
-	// Notify opencode of the workbench directory so it scopes the session
-	// correctly. The request arrives on the trustable.<domain> host, but opencode
-	// is served on opencode.<domain> (the ingress routes by hostname prefix — see
-	// middleware.go), so swap the prefix before POSTing.
-	opencodeHost := strings.Replace(domain, "trustable.", "opencode.", 1)
-	sessionID := resolveOpencodeSession(opencodeHost, leftPort, absPath)
+	// Notify the pod-local OpenCode server of the workbench directory so it
+	// scopes the session correctly. Browser requests use opencode.<domain>
+	// through the ingress/proxy path; launch bootstrapping stays inside the pod.
+	sessionID := resolveOpencodeSession("localhost", leftPort, absPath)
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{

@@ -12,6 +12,15 @@ The page shows centered the Trustable logo (`trustable-logo.svg`) in large size,
 
 Show also in smaller font "Expiration date: <date>"
 
+The splash and all provider/sign-in/configuration modals use the shared
+Nuvolaris-style Trustable visual system defined in [1-applist.md](1-applist.md)
+under "Shared Trustable visual system" and linked from `web/trustable-ui.css`.
+This page is a real splash/choice page, so a centered first-run composition is
+acceptable, but it should still use Work Sans, the shared palette tokens,
+compact modal/card geometry, and restrained professional SaaS controls. Provider
+selection behavior and iframe recovery flows must remain unchanged during visual
+migration.
+
 # Provider choice
 
 After the version check, fetch the merged config via `GET /api/configuration`, then fetch `GET /api/status` (the backend's pass-through of the ai-proxy `/api/v2/status` response — see [status_check.md](status_check.md)). The response carries a per-provider `modelsVersion` integer plus the canonical `models`, `default`, and `small` for each provider.
@@ -34,7 +43,7 @@ The Provider Choice modal is centered and shows two cards:
 - **Ollama** — "Free forever. Publishing not available." Picking this card opens a second sub-modal that asks the user to pick between **Use internal Ollama with recommended cloud models** and **Use my own Ollama with currently installed models** (see "Ollama mode selection" in [2a-config.md](2a-config.md)).
 - **Trustable Cloud** — "Free until 30 June 2026, then \$20/month. Includes 1000 credits/month and one app published on nuvolaris.dev."
 
-Below the two cards, a third full-width **BestIA** card is shown for dedicated-GPU customers. Its body reads "For our BestIA customers with dedicated GPU and unlimited app publishing." and it has a **Contact Us for our Deployment Solutions** button. The button opens `https://nuvolaris.io/bestia` in a new tab and does **not** trigger card selection (it stops event propagation); clicking anywhere else on the card starts the BestIA flow (see "## BestIA selected").
+Below the two cards, a third full-width **BestIA** card is shown for dedicated-GPU customers. Its body reads "For our BestIA customers with dedicated GPU and unlimited app publishing." and it has a **Contact Us for our Deployment Solutions** button. Keep the body text and contact button in the same content column beside/below the BestIA image so the body text does not collapse into a narrow desktop column. The button opens `https://nuvolaris.io/bestia` in a new tab and does **not** trigger card selection (it stops event propagation); clicking anywhere else on the card starts the BestIA flow (see "## BestIA selected").
 
 ## Ollama selected
 
