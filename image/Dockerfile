@@ -64,6 +64,7 @@ RUN \
     for tool in \
         milvus-cli \
         'python-lsp-server[yapf]' \
+        'headroom-ai[proxy]==0.28.0' \
         postgres-mcp==0.3.0 \
         redis-mcp-server==0.5.0 \
         git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3 ;\
@@ -74,7 +75,8 @@ RUN \
         UV_PYTHON_PREFERENCE=only-system \
         UV_LINK_MODE=hardlink \
         uv tool install --python /usr/bin/python3 $tool ;\
-    done
+    done ;\
+    headroom --help >/dev/null
 
 RUN \
     npm install -g typescript-language-server typescript tsx ;\

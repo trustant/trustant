@@ -128,6 +128,16 @@
             </div>
         </div>
 
+        <!-- Experimental -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Experimental</h2>
+            <label class="flex items-center justify-between gap-4 cursor-pointer">
+                <span class="text-sm font-medium text-gray-700">Headroom</span>
+                <input id="headroomEnabled" type="checkbox"
+                    class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+            </label>
+        </div>
+
         <!-- Actions -->
         <div class="flex flex-col gap-3">
             <div class="flex gap-3">
@@ -201,6 +211,7 @@
                 renderOpencodeSelects();
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
+                document.getElementById('headroomEnabled').checked = !!config.experimental?.headroom?.enabled;
                 if (config.provider === 'bestia') {
                     await loadBestiaModels();
                 }
@@ -525,6 +536,14 @@
                 const port = document.getElementById('ollamaPort').value.trim();
                 baseURL = `http://${host}:${port}/v1`;
             }
+            const experimental = {
+                ...(config.experimental || {}),
+                headroom: {
+                    ...(config.experimental?.headroom || {}),
+                    enabled: document.getElementById('headroomEnabled').checked,
+                    mode: config.experimental?.headroom?.mode || 'proxy'
+                }
+            };
             return {
                 provider: config.provider || '',
                 base_url: baseURL,
@@ -539,6 +558,7 @@
                     user: document.getElementById('gitUser').value.trim(),
                     email: document.getElementById('gitEmail').value.trim()
                 },
+                experimental,
                 apps: config.apps || {}
             };
         }
