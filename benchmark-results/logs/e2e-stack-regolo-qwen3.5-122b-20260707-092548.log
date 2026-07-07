@@ -1,0 +1,49 @@
+Trustable issue98 E2E
+  domain:     miniops.me
+  namespace:  nuvolaris
+  pod:        trustable-0
+  app:        <create if TRUSTABLE_E2E_REPO is set>
+
+
+Running 1 test using 1 worker
+
+(node:195291) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:195291) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety (26.2s)
+
+
+  1) [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety › send prompt and wait for model/tool loop 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+    Received: [31mfalse[39m
+
+      115 |     { timeout: 30_000 },
+      116 |   );
+    > 117 |   expect(response.ok(), await response.text()).toBeTruthy();
+          |                                                ^
+      118 |   return response.json();
+      119 | }
+      120 |
+        at sessionMessages (/home/msciab/trustable-app/tests/issue98.spec.mjs:117:48)
+        at waitForPromptIdle (/home/msciab/trustable-app/tests/issue98.spec.mjs:184:22)
+        at runPromptStep (/home/msciab/trustable-app/tests/issue98.spec.mjs:261:20)
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:398:9
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:397:7
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety 
+E2E_RC=1
+E2E_SECONDS=28
+E2E_MODEL=qwen3.5-122b
+E2E_APP=regstkq35122

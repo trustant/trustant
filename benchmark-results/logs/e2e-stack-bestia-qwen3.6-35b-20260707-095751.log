@@ -1,0 +1,13 @@
+Trustable issue98 E2E
+  domain:     miniops.me
+  namespace:  nuvolaris
+  pod:        trustable-0
+  app:        <create if TRUSTABLE_E2E_REPO is set>
+
+
+Running 1 test using 1 worker
+
+(node:316754) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:316754) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
