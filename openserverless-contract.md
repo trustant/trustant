@@ -66,11 +66,30 @@ Invalid examples:
 - Add PostgreSQL wiring with the OpenServerless action tool.
 - Use `conn = ctx.POSTGRESQL` in editable action modules.
 - Do not reconnect with `POSTGRES_URL` when `ctx.POSTGRESQL` is provided.
+- Service MCP servers are assistant-side diagnostics. They do not automatically
+  create runtime env vars, action params, or `ctx` bindings inside Python
+  actions.
 - MongoDB is a separate document database capability. Use it only when the
   official MongoDB capability is present in generated config/environment.
+- If `action-add-mongodb` / `action_add_mongodb` is exposed, use it to generate
+  the MongoDB wrapper and use `ctx.MONGODB_CLIENT` or `ctx.MONGODB` in business
+  modules.
 - If MongoDB is absent, show `non configurato` or an error state and document
   that state. Do not ask the user for infrastructure details and do not use
   Milvus/vector search as a substitute for MongoDB.
+- Do not use `MDB_MCP_CONNECTION_STRING` in app source or action code. It is
+  only the MongoDB MCP server's private environment variable, not an app runtime
+  binding.
+- Do not invent MongoDB runtime env vars such as `MONGODB_URI`, `MONGO_URL`, or
+  `MDB_CONNECTION_STRING` unless a generated action wrapper already exposes an
+  official MongoDB binding.
+- Add Redis wiring with `action-add-redis` / `action_add_redis`. The generated
+  wrapper exposes `ctx.REDIS` and `ctx.REDIS_PREFIX`; every Redis key used by
+  action modules must be built from `ctx.REDIS_PREFIX` plus an app-local suffix.
+  Do not call `ctx.REDIS.get/set/delete/hset/...` with naked keys.
+- Use S3 app behavior through `action-add-s3` and generated action wiring. Do
+  not rely on S3 MCP bucket listing as app proof; if S3 MCP listing fails, use
+  the configured app buckets/action path or report the real error.
 - Do not hardcode database URLs, hosts, users, passwords, schemas, buckets, or
   service ports in source code.
 - Every write must commit.

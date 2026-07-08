@@ -34,7 +34,19 @@ The visual language follows the current Nuvolaris website system: Work Sans for
 UI text, lightweight headings, a near-paper background, small 4px radii, thin
 neutral rules, black primary actions, restrained outline secondary actions, and
 controlled cyan/teal accents. JetBrains Mono is reserved only for rare symbolic
-or code-like accents, not for ordinary operational labels.
+or code-like accents, not for ordinary operational labels. The application list
+table keeps one consistent Work Sans family, compact size, medium weight, and
+zero letter spacing across headers, cells, links, badges, and action buttons.
+List table text is rendered in the same uppercase micro-label style as the
+`APPLICATION` header cell; this is a visual transform only and must not mutate
+repository names or app names in data.
+Shared operational controls (`nu-btn`, `nu-chip`, `nu-status-pill`,
+`nu-segment-btn`, menu items, and shared tables) use the same smaller uppercase
+micro-label treatment so modal actions, toolbar controls, and secondary screens
+do not look typographically unrelated. Generic table headers use the micro-label
+style, while generic table body values preserve their original casing; the app
+list is the explicit exception where the full list view uses uppercase as a
+visual transform.
 
 # Shared Trustable visual system
 
@@ -46,9 +58,8 @@ pages as they are migrated:
 - `web/configure.html` — provider, model, OpenCode, and Git user settings.
 - `web/app.html` — workbench top bar, menus, dialogs, and utility modals.
 - `web/appconfig.html` — per-app environment editor.
-- `web/debug.html` — activation log utility window; it may keep a dark log
-  canvas, but its top controls should still use the shared typography,
-  spacing, and restrained button language.
+- `web/debug.html` — activation log utility window; it uses the shared light
+  shell and controls, with monospace reserved only for streamed log output.
 
 Do not include `web/template.html` in this rollout. It is embedded as a
 generated application placeholder (see [4-launch.md](4-launch.md)), not a
@@ -104,8 +115,9 @@ You can
 - git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 
-Application action buttons should use a restrained visual style: white or very
-light neutral backgrounds, gray borders, gray text, and subtle hover states.
+Application action buttons should use a restrained visual style: very light
+cyan-tinted secondary backgrounds, soft brand-tinted borders/text, and subtle
+hover states.
 Avoid assigning a different saturated color to every action. Destructive
 actions may keep a red text/border treatment, but should not use a solid red
 background in the normal state.

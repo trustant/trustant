@@ -218,8 +218,9 @@ function assertPromptToolSafety(messages) {
   }
 
   const failedTools = toolParts.filter((part) => part.state?.status === "error");
+  const hardFailedTools = failedTools.filter((part) => !isBenignPromptToolError(part));
   if (env.TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS !== "1") {
-    expect(failedTools, JSON.stringify(failedTools)).toEqual([]);
+    expect(hardFailedTools, JSON.stringify(failedTools)).toEqual([]);
   }
 
   const rawOpsAction = toolParts.filter((part) => {
@@ -235,6 +236,19 @@ function assertPromptToolSafety(messages) {
     const usedOpenServerless = toolParts.some((part) => /^action[-_]/.test(part.tool || ""));
     expect(usedOpenServerless, JSON.stringify(toolParts.map((part) => part.tool))).toBeTruthy();
   }
+}
+
+function isBenignPromptToolError(part) {
+  if (part.tool !== "list") {
+    return false;
+  }
+  const state = part.state || {};
+  const inputPath = state.input?.path || "";
+  const error = state.error || "";
+  return (
+    inputPath.startsWith("/home/trustable/workspace/workbench/") &&
+    error.includes("ENOENT: no such file or directory")
+  );
 }
 
 async function runPromptStep(request, app, launch) {

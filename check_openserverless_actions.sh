@@ -71,6 +71,20 @@ if [ -d packages ]; then
     if grep -Eiq 'mongo(db)?|MONGODB|MONGO_' "$module" && grep -Eq 'MILVUS|pymilvus|milvus_cli|MilvusClient' "$module"; then
       error "$module" "MongoDB is a separate document database capability. Do not use Milvus/vector tooling as a MongoDB substitute; report MongoDB as non configurato when the official capability is absent."
     fi
+    if grep -Eq 'MDB_MCP_CONNECTION_STRING' "$module"; then
+      error "$module" "MDB_MCP_CONNECTION_STRING is private to the MongoDB MCP server and is not an app action runtime binding. Use an official action/runtime MongoDB binding when available, otherwise report MongoDB as non configurato."
+    fi
+    action_dir="$(dirname "$module")"
+    wrapper="$action_dir/__main__.py"
+    if grep -Eq 'MONGODB_URI|MONGO_URL|MONGO_CONNECTION_STRING|MDB_CONNECTION_STRING' "$module" &&
+      { [ ! -f "$wrapper" ] || ! grep -Eq 'init_mongo|init_mongodb|MONGODB|MONGO_|MDB_' "$wrapper"; }; then
+      error "$module" "MongoDB runtime environment was guessed in action code, but no generated MongoDB action binding was detected. MCP MongoDB visibility is diagnostic only; report MongoDB as non configurato unless an official runtime binding exists."
+    fi
+    if grep -Eq 'ctx\.REDIS|REDIS' "$module" &&
+      grep -Eq '\.(get|set|delete|exists|expire|hset|hget|hmset|hmget|lpush|rpush|sadd|zadd|incr|decr|scan|keys)[[:space:]]*\(' "$module" &&
+      ! grep -Eq 'REDIS_PREFIX|redis_key' "$module"; then
+      error "$module" "Redis action code uses Redis keys without the generated ctx.REDIS_PREFIX. Build keys as ctx.REDIS_PREFIX plus an app-local suffix; naked keys are outside the Nuvolaris Redis ACL."
+    fi
   done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
 
   while IFS= read -r seedfile; do

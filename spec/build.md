@@ -17,6 +17,15 @@ binary for linux/amd64 and linux/arm64, builds the Docker image through
 `docker save ... | sudo -n k3s ctr images import -`, then patches
 `StatefulSet/trustable` in namespace `nuvolaris`.
 
+`image/image.sh` builds the base image from the part of `image/Dockerfile`
+before the `###---###` separator. The base image installs
+`openserverless-mcp` from the repository `mcp` submodule, not from a direct
+GitHub npm reference. Before building, the script stages the submodule into the
+Docker build context as `image/openserverless-mcp`, and the base-image hash
+must include both the base Dockerfile and the current `mcp` submodule commit.
+This guarantees that updating the MCP submodule pointer rebuilds the base image
+used by Trustable.
+
 Server build environment:
 
 - `TRUSTABLE_IMAGE`: image repository, default

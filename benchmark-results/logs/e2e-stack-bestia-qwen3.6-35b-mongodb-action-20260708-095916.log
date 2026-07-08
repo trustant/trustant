@@ -1,0 +1,148 @@
+E2E_APP=bestmongo0959
+E2E_MODEL=qwen3.6:35b
+E2E_SMALL_MODEL=bestia/coding:30b
+E2E_IMAGE=ghcr.io/trustable-ai/trustable-app:devel_v0.3.11_26.189.0811
+Trustable issue98 E2E
+  domain:     miniops.me
+  namespace:  nuvolaris
+  pod:        trustable-0
+  app:        <create if TRUSTABLE_E2E_REPO is set>
+
+
+Running 1 test using 1 worker
+
+(node:499246) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:499246) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety (8.4m)
+
+
+  1) [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety › send prompt and wait for model/tool loop 
+
+    Error: [{"id":"prt_f4131e8d70018F7KP7YWCng11L","sessionID":"ses_0bed4e07fffe8Mkzy2a4NsmnS8","messageID":"msg_f41319623001OXt7wGKig9XYaS","type":"tool","callID":"call_jrc254i6","tool":"edit","state":{"status":"error","input":{"filePath":"/home/trustable/workspace/workbench/bestmongo0959/packages/v1/stack/stack.py","newString":"def _test_mongodb(ctx):\n    try:\n        if not ctx or not hasattr(ctx, \"MONGODB\"):\n            return {\n                \"componente\": \"MongoDB\",\n                \"stato\": \"non configurato\",\n                \"valore_letto\": None,\n                \"ultimo_aggiornamento\": _now_iso(),\n            }\n\n        db = ctx.MONGODB\n        col = db[\"stack_e2e\"]\n        key = \"stack-e2e-issue98-mrbwoya4\"\n\n        col.update_one(\n            {\"_id\": key},\n            {\"$set\": {\"_id\": key, \"value\": \"stack-ok-42\", \"updated_at\": datetime.now(timezone.utc)}},\n            upsert=True,\n        )\n\n        doc = col.find_one({\"_id\": key})\n        valore_letto = doc.get(\"value\") if doc else None\n\n        return {\n            \"componente\": \"MongoDB\",\n            \"stato\": \"ok\" if valore_letto == \"stack-ok-42\" else f\"valore_errato:{valore_letto}\",\n            \"valore_letto\": valore_letto,\n            \"ultimo_aggiornamento\": _now_iso(),\n        }\n    except Exception as exc:\n        return {\n            \"componente\": \"MongoDB\",\n            \"stato\": f\"errore:{exc}\",\n            \"valore_letto\": None,\n            \"ultimo_aggiornamento\": _now_iso(),\n        }","oldString":"def _test_mongodb(ctx):\n    try:\n        if not ctx or not hasattr(ctx, \"MONGODB\"):\n            return {\n                \"componente\": \"MongoDB\",\n                \"stato\": \"non configurato\",\n                \"valore_letto\": None,\n                \"ultimo_aggiornamento\": _now_iso(),\n            }\n\n        db = ctx.MONGODB\n        col = db[\"stack_e2e\"]\n        key = \"stack-e2e-issue98-mrbwoya4\"\n\n        col.update_one(\n            {\"_id\": key},\n            {\"$set\": {\"_id\": key, \"value\": \"stack-ok-42\", \"updated_at\": datetime.now(timezone.utc)}},\n            upsert=True,\n        )\n\n        doc = col.find_one({\"_id\": key})\n        valore_letto = doc.get(\"value\") if doc else None\n\n        return {\n            \"componente\": \"MongoDB\",\n            \"stato\": \"ok\" if valore_letto == \"stack-ok-42\" else f\"valore_errato:{valore_letto}\",\n            \"valore_letto\": valore_letto,\n            \"ultimo_aggiornamento\": _now_iso(),\n        }\n    except Exception as exc:\n        return {\n            \"componente\": \"MongoDB\",\n            \"stato\": f\"errore:{exc}\",\n            \"valore_letto\": None,\n            \"ultimo_aggiornamento\": _now_iso(),\n        }"},"error":"No changes to apply: oldString and newString are identical.","time":{"start":1783505217758,"end":1783505217762}}}]
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  -  1[39m
+    [31m+ Received  + 93[39m
+
+    [32m- Array [][39m
+    [31m+ Array [[39m
+    [31m+   Object {[39m
+    [31m+     "callID": "call_jrc254i6",[39m
+    [31m+     "id": "prt_f4131e8d70018F7KP7YWCng11L",[39m
+    [31m+     "messageID": "msg_f41319623001OXt7wGKig9XYaS",[39m
+    [31m+     "sessionID": "ses_0bed4e07fffe8Mkzy2a4NsmnS8",[39m
+    [31m+     "state": Object {[39m
+    [31m+       "error": "No changes to apply: oldString and newString are identical.",[39m
+    [31m+       "input": Object {[39m
+    [31m+         "filePath": "/home/trustable/workspace/workbench/bestmongo0959/packages/v1/stack/stack.py",[39m
+    [31m+         "newString": "def _test_mongodb(ctx):[39m
+    [31m+     try:[39m
+    [31m+         if not ctx or not hasattr(ctx, \"MONGODB\"):[39m
+    [31m+             return {[39m
+    [31m+                 \"componente\": \"MongoDB\",[39m
+    [31m+                 \"stato\": \"non configurato\",[39m
+    [31m+                 \"valore_letto\": None,[39m
+    [31m+                 \"ultimo_aggiornamento\": _now_iso(),[39m
+    [31m+             }[39m
+    [31m+[39m
+    [31m+         db = ctx.MONGODB[39m
+    [31m+         col = db[\"stack_e2e\"][39m
+    [31m+         key = \"stack-e2e-issue98-mrbwoya4\"[39m
+    [31m+[39m
+    [31m+         col.update_one([39m
+    [31m+             {\"_id\": key},[39m
+    [31m+             {\"$set\": {\"_id\": key, \"value\": \"stack-ok-42\", \"updated_at\": datetime.now(timezone.utc)}},[39m
+    [31m+             upsert=True,[39m
+    [31m+         )[39m
+    [31m+[39m
+    [31m+         doc = col.find_one({\"_id\": key})[39m
+    [31m+         valore_letto = doc.get(\"value\") if doc else None[39m
+    [31m+[39m
+    [31m+         return {[39m
+    [31m+             \"componente\": \"MongoDB\",[39m
+    [31m+             \"stato\": \"ok\" if valore_letto == \"stack-ok-42\" else f\"valore_errato:{valore_letto}\",[39m
+    [31m+             \"valore_letto\": valore_letto,[39m
+    [31m+             \"ultimo_aggiornamento\": _now_iso(),[39m
+    [31m+         }[39m
+    [31m+     except Exception as exc:[39m
+    [31m+         return {[39m
+    [31m+             \"componente\": \"MongoDB\",[39m
+    [31m+             \"stato\": f\"errore:{exc}\",[39m
+    [31m+             \"valore_letto\": None,[39m
+    [31m+             \"ultimo_aggiornamento\": _now_iso(),[39m
+    [31m+         }",[39m
+    [31m+         "oldString": "def _test_mongodb(ctx):[39m
+    [31m+     try:[39m
+    [31m+         if not ctx or not hasattr(ctx, \"MONGODB\"):[39m
+    [31m+             return {[39m
+    [31m+                 \"componente\": \"MongoDB\",[39m
+    [31m+                 \"stato\": \"non configurato\",[39m
+    [31m+                 \"valore_letto\": None,[39m
+    [31m+                 \"ultimo_aggiornamento\": _now_iso(),[39m
+    [31m+             }[39m
+    [31m+[39m
+    [31m+         db = ctx.MONGODB[39m
+    [31m+         col = db[\"stack_e2e\"][39m
+    [31m+         key = \"stack-e2e-issue98-mrbwoya4\"[39m
+    [31m+[39m
+    [31m+         col.update_one([39m
+    [31m+             {\"_id\": key},[39m
+    [31m+             {\"$set\": {\"_id\": key, \"value\": \"stack-ok-42\", \"updated_at\": datetime.now(timezone.utc)}},[39m
+    [31m+             upsert=True,[39m
+    [31m+         )[39m
+    [31m+[39m
+    [31m+         doc = col.find_one({\"_id\": key})[39m
+    [31m+         valore_letto = doc.get(\"value\") if doc else None[39m
+    [31m+[39m
+    [31m+         return {[39m
+    [31m+             \"componente\": \"MongoDB\",[39m
+    [31m+             \"stato\": \"ok\" if valore_letto == \"stack-ok-42\" else f\"valore_errato:{valore_letto}\",[39m
+    [31m+             \"valore_letto\": valore_letto,[39m
+    [31m+             \"ultimo_aggiornamento\": _now_iso(),[39m
+    [31m+         }[39m
+    [31m+     except Exception as exc:[39m
+    [31m+         return {[39m
+    [31m+             \"componente\": \"MongoDB\",[39m
+    [31m+             \"stato\": f\"errore:{exc}\",[39m
+    [31m+             \"valore_letto\": None,[39m
+    [31m+             \"ultimo_aggiornamento\": _now_iso(),[39m
+    [31m+         }",[39m
+    [31m+       },[39m
+    [31m+       "status": "error",[39m
+    [31m+       "time": Object {[39m
+    [31m+         "end": 1783505217762,[39m
+    [31m+         "start": 1783505217758,[39m
+    [31m+       },[39m
+    [31m+     },[39m
+    [31m+     "tool": "edit",[39m
+    [31m+     "type": "tool",[39m
+    [31m+   },[39m
+    [31m+ ][39m
+
+      220 |   const failedTools = toolParts.filter((part) => part.state?.status === "error");
+      221 |   if (env.TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS !== "1") {
+    > 222 |     expect(failedTools, JSON.stringify(failedTools)).toEqual([]);
+          |                                                      ^
+      223 |   }
+      224 |
+      225 |   const rawOpsAction = toolParts.filter((part) => {
+        at assertPromptToolSafety (/home/msciab/trustable-app/tests/issue98.spec.mjs:222:54)
+        at runPromptStep (/home/msciab/trustable-app/tests/issue98.spec.mjs:263:3)
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:398:9
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:397:7
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Slow test file: [chromium] › tests/issue98.spec.mjs (8.4m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  1 failed
+    [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety 

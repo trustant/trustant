@@ -1471,6 +1471,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// which service blocks landed — a missing block here is exactly why an MCP
 	// server would be skipped or misconfigured (spec/4-launch.md).
 	logOpsServiceBlocks(app)
+	if err := generateAppEnvFiles(app); err != nil {
+		log.Printf("Warning: failed to regenerate .env after ops ide login: %s", err)
+	}
 
 	// Run ops ide clean
 	log.Printf("Running ops ide clean for %s...", app)

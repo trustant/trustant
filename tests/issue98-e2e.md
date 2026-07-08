@@ -80,7 +80,9 @@ Environment variables:
   prompts. Leave unset when permission prompts should fail the test.
 - `TRUSTABLE_E2E_PROMPT_EXPECT_TOOLS=0`: allow prompts that do not use tools.
   By default the prompt step expects at least one tool call.
-- `TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS=1`: allow failed tool calls.
+- `TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS=1`: allow failed tool calls. Without
+  it, the runner still tolerates only `list`/`ENOENT` probes for missing
+  optional directories inside the app workbench, such as `packages/setup`.
 - `TRUSTABLE_E2E_EXPECT_OPENSERVERLESS_TOOL=1`: require an
   OpenServerless action MCP tool call in the prompt step.
 - `TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES=1`: require new workbench changes after

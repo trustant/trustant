@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+import threading
+
+
+REAL = os.environ.get("TRUSTABLE_MCP_S3_REAL", "/usr/local/bin/mcp-s3-real")
+BLOCKED_TOOLS = {"list_buckets", "s3_list_buckets"}
+
+
+def pump(src, dst):
+    try:
+        while True:
+            chunk = src.buffer.read(8192)
+            if not chunk:
+                break
+            dst.buffer.write(chunk)
+            dst.buffer.flush()
+    except BrokenPipeError:
+        pass
+
+
+def tool_name(tool):
+    if not isinstance(tool, dict):
+        return ""
+    return str(tool.get("name") or "")
+
+
+def normalize_buckets(value):
+    if isinstance(value, dict):
+        if value.get("buckets") is None:
+            value["buckets"] = []
+        for child in value.values():
+            normalize_buckets(child)
+    elif isinstance(value, list):
+        for child in value:
+            normalize_buckets(child)
+
+
+def rewrite_message(message):
+    result = message.get("result")
+    if isinstance(result, dict):
+        tools = result.get("tools")
+        if isinstance(tools, list):
+            result["tools"] = [
+                tool
+                for tool in tools
+                if tool_name(tool) not in BLOCKED_TOOLS
+                and not tool_name(tool).endswith("_list_buckets")
+            ]
+        normalize_buckets(result)
+    return message
+
+
+def main():
+    if not os.path.exists(REAL):
+        print(f"mcp-s3 wrapper cannot find real binary at {REAL}", file=sys.stderr)
+        return 127
+
+    proc = subprocess.Popen(
+        [REAL, *sys.argv[1:]],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    stdin_thread = threading.Thread(target=pump, args=(sys.stdin, proc.stdin), daemon=True)
+    stderr_thread = threading.Thread(target=pump, args=(proc.stderr, sys.stderr), daemon=True)
+    stdin_thread.start()
+    stderr_thread.start()
+
+    try:
+        for line in proc.stdout:
+            out = line
+            try:
+                message = json.loads(line)
+                out = json.dumps(rewrite_message(message), separators=(",", ":")) + "\n"
+            except Exception:
+                pass
+            sys.stdout.write(out)
+            sys.stdout.flush()
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    return proc.wait()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

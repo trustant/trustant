@@ -89,11 +89,12 @@
                     <tr>
                         <th class="text-left">Model</th>
                         <th class="text-left">Context Size</th>
+                        <th class="text-left">OpenCode</th>
                         <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="modelTableBody">
-                    <tr><td colspan="3" class="text-center py-4 text-[color:var(--nu-muted)]">Loading...</td></tr>
+                    <tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -135,12 +136,12 @@
         </div>
 
         <!-- Experimental -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <h2 class="text-xl font-semibold mb-4">Experimental</h2>
+        <div class="nu-card p-5 mb-6">
+            <h2 class="text-lg font-medium mb-4">Experimental</h2>
             <label class="flex items-center justify-between gap-4 cursor-pointer">
-                <span class="text-sm font-medium text-gray-700">Headroom</span>
+                <span class="text-sm font-medium text-[color:var(--nu-ink)]">Headroom</span>
                 <input id="headroomEnabled" type="checkbox"
-                    class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    class="h-4 w-4 rounded border-[color:var(--nu-rule)] text-[color:var(--nu-brand)] focus:ring-[color:var(--nu-brand)]">
             </label>
         </div>
 
@@ -305,10 +306,10 @@
         function setTestStatus(msg, kind) {
             const el = document.getElementById('ollamaTestStatus');
             el.textContent = msg;
-            el.classList.remove('hidden', 'text-red-600', 'text-green-600', 'text-gray-600');
-            if (kind === 'error') el.classList.add('text-red-600');
-            else if (kind === 'ok') el.classList.add('text-green-600');
-            else el.classList.add('text-gray-600');
+            el.classList.remove('hidden', 'text-[color:var(--nu-danger)]', 'text-[color:var(--nu-signal)]', 'text-[color:var(--nu-muted)]');
+            if (kind === 'error') el.classList.add('text-[color:var(--nu-danger)]');
+            else if (kind === 'ok') el.classList.add('text-[color:var(--nu-signal)]');
+            else el.classList.add('text-[color:var(--nu-muted)]');
         }
 
         async function testOllamaHost() {
@@ -373,13 +374,26 @@
             document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama' || config.provider === 'bestia');
 
             if (keys.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-[color:var(--nu-muted)]">No models configured</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">No models configured</td></tr>';
                 return;
             }
-            tbody.innerHTML = keys.map(name => `
+            tbody.innerHTML = keys.map(name => {
+                const policy = opencodeModelPolicy(name, models[name]);
+                const badgeClass = policy.allowed
+                    ? 'border-[color:var(--nu-border)] bg-white text-[color:var(--nu-ink)]'
+                    : 'border-amber-200 bg-amber-50 text-amber-800';
+                const badgeText = policy.allowed ? 'Available' : 'Hidden';
+                const reason = policy.allowed ? '' : `<div class="mt-1 text-xs text-[color:var(--nu-muted)]">${escapeHtml(policy.reason)}</div>`;
+                return `
                 <tr>
                     <td class="nu-code text-xs">${escapeHtml(name)}</td>
                     <td>${escapeHtml(formatContextSize(models[name]))}</td>
+                    <td>
+                        <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass}">
+                            ${badgeText}
+                        </span>
+                        ${reason}
+                    </td>
                     <td class="text-right">
                         ${editable ? `
                             <button onclick="removeModel('${escapeAttr(name)}')"
@@ -389,7 +403,7 @@
                         ` : ''}
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         async function refreshModelsFromStatus() {
@@ -438,12 +452,59 @@
             return String(n);
         }
 
+        function hasModelRole(entry, roles) {
+            const got = Array.isArray(entry?.roles) ? entry.roles.map(r => String(r).toLowerCase()) : [];
+            return roles.some(role => got.includes(role));
+        }
+
+        function opencodeModelPolicy(name, entry) {
+            const id = String(name || '').toLowerCase();
+            if (!id) return { allowed: false, reason: 'model id is empty' };
+            if (entry && entry.enabled === false) {
+                return { allowed: false, reason: entry.reason || 'disabled by model catalog' };
+            }
+            if (hasModelRole(entry, ['embedding', 'embed', 'rerank', 'vector'])) {
+                return { allowed: false, reason: 'not a chat/coding model' };
+            }
+            if (hasModelRole(entry, ['opencode', 'agent', 'coding', 'chat'])) {
+                return { allowed: true, reason: '' };
+            }
+            const blocked = [
+                'embedding',
+                'embed-text',
+                'nomic-embed',
+                'gte-',
+                'bge-',
+                'rerank',
+                '/tiny:',
+                '/small:',
+                'flash:e4b',
+                'whisper',
+                'tts',
+                'vision',
+                'audio'
+            ];
+            if (blocked.some(part => id.includes(part))) {
+                return { allowed: false, reason: 'not suitable for OpenCode agent work' };
+            }
+            const match = /(^|[/:_-])([0-9]+(?:\.[0-9]+)?)b($|[/:_-])/i.exec(id);
+            if (match && parseFloat(match[2]) > 0 && parseFloat(match[2]) < 20) {
+                return { allowed: false, reason: 'below the recommended 20B minimum' };
+            }
+            return { allowed: true, reason: '' };
+        }
+
+        function opencodeModelNames() {
+            return Object.keys(config.models || {})
+                .filter(name => opencodeModelPolicy(name, config.models[name]).allowed);
+        }
+
         function renderOpencodeSelects() {
-            const keys = Object.keys(config.models || {});
+            const keys = opencodeModelNames();
             const def = config.opencode?.default || '';
             const small = config.opencode?.small || '';
-            populateSelect('opencodeDefault', keys, def);
-            populateSelect('opencodeSmall', keys, small);
+            populateSelect('opencodeDefault', keys, keys.includes(def) ? def : '');
+            populateSelect('opencodeSmall', keys, keys.includes(small) ? small : '');
         }
 
         function populateSelect(id, options, selected) {

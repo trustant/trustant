@@ -100,6 +100,14 @@ Then inspect available MCP/tool names before touching action or service code.
 - Do not use shell redirection to create or replace source files. Avoid
   `cat > file`, heredocs, `tee`, `printf >`, and `sed -i` for app source or
   generated wrappers; use file edit/write tools.
+- Avoid stale `edit` tool errors. Before editing a file that was created or
+  changed earlier in the session, re-read the file and use the current text for
+  replacements. For small generated app modules or React pages that are being
+  replaced wholesale, prefer the file write tool with the full final content
+  over many incremental `edit` replacements. If an `edit` returns `oldString`
+  not found, `No changes to apply`, or identical old/new content, do not retry
+  the same edit; re-read the file, check whether the target change is already
+  present, then either continue or rewrite the file once.
 - Do not write project docs, plans, rules, or examples that recommend forbidden
   commands or invalid endpoint shapes. Documentation must not contain examples
   such as `ops action deploy`, `ops action update`, `v1/auth/register`, or
@@ -188,6 +196,7 @@ depending on the client. Use the matching exposed tool:
   wiring.
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
+- `action-add-mongodb` / `action_add_mongodb`: add MongoDB service wiring.
 
 If a tool call returns "Invalid Tool", stop and use one of the exposed tool
 names. Do not retry with guessed aliases. If a shell command reports
@@ -263,12 +272,36 @@ intentionally absent. Do not hardcode service hosts, ports, credentials, bucket
 names, database names, or tokens when the MCP server or generated environment
 already provides them.
 
+MCP servers are assistant-side tools. They do not automatically create runtime
+environment variables, action parameters, or `ctx` bindings inside Python
+actions. A successful service MCP call proves only that the assistant can
+inspect that service; it is not proof that the app action can use the same
+connection. For action runtime access, use the OpenServerless action service
+tools such as `action-add-redis`, `action-add-postgresql`, `action-add-s3`,
+`action-add-milvus`, and `action-add-mongodb`. If no matching action service
+tool or generated runtime binding exists, the app must expose a deterministic
+`non configurato`/error state instead of inventing a backend connection.
+
 MongoDB is a document database capability, separate from Milvus/vector search.
 If the user asks for MongoDB and the `mongodb` MCP server or official MongoDB
 environment is absent, implement a deterministic `non configurato`/error state
 in the app and README. Do not ask the user how to configure MongoDB, do not
 invent connection details, and do not use Milvus, `MILVUS_*`, `pymilvus`, or
 `milvus_cli` as a substitute.
+
+When `action-add-mongodb` / `action_add_mongodb` is exposed, use it to generate
+the MongoDB wrapper before writing module code. The generated wrapper exposes
+`ctx.MONGODB_CLIENT` and `ctx.MONGODB`; business modules should use those
+context values instead of reading connection strings directly.
+
+Do not use `MDB_MCP_CONNECTION_STRING` in app source, action modules, wrappers,
+README instructions, or frontend code. That variable belongs only to the
+generated MongoDB MCP server process. Do not invent `MONGODB_URI`, `MONGO_URL`,
+`MONGO_CONNECTION_STRING`, `MDB_CONNECTION_STRING`, or similar MongoDB runtime
+variables unless a generated action wrapper already exposes an official MongoDB
+runtime binding. If MongoDB is visible only through the MCP server and not
+through an action service tool/runtime binding, report MongoDB as
+`non configurato` in the app path.
 
 You may inspect `~/.ops/config.json` only to understand which services exist.
 Do not copy values from it into app code, wrapper code, logs, docs, or frontend
@@ -288,6 +321,29 @@ rows are fine as supporting evidence after the app path succeeds.
 When inspecting PostgreSQL through MCP, use the exact exposed tool names. For
 schemas use `postgres_list_schemas`. For tables/views in a schema use
 `postgres_list_objects`. Do not call generic names such as `list_schemas`.
+
+When using Redis in an action, first add Redis wiring with
+`action-add-redis` / `action_add_redis`. The generated wrapper exposes
+`ctx.REDIS` and `ctx.REDIS_PREFIX`. Always construct keys from the prefix and an
+app-local suffix:
+
+```python
+def redis_key(ctx, name):
+    return f"{getattr(ctx, 'REDIS_PREFIX', '') or ''}{name}"
+```
+
+Use `ctx.REDIS.get(redis_key(ctx, "cache:item"))`,
+`ctx.REDIS.set(redis_key(ctx, "cache:item"), value)`, and the same pattern for
+`delete`, `hset`, `hget`, `lpush`, `sadd`, `expire`, and similar commands. Do
+not use naked Redis keys such as `"stack-e2e-..."` directly with `ctx.REDIS`;
+Nuvolaris Redis ACLs only allow the configured user prefix.
+
+For S3 app verification, prefer the OpenServerless action path created with
+`action-add-s3` and the generated `ctx.S3_CLIENT` wiring. Do not use S3 MCP
+bucket listing as the proof that an app feature works; some S3 MCP servers
+cannot list buckets or can return schema-invalid bucket lists. If an S3 MCP
+listing tool fails, treat it as a diagnostic tool failure and continue through
+the app action path, the configured user buckets, or `rclone` when available.
 
 ## Runtime Host Rules
 
@@ -614,7 +670,8 @@ restrictions are enforced by the platform:
 - Milvus database is named after the user.
 - MongoDB is available only when the official post-login config exposes a
   MongoDB block or derived connection string.
-- Redis writable keys must be prefixed with `<user>:`.
+- Redis keys used by actions must be built with the generated
+  `ctx.REDIS_PREFIX`; do not guess `<user>:` manually and do not use naked keys.
 - S3 writable buckets are `<user>-data` for private app data and `<user>-web`
   for public web assets.
 - The S3 MCP cannot list buckets, so assume only the two user buckets above are

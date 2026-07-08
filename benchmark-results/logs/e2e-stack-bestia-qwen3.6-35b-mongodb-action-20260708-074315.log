@@ -1,0 +1,48 @@
+Trustable issue98 E2E
+  domain:     miniops.me
+  namespace:  nuvolaris
+  pod:        trustable-0
+  app:        <create if TRUSTABLE_E2E_REPO is set>
+
+
+Running 1 test using 1 worker
+
+(node:87215) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:87215) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety (10.3s)
+
+
+  1) [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety 
+
+    Error: {"error":"ops ide deploy failed: please run 'ops ide login' first\nops: Failed to run task \"deploy\": exit status 1\ntask execution error: ops: Failed to run task \"deploy\": exit status 1\n"}
+
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBeFalsy[2m()[22m
+
+    Received: [31m"ops ide deploy failed: please run 'ops ide login' first[39m
+    [31mops: Failed to run task \"deploy\": exit status 1[39m
+    [31mtask execution error: ops: Failed to run task \"deploy\": exit status 1[39m
+    [31m"[39m
+
+       98 |   expect(result.response.ok(), result.text).toBeTruthy();
+       99 |   expect(result.json, result.text).toBeTruthy();
+    > 100 |   expect(result.json.error, result.text).toBeFalsy();
+          |                                          ^
+      101 |   expect(result.json.encdir, result.text).toContain(`/workbench/${app}`);
+      102 |   expect(result.json.b64dir, result.text).toBeTruthy();
+      103 |   expect(result.json.left, result.text).toBe(4096);
+        at launchApp (/home/msciab/trustable-app/tests/issue98.spec.mjs:100:42)
+        at /home/msciab/trustable-app/tests/issue98.spec.mjs:395:22
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/issue98-issue98-guardrail--fb8e9--and-enforce-issue98-safety-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › tests/issue98.spec.mjs:384:3 › issue98 guardrail E2E › can drive an OpenCode prompt and enforce issue98 safety 
