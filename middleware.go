@@ -20,8 +20,8 @@ import (
 var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 
 // reverse proxy instances for opencode and vite
-var opencodeProxy = newSilentProxy("localhost:4096")
-var viteProxy = newSilentProxy("localhost:5173")
+var opencodeProxy = newSilentProxy("127.0.0.1:4096")
+var viteProxy = newSilentProxy("127.0.0.1:5173")
 
 // newSilentProxy creates a reverse proxy that silently returns 502 when the backend is unavailable
 func newSilentProxy(host string) *httputil.ReverseProxy {
@@ -56,7 +56,7 @@ func latestOpenCodeSessionID(directory string) string {
 	if directory == "" {
 		return ""
 	}
-	sessionURL := fmt.Sprintf("http://localhost:4096/session?directory=%s&roots=true&limit=20", url.QueryEscape(directory))
+	sessionURL := fmt.Sprintf("http://127.0.0.1:4096/session?directory=%s&roots=true&limit=20", url.QueryEscape(directory))
 	client := http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(sessionURL)
 	if err != nil {
@@ -209,7 +209,7 @@ func handleScopedOpenCodeProjectList(w http.ResponseWriter, r *http.Request) boo
 		return false
 	}
 
-	reqURL := fmt.Sprintf("http://localhost:4096/project/current?directory=%s", url.QueryEscape(currentDirectory))
+	reqURL := fmt.Sprintf("http://127.0.0.1:4096/project/current?directory=%s", url.QueryEscape(currentDirectory))
 	client := http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(reqURL)
 	if err != nil {

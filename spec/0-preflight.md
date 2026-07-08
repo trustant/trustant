@@ -57,8 +57,8 @@ The web application requires you always access the application with a full fqdn 
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
 - if <host> is 'trustable', serve the folder `web`
-- if <host> is 'opencode', proxy pass to the pod-local OpenCode server on port
-  4096. In Kubernetes/browser deployments the `opencode.<domain>` ingress must
+- if <host> is 'opencode', proxy pass to the pod-local OpenCode server at
+  `127.0.0.1:4096`. In Kubernetes/browser deployments the `opencode.<domain>` ingress must
   route to the Trustable app port 8910, not directly to service port 4096, so
   this middleware can scope OpenCode requests before proxying. Before proxying,
   normalize

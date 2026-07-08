@@ -613,7 +613,7 @@ When ok, execute a POST to the opencode session endpoint with header
 "X-Opencode-Directory: <directory>" and log the result of this invocation.
 
 This launch bootstrap is a pod-local sidecar call and must target
-`http://localhost:4096/session/`. Browser-visible OpenCode traffic is different:
+`http://127.0.0.1:4096/session/`. Browser-visible OpenCode traffic is different:
 `opencode.<domain>` must route through the Trustable ingress/proxy path on port
 8910, where the middleware scopes project and directory requests before
 proxying to the same pod-local OpenCode server.
@@ -694,7 +694,7 @@ Stream: `event: status` / `data: Starting dev server (ops ide devel --fast)...`
 
 ## Step 6: Wait for dev server to be ready
 
-Send repeated HTTP HEAD requests to `http://localhost:5173/` every 500ms until the server responds (timeout: 30 seconds). If it doesn't respond, send `event: error` and return.
+Send repeated HTTP HEAD requests to `http://127.0.0.1:5173/` every 500ms until the server responds (timeout: 30 seconds). If it doesn't respond, send `event: error` and return.
 
 Stream: `event: status` / `data: Waiting for dev server to be ready...`
 

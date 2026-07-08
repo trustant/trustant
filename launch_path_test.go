@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,5 +62,18 @@ func TestChooseOpenCodeSessionIDPrefersNewestActiveSession(t *testing.T) {
 
 	if got := chooseOpenCodeSessionID(sessions); got != "active-old" {
 		t.Fatalf("chosen session = %q, want active-old", got)
+	}
+}
+
+func TestIsPortListeningDetectsIPv4LoopbackListener(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on IPv4 loopback: %s", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+	if !isPortListening(port) {
+		t.Fatalf("expected IPv4 loopback listener on port %d to be detected", port)
 	}
 }
