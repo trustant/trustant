@@ -264,6 +264,18 @@ func logOpsServiceBlocks(app string) {
 	}
 }
 
+func appServiceRuntimeEnv(base []string) []string {
+	cfg, err := loadOpsConfig()
+	if err != nil {
+		log.Printf("Warning: failed to load ~/.ops/config.json for service runtime env: %s", err)
+		return base
+	}
+	if uri := mongodbConnectionString(cfg); uri != "" {
+		base = append(base, "MONGODB_URI="+uri)
+	}
+	return base
+}
+
 // mongodbConnectionString returns a MongoDB URI only from the official
 // post-login config surface. Arbitrary workbench env vars do not enable MongoDB.
 func mongodbConnectionString(cfg *opsConfig) string {
@@ -1491,6 +1503,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	log.Printf("Running ops ide deploy for %s...", app)
 	deployCmd := exec.Command("ops", "ide", "deploy")
 	deployCmd.Dir = workbenchPath
+	deployCmd.Env = appServiceRuntimeEnv(os.Environ())
 	if output, err := deployCmd.CombinedOutput(); err != nil {
 		log.Printf("ops ide deploy for %s failed: %s, output: %s", app, err, string(output))
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("ops ide deploy failed: %s", string(output))})
@@ -1535,9 +1548,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Dir = workbenchPath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
-	opencodeCmd.Env = os.Environ()
+	opencodeCmd.Env = appServiceRuntimeEnv(os.Environ())
 	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
 	for key, value := range appEnv {
+		if isServiceRuntimeEnvKey(key) {
+			continue
+		}
 		opencodeCmd.Env = append(opencodeCmd.Env, key+"="+value)
 	}
 	// Set process group so we can kill all child processes
@@ -1610,6 +1626,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel", workbenchPath))
 	develCmd.Stdout = os.Stdout
 	develCmd.Stderr = os.Stderr
+	develCmd.Env = appServiceRuntimeEnv(os.Environ())
 	// Join the same process group as opencode
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
@@ -1863,6 +1880,7 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Redeploy: running ops ide deploy for %s...", req.Name)
 	deployCmd := exec.Command("ops", "ide", "deploy")
 	deployCmd.Dir = workbenchPath
+	deployCmd.Env = appServiceRuntimeEnv(os.Environ())
 	if deployOutput, err := deployCmd.CombinedOutput(); err != nil {
 		send("error", fmt.Sprintf("ops ide deploy failed: %s\n%s", err, string(deployOutput)))
 		return
@@ -1885,6 +1903,7 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel --fast", workbenchPath))
 	develCmd.Stdout = os.Stdout
 	develCmd.Stderr = os.Stderr
+	develCmd.Env = appServiceRuntimeEnv(os.Environ())
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	if err := develCmd.Start(); err != nil {

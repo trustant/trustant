@@ -216,14 +216,14 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 
 3. Per-app `development` overrides
 
-4. Generated service runtime bindings from official OpenServerless config. When
-   `~/.ops/config.json` exposes an official MongoDB capability, the same
-   resolved URI used for the MongoDB MCP server is written as
-   `MONGODB_URI=<resolved uri>` in the development `.env`. This makes the
-   `action_add_mongodb` wrapper's `#--param MONGODB_URI "$MONGODB_URI"` a real
-   action runtime binding. A casual per-app/workbench `MONGODB_URI` must not
-   enable MongoDB by itself; the source of truth remains the official
-   post-login config.
+4. Service runtime bindings from official OpenServerless config are not written
+   to `.env`. When `~/.ops/config.json` exposes an official MongoDB capability,
+   Trustable may pass the resolved URI as `MONGODB_URI` only in the process
+   environment of OpenCode/`ops ide deploy`/`ops ide devel`, so
+   `action_add_mongodb` can bind it without exposing the credential in the
+   editable app configuration. A casual per-app/workbench `MONGODB_URI` must not
+   enable MongoDB by itself; the source of truth remains the official post-login
+   config.
 
 Production `.env.production` is written from the per-app `production` values.
 

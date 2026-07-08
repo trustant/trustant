@@ -107,8 +107,10 @@ If it terminates with 0 continue otherwise return error
 
 After `ops ide login` succeeds, regenerate the app `.env` before `ops ide clean`
 and `ops ide deploy`. Login refreshes `~/.ops/config.json` with the current app
-service bindings; generated runtime vars such as MongoDB `MONGODB_URI` must be
-derived from that post-login config, not from the pre-login `.env`.
+service bindings. Service credentials such as MongoDB must stay out of the
+editable `.env`; if an action wrapper needs `MONGODB_URI`, Trustable derives it
+from the post-login config and passes it only to the launch/deploy process
+environment.
 
 ## generate an opencode.json in project directory as follows
 
@@ -401,12 +403,14 @@ mapping MongoDB to Milvus/vector search.
 
 `MDB_MCP_CONNECTION_STRING` is private to the generated MongoDB MCP server
 process. It must not be documented or used as an app action runtime variable.
-When the same official MongoDB capability is present, launch/env generation also
-writes `MONGODB_URI=<resolved mongodb connection string>` to the app
-development `.env`. This is the action runtime binding consumed by
-`action-add-mongodb` / `action_add_mongodb`; the assistant must use that tool to
-generate a wrapper that reads the official `MONGODB_URI` action parameter and
-exposes `ctx.MONGODB_CLIENT` plus `ctx.MONGODB` to business modules.
+When the same official MongoDB capability is present, launch/deploy may expose
+`MONGODB_URI=<resolved mongodb connection string>` only in the internal process
+environment used by OpenCode and `ops ide deploy`/`ops ide devel`; it must not
+be written to the app `.env` or shown in the app environment editor. This is the
+action runtime binding consumed by `action-add-mongodb` / `action_add_mongodb`;
+the assistant must use that tool to generate a wrapper that reads the official
+`MONGODB_URI` action parameter and exposes `ctx.MONGODB_CLIENT` plus
+`ctx.MONGODB` to business modules.
 The app agent and checker must also reject guessed action env vars such as
 `MONGODB_URI`, `MONGO_URL`, `MONGO_CONNECTION_STRING`, or
 `MDB_CONNECTION_STRING` unless a generated action wrapper exposes an official

@@ -1878,6 +1878,10 @@ func writeEnvFile(path string, vars map[string]string, order []string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
 }
 
+func isServiceRuntimeEnvKey(name string) bool {
+	return name == "MONGODB_URI"
+}
+
 // generateAppEnvFiles writes .env and .env.production for an app in its workbench directory
 func generateAppEnvFiles(appName string) error {
 	cfg, err := loadTrustableConfig()
@@ -1903,23 +1907,26 @@ func generateAppEnvFiles(appName string) error {
 	devVars["OPS_REPO"] = getAppRepo(appName)
 	devVars["OPS_SKILLS"] = OpsSkills
 
-	// Per-app development overrides (no global env section)
+	// Per-app development overrides (no global env section). Service runtime
+	// credentials from ops ide login are intentionally not written here: they are
+	// injected only into the OpenCode/ops process environment at launch time.
 	for k, v := range appCfg.Development {
+		if isServiceRuntimeEnvKey(k) {
+			continue
+		}
 		devVars[k] = v
-	}
-	if opsCfg, err := loadOpsConfig(); err != nil {
-		log.Printf("Warning: failed to load ~/.ops/config.json for app env generation: %s", err)
-	} else if uri := mongodbConnectionString(opsCfg); uri != "" {
-		devVars["MONGODB_URI"] = uri
 	}
 
 	// Build production env
 	prodVars := make(map[string]string)
 	for k, v := range appCfg.Production {
+		if isServiceRuntimeEnvKey(k) {
+			continue
+		}
 		prodVars[k] = v
 	}
 
-	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS", "MONGODB_URI"}
+	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS"}
 
 	envPath := filepath.Join(workbenchPath, ".env")
 	if err := writeEnvFile(envPath, devVars, order); err != nil {
@@ -2020,7 +2027,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	}
 
 	for k := range appCfg.Development {
-		if !seen[k] {
+		if !seen[k] && !isServiceRuntimeEnvKey(k) {
 			vars = append(vars, EnvVar{
 				Name:      k,
 				DevValue:  appCfg.Development[k],
@@ -2030,7 +2037,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		}
 	}
 	for k := range appCfg.Production {
-		if !seen[k] {
+		if !seen[k] && !isServiceRuntimeEnvKey(k) {
 			vars = append(vars, EnvVar{
 				Name:      k,
 				DevValue:  appCfg.Development[k],
@@ -2072,6 +2079,9 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 	prodVars := make(map[string]string)
 	for _, v := range req.Vars {
 		if v.Name == "" {
+			continue
+		}
+		if isServiceRuntimeEnvKey(v.Name) {
 			continue
 		}
 		if v.DevValue != "" {
