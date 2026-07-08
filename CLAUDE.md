@@ -25,14 +25,14 @@ Linux server development uses local access to the Trustable k3s cluster with `ku
 ./run.sh         # Dev loop: kills ports 8910/5173/4096, runs `air` for hot reload, prints the Trustable URL
 ./build.sh       # Compatibility build: Mac VM when available, Linux/k3s server otherwise
 ./build-server.sh # Force Linux/k3s server build, import, StatefulSet patch, rollout wait
-./publish.sh     # Pushes the latest git tag, watches CI, then pushes the olaris-bestia submodule
+./publish.sh     # Pushes the latest git tag, watches CI, then may push olaris-bestia only with explicit user authorization
 go test ./...    # Unit tests (currently only configure_test.go)
 go test -run TestManagedOllamaDetectionRequiresGeneratedModelMarker  # Single test
 ```
 
 `air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
 
-`build.sh` produces a single image. On macOS VM builds, the image tag is written into `olaris-bestia/opsroot.json` via `jq`; `publish.sh` pushes the submodule, which is what actually ships the new version to the deployment plugin. On Linux server builds, `build-server.sh` does not update `olaris-bestia/opsroot.json`; it imports the image into local k3s and patches `StatefulSet/trustable`.
+`build.sh` produces a single image. On macOS VM builds, the image tag is written into `olaris-bestia/opsroot.json` via `jq`; pushing that submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization. On Linux server builds, `build-server.sh` does not update `olaris-bestia/opsroot.json`; it imports the image into local k3s and patches `StatefulSet/trustable`.
 
 ## Required environment
 
@@ -124,6 +124,7 @@ The frontend recognizes the `"Publishing not authorized"` prefix and shows a fri
 ## Submodules
 
 Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `olaris`, `olaris-bestia`, `skills`, and `support`. The macOS build flow writes the new image tag into `olaris-bestia/opsroot.json`; the Linux server build flow does not.
+Never push to any `olaris*` repository without explicit user authorization, including `olaris`, `olaris-bestia`, `olaris-trustable`, local plugin copies, submodules, and scripts that would push those repos.
 
 ## Tests
 
