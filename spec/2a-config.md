@@ -68,6 +68,37 @@ The trustable-app fetches the per-provider model catalog via `GET /api/status`, 
 }
 ```
 
+Each `models` entry may use the legacy limits-only shape or the richer policy
+shape:
+
+```json
+{
+  "maxToken": 240000,
+  "maxInput": 120000,
+  "maxOutput": 120000,
+  "enabled": true,
+  "recommended": true,
+  "roles": ["coding", "agent"],
+  "reason": ""
+}
+```
+
+`enabled`, `recommended`, `roles`, and `reason` are optional and
+backward-compatible. They describe whether a model is suitable for OpenCode
+agent work, not whether the upstream provider exposes it. If `enabled` is
+`false`, the model must remain visible in the provider model table for
+diagnostics but must not be selectable as `opencode.default` or
+`opencode.small`. Roles such as `embedding`, `embed`, `rerank`, or `vector`
+also make a model non-selectable for OpenCode. Roles such as `coding`,
+`agent`, `chat`, or `opencode` explicitly mark a model as selectable.
+
+When a provider does not return policy metadata (for example BestIA or
+own-host Ollama discovery), Trustable applies a conservative local policy:
+embedding/rerank/vector models, obvious tiny/small non-agent models, vision,
+audio, TTS/Whisper-style models, and models below roughly 20B parameters are
+hidden from the OpenCode dropdowns. They may still appear in the provider model
+table because availability and suitability are different facts.
+
 There is no longer a top-level `version` field driving reselect — the previous `<WorkspaceDir>/models.json` cache and the catalog-level version check have been retired in favor of the per-provider `modelsVersion` mechanism below.
 
 ### Version tracking (per provider)
@@ -184,6 +215,15 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 - defaults to http://miniops.me
 
 3. Per-app `development` overrides
+
+4. Generated service runtime bindings from official OpenServerless config. When
+   `~/.ops/config.json` exposes an official MongoDB capability, the same
+   resolved URI used for the MongoDB MCP server is written as
+   `MONGODB_URI=<resolved uri>` in the development `.env`. This makes the
+   `action_add_mongodb` wrapper's `#--param MONGODB_URI "$MONGODB_URI"` a real
+   action runtime binding. A casual per-app/workbench `MONGODB_URI` must not
+   enable MongoDB by itself; the source of truth remains the official
+   post-login config.
 
 Production `.env.production` is written from the per-app `production` values.
 
@@ -503,15 +543,22 @@ Sections (rendered top to bottom in this order):
 - **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
     - In **internal** mode (or when `base_url` parses as `http://(localhost|127.0.0.1|ollama):...`) the inputs are pre-filled from the existing `base_url`. The Test button is still available for re-validation but is not required.
     - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.opencode` so the user picks default/small from the new list.
-- **`<Provider> Models`** — a table of the currently selected provider's models with context size. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
+- **`<Provider> Models`** — a table of the currently selected provider's models with context size and a **For coding** column that shows whether each model can be selected for coding agent work. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
   - **Ollama** — editable. The user can add or remove rows; adds/removes only edit the workspace `models` map (they do not change the catalog). The header shows an **Add Model** button and each row has a **Remove** button.
   - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map (and `opencode` defaults) from `status.trustable`. The dropdowns repopulate from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
 - **OpenCode Models** — two `<select>` dropdowns labelled "Default Model" and "Small Model". Both are populated from the keys of the active provider's `models` map. Selected values are written to `opencode.default` and `opencode.small`. Free-text input is no longer accepted.
+  The dropdowns include only models allowed by the OpenCode model policy above.
+  The provider model table can still show hidden models with a short reason, so
+  operators can diagnose provider inventory without letting a basic user choose
+  an embedding, rerank, tiny, or otherwise unsuitable model. `POST
+  /api/configuration` enforces the same policy server-side before writing
+  `trustable.json`; UI filtering alone is not sufficient.
 - **Git User** — name and email (unchanged).
 - **Experimental** — contains a Headroom checkbox. It is off by default and is
   saved to `experimental.headroom.enabled` in the workspace `trustable.json`.
-  The UI does not expose Headroom port, mode, or state directory; those remain
-  developer/operator overrides.
+  The section uses the same compact `nu-card` and shared form-control styling
+  as the rest of the configuration page. The UI does not expose Headroom port,
+  mode, or state directory; those remain developer/operator overrides.
 
 If the URL has `?reselect=1` (set by the splash or applist when `status[provider].modelsVersion` bumped — see "Model catalog → Version tracking (per provider)"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
 

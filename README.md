@@ -183,7 +183,7 @@ The frontend keys off the exact `"Publishing not authorized"` prefix to show a f
 
 ## Submodules
 
-Five git submodules are declared in [.gitmodules](.gitmodules) — `mcp`, `olaris`, `olaris-bestia`, `skills`, and `support`. As noted above, the macOS build flow writes the new image tag into `olaris-bestia/opsroot.json`; pushing **that** submodule in `publish.sh` is the step that actually ships a new version to the deployment plugin. The Linux server build flow does not change `olaris-bestia/opsroot.json`.
+Five git submodules are declared in [.gitmodules](.gitmodules) — `mcp`, `olaris`, `olaris-bestia`, `skills`, and `support`. The `mcp` submodule points to the Nuvolaris fork of `openserverless-mcp` and is used by the image build to install the `openserverless-mcp` command. As noted above, the macOS build flow writes the new image tag into `olaris-bestia/opsroot.json`; pushing **that** submodule in `publish.sh` is the step that actually ships a new version to the deployment plugin. The Linux server build flow does not change `olaris-bestia/opsroot.json`.
 
 Initialize them after cloning:
 

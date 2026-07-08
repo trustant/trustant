@@ -78,9 +78,13 @@ RUN \
     done ;\
     headroom --help >/dev/null
 
+COPY openserverless-mcp /tmp/openserverless-mcp
 RUN \
     npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.13.0 ;\
-    npm install -g tsx github:apache/openserverless-mcp ;\
+    cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
+    npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
+    cd / ;\
+    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
     curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_linux_${ARCH}.tar.gz |\
@@ -128,6 +132,12 @@ RUN \
 ###---###
 # start
 USER root
+RUN \
+    if [ -x /usr/local/bin/mcp-s3 ] && [ ! -x /usr/local/bin/mcp-s3-real ]; then \
+        mv /usr/local/bin/mcp-s3 /usr/local/bin/mcp-s3-real; \
+    fi
+COPY mcp-s3 /usr/local/bin/mcp-s3
+RUN chmod 0755 /usr/local/bin/mcp-s3
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh

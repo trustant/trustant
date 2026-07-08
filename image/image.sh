@@ -7,6 +7,13 @@ cd "$(dirname "$0")"
 IMAGE="ghcr.io/trustable-ai/trustable-app"
 DOCKERFILE="Dockerfile"
 SEPARATOR='###---###'
+MCP_CONTEXT_DIR="openserverless-mcp"
+
+cleanup() {
+    rm -f Dockerfile.base Dockerfile.current
+    rm -rf "$MCP_CONTEXT_DIR"
+}
+trap cleanup EXIT
 
 # Determine the tag
 TAG="${1:-}"
@@ -53,6 +60,17 @@ detect_platforms() {
 PLATFORMS=$(detect_platforms)
 echo "Building for platforms: $PLATFORMS"
 
+if [ ! -f ../mcp/package.json ]; then
+    echo "Error: ../mcp is not initialized. Run: git submodule update --init mcp" >&2
+    exit 1
+fi
+
+MCP_REF="$(git -C ../mcp rev-parse HEAD)"
+echo "Using openserverless-mcp submodule: $MCP_REF"
+rm -rf "$MCP_CONTEXT_DIR"
+mkdir -p "$MCP_CONTEXT_DIR"
+git -C ../mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
+
 # Split the Dockerfile at the separator
 SEPARATOR_LINE=$(grep -n "^${SEPARATOR}$" "$DOCKERFILE" | cut -d: -f1)
 if [ -z "$SEPARATOR_LINE" ]; then
@@ -63,8 +81,12 @@ fi
 head -n "$((SEPARATOR_LINE - 1))" "$DOCKERFILE" > Dockerfile.base
 tail -n "+$((SEPARATOR_LINE + 1))" "$DOCKERFILE" > Dockerfile.current
 
-# Calculate hash of the base Dockerfile
-BASE_HASH=$(sha256sum Dockerfile.base | cut -c1-12)
+# Calculate hash of the base Dockerfile plus the MCP submodule commit because
+# the base image installs openserverless-mcp from that local submodule.
+BASE_HASH=$({
+    sha256sum Dockerfile.base
+    printf 'openserverless-mcp=%s\n' "$MCP_REF"
+} | sha256sum | cut -c1-12)
 BASE_TAG="base-${BASE_HASH}"
 echo "Base image hash: $BASE_TAG"
 
@@ -129,6 +151,7 @@ else
 fi
 
 # Cleanup
-rm -f Dockerfile.base Dockerfile.current
+cleanup
+trap - EXIT
 
 echo "Done: ${IMAGE}:${TAG}"

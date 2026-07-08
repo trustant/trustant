@@ -105,6 +105,11 @@ and execute `ops ide login`
 
 If it terminates with 0 continue otherwise return error
 
+After `ops ide login` succeeds, regenerate the app `.env` before `ops ide clean`
+and `ops ide deploy`. Login refreshes `~/.ops/config.json` with the current app
+service bindings; generated runtime vars such as MongoDB `MONGODB_URI` must be
+derived from that post-login config, not from the pre-login `.env`.
+
 ## generate an opencode.json in project directory as follows
 
 the generation must happen AFTER the ops ide login (to retrieve the config) but BEFORE launching opencode (otherwise it won't start)
@@ -162,7 +167,8 @@ as follows:
 This server exposes the OpenServerless action tools (`action_new`, `action_invoke`,
 `action_requirements`, and the `action_add_*` connectors) over MCP, replacing the
 old embedded `tools/` plugins. It is installed globally in the image as
-`openserverless-mcp` and is added unconditionally, independent of `~/.ops/config.json`:
+`openserverless-mcp` from the repository's `mcp` submodule and is added
+unconditionally, independent of `~/.ops/config.json`:
 
 ```
 "openserverless": {
@@ -176,6 +182,12 @@ The runtime image pins OpenCode with `OPENCODE_VERSION` in `image/Dockerfile`.
 Whenever that pin changes, the image build must install
 `@opencode-ai/plugin` at the exact version returned by
 `/usr/local/bin/opencode --version`; a mismatch is a build/runtime regression.
+
+The runtime image installs `openserverless-mcp` from the local `mcp` submodule,
+not from a direct `github:apache/openserverless-mcp` npm reference. The image
+build stages that submodule into the Docker build context and includes the
+submodule commit in the base-image hash, so changing the MCP pointer forces the
+base image to rebuild.
 
 # if the app uses AgentiReact add the agentireact MCP server:
 
@@ -285,6 +297,12 @@ export REDISCLI_AUTH='<config.redis.password>'
 exec redis-cli -h '<config.redis.service>' --user '<config.redis.prefix with last char removed>' -p '<config.redis.port>' "$@"
 ```
 
+The `action-add-redis` / `action_add_redis` connector injects `ctx.REDIS` and
+`ctx.REDIS_PREFIX` into action wrappers. Generated app guidance and the checker
+must require editable action modules to build every Redis key from
+`ctx.REDIS_PREFIX` plus an app-local suffix. Naked Redis keys are invalid
+because Nuvolaris Redis ACLs only allow the configured user prefix.
+
 # if config.milvus is defined and not empty add:
 
 ```
@@ -381,6 +399,19 @@ If the official MongoDB capability is absent, the app agent must treat MongoDB
 as `non configurato` rather than asking the user for infrastructure details or
 mapping MongoDB to Milvus/vector search.
 
+`MDB_MCP_CONNECTION_STRING` is private to the generated MongoDB MCP server
+process. It must not be documented or used as an app action runtime variable.
+When the same official MongoDB capability is present, launch/env generation also
+writes `MONGODB_URI=<resolved mongodb connection string>` to the app
+development `.env`. This is the action runtime binding consumed by
+`action-add-mongodb` / `action_add_mongodb`; the assistant must use that tool to
+generate a wrapper that reads the official `MONGODB_URI` action parameter and
+exposes `ctx.MONGODB_CLIENT` plus `ctx.MONGODB` to business modules.
+The app agent and checker must also reject guessed action env vars such as
+`MONGODB_URI`, `MONGO_URL`, `MONGO_CONNECTION_STRING`, or
+`MDB_CONNECTION_STRING` unless a generated action wrapper exposes an official
+MongoDB binding.
+
 ```
 "mongodb": {
   "type": "local",
@@ -396,6 +427,12 @@ mapping MongoDB to Milvus/vector search.
 The Trustable runtime image installs the official MongoDB MCP server at build
 time as `mongodb-mcp-server`, so launch must not use `npx` or download packages
 at runtime.
+
+The Trustable runtime image wraps the external `mcp-s3` binary. The real binary
+is kept as `/usr/local/bin/mcp-s3-real`, while `/usr/local/bin/mcp-s3` filters
+known-invalid bucket-listing tools and normalizes `buckets: null` to `[]`.
+This prevents OpenCode sessions from failing on S3 MCP schema validation while
+keeping non-bucket-listing S3 diagnostics available.
 
 
 ## clean
@@ -576,7 +613,7 @@ When ok, execute a POST to the opencode session endpoint with header
 "X-Opencode-Directory: <directory>" and log the result of this invocation.
 
 This launch bootstrap is a pod-local sidecar call and must target
-`http://localhost:4096/session/`. Browser-visible OpenCode traffic is different:
+`http://127.0.0.1:4096/session/`. Browser-visible OpenCode traffic is different:
 `opencode.<domain>` must route through the Trustable ingress/proxy path on port
 8910, where the middleware scopes project and directory requests before
 proxying to the same pod-local OpenCode server.
@@ -657,7 +694,7 @@ Stream: `event: status` / `data: Starting dev server (ops ide devel --fast)...`
 
 ## Step 6: Wait for dev server to be ready
 
-Send repeated HTTP HEAD requests to `http://localhost:5173/` every 500ms until the server responds (timeout: 30 seconds). If it doesn't respond, send `event: error` and return.
+Send repeated HTTP HEAD requests to `http://127.0.0.1:5173/` every 500ms until the server responds (timeout: 30 seconds). If it doesn't respond, send `event: error` and return.
 
 Stream: `event: status` / `data: Waiting for dev server to be ready...`
 

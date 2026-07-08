@@ -76,9 +76,9 @@
                     </select>
                     <div class="inline-flex rounded border border-[color:var(--nu-rule)] overflow-hidden bg-white">
                         <button id="gridViewBtn" type="button" onclick="setAppView('grid')"
-                            class="px-3 py-2 text-sm font-medium text-[color:var(--nu-muted)] hover:bg-[color:var(--nu-accent)]">Grid</button>
+                            class="nu-segment-btn">Grid</button>
                         <button id="listViewBtn" type="button" onclick="setAppView('list')"
-                            class="px-3 py-2 text-sm font-medium bg-[color:var(--nu-ink)] text-[color:var(--nu-paper)]">List</button>
+                            class="nu-segment-btn nu-segment-btn-active">List</button>
                     </div>
                 </div>
             </div>
@@ -91,7 +91,7 @@
                     class="nu-chip px-3 py-1.5 text-sm font-medium hover:bg-[color:var(--nu-accent)]">Development only</button>
             </div>
             <div id="appList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                <p class="text-gray-500 text-center py-4">Loading...</p>
+                <p class="text-[color:var(--nu-muted)] text-center py-4">Loading...</p>
             </div>
         </div>
         <p class="text-sm text-slate-500 text-center mt-2">
@@ -963,7 +963,7 @@
 
         function renderAppTable(apps) {
             return `
-                <div class="overflow-hidden nu-card">
+                <div class="overflow-hidden nu-card nu-app-table">
                     <div class="hidden xl:grid grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_640px] gap-3 px-4 py-3 bg-[color:var(--nu-accent)] border-b border-[color:var(--nu-rule)] nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">
                         <div>Application</div>
                         <div>Repository</div>
@@ -1025,11 +1025,11 @@
             const grid = document.getElementById('gridViewBtn');
             const list = document.getElementById('listViewBtn');
             if (grid) grid.className = appView === 'grid'
-                ? 'px-3 py-2 text-sm font-medium bg-[color:var(--nu-ink)] text-[color:var(--nu-paper)]'
-                : 'px-3 py-2 text-sm font-medium text-[color:var(--nu-muted)] hover:bg-[color:var(--nu-accent)]';
+                ? 'nu-segment-btn nu-segment-btn-active'
+                : 'nu-segment-btn';
             if (list) list.className = appView === 'list'
-                ? 'px-3 py-2 text-sm font-medium bg-[color:var(--nu-ink)] text-[color:var(--nu-paper)]'
-                : 'px-3 py-2 text-sm font-medium text-[color:var(--nu-muted)] hover:bg-[color:var(--nu-accent)]';
+                ? 'nu-segment-btn nu-segment-btn-active'
+                : 'nu-segment-btn';
         }
 
         function updateAppSummary(apps) {

@@ -208,9 +208,9 @@ When clicked:
 The **Debug** entry in the Utils pulldown opens a separate browser window at `debug.html?app=<NAME>`.
 
 `debug.html` is a first-party Trustable utility page in the visual rollout. It
-may keep a dark log area for readability, but its header, status text, and
-Restart / Stop / Close controls should follow the shared typography, spacing,
-border, and button system.
+uses the shared light top bar, Work Sans status text, restrained action buttons,
+and a bordered log panel. The streamed activation output remains monospace
+inside the log panel because it is command output.
 
 The debug window opens an EventSource to `GET /api/activations/poll?name=<NAME>` and displays the streamed activation log.
 

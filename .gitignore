@@ -8,6 +8,7 @@ node_modules/
 test-results/
 playwright-report/
 blob-report/
+benchmark-results/
 .env*
 .key
 .ops/

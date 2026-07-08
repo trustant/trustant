@@ -8,8 +8,14 @@
     --nu-brand: oklch(68% .12 230);
     --nu-brand-soft: oklch(88% .05 225);
     --nu-accent: oklch(96% .01 225);
+    --nu-control-bg: oklch(97% .018 225);
+    --nu-control-border: oklch(88% .04 225);
+    --nu-control-hover: oklch(94.5% .028 225);
+    --nu-control-text: color-mix(in oklab, var(--nu-brand) 34%, var(--nu-ink));
     --nu-signal: oklch(70% .18 47);
     --nu-danger: oklch(55% .22 27);
+    --nu-label-size: .75rem;
+    --nu-label-weight: 500;
 }
 
 html {
@@ -22,6 +28,13 @@ body {
     font-feature-settings: "ss01", "cv11";
     background: var(--nu-paper);
     color: var(--nu-ink);
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
 }
 
 .nu-mono {
@@ -92,8 +105,11 @@ body {
     gap: .5rem;
     padding: .5rem .75rem;
     color: var(--nu-ink);
-    font-size: .875rem;
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
     text-align: left;
+    text-transform: uppercase;
 }
 
 .nu-menu-item:hover:not(:disabled) {
@@ -120,12 +136,15 @@ body {
     align-items: center;
     justify-content: center;
     gap: .375rem;
-    min-height: 2.25rem;
+    font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+    min-height: 2.125rem;
     border: 1px solid var(--nu-rule);
     border-radius: 4px;
-    padding: .5rem .75rem;
-    font-size: .875rem;
-    font-weight: 500;
+    padding: .45rem .7rem;
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
+    text-transform: uppercase;
     white-space: nowrap;
     transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
@@ -140,9 +159,9 @@ body {
 }
 
 .nu-btn-compact {
-    min-height: 1.75rem;
-    padding: .25rem .5rem;
-    font-size: .75rem;
+    min-height: 1.65rem;
+    padding: .22rem .5rem;
+    font-size: .6875rem;
 }
 
 .nu-btn-primary {
@@ -157,13 +176,14 @@ body {
 }
 
 .nu-btn-secondary {
-    background: color-mix(in oklab, var(--nu-paper) 92%, white);
-    color: var(--nu-ink);
+    background: var(--nu-control-bg);
+    border-color: var(--nu-control-border);
+    color: var(--nu-control-text);
 }
 
 .nu-btn-secondary:hover {
-    background: var(--nu-accent);
-    border-color: var(--nu-brand-soft);
+    background: var(--nu-control-hover);
+    border-color: color-mix(in oklab, var(--nu-brand) 32%, var(--nu-control-border));
 }
 
 .nu-btn-danger {
@@ -243,17 +263,44 @@ body {
     border-radius: 999px;
     background: color-mix(in oklab, var(--nu-paper) 92%, white);
     color: var(--nu-muted);
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
+    text-transform: uppercase;
 }
 
 .nu-chip {
-    border: 1px solid var(--nu-rule);
+    border: 1px solid var(--nu-control-border);
     border-radius: 999px;
-    color: var(--nu-muted);
-    background: transparent;
+    color: var(--nu-control-text);
+    background: var(--nu-control-bg);
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
+    text-transform: uppercase;
 }
 
 .nu-chip-active {
     border-color: var(--nu-ink);
+    background: var(--nu-ink);
+    color: var(--nu-paper);
+}
+
+.nu-segment-btn {
+    padding: .45rem .7rem;
+    color: var(--nu-control-text);
+    background: var(--nu-control-bg);
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.nu-segment-btn:hover {
+    background: var(--nu-control-hover);
+}
+
+.nu-segment-btn-active {
     background: var(--nu-ink);
     color: var(--nu-paper);
 }
@@ -275,8 +322,8 @@ body {
 .nu-table th {
     border-bottom: 1px solid var(--nu-rule);
     color: var(--nu-muted);
-    font-size: .72rem;
-    font-weight: 600;
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
     letter-spacing: 0;
     padding: .55rem .5rem;
     text-transform: uppercase;
@@ -284,6 +331,9 @@ body {
 
 .nu-table td {
     border-bottom: 1px solid var(--nu-rule);
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
     padding: .55rem .5rem;
     vertical-align: middle;
 }
@@ -292,10 +342,50 @@ body {
     border-bottom: 0;
 }
 
+.nu-app-table {
+    font-family: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.nu-app-table *,
+.nu-app-table .nu-link,
+.nu-app-table .nu-btn,
+.nu-app-table .nu-chip {
+    font-family: inherit;
+    letter-spacing: 0;
+    text-transform: inherit;
+}
+
+.nu-app-table .text-xs,
+.nu-app-table .text-sm,
+.nu-app-table .nu-link,
+.nu-app-table .nu-btn,
+.nu-app-table .nu-chip {
+    font-size: inherit;
+}
+
+.nu-app-table .font-semibold,
+.nu-app-table .font-medium,
+.nu-app-table .nu-link,
+.nu-app-table .nu-btn,
+.nu-app-table .nu-chip {
+    font-weight: 500;
+}
+
 .nu-banner {
     border: 1px solid color-mix(in oklab, var(--nu-signal) 30%, white);
     border-radius: 4px;
     background: color-mix(in oklab, var(--nu-signal) 10%, white);
+    color: var(--nu-ink);
+}
+
+.nu-debug-log {
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--nu-paper) 88%, white);
     color: var(--nu-ink);
 }
 

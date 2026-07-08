@@ -21,8 +21,26 @@ Before touching actions, databases, setup, deploy, or service state, read
 `.openserverless-contract.md`. If it is missing, say so and fall back to
 `opencode.md`.
 
+Service MCP servers are diagnostics for the agent, not automatic runtime
+bindings for action code. Do not use `MDB_MCP_CONNECTION_STRING` in app source;
+do not invent `MONGODB_URI`, `MONGO_URL`, or `MDB_CONNECTION_STRING` runtime
+env vars. If `action_add_mongodb` is available, use it to generate the wrapper
+and then use `ctx.MONGODB_CLIENT` or `ctx.MONGODB`. If MongoDB has no official
+action/runtime binding, show `non configurato`.
+If `action_add_redis` is available, use it to generate the wrapper and always
+build Redis keys from `ctx.REDIS_PREFIX`; never call `ctx.REDIS` with naked app
+keys.
+
 OpenCode has shell access in the Trustable pod. Run bounded checks yourself
 instead of asking the user to run shell commands.
+
+Avoid stale edit failures. Before editing a file that was created or changed in
+this session, re-read it and base replacements on the current text. For small
+generated app modules or pages that you are replacing wholesale, use the file
+write tool with the full final content instead of many incremental `edit`
+replacements. If an `edit` reports `oldString` not found or no changes to
+apply, do not retry the same edit; re-read the file, decide whether the change
+is already present, then either continue or rewrite the file once.
 
 Do not create backend servers, do not edit generated `__main__.py` files, do
 not use raw `ops action` workflows, and do not start foreground dev servers.

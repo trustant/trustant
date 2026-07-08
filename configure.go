@@ -43,9 +43,13 @@ type headroomExperimentConfig struct {
 // persist in trustable.json under the active provider's `models` map.
 // All three fields are optional (omitempty); zero values are dropped.
 type ModelLimits struct {
-	MaxToken  int `json:"maxToken,omitempty"`
-	MaxInput  int `json:"maxInput,omitempty"`
-	MaxOutput int `json:"maxOutput,omitempty"`
+	MaxToken    int      `json:"maxToken,omitempty"`
+	MaxInput    int      `json:"maxInput,omitempty"`
+	MaxOutput   int      `json:"maxOutput,omitempty"`
+	Enabled     *bool    `json:"enabled,omitempty"`
+	Recommended bool     `json:"recommended,omitempty"`
+	Roles       []string `json:"roles,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
 }
 
 // UnmarshalJSON accepts the new object form AND the legacy "256K" string form
@@ -337,7 +341,32 @@ func modelLimitsEqual(a, b map[string]*ModelLimits) bool {
 		if av == nil || bv == nil {
 			return false
 		}
-		if *av != *bv {
+		if av.MaxToken != bv.MaxToken ||
+			av.MaxInput != bv.MaxInput ||
+			av.MaxOutput != bv.MaxOutput ||
+			!boolPtrEqual(av.Enabled, bv.Enabled) ||
+			av.Recommended != bv.Recommended ||
+			av.Reason != bv.Reason ||
+			!stringSlicesEqual(av.Roles, bv.Roles) {
+			return false
+		}
+	}
+	return true
+}
+
+func boolPtrEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}
@@ -356,6 +385,104 @@ func parseContextSize(s string) (int, error) {
 		return val * 1024, nil
 	}
 	return strconv.Atoi(s)
+}
+
+var modelParamSizePattern = regexp.MustCompile(`(?i)(^|[/:_-])([0-9]+(?:\.[0-9]+)?)b($|[/:_-])`)
+
+func modelHasRole(limits *ModelLimits, roles ...string) bool {
+	if limits == nil {
+		return false
+	}
+	for _, got := range limits.Roles {
+		got = strings.ToLower(strings.TrimSpace(got))
+		for _, want := range roles {
+			if got == strings.ToLower(want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (bool, string) {
+	name := strings.ToLower(strings.TrimSpace(modelID))
+	if name == "" {
+		return false, "model id is empty"
+	}
+	if limits != nil && limits.Enabled != nil && !*limits.Enabled {
+		reason := strings.TrimSpace(limits.Reason)
+		if reason == "" {
+			reason = "disabled by model catalog"
+		}
+		return false, reason
+	}
+	if modelHasRole(limits, "embedding", "embed", "rerank", "vector") {
+		return false, "not a chat/coding model"
+	}
+	if modelHasRole(limits, "opencode", "agent", "coding", "chat") {
+		return true, ""
+	}
+
+	blockedNameParts := []string{
+		"embedding",
+		"embed-text",
+		"nomic-embed",
+		"gte-",
+		"bge-",
+		"rerank",
+		"/tiny:",
+		"/small:",
+		"flash:e4b",
+		"whisper",
+		"tts",
+		"vision",
+		"audio",
+	}
+	for _, part := range blockedNameParts {
+		if strings.Contains(name, part) {
+			return false, "not suitable for OpenCode agent work"
+		}
+	}
+
+	if match := modelParamSizePattern.FindStringSubmatch(name); len(match) >= 3 {
+		params, err := strconv.ParseFloat(match[2], 64)
+		if err == nil && params > 0 && params < 20 {
+			return false, "model is below the recommended 20B minimum for OpenCode agent work"
+		}
+	}
+
+	return true, ""
+}
+
+func validateOpenCodeModelSelection(cfg *trustableConfig) error {
+	if cfg == nil || cfg.Opencode == nil {
+		return nil
+	}
+	models := cfg.Models
+	defaultModel := strings.TrimSpace(cfg.Opencode.Default)
+	smallModel := strings.TrimSpace(cfg.Opencode.Small)
+
+	// Provider choice flows for BestIA / own-host Ollama intentionally persist
+	// an empty model set first; configure.html discovers models in the next step.
+	if len(models) == 0 && defaultModel == "" && smallModel == "" {
+		return nil
+	}
+	for label, selected := range map[string]string{
+		"default": defaultModel,
+		"small":   smallModel,
+	} {
+		if selected == "" {
+			return fmt.Errorf("opencode.%s model must be selected", label)
+		}
+		limits, ok := models[selected]
+		if !ok {
+			return fmt.Errorf("opencode.%s model %q is not in the configured model list", label, selected)
+		}
+		if ok, reason := modelAllowedForOpenCode(cfg.Provider, selected, limits); !ok {
+			return fmt.Errorf("opencode.%s model %q is not allowed: %s", label, selected, reason)
+		}
+	}
+	return nil
 }
 
 // ollamaShowResponse is the response from /api/show
@@ -860,6 +987,10 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	ollamaRoot, _ := resolveOllamaRoot(cfg)
 	models := make(map[string]interface{})
 	for modelID, limits := range cfg.Models {
+		if ok, reason := modelAllowedForOpenCode(cfg.Provider, modelID, limits); !ok {
+			log.Printf("  - Skipping OpenCode model %s: %s", modelID, reason)
+			continue
+		}
 		ctx, out := 0, 0
 		if limits != nil {
 			if limits.MaxToken > 0 {
@@ -1645,6 +1776,11 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := validateOpenCodeModelSelection(&cfg); err != nil {
+		http.Error(w, "Invalid model selection: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := saveWorkspaceConfig(&cfg); err != nil {
 		http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1771,6 +1907,11 @@ func generateAppEnvFiles(appName string) error {
 	for k, v := range appCfg.Development {
 		devVars[k] = v
 	}
+	if opsCfg, err := loadOpsConfig(); err != nil {
+		log.Printf("Warning: failed to load ~/.ops/config.json for app env generation: %s", err)
+	} else if uri := mongodbConnectionString(opsCfg); uri != "" {
+		devVars["MONGODB_URI"] = uri
+	}
 
 	// Build production env
 	prodVars := make(map[string]string)
@@ -1778,7 +1919,7 @@ func generateAppEnvFiles(appName string) error {
 		prodVars[k] = v
 	}
 
-	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS"}
+	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS", "MONGODB_URI"}
 
 	envPath := filepath.Join(workbenchPath, ".env")
 	if err := writeEnvFile(envPath, devVars, order); err != nil {

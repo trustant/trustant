@@ -129,6 +129,15 @@ The embedded guidance must include these rules:
   The embedded guidance must explicitly forbid `cat > file`, heredocs, `tee`,
   `printf >`, and `sed -i` for app source or generated wrappers, and should
   tell assistants to use file edit/write tools instead.
+- The embedded guidance must reduce stale edit failures. Assistants should
+  re-read any file created or changed earlier in the same session before using
+  replacement-based edits. For small generated app modules or React pages that
+  are being replaced wholesale, assistants should prefer the file write tool
+  with the full final content over many incremental `edit` replacements. If an
+  `edit` reports `oldString` not found, `No changes to apply`, or identical
+  old/new content, assistants must not retry the same edit; they should re-read
+  the file, check whether the change is already present, then continue or
+  rewrite the file once.
 - Assistants must not write project docs, plans, rules, or examples that
   recommend forbidden commands or invalid endpoint shapes. The embedded
   guidance must explicitly say documentation must not contain examples such as
@@ -302,12 +311,40 @@ Assistants may inspect `~/.ops/config.json` only to understand which services
 exist; they must not copy values from it into app code, wrapper code, logs,
 docs, or frontend configuration.
 
+The guidance must say that Redis runtime access comes from
+`action-add-redis` / `action_add_redis`, which exposes `ctx.REDIS` and
+`ctx.REDIS_PREFIX`. Assistants must build every Redis action key from
+`ctx.REDIS_PREFIX` plus an app-local suffix, using a helper such as
+`redis_key(ctx, name)`. The guidance must forbid naked Redis keys passed
+directly to `ctx.REDIS.get/set/delete/hset/hget/lpush/sadd/expire/...`, because
+Nuvolaris Redis ACLs allow only the configured user prefix.
+
+The guidance must say that service MCP servers are assistant-side diagnostics,
+not automatic runtime bindings. A successful service MCP call does not prove
+that a Python action has an env var, action parameter, or `ctx` binding for the
+same service. Runtime service access must come from the OpenServerless action
+service tools (`action-add-redis`, `action-add-postgresql`, `action-add-s3`,
+`action-add-milvus`, `action-add-mongodb`, and secret wiring) or generated
+runtime contract; otherwise the app must report a
+deterministic `non configurato`/error state instead of inventing connection
+details.
+
 The guidance must say that MongoDB is a document database capability, separate
 from Milvus/vector search. If the user asks for MongoDB and the `mongodb` MCP
 server or official MongoDB environment is absent, assistants must implement a
 deterministic `non configurato`/error state in the app and README. They must
 not ask the user how to configure MongoDB, invent connection details, or use
 Milvus, `MILVUS_*`, `pymilvus`, or `milvus_cli` as a substitute.
+When `action-add-mongodb` / `action_add_mongodb` is exposed, assistants must use
+it to generate the MongoDB wrapper and then use `ctx.MONGODB_CLIENT` /
+`ctx.MONGODB` from business modules instead of reading connection strings
+directly.
+The guidance and checker must explicitly forbid app source/action code from
+using `MDB_MCP_CONNECTION_STRING`, because it belongs only to the generated
+MongoDB MCP server process and is not an app runtime binding.
+The checker must also fail action modules that guess MongoDB runtime env vars
+such as `MONGODB_URI`, `MONGO_URL`, `MONGO_CONNECTION_STRING`, or
+`MDB_CONNECTION_STRING` when no generated MongoDB wrapper/binding exists.
 
 The launch process also writes `<workbenchdir>/<app>/.mcp.json` in Claude Code
 format with the same MCP servers. The embedded guidance can mention this for
@@ -326,6 +363,13 @@ The embedded guidance must tell assistants to use exact PostgreSQL MCP tool
 names when inspecting PostgreSQL. For schemas, use `postgres_list_schemas`. For
 tables/views in a schema, use `postgres_list_objects`. It must explicitly forbid
 generic invented names such as `list_schemas`.
+
+The embedded guidance must say that S3 app verification should use the
+OpenServerless action path created with `action-add-s3`, generated action
+wiring, configured user buckets, or the companion `rclone` wrapper. Assistants
+must not rely on S3 MCP bucket listing as app proof; S3 MCP list-bucket schema
+failures are diagnostic tool failures, not sufficient reason to abandon the app
+implementation.
 
 ## Runtime Host Rules
 
@@ -604,7 +648,8 @@ The embedded guidance must tell assistants to retrieve the current user with
 - Milvus database is named after the user.
 - MongoDB is available only when the official post-login config exposes a
   MongoDB block or derived connection string.
-- Redis writable keys must be prefixed with `<user>:`.
+- Redis action keys must be built with the generated `ctx.REDIS_PREFIX`; the
+  assistant must not guess `<user>:` manually or use naked Redis keys.
 - S3 writable buckets are `<user>-data` for private app data and `<user>-web`
   for public web assets.
 - The S3 MCP cannot list buckets, so assistants should assume only the two

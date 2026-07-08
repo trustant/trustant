@@ -84,6 +84,78 @@ func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
 	}
 }
 
+func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
+	cases := []string{
+		"Qwen3-Embedding-8B",
+		"bestia/embedding:952mb",
+		"bestia/rerank:q8",
+		"bestia/tiny:1b",
+		"bestia/small:3b",
+		"nomic-embed-text:latest",
+		"gte-Qwen2",
+	}
+	for _, model := range cases {
+		if ok, reason := modelAllowedForOpenCode("bestia", model, nil); ok || reason == "" {
+			t.Fatalf("%s should be blocked for OpenCode, ok=%v reason=%q", model, ok, reason)
+		}
+	}
+
+	allowed := []string{
+		"bestia/coding:30b",
+		"qwen3.6:35b",
+		"qwen3.6-27b",
+		"gpt-oss-20b",
+	}
+	for _, model := range allowed {
+		if ok, reason := modelAllowedForOpenCode("bestia", model, nil); !ok {
+			t.Fatalf("%s should be allowed for OpenCode, reason=%q", model, reason)
+		}
+	}
+}
+
+func TestModelAllowedForOpenCodeHonorsCatalogMetadata(t *testing.T) {
+	disabled := false
+	if ok, reason := modelAllowedForOpenCode("trustable", "qwen3.6-27b", &ModelLimits{
+		Enabled: &disabled,
+		Reason:  "temporarily unavailable",
+	}); ok || reason != "temporarily unavailable" {
+		t.Fatalf("disabled catalog model should be blocked with reason, ok=%v reason=%q", ok, reason)
+	}
+
+	if ok, reason := modelAllowedForOpenCode("trustable", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
+		t.Fatalf("coding role should allow model, reason=%q", reason)
+	}
+	if ok, reason := modelAllowedForOpenCode("trustable", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
+		t.Fatalf("embedding role should block model, ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestValidateOpenCodeModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
+	cfg := &trustableConfig{
+		Provider: "bestia",
+		Models: map[string]*ModelLimits{
+			"bestia/embedding:952mb": {MaxInput: 8192},
+			"qwen3.6:35b":            {MaxInput: 131072},
+		},
+		Opencode: &opencodeConfig{Default: "bestia/embedding:952mb", Small: "qwen3.6:35b"},
+	}
+	err := validateOpenCodeModelSelection(cfg)
+	if err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("expected disallowed model validation error, got %v", err)
+	}
+}
+
+func TestValidateOpenCodeModelSelectionAllowsDeferredDiscovery(t *testing.T) {
+	cfg := &trustableConfig{
+		Provider: "bestia",
+		Models:   map[string]*ModelLimits{},
+		Opencode: &opencodeConfig{Default: "", Small: ""},
+	}
+	if err := validateOpenCodeModelSelection(cfg); err != nil {
+		t.Fatalf("empty provider-choice config should be allowed before discovery: %s", err)
+	}
+}
+
 func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	var cfg opsConfig
 	cfg.S3.Host = "seaweedfs"
@@ -194,6 +266,60 @@ func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
 	noOfficialCapability.MongoDB.Host = "mongodb"
 	if got := buildMCPFromOpsConfig(&noOfficialCapability); got != nil {
 		t.Fatalf("incomplete mongodb block should not enable MCP, got %#v", got)
+	}
+}
+
+func TestGenerateAppEnvFilesIncludesOfficialMongoDBURI(t *testing.T) {
+	origWorkspace := WorkspaceDir
+	origWorkbench := WorkbenchDir
+	t.Cleanup(func() {
+		WorkspaceDir = origWorkspace
+		WorkbenchDir = origWorkbench
+	})
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	WorkspaceDir = filepath.Join(root, "workspace")
+	WorkbenchDir = filepath.Join(root, "workbench")
+	t.Setenv("HOME", home)
+
+	if err := os.MkdirAll(filepath.Join(home, ".ops"), 0755); err != nil {
+		t.Fatalf("mkdir ops config dir: %s", err)
+	}
+	opsConfigJSON := `{
+  "mongodb": {
+    "uri": "mongodb://app:pw@mongodb:27017/appdb"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(home, ".ops", "config.json"), []byte(opsConfigJSON), 0644); err != nil {
+		t.Fatalf("write ops config: %s", err)
+	}
+	if err := os.MkdirAll(WorkspaceDir, 0755); err != nil {
+		t.Fatalf("mkdir workspace: %s", err)
+	}
+	workspaceConfig := `{
+  "apps": {
+    "truapp": {
+      "password": "secret",
+      "development": {},
+      "production": {}
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(WorkspaceDir, "trustable.json"), []byte(workspaceConfig), 0644); err != nil {
+		t.Fatalf("write workspace config: %s", err)
+	}
+	if err := os.MkdirAll(filepath.Join(WorkbenchDir, "truapp"), 0755); err != nil {
+		t.Fatalf("mkdir workbench: %s", err)
+	}
+
+	if err := generateAppEnvFiles("truapp"); err != nil {
+		t.Fatalf("generate env: %s", err)
+	}
+
+	env := parseEnvFile(filepath.Join(WorkbenchDir, "truapp", ".env"))
+	if got := env["MONGODB_URI"]; got != "mongodb://app:pw@mongodb:27017/appdb" {
+		t.Fatalf("unexpected MONGODB_URI: %q", got)
 	}
 }
 
@@ -507,6 +633,144 @@ def main(args, ctx=None):
 	}
 	if !strings.Contains(string(out), "Do not use Milvus/vector tooling as a MongoDB substitute") {
 		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsMongoMCPRuntimeEnv(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from stack import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `import os
+
+def main(args, ctx=None):
+    uri = os.getenv("MDB_MCP_CONNECTION_STRING")
+    return {"component": "MongoDB", "uri": uri}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject MongoDB MCP runtime env usage, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "MDB_MCP_CONNECTION_STRING is private to the MongoDB MCP server") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsGuessedMongoRuntimeEnvWithoutBinding(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from stack import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `import os
+
+def main(args, ctx=None):
+    uri = os.getenv("MONGODB_URI") or os.getenv("MDB_CONNECTION_STRING")
+    return {"component": "MongoDB", "uri": uri}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject guessed MongoDB runtime env usage, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "MongoDB runtime environment was guessed in action code") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsRedisKeysWithoutPrefix(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_redis(args, ctx):
+    ctx.REDIS = object()
+    ctx.REDIS_PREFIX = "user:"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    value = ctx.REDIS.get("stack-e2e-key")
+    ctx.REDIS.set("stack-e2e-key", "stack-ok-42")
+    return {"value": value}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject Redis keys without prefix, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Redis action code uses Redis keys without the generated ctx.REDIS_PREFIX") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerAllowsRedisKeysWithPrefix(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_redis(args, ctx):
+    ctx.REDIS = object()
+    ctx.REDIS_PREFIX = "user:"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def redis_key(ctx, name):
+    return f"{getattr(ctx, 'REDIS_PREFIX', '') or ''}{name}"
+
+def main(args, ctx=None):
+    key = redis_key(ctx, "stack-e2e-key")
+    ctx.REDIS.set(key, "stack-ok-42")
+    return {"value": ctx.REDIS.get(key)}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should allow prefixed Redis keys, err=%s output=%s", err, strings.TrimSpace(string(out)))
 	}
 }
 

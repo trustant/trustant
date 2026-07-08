@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable Debug</title>
     <script src="tailwind.js"></script>
+    <link rel="stylesheet" href="trustable-ui.css">
     <style>
         html, body {
             height: 100%;
@@ -12,19 +13,27 @@
         }
     </style>
 </head>
-<body class="h-full bg-gray-950 text-gray-100 flex flex-col">
-    <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-800 bg-gray-900">
-        <div class="min-w-0">
-            <h1 class="text-base font-semibold truncate">Activations Debug: <span id="appName">-</span></h1>
-            <div id="status" class="mt-1 text-xs text-gray-400 truncate">Connecting...</div>
-        </div>
-        <div class="flex items-center gap-2">
-            <button id="restartBtn" class="px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-sm text-white">Restart</button>
-            <button id="stopBtn" class="px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-sm text-white">Stop</button>
-            <button onclick="window.close()" class="px-3 py-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-sm text-white">Close</button>
+<body class="h-full flex flex-col">
+    <header class="nu-topbar">
+        <div class="px-4 py-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-10 h-10 shrink-0">
+                <div class="min-w-0">
+                    <p class="nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">Activation stream</p>
+                    <h1 class="text-lg font-light text-[color:var(--nu-ink)] truncate">Debug <span id="appName">-</span></h1>
+                    <div id="status" class="mt-1 text-xs text-[color:var(--nu-muted)] truncate">Connecting...</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button id="restartBtn" class="nu-btn nu-btn-secondary">Restart</button>
+                <button id="stopBtn" class="nu-btn nu-btn-secondary">Stop</button>
+                <button onclick="window.close()" class="nu-btn nu-btn-primary">Close</button>
+            </div>
         </div>
     </header>
-    <main id="log" class="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap"></main>
+    <main class="flex-1 overflow-hidden p-4">
+        <div id="log" class="nu-debug-log nu-code h-full overflow-auto p-4 text-xs leading-relaxed whitespace-pre-wrap"></div>
+    </main>
 
     <script>
         const params = new URLSearchParams(window.location.search);
@@ -37,13 +46,13 @@
 
         function setStatus(text, className) {
             statusEl.textContent = text;
-            statusEl.className = 'mt-1 text-xs truncate ' + (className || 'text-gray-400');
+            statusEl.className = 'mt-1 text-xs truncate ' + (className || 'text-[color:var(--nu-muted)]');
         }
 
         function appendLine(text, className) {
             const line = document.createElement('div');
             line.textContent = text;
-            line.className = className || 'text-gray-100';
+            line.className = className || 'text-[color:var(--nu-ink)]';
             logEl.appendChild(line);
             logEl.scrollTop = logEl.scrollHeight;
         }
@@ -59,22 +68,22 @@
             closeStream();
             logEl.innerHTML = '';
             if (!appName) {
-                setStatus('Missing app name', 'text-red-400');
-                appendLine('Missing app name.', 'text-red-400');
+                setStatus('Missing app name', 'text-[color:var(--nu-danger)]');
+                appendLine('Missing app name.', 'text-[color:var(--nu-danger)]');
                 return;
             }
 
-            setStatus('Connecting...', 'text-gray-400');
-            appendLine('$ ops activation poll', 'text-indigo-300');
+            setStatus('Connecting...', 'text-[color:var(--nu-muted)]');
+            appendLine('$ ops activation poll', 'text-[color:var(--nu-brand)]');
             eventSource = new EventSource('/api/activations/poll?name=' + encodeURIComponent(appName));
 
             eventSource.onopen = () => {
-                setStatus('Connected', 'text-green-400');
+                setStatus('Connected', 'text-[color:var(--nu-signal)]');
             };
 
             eventSource.addEventListener('status', (event) => {
-                setStatus(event.data, 'text-indigo-300');
-                appendLine(event.data, 'text-indigo-300');
+                setStatus(event.data, 'text-[color:var(--nu-brand)]');
+                appendLine(event.data, 'text-[color:var(--nu-brand)]');
             });
 
             eventSource.addEventListener('line', (event) => {
@@ -82,27 +91,27 @@
             });
 
             eventSource.addEventListener('done', (event) => {
-                appendLine(event.data || 'Stopped.', 'text-green-400');
-                setStatus('Stopped', 'text-green-400');
+                appendLine(event.data || 'Stopped.', 'text-[color:var(--nu-signal)]');
+                setStatus('Stopped', 'text-[color:var(--nu-signal)]');
                 closeStream();
             });
 
             eventSource.addEventListener('error', (event) => {
                 if (event.data) {
-                    appendLine(event.data, 'text-red-400');
-                    setStatus('Error', 'text-red-400');
+                    appendLine(event.data, 'text-[color:var(--nu-danger)]');
+                    setStatus('Error', 'text-[color:var(--nu-danger)]');
                     closeStream();
                     return;
                 }
-                setStatus('Disconnected', 'text-amber-300');
+                setStatus('Disconnected', 'text-[color:var(--nu-signal)]');
             });
         }
 
         document.getElementById('restartBtn').addEventListener('click', connect);
         document.getElementById('stopBtn').addEventListener('click', () => {
             closeStream();
-            setStatus('Stopped', 'text-gray-400');
-            appendLine('Stopped by user.', 'text-gray-400');
+            setStatus('Stopped', 'text-[color:var(--nu-muted)]');
+            appendLine('Stopped by user.', 'text-[color:var(--nu-muted)]');
         });
         window.addEventListener('beforeunload', closeStream);
 

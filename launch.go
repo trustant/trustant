@@ -27,6 +27,7 @@ const (
 	opencodePort        = 4096
 	opsdevelPort        = 5173
 	defaultHeadroomPort = 8787
+	localLoopbackHost   = "127.0.0.1"
 )
 
 type headroomLaunchConfig struct {
@@ -574,7 +575,7 @@ func reclaimPort(port int) bool {
 
 // isPortListening checks if a port is accepting connections
 func isPortListening(port int) bool {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), 500*time.Millisecond)
+	conn, err := net.DialTimeout("tcp4", fmt.Sprintf("%s:%d", localLoopbackHost, port), 500*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -1471,6 +1472,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// which service blocks landed — a missing block here is exactly why an MCP
 	// server would be skipped or misconfigured (spec/4-launch.md).
 	logOpsServiceBlocks(app)
+	if err := generateAppEnvFiles(app); err != nil {
+		log.Printf("Warning: failed to regenerate .env after ops ide login: %s", err)
+	}
 
 	// Run ops ide clean
 	log.Printf("Running ops ide clean for %s...", app)
@@ -1666,7 +1670,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Notify the pod-local OpenCode server of the workbench directory so it
 	// scopes the session correctly. Browser requests use opencode.<domain>
 	// through the ingress/proxy path; launch bootstrapping stays inside the pod.
-	sessionID := resolveOpencodeSession("localhost", leftPort, absPath)
+	sessionID := resolveOpencodeSession(localLoopbackHost, leftPort, absPath)
 
 	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1738,7 +1742,7 @@ func findDevelPids(pgid int) ([]int, error) {
 // waitForHTTP waits for an HTTP server to respond to HEAD requests
 func waitForHTTP(port int, timeout time.Duration) error {
 	client := &http.Client{Timeout: 1 * time.Second}
-	url := fmt.Sprintf("http://localhost:%d/", port)
+	url := fmt.Sprintf("http://%s:%d/", localLoopbackHost, port)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		resp, err := client.Head(url)
@@ -1748,7 +1752,7 @@ func waitForHTTP(port int, timeout time.Duration) error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return fmt.Errorf("http://localhost:%d not responding after %v", port, timeout)
+	return fmt.Errorf("http://%s:%d not responding after %v", localLoopbackHost, port, timeout)
 }
 
 // waitForPortFree waits for a port to stop accepting connections

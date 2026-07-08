@@ -604,14 +604,14 @@
                         if (line.trim()) {
                             const div = document.createElement('div');
                             if (line.startsWith('ERROR:')) {
-                                div.className = 'text-red-600';
+                                div.className = 'text-[color:var(--nu-danger)]';
                                 div.textContent = line;
                                 configError = true;
                             } else if (line.startsWith('OK:')) {
-                                div.className = 'text-green-600';
+                                div.className = 'text-[color:var(--nu-signal)]';
                                 div.textContent = line;
                             } else {
-                                div.className = 'text-gray-700';
+                                div.className = 'text-[color:var(--nu-muted)]';
                                 div.textContent = line;
                             }
                             msgEl.appendChild(div);
@@ -627,7 +627,7 @@
                 }
             } catch (e) {
                 const div = document.createElement('div');
-                div.className = 'text-red-600';
+                div.className = 'text-[color:var(--nu-danger)]';
                 div.textContent = 'Error: ' + e.message;
                 msgEl.appendChild(div);
                 configError = true;
@@ -643,7 +643,7 @@
             if (!configError) {
                 // Test OpenAI API connection
                 const testDiv = document.createElement('div');
-                testDiv.className = 'text-gray-700';
+                testDiv.className = 'text-[color:var(--nu-muted)]';
                 testDiv.textContent = 'Testing AI model connection...';
                 msgEl.appendChild(testDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
@@ -652,7 +652,7 @@
 
                 const okDiv = document.createElement('div');
                 if (testResult.warning || testResult.error) {
-                    okDiv.className = 'text-red-600';
+                    okDiv.className = 'text-[color:var(--nu-danger)]';
                     okDiv.textContent = 'ERROR: AI model test failed: ' + (testResult.warning || testResult.error);
                     msgEl.appendChild(okDiv);
                     msgEl.scrollTop = msgEl.scrollHeight;
@@ -663,7 +663,7 @@
                     showProviderModal();
                     return;
                 }
-                okDiv.className = 'text-green-600';
+                okDiv.className = 'text-[color:var(--nu-signal)]';
                 okDiv.textContent = 'OK: AI model connection successful';
                 msgEl.appendChild(okDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
