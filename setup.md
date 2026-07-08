@@ -54,8 +54,9 @@ locate the <apihost>:
 verify curl -sL <apihost>/api/info | jq .description returns OpenWhisk
 
 8. On mac, if there is the file ~/Library/Application Support/Trustable/id_ed25519,
+read the VM IP from ~/Library/Application Support/Trustable/current.ip and extract the kubeconfig:
 
-IP="$(cat ~/Library/Application\ Support/Trustable/workspace/current.ip)"
+IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
 ./ssh.sh sudo cat /etc/rancher/k3s/k3s.yaml | sed -e "/server:/ s/127.0.0.1/$IP/" >~/.ops/tmp/kubeconfig
 
 9. check you have administrative power
@@ -82,7 +83,7 @@ mv ~/.opencode/bin/opencode ~/.local/bin
 if missing warn and ask to install them
 
 12. implement in the commands to install in ~/.local/bin  the mcp servers for openserverless, redis, milvus, postgres, s3
-using the same procedure in images/Dockerfile (do not use /opt/uv/* vars and install everything for the local user)
+using the same procedure in image/Dockerfile (do not use /opt/uv/* vars and install everything for the local user)
 
 The python-based mcp servers (postgres, redis, milvus) are installed with uv, pointing the tool bin dir to ~/.local/bin:
 

@@ -37,6 +37,16 @@ Server build environment:
 - `TRUSTABLE_K8S_NAMESPACE`: namespace, default `nuvolaris`.
 - `TRUSTABLE_K8S_STATEFULSET`: StatefulSet name, default `trustable`.
 - `TRUSTABLE_K8S_CONTAINER`: container name, default `trustable`.
+
+Publishing environment:
+
+- `TRUSTABLE_PUBLISH_BRANCH`: branch ref updated by `publish.sh`, defaulting to
+  the current branch. Release branches can publish to `main` with
+  `TRUSTABLE_PUBLISH_BRANCH=main ./publish.sh`.
+  After image CI succeeds, `publish.sh` may push `olaris-bestia`, but any push
+  to `olaris`, `olaris-bestia`, `olaris-trustable`, or another `olaris*` repo
+  requires explicit user authorization first. If there are no local changes in
+  that subrepo it skips the commit step and only pushes.
 - `TRUSTABLE_K8S_ROLLOUT_TIMEOUT`: rollout timeout, default `300s`.
 
 The server flow does not update `olaris-bestia/opsroot.json`; that file belongs

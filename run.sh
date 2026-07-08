@@ -23,6 +23,11 @@ cleanup() {
 # 2. trap ^c
 trap cleanup INT
 
+# 2b. ensure the backend VM is up (kubefwd below needs its kubeconfig).
+#     start.sh is idempotent: no-op if healthy, starts it if stopped,
+#     reinstalls the package if the VM came back blank.
+./start.sh || { echo "Failed to start the backend VM (./start.sh)"; exit 1; }
+
 sudo chown -Rvf "$(id -u)" "$WORKSPACE_DIR"/*
 
 # 3. launch air in background

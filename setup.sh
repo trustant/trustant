@@ -201,10 +201,17 @@ WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) 
 [[ "$WHISK_DESC" == "OpenWhisk" ]] || fail "Cannot reach OpenWhisk at ${APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
 ok "OpenWhisk reachable at ${APIHOST}"
 
-# --- 8. Extract kubeconfig (mac only, when id_ed25519 is present) ---
+# --- 8. Start the backend VM and extract kubeconfig (mac only) ---
 if [[ "$OS" == "darwin" ]]; then
   ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
   IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
+
+  # Ensure the backend VM is up before we read anything from it. start.sh is
+  # idempotent: it no-ops if the VM is already healthy, starts it if stopped,
+  # and reinstalls the package if the VM came back blank.
+  echo "--- Starting backend VM ---"
+  ./start.sh || fail "Failed to start the backend VM (./start.sh)"
+
   if [[ -f "$ID_FILE" ]]; then
     echo "--- Extracting kubeconfig ---"
     mkdir -p "$HOME/.ops/tmp"
