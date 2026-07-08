@@ -269,7 +269,7 @@ func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
 	}
 }
 
-func TestGenerateAppEnvFilesIncludesOfficialMongoDBURI(t *testing.T) {
+func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 	origWorkspace := WorkspaceDir
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() {
@@ -301,8 +301,13 @@ func TestGenerateAppEnvFilesIncludesOfficialMongoDBURI(t *testing.T) {
   "apps": {
     "truapp": {
       "password": "secret",
-      "development": {},
-      "production": {}
+      "development": {
+        "MONGODB_URI": "mongodb://stale:pw@old/db",
+        "CUSTOM": "dev"
+      },
+      "production": {
+        "MONGODB_URI": "mongodb://prod:pw@old/db"
+      }
     }
   }
 }`
@@ -318,8 +323,22 @@ func TestGenerateAppEnvFilesIncludesOfficialMongoDBURI(t *testing.T) {
 	}
 
 	env := parseEnvFile(filepath.Join(WorkbenchDir, "truapp", ".env"))
-	if got := env["MONGODB_URI"]; got != "mongodb://app:pw@mongodb:27017/appdb" {
-		t.Fatalf("unexpected MONGODB_URI: %q", got)
+	if got := env["MONGODB_URI"]; got != "" {
+		t.Fatalf("MONGODB_URI must not be written to app .env, got %q", got)
+	}
+	if got := env["CUSTOM"]; got != "dev" {
+		t.Fatalf("expected ordinary development env to remain, got %q", got)
+	}
+
+	runtimeEnv := appServiceRuntimeEnv([]string{"BASE=1"})
+	hasMongoRuntime := false
+	for _, item := range runtimeEnv {
+		if item == "MONGODB_URI=mongodb://app:pw@mongodb:27017/appdb" {
+			hasMongoRuntime = true
+		}
+	}
+	if !hasMongoRuntime {
+		t.Fatalf("MongoDB runtime env should be available to launch processes, got %#v", runtimeEnv)
 	}
 }
 
