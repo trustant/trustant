@@ -52,3 +52,9 @@ Publishing environment:
 The server flow does not update `olaris-bestia/opsroot.json`; that file belongs
 to the release/plugin publishing flow. Local server builds are for testing the
 image currently being developed.
+
+`support/update.sh` is the Trustable Linux updater source that is published to
+the remote `trustable-update` endpoint. It must discover the latest
+`ghcr.io/trustable-ai/trustable-app:trustable_*` tag from GHCR at runtime
+instead of carrying a hardcoded `CURRENT` tag, so newly published minor
+versions such as `v0.3.11` do not fail as unknown releases.
