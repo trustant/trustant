@@ -33,6 +33,13 @@ DOWNLOAD_BASE="https://landing2.nuvolaris.org/api/my/v1/download"
 TRUSTABLE_VERSION="0.3.10"
 DIST_DIR="dist"                              # host-side cache for the .deb
 
+# The current macOS user + the folder start.sh runs from. Both are mirrored into
+# the VM: a guest user with the same name and UID owns a virtiofs mount of this
+# folder at the same path, so files edited in the VM keep the host's ownership.
+HOST_USER="$(id -un)"
+HOST_UID="$(id -u)"
+MOUNT_DIR="$(pwd)"
+
 # Ensure the k3s API serving cert covers the host-reachable lima0 IP, so the
 # kubeconfig setup.sh extracts (server: https://<ip>:6443) verifies. k3s's cert
 # only lists the node IP (eth0/vzNAT) + 127.0.0.1 by default, NOT the lima0 IP
@@ -212,6 +219,7 @@ finish() {
     warn "ssh.sh could not connect yet (key auth may need a moment)"
   fi
 
+  ensure_guest_user
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 
@@ -220,6 +228,7 @@ finish() {
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
   echo "  ssh:          ./ssh.sh <cmd>"
+  echo "  mount:        $MOUNT_DIR  (owned by $HOST_USER in the VM)"
   echo "  destroy:      ./start.sh -k"
 }
 
@@ -316,6 +325,40 @@ GUEST
   ok "Trustable package installed and ssh key authorized"
 }
 
+# Mirror the current macOS user into the VM: a guest account with the same name
+# and UID, so files under the virtiofs mount (mounted at the same path) keep the
+# host's ownership. Give them passwordless sudo and authorize the same Lima key
+# so `ssh <host_user>@<ip>` works too. Idempotent — safe to run on every start.
+# Skip when the host user is 'trustable' or 'root' (already present in the VM).
+ensure_guest_user() {
+  [ -n "$HOST_USER" ] || return 0
+  case "$HOST_USER" in trustable|root) return 0 ;; esac
+  echo "--- Mirroring host user '$HOST_USER' into the VM ---"
+  limactl shell "$VM_NAME" sudo HOST_USER="$HOST_USER" HOST_UID="$HOST_UID" \
+    bash -euo pipefail -s <<'GUEST'
+if ! id "$HOST_USER" >/dev/null 2>&1; then
+  # Only pin the UID if it isn't already taken by another account.
+  if [ -n "${HOST_UID:-}" ] && ! getent passwd "$HOST_UID" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -u "$HOST_UID" "$HOST_USER"
+  else
+    useradd -m -s /bin/bash "$HOST_USER"
+  fi
+  echo "created guest user $HOST_USER ($(id -u "$HOST_USER"))"
+fi
+usermod -aG sudo "$HOST_USER" 2>/dev/null || true
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$HOST_USER" > "/etc/sudoers.d/90-$HOST_USER"
+chmod 0440 "/etc/sudoers.d/90-$HOST_USER"
+install -d -o "$HOST_USER" -g "$HOST_USER" -m 0700 "/home/$HOST_USER/.ssh"
+# Authorize the same key(s) trustable trusts, so ssh as the host user works.
+if [ -f /home/trustable/.ssh/authorized_keys ]; then
+  cp /home/trustable/.ssh/authorized_keys "/home/$HOST_USER/.ssh/authorized_keys"
+  chown "$HOST_USER:$HOST_USER" "/home/$HOST_USER/.ssh/authorized_keys"
+  chmod 0600 "/home/$HOST_USER/.ssh/authorized_keys"
+fi
+GUEST
+  ok "guest user '$HOST_USER' ready (mount owner)"
+}
+
 # True if the trustable package is installed in the running VM.
 package_installed() {
   limactl shell "$VM_NAME" dpkg -l trustable 2>/dev/null | grep -q '^ii'
@@ -377,7 +420,9 @@ ensure_deb   # sets DEB_FILE
 LIMA_CONFIG="$(mktemp -t trustable-lima-XXXX).yaml"
 trap 'rm -f "$LIMA_CONFIG"' EXIT
 
-cat >"$LIMA_CONFIG" <<'YAML'
+# The mount is writable and lands at the same path inside the VM as on the host,
+# so a guest user with the host's UID (created in install_package) owns the files.
+cat >"$LIMA_CONFIG" <<YAML
 vmType: vz
 os: Linux
 images:
@@ -391,7 +436,10 @@ disk: "40GiB"
 networks:
   - vzNAT: true
 mountType: virtiofs
-mounts: []
+mounts:
+  - location: "${MOUNT_DIR}"
+    mountPoint: "${MOUNT_DIR}"
+    writable: true
 ssh:
   loadDotSSHPubKeys: false
 YAML
