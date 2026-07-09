@@ -205,6 +205,12 @@ This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which wa
 - When app config is saved (`POST /api/appconfig/<name>`)
 - When global config is saved (`POST /api/configuration`)
 
+New variables must not be added to generated app `.env` / `.env.production`,
+the per-app config `development` / `production` maps, or env-generation code
+unless the user explicitly authorizes that exact variable in the current
+conversation. Do not infer new env keys from MCP availability, service
+capabilities, model behavior, or convenience for generated code.
+
 The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`,
 

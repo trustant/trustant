@@ -26,6 +26,9 @@ Use `./build-server.sh` on Linux servers. `./build.sh` is the compatibility entr
 - Do not treat all `localhost` or all `miniops.me` references as equivalent; classify them as browser-visible, configured apihost, internal service, or sidecar/local checks.
 - `$WORKSPACE_DIR/workspace/<name>` is the durable bare repo. `$WORKBENCH_DIR/<name>` is the active checkout for the running app.
 - `opencode.md` is embedded guidance for assistants inside user-created apps, not guidance for editing this repo.
+- Never add variables to generated app `.env` / `.env.production` files, app
+  config env maps, or env-generation code unless the user explicitly authorizes
+  that exact variable in the current conversation.
 
 ## Git
 

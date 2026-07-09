@@ -39,6 +39,23 @@ ssh.sh connects as trustable@<ip> with the Lima identity, but the package create
 the 'trustable' user without any authorized_keys. Append the Lima pubkey(s) to
 /home/trustable/.ssh/authorized_keys during install.
 
+## Mount the current folder
+
+Mount the folder start.sh runs from (`$(pwd)`) into the VM at the SAME path via a
+writable virtiofs mount in the Lima config (`mounts: [{location, mountPoint, writable:true}]`).
+Same path host-and-guest so absolute paths line up on both sides.
+
+## Mirror the current user into the VM
+
+Also create a guest account matching the current macOS user (`id -un`) with the
+same UID (`id -u`), so files under the virtiofs mount keep the host's ownership
+inside the VM. Give them passwordless sudo (`/etc/sudoers.d/90-<user>`) and copy
+trustable's authorized_keys across so `ssh <user>@<ip>` works too.
+
+Idempotent and re-run on every start (not only fresh installs), since an existing
+VM may predate the user. Skip when the host user is already `trustable` or `root`;
+only pin the UID when it isn't already taken by another account.
+
 ## k3s API cert (tls-san)
 
 setup.sh extracts k3s.yaml and rewrites `server: https://127.0.0.1:6443` ->
