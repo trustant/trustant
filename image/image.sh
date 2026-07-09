@@ -59,6 +59,7 @@ detect_platforms() {
 
 PLATFORMS=$(detect_platforms)
 echo "Building for platforms: $PLATFORMS"
+git submodule update --init ../mcp
 
 if [ ! -f ../mcp/package.json ]; then
     echo "Error: ../mcp is not initialized. Run: git submodule update --init mcp" >&2
@@ -69,7 +70,6 @@ MCP_REF="$(git -C ../mcp rev-parse HEAD)"
 echo "Using openserverless-mcp submodule: $MCP_REF"
 rm -rf "$MCP_CONTEXT_DIR"
 mkdir -p "$MCP_CONTEXT_DIR"
-git submodule update --init ../mcp
 git -C ../mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
 
 # Split the Dockerfile at the separator
