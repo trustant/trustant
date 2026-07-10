@@ -11,13 +11,18 @@ BLOCKED_TOOLS = {"list_buckets", "s3_list_buckets"}
 
 
 def pump(src, dst):
+    source = src.buffer
+    sink = dst.buffer
+    read = getattr(source, "read1", source.read)
     try:
         while True:
-            chunk = src.buffer.read(8192)
+            # MCP messages are normally much smaller than the buffer. read1()
+            # forwards the bytes already available instead of waiting for 8 KiB.
+            chunk = read(8192)
             if not chunk:
                 break
-            dst.buffer.write(chunk)
-            dst.buffer.flush()
+            sink.write(chunk)
+            sink.flush()
     except BrokenPipeError:
         pass
 
@@ -30,7 +35,7 @@ def tool_name(tool):
 
 def normalize_buckets(value):
     if isinstance(value, dict):
-        if value.get("buckets") is None:
+        if "buckets" in value and value["buckets"] is None:
             value["buckets"] = []
         for child in value.values():
             normalize_buckets(child)

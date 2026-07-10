@@ -435,6 +435,9 @@ at runtime.
 The Trustable runtime image wraps the external `mcp-s3` binary. The real binary
 is kept as `/usr/local/bin/mcp-s3-real`, while `/usr/local/bin/mcp-s3` filters
 known-invalid bucket-listing tools and normalizes `buckets: null` to `[]`.
+The wrapper must relay partial stdio reads immediately: MCP initialization
+messages are normally smaller than the relay buffer and must not wait for 8 KiB
+or end-of-file before reaching the real server.
 This prevents OpenCode sessions from failing on S3 MCP schema validation while
 keeping non-bucket-listing S3 diagnostics available.
 
