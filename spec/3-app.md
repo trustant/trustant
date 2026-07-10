@@ -17,6 +17,8 @@ In the bar, aligned to the left:
 - the app name in bold
 - the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
+- the **"Sessions" pulldown** (history icon and persistent-session count) —
+  see "Sessions Pulldown" below
 
 Aligned to the right:
 
@@ -39,6 +41,20 @@ The button shows a gear icon, the label "Config", and a chevron-down icon. Click
 3. **Memory** (brain icon) — opens the AGENTS.md editor described in "Memory".
 
 The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+
+# Sessions Pulldown
+
+The **Sessions** pulldown fetches `GET /api/opencode/sessions/<name>` on page
+load, whenever it opens, and every 10 seconds. It lists up to 20 persistent root
+OpenCode sessions for the current canonical workbench, newest first, with title
+and update time. The active session is visibly marked.
+
+Selecting a session updates the `SESSIONID` cookie and reloads only the left
+iframe at `<LEFT>/<B64DIR>/session/<session-id>`. It must not launch a new
+OpenCode process, replace the application workbench, or modify the right Vite
+iframe. An empty history and a fetch error have distinct, readable states.
+
+See [opencode-session-history-flow.svg](opencode-session-history-flow.svg).
 
 # Utils Pulldown
 

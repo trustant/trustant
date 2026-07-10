@@ -51,17 +51,18 @@ recovery contract for this app and takes priority for OpenServerless workflow
 details.
 
 Trustable installs `check_openserverless_actions.sh` once in the user PATH. Run
-it against the current app before deploying backend changes:
+it after `ops ide deploy` and before completing backend changes:
 
 ```bash
 timeout 60 check_openserverless_actions.sh .
 ```
 
-If the checker reports hard failures, fix them before deploy and re-read
-`.openserverless-contract.md` before editing again. If the contract is missing
-or the checker is unavailable in PATH, say so and fall back to this file's
-rules. Do not invent manual zip or raw `ops action create/update/deploy`
-workflows.
+If it reports a missing or stale deploy archive, rerun `ops ide deploy`; never
+repair the ZIP manually. For other hard failures, re-read
+`.openserverless-contract.md`, repair source with the approved tools, deploy
+again, and rerun the checker. If the contract is missing or the checker is
+unavailable in PATH, say so and fall back to this file's rules. Do not invent
+manual zip or raw `ops action create/update/deploy` workflows.
 
 After compaction, do not continue editing from memory. Re-read this file,
 `.openserverless-contract.md` if present, `opencode.json`, and git status.
@@ -104,9 +105,12 @@ build when available.
   action changes, use the app deploy/redeploy path described below.
 - Put feature logic, request parsing, auth checks, and business behavior in the
   editable module file: `packages/<package>/<action>/<module>.py`.
-- If setup actions change, run `ops ide setup`.
-- If action modules change and runtime behavior must be verified, deploy or
-  redeploy before testing the public endpoint.
+- After every action MCP call or change under `packages/`, run
+  `timeout 120 ops ide deploy` before setup, runtime verification, or
+  completion. This includes setup actions.
+- If setup actions change, run `timeout 120 ops ide setup` only after deploy.
+- Never create, edit, move, or delete action ZIP files manually. They are
+  derived sibling artifacts owned by `ops ide deploy`.
 - Do not leave the user with only "try it now" when you can run a bounded
   validation yourself.
 - Do not declare a phase complete when the app code path is still failing,
@@ -175,8 +179,8 @@ scope. Do not start another Vite server.
 
 Use this execution loop for backend work:
 
-1. Read `.openserverless-contract.md` if present and run the checker before
-   deploy when it exists.
+1. Read `.openserverless-contract.md` if present. Run the checker after deploy
+   and before completion when it exists.
 2. Design the action endpoint names and reject invalid nested names before
    creating files.
 3. Create actions with the OpenServerless MCP action tool.
@@ -187,8 +191,9 @@ Use this execution loop for backend work:
    exists without a wrapper, stop and repair/create the action through the MCP
    action tool before continuing.
 6. Add Python libraries with `action-requirements`.
-7. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
-   changes, inspect logs on failure, then validate via the real HTTP app path.
+7. Run `timeout 120 ops ide deploy` after every action change. If setup actions
+   changed, run `timeout 120 ops ide setup` after deploy. Inspect failures,
+   then validate via the real HTTP app path.
 
 Choose the backend shape this way:
 
@@ -227,18 +232,21 @@ names. Do not retry with guessed aliases. If a shell command reports
 `no command named ...`, do not keep guessing `ops` subcommands; use the MCP
 action tools above or inspect the available task list with bounded commands.
 
-Do not use `ops action deploy`; it is not an app workflow command. Do not use
+Do not create or mutate ZIP files under `packages/`; they are generated beside
+action directories by `ops ide deploy`. Do not use `ops action deploy`; it is
+not an app workflow command. Do not use
 `ops action update`, `ops action create`, or raw `ops action` commands as the
-normal deploy path for edited app modules. After changing public action modules,
-run `timeout <seconds> ops ide deploy`. After changing setup actions, run
-`timeout <seconds> ops ide setup`.
+normal deploy path for edited app modules. After changing any action, including
+setup actions, run `timeout <seconds> ops ide deploy`. After changing setup
+actions, run `timeout <seconds> ops ide setup` only after deploy succeeds.
 
 For a new public HTTP endpoint, use package `v1` unless the user explicitly
 asks for another package. The endpoint is reachable at
 `/api/my/<package>/<action>`.
 
 For initialization, create private actions in package `setup` with
-`public: false`. After creating or changing setup actions, run `ops ide setup`.
+`public: false`. After creating or changing setup actions, run `ops ide deploy`
+and then `ops ide setup`.
 
 ## Action Endpoint Grammar
 
@@ -649,7 +657,8 @@ When an app has login or registration:
   only when MongoDB is configured.
 - Private S3 data preload belongs in `setup/upload`.
 - Public web assets belong in `public/`, not in setup uploads.
-- Run `ops ide setup` after creating or changing setup actions.
+- Run `ops ide deploy` after creating or changing any action, then run
+  `ops ide setup` when setup actions changed.
 - `ops ide setup` must succeed before setup work is complete.
 - If setup returns `Cannot start action. Check logs for details.`, immediately
   run `timeout <seconds> ops logs --last` and fix the first traceback. Do not
@@ -705,10 +714,10 @@ restrictions are enforced by the platform:
 
 End backend-related work with proof:
 
-- Run `timeout 60 check_openserverless_actions.sh .` before deploy when the
+- After changing an action module, run `ops ide deploy`.
+- Run `timeout 60 check_openserverless_actions.sh .` after deploy when the
   checker is available.
-- After changing an action module, run the appropriate deploy/redeploy path.
-- After changing setup actions, run `ops ide setup`.
+- After changing setup actions, run `ops ide deploy` and then `ops ide setup`.
 - Validate public actions with bounded HTTP checks against
   `http://localhost:5173/api/my/<package>/<action>` from inside this pod.
 - For CRUD resources, validate the full create/list/update/delete matrix. Test

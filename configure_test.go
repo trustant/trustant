@@ -8,7 +8,21 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+func writeActionDeployArtifact(t *testing.T, actionDir string) string {
+	t.Helper()
+	archive := actionDir + ".zip"
+	if err := os.WriteFile(archive, []byte("ops ide deploy artifact\n"), 0644); err != nil {
+		t.Fatalf("write deploy artifact: %s", err)
+	}
+	deployedAt := time.Now().Add(time.Second)
+	if err := os.Chtimes(archive, deployedAt, deployedAt); err != nil {
+		t.Fatalf("set deploy artifact time: %s", err)
+	}
+	return archive
+}
 
 func isolateOpenServerlessCheckerInstall(t *testing.T) string {
 	t.Helper()
@@ -673,6 +687,7 @@ func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(actionDir, "hello.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
 		t.Fatalf("write module: %s", err)
 	}
+	writeActionDeployArtifact(t, actionDir)
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()
@@ -845,6 +860,7 @@ def main(args, ctx=None):
 	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
 		t.Fatalf("write module: %s", err)
 	}
+	writeActionDeployArtifact(t, actionDir)
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()
@@ -892,6 +908,7 @@ def main(args, ctx=None):
 	if err := os.WriteFile(filepath.Join(actionDir, "contacts.py"), []byte(module), 0644); err != nil {
 		t.Fatalf("write module: %s", err)
 	}
+	writeActionDeployArtifact(t, actionDir)
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()
@@ -997,9 +1014,7 @@ func TestOpenServerlessCheckerIgnoresOpsIdeDeployZips(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(actionDir, "hello.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
 		t.Fatalf("write module: %s", err)
 	}
-	if err := os.WriteFile(filepath.Join(actionDir, "hello.zip"), []byte("deploy artifact\n"), 0644); err != nil {
-		t.Fatalf("write deploy zip artifact: %s", err)
-	}
+	writeActionDeployArtifact(t, actionDir)
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()
@@ -1008,6 +1023,98 @@ func TestOpenServerlessCheckerIgnoresOpsIdeDeployZips(t *testing.T) {
 	}
 	if strings.Contains(string(out), "zip") {
 		t.Fatalf("checker should not report generated zip artifacts, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsManualNestedActionZip(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "hello")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from hello import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "hello.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+	if err := os.WriteFile(filepath.Join(actionDir, "hello.zip"), []byte("manual archive\n"), 0644); err != nil {
+		t.Fatalf("write manual zip: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject a nested action zip, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "must not be created or edited inside an action source directory") {
+		t.Fatalf("checker should explain manual ZIP drift, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRequiresMissingDeployArchive(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "hello")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from hello import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "hello.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should require a missing deploy archive, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Deploy archive is missing") {
+		t.Fatalf("checker should require ops ide deploy, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRequiresDeployAfterActionChange(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "hello")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := filepath.Join(actionDir, "__main__.py")
+	module := filepath.Join(actionDir, "hello.py")
+	if err := os.WriteFile(wrapper, []byte("from hello import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(module, []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	archive := writeActionDeployArtifact(t, actionDir)
+	changedAt := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(module, changedAt, changedAt); err != nil {
+		t.Fatalf("set changed source time: %s", err)
+	}
+	if err := os.Chtimes(archive, time.Now(), time.Now()); err != nil {
+		t.Fatalf("reset deploy artifact time: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should require deploy after an action change, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Action source is newer than its deploy archive") {
+		t.Fatalf("checker should require ops ide deploy, got=%s", strings.TrimSpace(string(out)))
 	}
 }
 
@@ -1033,6 +1140,7 @@ func TestOpenServerlessCheckerWarnsOnFragileRouteIDParsing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(actionDir, "contacts.py"), []byte(module), 0644); err != nil {
 		t.Fatalf("write module: %s", err)
 	}
+	writeActionDeployArtifact(t, actionDir)
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()
@@ -1063,6 +1171,7 @@ func TestOpenServerlessCheckerWarnsOnHTMLReturnedAsJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(actionDir, "invoice.py"), []byte(module), 0644); err != nil {
 		t.Fatalf("write module: %s", err)
 	}
+	writeActionDeployArtifact(t, actionDir)
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()

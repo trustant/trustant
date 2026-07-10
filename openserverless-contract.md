@@ -47,6 +47,9 @@ user explicitly asks to inspect them, and they must not override this contract.
 - Trustable may deny direct edits to generated wrappers and deploy artifacts.
   If a wrapper edit is blocked, use the OpenServerless MCP action tool instead
   of working around the guard.
+- Deploy archives live beside action directories, for example
+  `packages/v1/contacts.zip`. Never create, edit, move, or delete ZIP files
+  manually, including ZIP files inside an action source directory.
 - Setup and initialization actions live under `packages/setup/<action>/`.
 
 ## Action Names
@@ -145,10 +148,17 @@ Invalid examples:
 
 ## Deploy And Verification
 
-- After setup action changes, run `timeout 120 ops ide setup`.
-- After public action changes, run `timeout 120 ops ide deploy`.
-- Run `timeout 60 check_openserverless_actions.sh .` before deploy. Trustable
-  installs the checker once in the user PATH.
+- After every action MCP call or source change under `packages/`, run
+  `timeout 120 ops ide deploy` before setup, runtime verification, or
+  completion. This includes setup actions.
+- After setup action changes, run `timeout 120 ops ide setup` only after the
+  deploy succeeds.
+- Never create or update action ZIP files manually. `ops ide deploy` owns the
+  sibling `packages/<package>/<action>.zip` artifacts.
+- Run `timeout 60 check_openserverless_actions.sh .` after deploy and before
+  completion. Trustable installs the checker once in the user PATH. It verifies
+  that every action archive exists and is not older than its source; a missing
+  or stale archive requires another deploy, never a manual ZIP repair.
 - If the checker reports an action module without `__main__.py`, create or
   repair that action with the OpenServerless MCP action tool before editing the
   module logic.

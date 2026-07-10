@@ -87,10 +87,11 @@ It must say:
 - `.openserverless-contract.md` is the short recovery contract and takes
   priority for OpenServerless workflow details;
 - Trustable installs `check_openserverless_actions.sh` once in the user PATH;
-  assistants must run `timeout 60 check_openserverless_actions.sh .` before
-  deploying backend changes when the checker is available;
-- if the checker reports hard failures, assistants must fix them before deploy
-  and re-read `.openserverless-contract.md` before editing again;
+  assistants must run `timeout 60 check_openserverless_actions.sh .` after
+  deploy and before completion when the checker is available;
+- missing or stale archives require another `ops ide deploy`, never a manual
+  ZIP repair; other hard failures require contract recovery, a source repair,
+  another deploy, and another checker run;
 - if the contract is missing or the checker is unavailable in PATH, assistants
   must report that and fall back to `opencode.md`;
 - after compaction, assistants must not continue from memory; they must re-read
@@ -132,9 +133,11 @@ The embedded guidance must include these rules:
 - Put feature code, parsing fixes, auth checks, and business behavior in the
   editable module file:
   `packages/<package>/<action>/<module>.py`.
-- If setup actions change, explicitly run `ops ide setup`.
-- If action modules change and runtime behavior must be verified, run the
-  appropriate deploy/redeploy path before testing the public endpoint.
+- After every action MCP call or change under `packages/`, explicitly run
+  `timeout 120 ops ide deploy` before setup, verification, or completion.
+- If setup actions change, run `timeout 120 ops ide setup` only after deploy.
+- Never create, edit, move, or delete action ZIP files manually; deploy owns
+  the sibling `packages/<package>/<action>.zip` artifacts.
 - Assistants must not use shell redirection to create or replace source files.
   The embedded guidance must explicitly forbid `cat > file`, heredocs, `tee`,
   `printf >`, and `sed -i` for app source or generated wrappers, and should
@@ -188,8 +191,8 @@ Vite server or browse arbitrary infrastructure URLs.
 
 The embedded guidance must include a concrete backend execution loop:
 
-1. Read `.openserverless-contract.md` if present and run the checker before
-   deploy when it exists.
+1. Read `.openserverless-contract.md` if present and run the checker after
+   deploy and before completion when it exists.
 2. Design action endpoint names and reject invalid nested names before creating
    files.
 3. Create actions with the OpenServerless MCP action tool.
@@ -200,8 +203,9 @@ The embedded guidance must include a concrete backend execution loop:
    exists without a wrapper, stop and repair/create the action through the MCP
    action tool before continuing.
 6. Add Python libraries with `action-requirements`.
-7. Run `ops ide setup` for setup actions or `ops ide deploy` for public action
-   changes, inspect logs on failure, then validate via the real HTTP app path.
+7. Run `ops ide deploy` after every action change. If setup actions changed,
+   run `ops ide setup` after deploy, inspect failures, then validate via the
+   real HTTP app path.
 
 The guidance must tell assistants how to choose the backend shape:
 
@@ -246,12 +250,15 @@ the exposed tools in the current tool list or generated `opencode.json`. If an
 subcommands; they should use the MCP action tools above or inspect the available
 task list with bounded commands.
 
-The embedded guidance must explicitly say not to use `ops action deploy`
+The embedded guidance must explicitly say not to create or mutate ZIP files
+under `packages/`; those sibling artifacts are owned by `ops ide deploy`.
+It must explicitly say not to use `ops action deploy`
 because it is not an app workflow command. It must also say not to use
 `ops action update`, `ops action create`, or raw `ops action` commands as the
-normal deploy path for edited app modules. After changing public action modules,
-assistants must run `timeout <seconds> ops ide deploy`. After changing setup
-actions, assistants must run `timeout <seconds> ops ide setup`.
+normal deploy path for edited app modules. After changing any action, including
+setup actions, assistants must run `timeout <seconds> ops ide deploy`. After
+changing setup actions, assistants must run `timeout <seconds> ops ide setup`
+only after deploy succeeds.
 
 For new public HTTP endpoints, the guidance must say to use package `v1` unless
 the user explicitly asks for another package. A public action is reachable at
@@ -259,7 +266,8 @@ the user explicitly asks for another package. A public action is reachable at
 
 For setup and initialization, the guidance must say to create private actions
 under package `setup` with `public: false`, and to invoke the complete setup
-set with `ops ide setup` after creating or changing them.
+set with `ops ide deploy` followed by `ops ide setup` after creating or changing
+them.
 
 ## Action Endpoint Grammar
 
@@ -624,7 +632,8 @@ The embedded guidance must say:
   only when MongoDB is configured;
 - private S3 data preload belongs in `setup/upload`;
 - public web assets belong in `public/`, not in setup uploads;
-- run `ops ide setup` after creating or changing setup actions.
+- run `ops ide deploy` after creating or changing any action, then run
+  `ops ide setup` when setup actions changed.
 
 The embedded guidance must also say that `ops ide setup` must succeed before
 setup work is complete. If setup returns `Cannot start action. Check logs for
@@ -680,10 +689,10 @@ The embedded guidance must tell assistants to retrieve the current user with
 
 The embedded guidance must end backend-related changes with local proof:
 
-- run `timeout 60 check_openserverless_actions.sh .` before deploy when the
+- after changing any action module, run `ops ide deploy`;
+- run `timeout 60 check_openserverless_actions.sh .` after deploy when the
   checker is available;
-- after changing an action module, run the appropriate deploy/redeploy path;
-- after changing setup actions, run `ops ide setup`;
+- after changing setup actions, run `ops ide deploy` and then `ops ide setup`;
 - validate public actions with bounded HTTP checks against
   `http://localhost:5173/api/my/<package>/<action>` from inside the pod;
 - for CRUD resources, validate the full create/list/update/delete matrix,

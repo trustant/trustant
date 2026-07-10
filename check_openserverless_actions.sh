@@ -38,6 +38,10 @@ if [ ! -f "$CONTRACT" ]; then
 fi
 
 if [ -d packages ]; then
+  while IFS= read -r archive; do
+    error "$archive" "Action ZIP files must not be created or edited inside an action source directory. Remove it and run ops ide deploy; generated deploy archives live beside the action directory."
+  done < <(find packages -mindepth 3 -maxdepth 3 -type f -name '*.zip' 2>/dev/null | sort)
+
   declare -A action_dirs_without_wrapper=()
   while IFS= read -r module; do
     action_dir="$(dirname "$module")"
@@ -55,6 +59,14 @@ if [ -d packages ]; then
   done < <(find packages -mindepth 4 -maxdepth 4 -type f -name __main__.py 2>/dev/null | sort)
 
   while IFS= read -r wrapper; do
+    action_dir="$(dirname "$wrapper")"
+    deploy_archive="${action_dir}.zip"
+    if [ ! -f "$deploy_archive" ]; then
+      error "$action_dir" "Deploy archive is missing. Run ops ide deploy after creating or changing an action."
+    elif find "$action_dir" -maxdepth 1 -type f ! -name '*.zip' -newer "$deploy_archive" -print -quit 2>/dev/null | grep -q .; then
+      error "$action_dir" "Action source is newer than its deploy archive. Run ops ide deploy before setup or completion."
+    fi
+
     if grep -Eq '^[[:space:]]*def[[:space:]]+main[[:space:]]*\(' "$wrapper" &&
       ! grep -Eq '#--(kind|web|param|timeout)|##[[:space:]]*build-context[[:space:]]*##|init_(postgresql|redis|s3|milvus)' "$wrapper"; then
       error "$wrapper" "Wrapper defines main() but lacks generated action/service markers. Do not hand-author generated wrappers; recreate or repair the action with the OpenServerless MCP action tool."

@@ -346,6 +346,54 @@ test.describe("issue98 guardrail E2E", () => {
         expect(JSON.stringify(body)).toContain(workbenchDir);
       });
 
+      await test.step("Trustable session picker shows persistent OpenCode history", async () => {
+        const historyTitle = `Issue98 history ${Date.now().toString(36)}`;
+        const created = await request.post(
+          `${opencodeURL}/session?directory=${encodeURIComponent(workbenchDir)}`,
+          {
+            data: { title: historyTitle },
+            headers: { "X-Opencode-Directory": workbenchDir },
+            timeout: 30_000,
+          },
+        );
+        expect(created.ok(), await created.text()).toBeTruthy();
+        const historySession = await created.json();
+
+        try {
+          const history = await request.get(`${trustableURL}/api/opencode/sessions/${app}`, {
+            timeout: 30_000,
+          });
+          expect(history.ok(), await history.text()).toBeTruthy();
+          const sessions = await history.json();
+          expect(sessions.map((session) => session.id)).toContain(launch.session_id);
+          expect(sessions.map((session) => session.id)).toContain(historySession.id);
+
+          await page.context().addCookies([
+            { name: "LEFT", value: opencodeURL, url: trustableURL },
+            { name: "RIGHT", value: viteURL, url: trustableURL },
+            { name: "NAME", value: app, url: trustableURL },
+            { name: "URLDIR", value: workbenchDir, url: trustableURL },
+            { name: "B64DIR", value: launch.b64dir, url: trustableURL },
+            { name: "SESSIONID", value: launch.session_id, url: trustableURL },
+          ]);
+          await page.goto(`${trustableURL}/app.html`, { waitUntil: "domcontentloaded" });
+          const picker = page.getByRole("button", { name: /Sessions/ });
+          await expect(picker).toContainText(/\(\d+\)/);
+          await picker.click();
+          const historyItem = page.getByRole("menuitem", { name: new RegExp(historyTitle) });
+          await expect(historyItem).toBeVisible();
+          await historyItem.click();
+          await expect(page.locator("#leftFrame")).toHaveAttribute("src", new RegExp(`/session/${historySession.id}$`));
+          await page.evaluate((sessionID) => switchOpenCodeSession(sessionID), launch.session_id);
+          await expect(page.locator("#leftFrame")).toHaveAttribute("src", new RegExp(`/session/${launch.session_id}$`));
+        } finally {
+          await request.delete(
+            `${opencodeURL}/session/${historySession.id}?directory=${encodeURIComponent(workbenchDir)}`,
+            { headers: { "X-Opencode-Directory": workbenchDir }, timeout: 30_000 },
+          ).catch(() => {});
+        }
+      });
+
       await test.step("MCP list includes OpenServerless and the bounded browser", async () => {
         const mcp = await request.get(`${opencodeURL}/mcp`, { timeout: 30_000 });
         expect(mcp.ok(), await mcp.text()).toBeTruthy();

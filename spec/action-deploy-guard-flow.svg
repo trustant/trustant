@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="380" viewBox="0 0 980 380" role="img" aria-labelledby="title desc">
+  <title id="title">Trustable action deploy guard flow</title>
+  <desc id="desc">Action MCP or source changes require ops ide deploy. Manual ZIP mutations, setup before deploy, and completion before deploy are blocked.</desc>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #172033; }
+    .title { font-size: 22px; font-weight: 700; }
+    .label { font-size: 14px; font-weight: 700; }
+    .small { font-size: 12px; }
+    .box { fill: #f7f9fc; stroke: #72809b; stroke-width: 1.5; rx: 6; }
+    .gate { fill: #fff4e5; stroke: #c87800; stroke-width: 1.5; rx: 6; }
+    .deny { fill: #fff0f0; stroke: #bc3d3d; stroke-width: 1.5; rx: 6; }
+    .ok { fill: #e9f8ef; stroke: #21884a; stroke-width: 1.5; rx: 6; }
+    .arrow { stroke: #4d5b75; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#4d5b75"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" class="title">Action source must be deployed by ops</text>
+
+  <rect x="40" y="80" width="210" height="96" class="box"/>
+  <text x="145" y="109" text-anchor="middle" class="label">Action mutation</text>
+  <text x="145" y="133" text-anchor="middle" class="small">action MCP or packages/** edit</text>
+  <text x="145" y="154" text-anchor="middle" class="small">deployRequired = true</text>
+
+  <rect x="330" y="72" width="230" height="112" class="gate"/>
+  <text x="445" y="101" text-anchor="middle" class="label">Deterministic gate</text>
+  <text x="445" y="125" text-anchor="middle" class="small">block setup and completion</text>
+  <text x="445" y="146" text-anchor="middle" class="small">reject manual ZIP commands</text>
+  <text x="445" y="167" text-anchor="middle" class="small">report nested or stale archives</text>
+
+  <rect x="650" y="80" width="250" height="96" class="ok"/>
+  <text x="775" y="109" text-anchor="middle" class="label">ops ide deploy</text>
+  <text x="775" y="133" text-anchor="middle" class="small">regenerate action archives</text>
+  <text x="775" y="154" text-anchor="middle" class="small">checker passes, gate clears</text>
+
+  <rect x="650" y="245" width="250" height="86" class="box"/>
+  <text x="775" y="274" text-anchor="middle" class="label">Optional setup then completion</text>
+  <text x="775" y="298" text-anchor="middle" class="small">ops ide setup for setup actions</text>
+  <text x="775" y="318" text-anchor="middle" class="small">completion gate proves result</text>
+
+  <rect x="330" y="245" width="230" height="86" class="deny"/>
+  <text x="445" y="274" text-anchor="middle" class="label">Manual ZIP denied</text>
+  <text x="445" y="298" text-anchor="middle" class="small">no zipfile, zip, rm/cp/mv</text>
+  <text x="445" y="318" text-anchor="middle" class="small">inside action source folders</text>
+
+  <path d="M250 128 H330" class="arrow"/>
+  <path d="M560 128 H650" class="arrow"/>
+  <path d="M775 176 V245" class="arrow"/>
+  <path d="M445 184 V245" class="arrow"/>
+</svg>

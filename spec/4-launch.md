@@ -489,8 +489,11 @@ references the project's own
 `<workbenchdir>/<app>/.openserverless-contract.md` first and
 `<workbenchdir>/<app>/opencode.md` second. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
-The checker must not flag `.zip` files created by `ops ide deploy` under
-`packages/` as failures merely because they exist.
+The checker must accept sibling `.zip` files created by `ops ide deploy`, such
+as `packages/v1/contacts.zip`. It must fail on ZIP files created inside action
+source directories, missing sibling deploy archives, and action source files
+newer than their deploy archive. These failures require `ops ide deploy`; ZIP
+files must never be repaired manually.
 It must not flag standard generated `__main__.py` PostgreSQL wiring as business
 logic merely because the wrapper imports `psycopg`, reads `POSTGRES_URL`, and
 assigns `ctx.POSTGRESQL`.
@@ -515,7 +518,12 @@ and exposes `trustable_context_recover`, `trustable_diagnostic_checkpoint`, and
 `trustable_completion_check`. It blocks mutations after compaction, blocks
 speculative edits for a reported bug until reproduction evidence is recorded,
 opens a circuit breaker after two equal completion failures, and prevents
-unverified completion claims.
+unverified completion claims. Any action MCP call or source mutation under
+`packages/` marks action deployment as required. Until a successful
+`ops ide deploy` is followed by a passing action checker, the plugin blocks
+`ops ide setup` and the completion gate.
+
+See [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg).
 
 Trustable must also install `check_trustable_frontend.sh` and the aggregate
 `check_trustable_app.sh` once in `~/.local/bin`. The aggregate checker runs the
@@ -659,6 +667,14 @@ then return:
 
 Base64-Url-Safe encode is as follows:
 btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+
+# GET /api/opencode/sessions/<app>
+
+Validate `<app>`, resolve its canonical existing workbench directory, and list
+up to 20 persistent root sessions from the pod-local OpenCode server using the
+same directory scope and `X-Opencode-Directory` header as launch. Return the
+OpenCode session array as JSON. This endpoint powers the session picker in
+`app.html`; it does not create, delete, or replace sessions.
 
 
 # DELETE /api/launch

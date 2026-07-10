@@ -1,4 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -8,11 +9,15 @@ const STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
 const COMPLETION_WORDS = /\b(done|complete|completed|fixed|resolved|working|success|risolto|risolta|completato|completata|funziona|prova ora)\b/i;
 const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|ancora|errore|problema|pagina bianca|bloccato)/i;
 const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
+const ACTION_TOOL = /^(action[-_]|openserverless_action_)/;
+const OPS_IDE_DEPLOY = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i;
+const OPS_IDE_SETUP = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+setup(?:\s|$)/i;
 
 const CRITICAL_SYSTEM = [
   "Trustable enforcement is active.",
   "After session compaction, call trustable_context_recover before any edit, write, action mutation, or deploy.",
   "For a reported bug, reproduce the exact user-visible symptom and record evidence with trustable_diagnostic_checkpoint before changing source.",
+  "After any action MCP or packages/** source change, run ops ide deploy before setup or completion. Never create or modify action ZIP files manually.",
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
@@ -23,9 +28,43 @@ export function isDiagnosticRequest(text) {
 
 export function isMutatingTool(toolID, args = {}) {
   if (["edit", "write", "patch", "apply_patch"].includes(toolID)) return true;
-  if (/^(action[-_]|openserverless_action_)/.test(toolID)) return true;
+  if (ACTION_TOOL.test(toolID)) return true;
   if (toolID !== "bash") return false;
+  if (isOpsIdeDeployCommand(args) || isOpsIdeSetupCommand(args)) return true;
   return MUTATING_BASH.test(String(args.command || ""));
+}
+
+export function isOpsIdeDeployCommand(args = {}) {
+  return OPS_IDE_DEPLOY.test(String(args.command || ""));
+}
+
+export function isOpsIdeSetupCommand(args = {}) {
+  return OPS_IDE_SETUP.test(String(args.command || ""));
+}
+
+export function isActionMutation(toolID, args = {}) {
+  if (ACTION_TOOL.test(toolID)) return true;
+  const path = String(args.filePath || args.path || "").replaceAll("\\", "/");
+  if (["edit", "write", "patch"].includes(toolID) && /(^|\/)packages\//.test(path)) return true;
+  if (toolID === "apply_patch" && /(?:^|[\s/])packages\//m.test(String(args.patch || args.input || ""))) return true;
+  if (toolID === "bash" && isMutatingTool(toolID, args) && /(?:^|[\s'"`])packages\//i.test(String(args.command || ""))) return true;
+  return false;
+}
+
+export function isManualActionZipMutation(toolID, args = {}) {
+  const path = String(args.filePath || args.path || "").replaceAll("\\", "/");
+  if (["edit", "write", "patch"].includes(toolID)) {
+    return /(^|\/)packages\/.*\.zip$/i.test(path);
+  }
+  if (toolID === "apply_patch") {
+    return /(?:^|[\s/])packages\/[^\s\n]*\.zip\b/im.test(String(args.patch || args.input || ""));
+  }
+  if (toolID !== "bash") return false;
+  const command = String(args.command || "");
+  if (isOpsIdeDeployCommand(args)) return false;
+  const touchesPackages = /(?:^|[\s'"`])packages\//i.test(command);
+  if (!touchesPackages) return false;
+  return /zipfile\.ZipFile\s*\([^)]*,\s*["'](?:w|a|x)["']|python(?:3)?\s+-m\s+zipfile\s+-c|(^|[;&|]\s*)zip\s+(?!info)|(^|[;&|]\s*)(?:rm|mv|cp|install|touch|truncate|tee)\b[^;&|\n]*\.zip\b|>{1,2}\s*[^;&|\n]*\.zip\b/i.test(command);
 }
 
 function defaultState() {
@@ -36,6 +75,7 @@ function defaultState() {
     dirty: false,
     verified: true,
     circuitOpen: false,
+    actionDeployRequired: false,
     failureSignature: "",
     repeatedFailures: 0,
     evidence: "",
@@ -87,26 +127,33 @@ function sanitizedOpenCodeConfig(directory) {
 
 async function run(command, cwd, timeoutMs = 180_000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const proc = Bun.spawn(["/bin/bash", "-lc", command], {
+  const maxOutput = 1024 * 1024;
+  let stdout = "";
+  let stderr = "";
+  const append = (current, chunk) => `${current}${chunk}`.slice(-maxOutput);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = (exitCode, error = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const output = `${stdout}${stderr ? `\nSTDERR:\n${stderr}` : ""}${error ? `\n${error}` : ""}`.trim();
+      resolve({ exitCode, output });
+    };
+    const proc = spawn("/bin/bash", ["-lc", command], {
       cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      signal: controller.signal,
       env: process.env,
+      signal: controller.signal,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { exitCode, output: `${stdout}${stderr ? `\nSTDERR:\n${stderr}` : ""}`.trim() };
-  } catch (error) {
-    return { exitCode: 124, output: `Command failed or timed out: ${error.message}` };
-  } finally {
-    clearTimeout(timer);
-  }
+    proc.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
+    proc.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+    proc.on("error", (error) => finish(124, `Command failed or timed out: ${error.message}`));
+    proc.on("close", (code) => finish(Number.isInteger(code) ? code : 124));
+    timer = setTimeout(() => controller.abort(), timeoutMs);
+  });
 }
 
 async function completionChecks(directory) {
@@ -194,13 +241,19 @@ export default async function TrustableGuardrails({ directory }) {
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);
-          const result = await completionChecks(context.directory);
+          const result = current.actionDeployRequired
+            ? {
+                passed: false,
+                output: "===== action deploy: FAIL =====\nAction source changed after the last verified deployment. Run timeout 120 ops ide deploy; do not create ZIP files manually.",
+              }
+            : await completionChecks(context.directory);
           if (result.passed) {
             current.dirty = false;
             current.verified = true;
             current.diagnosticRequired = false;
             current.reproduced = false;
             current.circuitOpen = false;
+            current.actionDeployRequired = false;
             current.failureSignature = "";
             current.repeatedFailures = 0;
             saveState(context.sessionID, current);
@@ -254,6 +307,7 @@ export default async function TrustableGuardrails({ directory }) {
       if (current.needsRecovery) status += " CONTEXT RECOVERY IS REQUIRED NOW.";
       if (current.diagnosticRequired && !current.reproduced) status += " DIAGNOSTIC REPRODUCTION IS REQUIRED BEFORE SOURCE CHANGES.";
       if (current.dirty && !current.verified) status += " THE CURRENT CHANGES HAVE NOT PASSED THE COMPLETION GATE.";
+      if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       output.system.push(status);
     },
 
@@ -263,8 +317,14 @@ export default async function TrustableGuardrails({ directory }) {
     },
 
     "tool.execute.before": async (input, output) => {
+      if (isManualActionZipMutation(input.tool, output.args)) {
+        throw new Error("Trustable action guard: manual ZIP creation or mutation under packages/ is forbidden. Edit action source and run ops ide deploy so ops generates and deploys the archive.");
+      }
       if (["trustable_context_recover", "trustable_diagnostic_checkpoint", "trustable_completion_check"].includes(input.tool)) return;
       const current = stateFor(input.sessionID);
+      if (current.actionDeployRequired && input.tool === "bash" && isOpsIdeSetupCommand(output.args)) {
+        throw new Error("Trustable action guard: action source changed after the last deploy. Run timeout 120 ops ide deploy before ops ide setup.");
+      }
       if (!isMutatingTool(input.tool, output.args)) return;
       if (current.needsRecovery) {
         throw new Error("Trustable guardrail: session context was compacted. Call trustable_context_recover before modifying files, actions, or deployment state.");
@@ -280,6 +340,13 @@ export default async function TrustableGuardrails({ directory }) {
       const current = stateFor(input.sessionID);
       current.dirty = true;
       current.verified = false;
+      if (isActionMutation(input.tool, input.args)) {
+        current.actionDeployRequired = true;
+      }
+      if (input.tool === "bash" && isOpsIdeDeployCommand(input.args)) {
+        const deployCheck = await run("timeout 120 check_openserverless_actions.sh .", directory, 140_000);
+        current.actionDeployRequired = deployCheck.exitCode !== 0;
+      }
       saveState(input.sessionID, current);
     },
 

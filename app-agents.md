@@ -40,6 +40,12 @@ actions, or deployment state. For reported bugs, reproduce the exact symptom
 and record it with `trustable_diagnostic_checkpoint` before editing. After
 source changes, run `trustable_completion_check` before claiming completion.
 
+After any OpenServerless action tool call or change under `packages/`, run
+`timeout 120 ops ide deploy` before setup, runtime verification, or completion.
+If a setup action changed, run `timeout 120 ops ide setup` only after deploy
+succeeds. Never create, edit, move, or delete action ZIP files manually; they
+are deploy artifacts generated beside action directories by `ops ide deploy`.
+
 Use the generated browser MCP to reproduce frontend behavior instead of
 guessing from source alone. `browser_open` in `development` mode targets only
 the Trustable-managed `http://localhost:5173`. Use `deployed` mode only after
@@ -54,4 +60,5 @@ apply, do not retry the same edit; re-read the file, decide whether the change
 is already present, then either continue or rewrite the file once.
 
 Do not create backend servers, do not edit generated `__main__.py` files, do
-not use raw `ops action` workflows, and do not start foreground dev servers.
+not create or edit action ZIP files, do not use raw `ops action` workflows, and
+do not start foreground dev servers.

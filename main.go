@@ -72,6 +72,7 @@ func main() {
 	http.HandleFunc("/api/upload", handleUpload)
 	http.HandleFunc("/api/launch/", handleLaunch)
 	http.HandleFunc("/api/launch", handleLaunch)
+	http.HandleFunc("/api/opencode/sessions/", handleOpenCodeSessions)
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/git/status/", handleGitStatus)
 	http.HandleFunc("/api/git/save", handleGitSave)

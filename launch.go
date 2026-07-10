@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1082,6 +1083,46 @@ type opencodeSession struct {
 		Input  int64 `json:"input"`
 		Output int64 `json:"output"`
 	} `json:"tokens"`
+}
+
+var listOpenCodeSessionsForUI = listOpencodeSessions
+
+// handleOpenCodeSessions exposes the persistent root sessions for one
+// Trustable workbench. OpenCode remains the source of truth; this endpoint
+// gives the Trustable app chrome a stable session picker independent of the
+// embedded OpenCode sidebar state.
+func handleOpenCodeSessions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	app := strings.TrimPrefix(r.URL.Path, "/api/opencode/sessions/")
+	if !namePattern.MatchString(app) {
+		http.Error(w, `{"error":"invalid app name"}`, http.StatusBadRequest)
+		return
+	}
+
+	directory, err := canonicalWorkbenchPath(app)
+	if err != nil {
+		http.Error(w, `{"error":"invalid workbench path"}`, http.StatusBadRequest)
+		return
+	}
+	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		http.Error(w, `{"error":"workbench not found"}`, http.StatusNotFound)
+		return
+	}
+
+	sessions := listOpenCodeSessionsForUI(localLoopbackHost, opencodePort, directory)
+	if sessions == nil {
+		http.Error(w, `{"error":"OpenCode session history unavailable"}`, http.StatusBadGateway)
+		return
+	}
+	sort.SliceStable(sessions, func(i, j int) bool {
+		return sessions[i].Time.Updated > sessions[j].Time.Updated
+	})
+	json.NewEncoder(w).Encode(sessions)
 }
 
 // hasActivity reports whether a session is non-empty: it has token activity or a
