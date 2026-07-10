@@ -10,6 +10,7 @@ const domain = env.TRUSTABLE_E2E_DOMAIN || "miniops.me";
 const trustableURL = env.TRUSTABLE_E2E_TRUSTABLE_URL || `http://trustable.${domain}`;
 const opencodeURL = env.TRUSTABLE_E2E_OPENCODE_URL || `http://opencode.${domain}`;
 const viteURL = env.TRUSTABLE_E2E_VITE_URL || `http://vite.${domain}`;
+const authURL = env.TRUSTABLE_E2E_AUTH_URL || viteURL;
 const defaultPrompt = [
   "Issue98 E2E check: do not modify files.",
   "You must use the bash tool now. Do not answer from memory or from previous session results.",
@@ -284,10 +285,10 @@ async function runPromptStep(request, app, launch) {
   }
 
   const checkerOutput = podShell(
-    `cd ${shellQuote(workbenchDir)} && timeout 60 check_openserverless_actions.sh .`,
-    { timeout: 90_000 },
+    `cd ${shellQuote(workbenchDir)} && timeout 120 check_trustable_app.sh .`,
+    { timeout: 150_000 },
   );
-  expect(checkerOutput).toContain("OpenServerless action contract check passed");
+  expect(checkerOutput).toContain("Trustable app completion check passed");
 
   const afterStatus = workbenchGitStatus(workbenchDir);
   if (env.TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES === "1") {
@@ -367,14 +368,16 @@ test.describe("issue98 guardrail E2E", () => {
         expect(config.permission.edit["packages/**/*.zip"]).toBe("deny");
         expect(config.permission.bash["ops action"]).toBe("deny");
         expect(config.permission.bash["ops action *"]).toBe("deny");
+        const guardrailPlugin = podShell("test -f ~/.config/opencode/plugins/trustable-guardrails.js && echo present");
+        expect(guardrailPlugin).toBe("present");
       });
 
-      await test.step("checker passes inside the pod", async () => {
+      await test.step("action and frontend checkers pass inside the pod", async () => {
         const output = podShell(
-          `cd ${JSON.stringify(workbenchDir)} && timeout 60 check_openserverless_actions.sh .`,
-          { timeout: 90_000 },
+          `cd ${JSON.stringify(workbenchDir)} && timeout 120 check_trustable_app.sh .`,
+          { timeout: 150_000 },
         );
-        expect(output).toContain("OpenServerless action contract check passed");
+        expect(output).toContain("Trustable app completion check passed");
       });
 
       await test.step("pod-local Vite/dev server responds", async () => {
@@ -415,6 +418,90 @@ test.describe("issue98 guardrail E2E", () => {
       if (app) {
         await cleanupCreatedApp(request, app, created);
       }
+    }
+  });
+
+  test("validates the generated authentication flow in a real browser", async ({ page, request }) => {
+    test.skip(env.TRUSTABLE_E2E_AUTH !== "1", "Set TRUSTABLE_E2E_AUTH=1 to run the generated-app authentication flow.");
+    test.setTimeout(Number(env.TRUSTABLE_E2E_AUTH_TIMEOUT_MS || 10 * 60 * 1000));
+
+    let app = "";
+    let created = false;
+    try {
+      const appInfo = await ensureApp(request);
+      app = appInfo.app;
+      created = appInfo.created;
+      await launchApp(request, app);
+
+      const suffix = Date.now().toString(36);
+      const username = `Tester ${suffix}`;
+      const email = `trustable-e2e-${suffix}@example.test`;
+      const password = `Trustable-${suffix}-A1!`;
+      const loginName = /accedi|login|sign in|entra/i;
+      const registerName = /crea account|registrati|register|sign up/i;
+      const submitRegisterName = /crea|registrati|register|sign up|continua/i;
+      const submitLoginName = /accedi|login|sign in|entra/i;
+      const logoutName = /esci|logout|sign out/i;
+
+      await test.step("public home reaches the login form", async () => {
+        await page.goto(authURL, { waitUntil: "domcontentloaded" });
+        const loginControl = page.getByRole("link", { name: loginName }).or(page.getByRole("button", { name: loginName })).first();
+        await expect(loginControl).toBeVisible();
+        await loginControl.click();
+        await expect(page.locator('input[type="email"]')).toBeVisible();
+        await expect(page.locator('input[type="password"]').first()).toBeVisible();
+      });
+
+      await test.step("registration creates a real authenticated session", async () => {
+        await page.goto(authURL, { waitUntil: "domcontentloaded" });
+        const registerControl = page.getByRole("link", { name: registerName }).or(page.getByRole("button", { name: registerName })).first();
+        await expect(registerControl).toBeVisible();
+        await registerControl.click();
+
+        const emailInput = page.locator('input[type="email"]');
+        const passwordInputs = page.locator('input[type="password"]');
+        await expect(emailInput).toBeVisible();
+        await expect(passwordInputs.first()).toBeVisible();
+
+        const usernameInput = page.locator('input[name*="user" i], input[name*="name" i], input[type="text"]').first();
+        if (await usernameInput.count()) await usernameInput.fill(username);
+        await emailInput.fill(email);
+        await passwordInputs.first().fill(password);
+        if (await passwordInputs.count() > 1) await passwordInputs.nth(1).fill(password);
+
+        const submit = page.getByRole("button", { name: submitRegisterName }).first();
+        await expect(submit).toBeVisible();
+        await submit.click();
+        await expect(page).not.toHaveURL(/(?:#\/)?(?:login|register)(?:[/?#]|$)/i);
+      });
+
+      await test.step("authenticated state survives a full reload", async () => {
+        const protectedURL = page.url();
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(page).not.toHaveURL(/(?:#\/)?(?:login|register)(?:[/?#]|$)/i);
+        expect(page.url()).toBe(protectedURL);
+        await expect(page.locator('input[type="password"]')).toHaveCount(0);
+      });
+
+      await test.step("logout protects the private area", async () => {
+        const logout = page.getByRole("button", { name: logoutName }).or(page.getByRole("link", { name: logoutName })).first();
+        await expect(logout).toBeVisible();
+        await logout.click();
+        await expect(page.getByRole("link", { name: loginName }).or(page.getByRole("button", { name: loginName })).first()).toBeVisible();
+      });
+
+      await test.step("the created account can log in again", async () => {
+        const loginControl = page.getByRole("link", { name: loginName }).or(page.getByRole("button", { name: loginName })).first();
+        await loginControl.click();
+        await page.locator('input[type="email"]').fill(email);
+        await page.locator('input[type="password"]').first().fill(password);
+        await page.getByRole("button", { name: submitLoginName }).first().click();
+        await expect(page).not.toHaveURL(/(?:#\/)?login(?:[/?#]|$)/i);
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(page).not.toHaveURL(/(?:#\/)?login(?:[/?#]|$)/i);
+      });
+    } finally {
+      if (app) await cleanupCreatedApp(request, app, created);
     }
   });
 });

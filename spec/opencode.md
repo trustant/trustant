@@ -96,7 +96,17 @@ It must say:
 - after compaction, assistants must not continue from memory; they must re-read
   `opencode.md`, `.openserverless-contract.md` if present, `opencode.json`,
   git status, and available MCP/tool names before touching action or service
-  code.
+  code;
+- the generated Trustable OpenCode plugin must enforce that rule by blocking
+  source/action/deploy mutations after `session.compacted` until
+  `trustable_context_recover` reloads authoritative guidance, sanitized config,
+  git status, and project layout;
+- reported bugs must be reproduced before source changes and recorded through
+  `trustable_diagnostic_checkpoint`; two repeated completion failures must open
+  a circuit breaker that requires new reproduction evidence;
+- after source changes, `trustable_completion_check` must pass the action and
+  frontend checkers, `git diff --check`, and the available frontend build before
+  the assistant claims completion.
 
 ## Non-Negotiable Rules
 

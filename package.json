@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "e2e:issue98": "./tests/e2e_issue98.sh"
+    "e2e:issue98": "./tests/e2e_issue98.sh",
+    "e2e:auth": "./tests/e2e_auth.sh",
+    "test:guardrails": "node --test tests/opencode-guardrails.test.mjs"
   },
   "devDependencies": {
+    "@opencode-ai/plugin": "^1.17.13",
     "@playwright/test": "1.56.1"
   }
 }

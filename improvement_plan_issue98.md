@@ -729,3 +729,37 @@ curl http://localhost:5173/api/my/v1/<read-action>
   in `opencode_upgrade_plan.md`. The upgrade may help, but it is not a
   substitute for the `.openserverless-contract.md`, checker, and environment
   preflight work in this plan.
+
+## Session enforcement follow-up
+
+The `danceroomjs` session demonstrated that instruction prose alone is not a
+sufficient post-compaction control. The model identified the exact HashRouter
+failure, abandoned it, made unrelated changes, and claimed completion without
+a browser reproduction. The session had nine compactions and did not perform
+the recovery reads required by this plan.
+
+The Issue98 branch therefore adds deterministic OpenCode plugin enforcement:
+
+- `session.compacted` marks the session context dirty and blocks source,
+  action, and deploy mutations;
+- `trustable_context_recover` reloads `AGENTS.md`, the short contract, the full
+  guide, sanitized OpenCode configuration, git status, and project layout;
+- reported bug language activates a diagnostic gate; the model must reproduce
+  the exact symptom and call `trustable_diagnostic_checkpoint` with evidence;
+- `trustable_completion_check` runs the OpenServerless and frontend checkers,
+  `git diff --check`, and the frontend build when present;
+- two equal completion failures open a circuit breaker and require fresh
+  reproduction evidence;
+- completion language is replaced with a gate message when changed files have
+  not passed verification.
+
+The new frontend checker treats high-confidence HashRouter/root-anchor and
+password-in-query defects as failures. More ambiguous session-token and
+browser-supplied identity patterns remain warnings to avoid noisy false
+positives.
+
+Authentication is also added to the real E2E flow. The runner prompts OpenCode
+in non-technical language, then Playwright validates registration, login,
+protected navigation, full-page reload persistence, logout, and login reuse.
+This test changes no fixture application itself: OpenCode remains responsible
+for implementing and repairing the generated app.

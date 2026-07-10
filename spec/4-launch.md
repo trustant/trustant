@@ -502,6 +502,21 @@ shell command or copied file could create: it must fail on action modules
 without generated wrappers and on hand-authored wrappers that define `main()`
 without generated action/service markers.
 
+Trustable must install the session-enforcement plugin as the auto-loaded local
+plugin `~/.config/opencode/plugins/trustable-guardrails.js`. The plugin listens for
+`session.compacted`, injects a short critical contract into every system prompt,
+and exposes `trustable_context_recover`, `trustable_diagnostic_checkpoint`, and
+`trustable_completion_check`. It blocks mutations after compaction, blocks
+speculative edits for a reported bug until reproduction evidence is recorded,
+opens a circuit breaker after two equal completion failures, and prevents
+unverified completion claims.
+
+Trustable must also install `check_trustable_frontend.sh` and the aggregate
+`check_trustable_app.sh` once in `~/.local/bin`. The aggregate checker runs the
+existing OpenServerless checker plus high-confidence frontend checks, including
+root-relative internal anchors used with `HashRouter` and passwords placed in
+request URLs.
+
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated
 opencode.json `mcp` section (including `openserverless`, the optional

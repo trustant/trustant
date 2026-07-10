@@ -34,6 +34,12 @@ keys.
 OpenCode has shell access in the Trustable pod. Run bounded checks yourself
 instead of asking the user to run shell commands.
 
+Trustable session enforcement is provided by the generated OpenCode plugin.
+After compaction, call `trustable_context_recover` before modifying source,
+actions, or deployment state. For reported bugs, reproduce the exact symptom
+and record it with `trustable_diagnostic_checkpoint` before editing. After
+source changes, run `trustable_completion_check` before claiming completion.
+
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small
 generated app modules or pages that you are replacing wholesale, use the file

@@ -13,9 +13,21 @@ import (
 func isolateOpenServerlessCheckerInstall(t *testing.T) string {
 	t.Helper()
 	origCheckerPath := openServerlessCheckerInstallPathOverride
-	checkerInstallPath := filepath.Join(t.TempDir(), "bin", "check_openserverless_actions.sh")
+	origFrontendPath := frontendCheckerInstallPathOverride
+	origAppPath := appCheckerInstallPathOverride
+	origPluginPath := guardrailPluginInstallPathOverride
+	root := t.TempDir()
+	checkerInstallPath := filepath.Join(root, "bin", "check_openserverless_actions.sh")
 	openServerlessCheckerInstallPathOverride = checkerInstallPath
-	t.Cleanup(func() { openServerlessCheckerInstallPathOverride = origCheckerPath })
+	frontendCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_frontend.sh")
+	appCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_app.sh")
+	guardrailPluginInstallPathOverride = filepath.Join(root, "config", "opencode", "plugins", "trustable-guardrails.js")
+	t.Cleanup(func() {
+		openServerlessCheckerInstallPathOverride = origCheckerPath
+		frontendCheckerInstallPathOverride = origFrontendPath
+		appCheckerInstallPathOverride = origAppPath
+		guardrailPluginInstallPathOverride = origPluginPath
+	})
 	return checkerInstallPath
 }
 
@@ -473,6 +485,23 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	}
 	if checkerInfo.Mode()&0111 == 0 {
 		t.Fatalf("check_openserverless_actions.sh should be executable, mode=%s", checkerInfo.Mode())
+	}
+	for _, path := range []string{frontendCheckerInstallPathOverride, appCheckerInstallPathOverride} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Trustable checker not installed at %s: %s", path, err)
+		}
+		if info.Mode()&0111 == 0 {
+			t.Fatalf("Trustable checker should be executable at %s, mode=%s", path, info.Mode())
+		}
+	}
+	pluginData, err := os.ReadFile(guardrailPluginInstallPathOverride)
+	if err != nil {
+		t.Fatalf("OpenCode guardrail plugin not installed: %s", err)
+	}
+	if !strings.Contains(string(pluginData), "session.compacted") ||
+		!strings.Contains(string(pluginData), "trustable_completion_check") {
+		t.Fatalf("OpenCode guardrail plugin missing enforcement hooks")
 	}
 	// The action tools are provided by the openserverless MCP server, which must
 	// always be wired into the mcp section.
@@ -1037,6 +1066,66 @@ func TestOpenServerlessCheckerWarnsOnDirectWindowOpenAPI(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "opens a /api/my action URL directly") {
 		t.Fatalf("checker should warn about direct window.open API target, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestFrontendCheckerRejectsRootAnchorsWithHashRouter(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	app := "import { HashRouter } from 'react-router-dom';\nexport const App = () => <HashRouter><a href=\"/login\">Login</a></HashRouter>;\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "App.tsx"), []byte(app), 0644); err != nil {
+		t.Fatalf("write app: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("HashRouter root anchor should fail, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "HashRouter internal navigation") {
+		t.Fatalf("unexpected frontend checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestFrontendCheckerAcceptsRouterLinks(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	app := "import { HashRouter, Link } from 'react-router-dom';\nexport const App = () => <HashRouter><Link to=\"/login\">Login</Link></HashRouter>;\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "App.tsx"), []byte(app), 0644); err != nil {
+		t.Fatalf("write app: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("router Link should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+}
+
+func TestFrontendCheckerRejectsPasswordInQueryString(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	api := "export const login = (email, password) => fetch(`/api/auth?email=${email}&password=${password}`, { method: 'POST' });\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "api.ts"), []byte(api), 0644); err != nil {
+		t.Fatalf("write api: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("password query should fail, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Do not put passwords in URLs") {
+		t.Fatalf("unexpected frontend checker output: %s", strings.TrimSpace(string(out)))
 	}
 }
 

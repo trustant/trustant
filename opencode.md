@@ -67,6 +67,22 @@ After compaction, do not continue editing from memory. Re-read this file,
 `.openserverless-contract.md` if present, `opencode.json`, and git status.
 Then inspect available MCP/tool names before touching action or service code.
 
+Trustable enforces this recovery through `trustable_context_recover`. The
+plugin blocks edit/write/action/deploy mutations after compaction until that
+tool reloads the authoritative files, sanitized config, git status, and project
+layout. Do not attempt to bypass the gate.
+
+When the user reports a bug or says a previous fix still does not work,
+reproduce the exact symptom before editing. Use browser, HTTP, logs, or a
+deterministic test, then call `trustable_diagnostic_checkpoint` with concise
+evidence. If the same completion failure occurs twice, the diagnostic circuit
+breaker requires fresh evidence before another source change.
+
+After source changes, call `trustable_completion_check` before claiming the
+work is fixed or asking the user to try it. The completion tool runs the
+OpenServerless checker, frontend checker, git diff validation, and the frontend
+build when available.
+
 ## Non-Negotiable Rules
 
 - Never create a backend server. Create public or private actions instead.

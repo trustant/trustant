@@ -1150,6 +1150,10 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 
 	contractPath := filepath.Join(projectDir, ".openserverless-contract.md")
 	mdPath := filepath.Join(projectDir, "opencode.md")
+	guardrailPluginPath, err := ensureOpenCodeGuardrailPluginInstalled()
+	if err != nil {
+		return err
+	}
 
 	config := map[string]interface{}{
 		"$schema":            "https://opencode.ai/config.json",
@@ -1238,6 +1242,17 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		return err
 	}
 	log.Printf("  - OpenServerless checker available at %s", checkerPath)
+	frontendCheckerPath, err := ensureFrontendCheckerInstalled()
+	if err != nil {
+		return err
+	}
+	log.Printf("  - Frontend checker available at %s", frontendCheckerPath)
+	appCheckerPath, err := ensureAppCheckerInstalled()
+	if err != nil {
+		return err
+	}
+	log.Printf("  - Completion checker available at %s", appCheckerPath)
+	log.Printf("  - OpenCode Trustable guardrail plugin available at %s", guardrailPluginPath)
 
 	// The action tools are no longer copied into the project dir as embedded
 	// @opencode-ai/plugin scripts; they are now provided by the openserverless
@@ -1257,6 +1272,9 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 }
 
 var openServerlessCheckerInstallPathOverride string
+var frontendCheckerInstallPathOverride string
+var appCheckerInstallPathOverride string
+var guardrailPluginInstallPathOverride string
 
 func openServerlessCheckerInstallPath() (string, error) {
 	if openServerlessCheckerInstallPathOverride != "" {
@@ -1288,6 +1306,79 @@ func ensureOpenServerlessCheckerInstalled() (string, error) {
 		return "", fmt.Errorf("failed to write %s: %w", checkerPath, err)
 	}
 	return checkerPath, nil
+}
+
+func localBinInstallPath(override, name string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home dir for %s: %w", name, err)
+	}
+	return filepath.Join(home, ".local", "bin", name), nil
+}
+
+func ensureEmbeddedExecutable(path, name, content string) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return "", fmt.Errorf("failed to create %s directory: %w", name, err)
+	}
+	data := []byte(content)
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
+		if err := os.Chmod(path, 0755); err != nil {
+			return "", fmt.Errorf("failed to chmod %s: %w", path, err)
+		}
+		return path, nil
+	}
+	if err := os.WriteFile(path, data, 0755); err != nil {
+		return "", fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	return path, nil
+}
+
+func ensureFrontendCheckerInstalled() (string, error) {
+	path, err := localBinInstallPath(frontendCheckerInstallPathOverride, "check_trustable_frontend.sh")
+	if err != nil {
+		return "", err
+	}
+	return ensureEmbeddedExecutable(path, "Trustable frontend checker", trustableFrontendCheckerSh)
+}
+
+func ensureAppCheckerInstalled() (string, error) {
+	path, err := localBinInstallPath(appCheckerInstallPathOverride, "check_trustable_app.sh")
+	if err != nil {
+		return "", err
+	}
+	return ensureEmbeddedExecutable(path, "Trustable app checker", trustableAppCheckerSh)
+}
+
+func guardrailPluginInstallPath() (string, error) {
+	if guardrailPluginInstallPathOverride != "" {
+		return guardrailPluginInstallPathOverride, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home dir for OpenCode guardrail plugin: %w", err)
+	}
+	return filepath.Join(home, ".config", "opencode", "plugins", "trustable-guardrails.js"), nil
+}
+
+func ensureOpenCodeGuardrailPluginInstalled() (string, error) {
+	path, err := guardrailPluginInstallPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return "", fmt.Errorf("failed to create OpenCode guardrail plugin directory: %w", err)
+	}
+	data := []byte(opencodeTrustableGuardrailsJS)
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
+		return path, nil
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write OpenCode guardrail plugin: %w", err)
+	}
+	return path, nil
 }
 
 // appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.

@@ -21,6 +21,15 @@ user explicitly asks to inspect them, and they must not override this contract.
   only in the runtime.
 - OpenCode has the shell. Run bounded checks yourself instead of asking the user
   to run pod-local commands.
+- After compaction, the Trustable plugin blocks mutations until
+  `trustable_context_recover` reloads this contract, `AGENTS.md`, `opencode.md`,
+  sanitized OpenCode configuration, git status, and project structure.
+- For a reported bug, record concrete reproduction evidence with
+  `trustable_diagnostic_checkpoint` before modifying source. Two repeated
+  completion failures reopen this diagnostic gate.
+- After source changes, run `trustable_completion_check`. It runs the action
+  and frontend contract checkers, `git diff --check`, and the frontend build
+  when present. Do not claim completion before it passes.
 - `ops ide devel` exposes the app in this pod at `http://localhost:5173`.
 - OpenCode serves in this pod at `http://localhost:4096`.
 - Browser/ingress hosts such as `vite.<domain>` are external checks. Use them
