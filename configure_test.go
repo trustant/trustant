@@ -84,6 +84,26 @@ func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
 	}
 }
 
+func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *testing.T) {
+	t.Setenv("OPS_APIHOST", "https://cluster.example.test:8443")
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = "/home/trustable/workspace"
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	config := browserMCPConfig("/home/trustable/workbench/demo")
+	command := config["command"].([]string)
+	if len(command) != 1 || command[0] != "trustable-browser-mcp" {
+		t.Fatalf("unexpected browser MCP command: %#v", command)
+	}
+	environment := config["environment"].(map[string]string)
+	if got := environment["TRUSTABLE_BROWSER_EXTERNAL_ORIGIN"]; got != "https://vite.cluster.example.test:8443" {
+		t.Fatalf("unexpected browser external origin: %q", got)
+	}
+	if got := environment["TRUSTABLE_BROWSER_ARTIFACT_DIR"]; got != "/home/trustable/workspace/.trustable/browser/demo" {
+		t.Fatalf("unexpected browser artifact dir: %q", got)
+	}
+}
+
 func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
 	cases := []string{
 		"Qwen3-Embedding-8B",
@@ -487,6 +507,13 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if cmd, ok := oss["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "openserverless-mcp" {
 		t.Fatalf("unexpected openserverless command: %#v", oss["command"])
 	}
+	browser, ok := mcp["browser"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("browser MCP server missing: %#v", mcp)
+	}
+	if cmd, ok := browser["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "trustable-browser-mcp" {
+		t.Fatalf("unexpected browser command: %#v", browser["command"])
+	}
 	// No merge: if a postgres MCP is present it must be the freshly generated one,
 	// never the stale seeded DATABASE_URI.
 	if pg, present := mcp["postgres"].(map[string]interface{}); present {
@@ -514,6 +541,10 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	}
 	if cOss["type"] != "stdio" || cOss["command"] != "openserverless-mcp" {
 		t.Fatalf("unexpected .mcp.json openserverless entry: %#v", cOss)
+	}
+	cBrowser, ok := claude.MCPServers["browser"]
+	if !ok || cBrowser["type"] != "stdio" || cBrowser["command"] != "trustable-browser-mcp" {
+		t.Fatalf("unexpected .mcp.json browser entry: %#v", cBrowser)
 	}
 }
 

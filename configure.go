@@ -1173,6 +1173,7 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		"command": []string{"openserverless-mcp"},
 		"enabled": true,
 	}
+	mcp["browser"] = browserMCPConfig(projectDir)
 	// When the app's Vite config uses AgentiReact(), the running dev server
 	// (opsdevel on :5173) exposes an MCP endpoint over HTTP; wire it in as a
 	// remote server (see spec/4-launch.md).
@@ -1254,6 +1255,35 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	}
 
 	return nil
+}
+
+func browserExternalOrigin() string {
+	apiHost := developmentAPIHost()
+	parsed, err := url.Parse(apiHost)
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	host := "vite." + parsed.Hostname()
+	if parsed.Port() != "" {
+		host += ":" + parsed.Port()
+	}
+	return (&url.URL{Scheme: parsed.Scheme, Host: host}).String()
+}
+
+func browserMCPConfig(projectDir string) map[string]interface{} {
+	environment := map[string]string{
+		"TRUSTABLE_BROWSER_ARTIFACT_DIR": filepath.Join(WorkspaceDir, ".trustable", "browser", filepath.Base(projectDir)),
+	}
+	if origin := browserExternalOrigin(); origin != "" {
+		environment["TRUSTABLE_BROWSER_EXTERNAL_ORIGIN"] = origin
+	}
+	return map[string]interface{}{
+		"type":        "local",
+		"command":     []string{"trustable-browser-mcp"},
+		"environment": environment,
+		"enabled":     true,
+		"timeout":     30_000,
+	}
 }
 
 var openServerlessCheckerInstallPathOverride string

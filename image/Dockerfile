@@ -40,6 +40,7 @@ COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
 COPY --from=loader /root/.opencode/bin/opencode /usr/local/bin/opencode
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN \
     apt update && \
     apt install -y --no-install-recommends \
@@ -79,12 +80,17 @@ RUN \
     headroom --help >/dev/null
 
 COPY openserverless-mcp /tmp/openserverless-mcp
+COPY trustable-browser-mcp /tmp/trustable-browser-mcp
 RUN \
     npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.13.0 ;\
     cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
     npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
+    cd /tmp/trustable-browser-mcp && npm pack --pack-destination /tmp ;\
+    npm install -g /tmp/trustable-browser-mcp-*.tgz ;\
+    npx --yes playwright@1.56.1 install --with-deps chromium ;\
     cd / ;\
-    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz ;\
+    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-browser-mcp /tmp/trustable-browser-mcp-*.tgz ;\
+    rm -rf /var/lib/apt/lists/* ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
     curl -sL https://github.com/txn2/mcp-s3/releases/download/v${VER}/mcp-s3_${VER}_linux_${ARCH}.tar.gz |\

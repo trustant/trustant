@@ -34,6 +34,11 @@ keys.
 OpenCode has shell access in the Trustable pod. Run bounded checks yourself
 instead of asking the user to run shell commands.
 
+Use the generated browser MCP to reproduce frontend behavior instead of
+guessing from source alone. `browser_open` in `development` mode targets only
+the Trustable-managed `http://localhost:5173`. Use `deployed` mode only after
+`ops ide deploy` for the derived `vite.<domain>` ingress check.
+
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small
 generated app modules or pages that you are replacing wholesale, use the file
