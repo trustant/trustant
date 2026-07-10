@@ -1,5 +1,7 @@
 # trustable-app
 
+> **TL;DR** — install [Lima](https://lima-vm.io/) (`brew install lima`), then start everything with `./run.sh`. It boots the VM, installs the toolchain, and launches the dev loop — after that you can just develop.
+
 A Go single-binary web server that hosts a **"Lovable-like" development environment** on top of [OpenServerless](https://openserverless.apache.org/). From one executable it serves a local UI, reverse-proxies the user's running app and AI assistant, drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
 
 The whole product is delivered as **one process listening on `:8910`**. There is no separate frontend server, no API gateway, and no build pipeline for the UI — the binary embeds its web assets and serves everything itself, which keeps deployment to a single artifact and development to a single hot-reload loop.
@@ -98,20 +100,21 @@ The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.j
 
 ## Getting started
 
+On macOS, **just run `./run.sh`** — it does the whole lifecycle for you:
+
 ```bash
-# 1. One-time bootstrap: verifies the running VM, extracts the k3s kubeconfig
-#    (rewriting 127.0.0.1 → the VM IP into ~/.ops/tmp/kubeconfig), and installs/
-#    verifies ops, go (via g), air, bun, uv, and opencode.
-./setup.sh
-
-# 2. Create your environment file from the template and fill it in.
-cp .env.dist .env
-$EDITOR .env
-
-# 3. Dev loop: frees ports 8910/5173/4096, runs `air` for hot reload,
-#    and prints the UI URL. Ollama sign-in happens inside Trustable.
 ./run.sh
 ```
+
+`./run.sh` provisions/boots the `trudev` VM and runs `setup.sh` inside it (via
+`./start.sh`), then re-invokes itself in the VM to run the dev loop (free ports
+8910/5173/4096, `air` hot reload, print the UI URL). Press **^C** to stop — it
+tears down the dev loop and stops the VM (`./start.sh -s`), keeping it for a fast
+restart next time. Ollama sign-in happens inside Trustable.
+
+`start.sh`/`setup.sh` are invoked for you; run them directly only for a manual
+step (`./start.sh -k` to destroy the VM, `./setup.sh` inside the VM to re-verify
+the toolchain).
 
 `air` (configured in [.air.toml](.air.toml)) rebuilds `tmp/main` on **every `.go` change** and restarts the server on `:8910` — edit a Go file, save, and the running server reloads.
 
@@ -134,8 +137,9 @@ $EDITOR .env
 ## Common commands
 
 ```bash
-./setup.sh       # One-time bootstrap (VM check, kubeconfig extract, tool install)
-./run.sh         # Dev loop: free ports, `air` hot reload, print the Trustable URL
+./run.sh         # macOS entrypoint: start VM + setup.sh, run dev loop, ^C stops the VM
+./start.sh       # Provision/boot the trudev VM and run setup.sh; -s stops it, -k destroys it
+./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/opencode + MCP)
 ./build.sh       # Compatibility build entrypoint: Mac VM when available, Linux/k3s server otherwise
 ./build-server.sh # Force Linux/k3s server build, import, StatefulSet patch, rollout wait
 ./publish.sh     # Push the latest git tag, watch CI, then push the olaris-bestia submodule
