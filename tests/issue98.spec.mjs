@@ -497,7 +497,7 @@ async function sendPromptAndWait(request, app, launch, prompt) {
 }
 
 function isTraceMutation(part) {
-  if (part.type !== "tool") return false;
+  if (part.type !== "tool" || part.state?.status !== "completed") return false;
   const tool = part.tool || "";
   const input = part.state?.input || {};
   const command = String(input.command || "");
