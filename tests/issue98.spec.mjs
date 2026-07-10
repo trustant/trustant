@@ -346,10 +346,12 @@ test.describe("issue98 guardrail E2E", () => {
         expect(JSON.stringify(body)).toContain(workbenchDir);
       });
 
-      await test.step("MCP list includes OpenServerless", async () => {
+      await test.step("MCP list includes OpenServerless and the bounded browser", async () => {
         const mcp = await request.get(`${opencodeURL}/mcp`, { timeout: 30_000 });
         expect(mcp.ok(), await mcp.text()).toBeTruthy();
-        expect(await mcp.text()).toContain("openserverless");
+        const body = await mcp.text();
+        expect(body).toContain("openserverless");
+        expect(body).toContain("browser");
       });
 
       await test.step("app-local OpenCode config has issue98 guardrails", async () => {
@@ -364,6 +366,9 @@ test.describe("issue98 guardrail E2E", () => {
         expect(contractRealpath).toBe(`${workbenchDir}/.openserverless-contract.md`);
         expect(opencodeRealpath).toBe(`${workbenchDir}/opencode.md`);
         expect(config.mcp.openserverless.command).toEqual(["openserverless-mcp"]);
+        expect(config.mcp.browser.command).toEqual(["trustable-browser-mcp"]);
+        expect(config.mcp.browser.environment.TRUSTABLE_BROWSER_ARTIFACT_DIR).toContain(`/.trustable/browser/${app}`);
+        expect(config.mcp.browser.environment.TRUSTABLE_BROWSER_EXTERNAL_ORIGIN).toContain("vite.");
         expect(config.permission.edit["packages/**/__main__.py"]).toBe("deny");
         expect(config.permission.edit["packages/**/*.zip"]).toBe("deny");
         expect(config.permission.bash["ops action"]).toBe("deny");

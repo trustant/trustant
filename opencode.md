@@ -165,6 +165,14 @@ build when available.
 7. Validate with bounded checks against the real public endpoint and
    browser-visible app host.
 
+For frontend behavior, use the generated bounded browser MCP before declaring
+a UI bug fixed. Start with `browser_open` in `development` mode, which targets
+the Trustable-managed `http://localhost:5173`, then inspect URL, accessibility
+snapshot, console, and network diagnostics. Use `browser_interact` to reproduce
+the exact click/form/reload flow. Use `deployed` mode only after
+`ops ide deploy` and only when external `vite.<domain>` ingress behavior is in
+scope. Do not start another Vite server.
+
 Use this execution loop for backend work:
 
 1. Read `.openserverless-contract.md` if present and run the checker before

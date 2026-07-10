@@ -179,6 +179,13 @@ The embedded guidance must describe the normal way to build a Trustable app:
    `localhost:5173`, and use browser-visible FQDN hosts only when external
    routing is in scope.
 
+Frontend diagnosis must use the generated bounded browser MCP when behavior
+depends on real navigation, forms, reload, console errors, or network failures.
+The embedded guide must tell OpenCode to use `development` mode for the managed
+`http://localhost:5173` server and `deployed` mode only after `ops ide deploy`
+for the derived `vite.<domain>` host. It must not ask OpenCode to start another
+Vite server or browse arbitrary infrastructure URLs.
+
 The embedded guidance must include a concrete backend execution loop:
 
 1. Read `.openserverless-contract.md` if present and run the checker before
@@ -299,6 +306,10 @@ wrappers instead of inventing connection details.
 Required MCP/service guidance:
 
 - `openserverless` is always present and exposes action-management tools.
+- `browser` is always present and runs `trustable-browser-mcp`. It receives
+  only the derived deployed Vite origin and an artifact directory outside the
+  app repo; development navigation is fixed inside the MCP to
+  `http://localhost:5173`.
 - `agentireact` is present only when the Vite config contains `AgentiReact()`;
   it is a remote MCP server at `http://localhost:5173/mcp`.
 - `s3` is present only when S3 is configured. The companion CLI wrapper is

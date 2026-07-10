@@ -8,10 +8,11 @@ IMAGE="ghcr.io/trustable-ai/trustable-app"
 DOCKERFILE="Dockerfile"
 SEPARATOR='###---###'
 MCP_CONTEXT_DIR="openserverless-mcp"
+BROWSER_CONTEXT_DIR="trustable-browser-mcp"
 
 cleanup() {
     rm -f Dockerfile.base Dockerfile.current
-    rm -rf "$MCP_CONTEXT_DIR"
+    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR"
 }
 trap cleanup EXIT
 
@@ -71,6 +72,16 @@ rm -rf "$MCP_CONTEXT_DIR"
 mkdir -p "$MCP_CONTEXT_DIR"
 git -C ../mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
 
+if [ ! -f ../browser-mcp/package.json ]; then
+    echo "Error: ../browser-mcp/package.json is missing." >&2
+    exit 1
+fi
+rm -rf "$BROWSER_CONTEXT_DIR"
+mkdir -p "$BROWSER_CONTEXT_DIR"
+tar -C ../browser-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$BROWSER_CONTEXT_DIR"
+BROWSER_HASH="$(find "$BROWSER_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
+echo "Using trustable-browser-mcp source hash: $BROWSER_HASH"
+
 # Split the Dockerfile at the separator
 SEPARATOR_LINE=$(grep -n "^${SEPARATOR}$" "$DOCKERFILE" | cut -d: -f1)
 if [ -z "$SEPARATOR_LINE" ]; then
@@ -86,6 +97,7 @@ tail -n "+$((SEPARATOR_LINE + 1))" "$DOCKERFILE" > Dockerfile.current
 BASE_HASH=$({
     sha256sum Dockerfile.base
     printf 'openserverless-mcp=%s\n' "$MCP_REF"
+    printf 'trustable-browser-mcp=%s\n' "$BROWSER_HASH"
 } | sha256sum | cut -c1-12)
 BASE_TAG="base-${BASE_HASH}"
 echo "Base image hash: $BASE_TAG"

@@ -40,6 +40,11 @@ actions, or deployment state. For reported bugs, reproduce the exact symptom
 and record it with `trustable_diagnostic_checkpoint` before editing. After
 source changes, run `trustable_completion_check` before claiming completion.
 
+Use the generated browser MCP to reproduce frontend behavior instead of
+guessing from source alone. `browser_open` in `development` mode targets only
+the Trustable-managed `http://localhost:5173`. Use `deployed` mode only after
+`ops ide deploy` for the derived `vite.<domain>` ingress check.
+
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small
 generated app modules or pages that you are replacing wholesale, use the file

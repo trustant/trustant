@@ -136,6 +136,12 @@ The OpenServerless action tools are no longer written as embedded plugin files;
 they are provided by the `openserverless` MCP server wired into the `mcp`
 section (see below).
 
+The generated `mcp` section must also always contain the local
+`trustable-browser-mcp` server. Its environment contains a browser artifact
+directory under `$WORKSPACE_DIR/.trustable/browser/<app>` and the external
+origin derived as `<protocol>://vite.<configured-apihost>`. No browser
+credentials or generated app `.env` variables are added.
+
 The launch/config generation also installs
 `~/.local/bin/check_openserverless_actions.sh` with executable mode. This
 checker is installed once per Trustable user, not duplicated into every app
@@ -519,7 +525,7 @@ request URLs.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated
-opencode.json `mcp` section (including `openserverless`, the optional
+opencode.json `mcp` section (including `openserverless`, `browser`, the optional
 `agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` that were added). This
 keeps the same servers available to Claude-format clients for compatibility.
 
