@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="360" viewBox="0 0 980 360" role="img" aria-labelledby="title desc">
+  <title id="title">Issue 98 model-driven action workflow E2E</title>
+  <desc id="desc">A user-style prompt drives OpenCode. Playwright records action mutations, deploy, setup, completion, and rejects manual ZIP operations or incorrect ordering.</desc>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #172033; }
+    .title { font-size: 22px; font-weight: 700; }
+    .label { font-size: 14px; font-weight: 700; }
+    .small { font-size: 12px; }
+    .box { fill: #f7f9fc; stroke: #72809b; stroke-width: 1.5; rx: 6; }
+    .guard { fill: #fff4e5; stroke: #c87800; stroke-width: 1.5; rx: 6; }
+    .ok { fill: #e9f8ef; stroke: #21884a; stroke-width: 1.5; rx: 6; }
+    .arrow { stroke: #4d5b75; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#4d5b75"/>
+    </marker>
+  </defs>
+  <text x="34" y="36" class="title">Model-driven action workflow proof</text>
+  <rect x="34" y="86" width="170" height="86" class="box"/>
+  <text x="119" y="116" text-anchor="middle" class="label">User-style prompt</text>
+  <text x="119" y="140" text-anchor="middle" class="small">backend + initial setup</text>
+  <text x="119" y="160" text-anchor="middle" class="small">no shell instructions</text>
+  <rect x="244" y="76" width="185" height="106" class="box"/>
+  <text x="337" y="106" text-anchor="middle" class="label">Action mutation</text>
+  <text x="337" y="130" text-anchor="middle" class="small">OpenServerless MCP</text>
+  <text x="337" y="151" text-anchor="middle" class="small">editable packages source</text>
+  <text x="337" y="172" text-anchor="middle" class="small">no manual ZIP</text>
+  <rect x="469" y="86" width="145" height="86" class="guard"/>
+  <text x="542" y="116" text-anchor="middle" class="label">Deploy</text>
+  <text x="542" y="140" text-anchor="middle" class="small">ops ide deploy</text>
+  <text x="542" y="160" text-anchor="middle" class="small">after last mutation</text>
+  <rect x="654" y="86" width="130" height="86" class="guard"/>
+  <text x="719" y="116" text-anchor="middle" class="label">Setup</text>
+  <text x="719" y="140" text-anchor="middle" class="small">ops ide setup</text>
+  <text x="719" y="160" text-anchor="middle" class="small">after deploy</text>
+  <rect x="824" y="76" width="130" height="106" class="ok"/>
+  <text x="889" y="106" text-anchor="middle" class="label">Completion</text>
+  <text x="889" y="130" text-anchor="middle" class="small">Trustable gate</text>
+  <text x="889" y="151" text-anchor="middle" class="small">checkers pass</text>
+  <text x="889" y="172" text-anchor="middle" class="small">worktree changed</text>
+  <path d="M204 129 H244" class="arrow"/>
+  <path d="M429 129 H469" class="arrow"/>
+  <path d="M614 129 H654" class="arrow"/>
+  <path d="M784 129 H824" class="arrow"/>
+  <rect x="244" y="236" width="540" height="76" class="box"/>
+  <text x="514" y="264" text-anchor="middle" class="label">Playwright trace invariant</text>
+  <text x="514" y="288" text-anchor="middle" class="small">every action mutation has a later deploy; last mutation &lt; deploy &lt; setup &lt; completion</text>
+  <text x="514" y="307" text-anchor="middle" class="small">failed tools, raw ops action, manual ZIP commands, and missing gates fail the E2E</text>
+</svg>

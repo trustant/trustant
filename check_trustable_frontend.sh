@@ -51,6 +51,10 @@ if [ "${#frontend_files[@]}" -gt 0 ]; then
       esac
       error "$hit" "HashRouter navigation must not assign a root-relative browser path. Use the router navigation API."
     done < <(grep -En "window\\.location\\.(href[[:space:]]*=|assign\\(|replace\\()[[:space:]]*['\"]/" "${frontend_files[@]}" 2>/dev/null || true)
+
+    while IFS= read -r hit; do
+      error "$hit" "HashRouter APIs receive logical paths such as /login, not #/login. Remove the hash; React Router adds it to the browser URL."
+    done < <(grep -En "(<(Link|NavLink|Navigate)[^>]*(to|href)[[:space:]]*=[[:space:]]*['\"]#/|navigate[[:space:]]*\\([[:space:]]*['\"]#/)" "${frontend_files[@]}" 2>/dev/null || true)
   fi
 
   while IFS= read -r hit; do

@@ -121,6 +121,11 @@ The embedded guidance must include these rules:
   tools plus `ops ide deploy/setup` instead of trying to bypass it.
 - Never run foreground dev servers or unbounded watchers such as
   `npm run dev`, `vite`, or `ops ide devel`.
+- Never kill, restart, or replace Trustable-managed OpenCode/Vite processes;
+  the plugin must reject kill/pkill/killall and manual dev-server starts.
+- Never mask deploy, setup, login, checker, or frontend-build failures with
+  `|| true`, `|| echo`, or `head`/`tail` pipelines; the generated plugin must
+  reject those commands before execution.
 - Assistants must not ask the user to run shell commands from inside the
   Trustable pod when the assistant has shell access. They must run bounded
   checks themselves, including `ops ide deploy`, `curl`, `npm run build`,
@@ -135,7 +140,12 @@ The embedded guidance must include these rules:
   `packages/<package>/<action>/<module>.py`.
 - After every action MCP call or change under `packages/`, explicitly run
   `timeout 120 ops ide deploy` before setup, verification, or completion.
+- A shell mutation remains an action change when its command names only a local
+  file and the shell `cwd`/`workdir` is already inside `packages/`; the plugin
+  must still require deploy, and setup when the directory is under
+  `packages/setup/`.
 - If setup actions change, run `timeout 120 ops ide setup` only after deploy.
+- The generated completion gate must remain blocked until required setup runs.
 - Never create, edit, move, or delete action ZIP files manually; deploy owns
   the sibling `packages/<package>/<action>.zip` artifacts.
 - Assistants must not use shell redirection to create or replace source files.
@@ -610,6 +620,10 @@ When an app has login or registration, the embedded guidance must say:
 - direct protected routes must also be guarded: an unauthenticated user opening a
   protected hash route directly must be redirected to login/register or shown
   the auth view, not the protected page;
+- with React Router `HashRouter`, `Link`, `NavLink`, `Navigate`, and
+  `useNavigate` must receive logical routes such as `/login`, never `#/login`;
+  React Router adds the hash. Root-relative internal anchors and router API
+  targets beginning with `#/` are blocking frontend checker errors;
 - after login, the frontend should store only the returned session/token/user
   data it needs and derive authenticated UI state from that data or from a
   bounded `me` check;

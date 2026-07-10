@@ -1248,6 +1248,29 @@ func TestFrontendCheckerAcceptsRouterLinks(t *testing.T) {
 	}
 }
 
+func TestFrontendCheckerRejectsHashPrefixedRouterLinks(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	app := "import { HashRouter, Link, useNavigate } from 'react-router-dom';\n" +
+		"export const App = () => <HashRouter><Link to=\"#/login\">Login</Link></HashRouter>;\n" +
+		"export const Button = () => { const navigate = useNavigate(); return <button onClick={() => navigate('#/register')}>Register</button>; };\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "App.tsx"), []byte(app), 0644); err != nil {
+		t.Fatalf("write app: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("hash-prefixed router targets should fail, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "HashRouter APIs receive logical paths") {
+		t.Fatalf("unexpected frontend checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
 func TestFrontendCheckerRejectsPasswordInQueryString(t *testing.T) {
 	dir := t.TempDir()
 	srcDir := filepath.Join(dir, "src")

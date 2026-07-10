@@ -21,8 +21,31 @@ test("mutation detection keeps read-only diagnostics available", () => {
   assert.equal(guardrails.isMutatingTool("edit", {}), true);
   assert.equal(guardrails.isMutatingTool("action-new", {}), true);
   assert.equal(guardrails.isMutatingTool("bash", { command: "ops ide deploy" }), true);
+  assert.equal(guardrails.isMaskedCriticalCommand({ command: "timeout 120 ops ide deploy 2>&1 || true" }), true);
+  assert.equal(guardrails.isMaskedCriticalCommand({ command: "timeout 120 check_trustable_app.sh . | tail -20" }), true);
+  assert.equal(guardrails.isMaskedCriticalCommand({ command: "timeout 120 ops ide setup" }), false);
+  assert.equal(guardrails.isManagedDevServerCommand({ command: "cd /tmp/app && npx vite --host 0.0.0.0 --port 5173 &" }), true);
+  assert.equal(guardrails.isManagedDevServerCommand({ command: "kill 1234; npm run dev" }), true);
+  assert.equal(guardrails.isManagedDevServerCommand({ command: "curl -i http://localhost:5173" }), false);
   assert.equal(guardrails.isActionMutation("openserverless_action_add_s3", {}), true);
+  assert.equal(guardrails.isActionMutation("action-invoke", {}), false);
+  assert.equal(guardrails.isActionMutation("openserverless_action_invoke", {}), false);
   assert.equal(guardrails.isActionMutation("edit", { filePath: "/tmp/app/packages/v1/stack/stack.py" }), true);
+  assert.equal(guardrails.isActionMutation("bash", {
+    cwd: "/tmp/app/packages/v1/stack",
+    command: "sed -i 's/old/new/' stack.py",
+  }), true);
+  assert.equal(guardrails.isActionMutation("bash", {
+    workdir: "packages/v1/stack",
+    command: "printf 'value' > stack.py",
+  }), true);
+  assert.equal(guardrails.isSetupActionMutation("action-new", { action: "setup/database" }), true);
+  assert.equal(guardrails.isSetupActionMutation("edit", { filePath: "/tmp/app/packages/setup/database/database.py" }), true);
+  assert.equal(guardrails.isSetupActionMutation("bash", {
+    directory: "/tmp/app/packages/setup/database",
+    command: "sed -i 's/old/new/' database.py",
+  }), true);
+  assert.equal(guardrails.isSetupActionMutation("edit", { filePath: "/tmp/app/packages/v1/stack/stack.py" }), false);
 });
 
 test("manual action ZIP mutations are denied but read-only inspection is allowed", () => {
@@ -39,11 +62,39 @@ test("manual action ZIP mutations are denied but read-only inspection is allowed
     command: "rm -f packages/v1/stack.zip",
   }), true);
   assert.equal(guardrails.isManualActionZipMutation("bash", {
+    workdir: "/tmp/app/packages/v1/stack",
+    command: "python3 -m zipfile -c stack.zip .",
+  }), true);
+  assert.equal(guardrails.isManualActionZipMutation("bash", {
     command: "cat packages/v1/stack.zip | head -c 20",
   }), false);
   assert.equal(guardrails.isManualActionZipMutation("bash", {
     command: "timeout 120 ops ide deploy",
   }), false);
+});
+
+test("critical validation commands cannot hide failures", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-masking-"));
+  const plugin = await guardrails.default({ directory });
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "bash", sessionID: `ses_mask_${Date.now()}`, callID: "call_mask" },
+      { args: { command: "timeout 120 ops ide deploy 2>&1 || true" } },
+    ),
+    /do not mask critical command failures/,
+  );
+});
+
+test("Trustable-managed dev processes cannot be killed or replaced", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-process-"));
+  const plugin = await guardrails.default({ directory });
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "bash", sessionID: `ses_process_${Date.now()}`, callID: "call_process" },
+      { args: { command: "kill 1234; cd /tmp/app && npx vite --port 5173 &" } },
+    ),
+    /do not kill managed processes or start Vite/,
+  );
 });
 
 test("action changes require deploy before setup and completion", async (t) => {
@@ -86,6 +137,73 @@ test("action changes require deploy before setup and completion", async (t) => {
     { tool: "bash", sessionID, callID: "call_setup_after" },
     { args: { command: "timeout 120 ops ide setup" } },
   );
+});
+
+test("setup action changes require setup after deploy before completion", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-setup-"));
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  const checker = join(fakeBin, "check_openserverless_actions.sh");
+  writeFileSync(checker, "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(checker, 0o755);
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_setup_${Date.now()}`;
+  await plugin["tool.execute.after"](
+    { tool: "edit", sessionID, callID: "call_setup_edit", args: { filePath: join(directory, "packages/setup/database/database.py") } },
+    { output: "Edit applied successfully." },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "bash", sessionID, callID: "call_setup_deploy", args: { command: "timeout 120 ops ide deploy" } },
+    { output: "ok: updated action setup/database" },
+  );
+
+  const blocked = await plugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID, directory, worktree: directory },
+  );
+  assert.match(blocked, /setup action changed and was deployed but setup has not run/i);
+
+  await plugin["tool.execute.after"](
+    { tool: "bash", sessionID, callID: "call_setup_run", args: { command: "timeout 120 ops ide setup" } },
+    { output: "Setup completed." },
+  );
+  const system = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  assert.doesNotMatch(system.system.join(" "), /ACTION SETUP IS REQUIRED/);
+});
+
+test("shell mutations inherit action and setup scope from their working directory", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-cwd-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_cwd_${Date.now()}`;
+
+  await plugin["tool.execute.after"](
+    {
+      tool: "bash",
+      sessionID,
+      callID: "call_cwd_mutation",
+      args: {
+        workdir: join(directory, "packages/setup/database"),
+        command: "sed -i 's/old/new/' database.py",
+      },
+    },
+    { output: "updated database.py" },
+  );
+
+  const blocked = await plugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID, directory, worktree: directory },
+  );
+  assert.match(blocked, /Action source changed after the last verified deployment/);
+
+  const system = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  assert.match(system.system.join(" "), /ACTION DEPLOY IS REQUIRED/);
+  assert.match(system.system.join(" "), /ACTION SETUP IS REQUIRED/);
 });
 
 test("reported bugs require reproduction before edits", async () => {

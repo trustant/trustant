@@ -70,6 +70,24 @@ async function api(request, method, path, body, options = {}) {
   return { response, text, json };
 }
 
+async function waitForTrustableReady(request) {
+  const deadline = Date.now() + Number(env.TRUSTABLE_E2E_READY_TIMEOUT_MS || 60_000);
+  let lastStatus = 0;
+  let lastText = "";
+  while (Date.now() < deadline) {
+    try {
+      const response = await request.get(`${trustableURL}/applist.html`, { timeout: 5_000 });
+      lastStatus = response.status();
+      lastText = await response.text();
+      if (response.ok()) return;
+    } catch (error) {
+      lastText = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  throw new Error(`Trustable did not become ready: HTTP ${lastStatus} ${lastText.slice(0, 500)}`);
+}
+
 async function ensureApp(request) {
   const configured = env.TRUSTABLE_E2E_APP;
   if (configured) {
@@ -93,9 +111,14 @@ async function ensureApp(request) {
 }
 
 async function launchApp(request, app) {
-  const result = await api(request, "GET", `/api/launch/${app}`, undefined, {
-    timeout: 600_000,
-  });
+  let result;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    result = await api(request, "GET", `/api/launch/${app}`, undefined, {
+      timeout: 600_000,
+    });
+    if (!result.json?.error?.includes("Repeat the login")) break;
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 5_000));
+  }
   expect(result.response.ok(), result.text).toBeTruthy();
   expect(result.json, result.text).toBeTruthy();
   expect(result.json.error, result.text).toBeFalsy();
@@ -186,15 +209,18 @@ async function waitForPromptIdle(request, sessionID, workbenchDir, baselineMessa
     lastMessages = messages;
     const newMessages = messages.filter((message) => !baselineMessageIDs.has(message.info?.id));
     const parts = flattenMessageParts(messages);
-    const newParts = flattenMessageParts(newMessages);
+    const newAssistantMessages = newMessages.filter((message) => message.info?.role === "assistant");
     const runningTool = parts.some((part) => {
       const state = part.state?.status;
       return state === "pending" || state === "running";
     });
     const hasNewMessage = newMessages.length > 0;
-    const hasAssistantText = newParts.some((part) => part.type === "text" && part.text);
+    const hasFinalAssistantResponse = newAssistantMessages.some((message) => {
+      const finish = message.info?.finish;
+      return Boolean(message.info?.time?.completed && finish && finish !== "tool-calls");
+    });
 
-    if (hasNewMessage && hasAssistantText && !runningTool && currentStatus !== "busy") {
+    if (hasNewMessage && hasFinalAssistantResponse && !runningTool && currentStatus !== "busy") {
       if (stableIdleSince === 0) {
         stableIdleSince = Date.now();
       }
@@ -219,7 +245,7 @@ function assertPromptToolSafety(messages) {
   }
 
   const failedTools = toolParts.filter((part) => part.state?.status === "error");
-  const hardFailedTools = failedTools.filter((part) => !isBenignPromptToolError(part));
+  const hardFailedTools = failedTools.filter((part) => !isBenignPromptToolError(part, toolParts));
   if (env.TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS !== "1") {
     expect(hardFailedTools, JSON.stringify(failedTools)).toEqual([]);
   }
@@ -233,17 +259,160 @@ function assertPromptToolSafety(messages) {
   });
   expect(rawOpsAction, JSON.stringify(rawOpsAction)).toEqual([]);
 
+  const maskedCritical = toolParts.filter((part) => {
+    if (part.tool !== "bash" || part.state?.status !== "completed") return false;
+    const command = part.state?.input?.command || "";
+    return /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh|npm\s+run\s+build)/i.test(command) && /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i.test(command);
+  });
+  expect(maskedCritical, JSON.stringify(maskedCritical)).toEqual([]);
+
+  const managedProcessCommands = toolParts.filter((part) => {
+    if (part.tool !== "bash") return false;
+    const command = part.state?.input?.command || "";
+    return /(?:^|[;&|]\s*)(?:(?:cd|env)\b[^;&|]*&&\s*)?(?:(?:npx|bunx)\s+)?vite\b|(?:^|[;&|]\s*)npm\s+run\s+dev\b|(?:^|[;&|]\s*)ops\s+ide\s+devel\b|(?:^|[;&|]\s*)(?:sudo\s+)?(?:kill|pkill|killall)\b/i.test(command);
+  });
+  expect(managedProcessCommands, JSON.stringify(managedProcessCommands)).toEqual([]);
+
   if (env.TRUSTABLE_E2E_EXPECT_OPENSERVERLESS_TOOL === "1") {
-    const usedOpenServerless = toolParts.some((part) => /^action[-_]/.test(part.tool || ""));
+    const usedOpenServerless = toolParts.some((part) => /^(?:openserverless_)?action[-_]/.test(part.tool || ""));
     expect(usedOpenServerless, JSON.stringify(toolParts.map((part) => part.tool))).toBeTruthy();
   }
 }
 
-function isBenignPromptToolError(part) {
-  if (part.tool !== "list") {
-    return false;
+function commandPosition(command, pattern) {
+  const match = pattern.exec(command);
+  return match ? match.index : -1;
+}
+
+function compareTracePosition(left, right) {
+  return left.partIndex - right.partIndex || left.commandIndex - right.commandIndex;
+}
+
+function assertActionWorkflow(messages) {
+  const parts = flattenMessageParts(messages);
+  const toolParts = parts.filter((part) => part.type === "tool");
+  const mutations = [];
+  const deploys = [];
+  const setups = [];
+  const completions = [];
+  const manualZip = [];
+
+  toolParts.forEach((part, partIndex) => {
+    const tool = part.tool || "";
+    const input = part.state?.input || {};
+    const command = String(input.command || "");
+    const path = String(input.filePath || input.path || "").replaceAll("\\", "/");
+    const patch = String(input.patch || input.input || "");
+    const position = (commandIndex = 0) => ({ partIndex, commandIndex, tool, command });
+
+    if (/^(?:openserverless_)?action[-_](?!invoke(?:$|[-_]))/i.test(tool)) {
+      mutations.push(position());
+    }
+    if (["edit", "write", "patch"].includes(tool) && /(^|\/)packages\//.test(path)) {
+      mutations.push(position());
+    }
+    if (tool === "apply_patch" && /(?:^|[\s/])packages\//m.test(patch)) {
+      mutations.push(position());
+    }
+    if (tool === "bash") {
+      const deployIndex = commandPosition(command, /(?:^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i);
+      const setupIndex = commandPosition(command, /(?:^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+setup(?:\s|$)/i);
+      if (deployIndex >= 0) deploys.push(position(deployIndex));
+      if (setupIndex >= 0) setups.push(position(setupIndex));
+      if (/(?:^|[\s'"`])packages\//i.test(command) && /(?:zipfile\.ZipFile|python(?:3)?\s+-m\s+zipfile\s+-c|(?:^|[;&|]\s*)zip\s|\.zip\b[^\n]*(?:>|rm|mv|cp|touch|truncate|tee))/i.test(command)) {
+        manualZip.push(position());
+      }
+    }
+    if (["edit", "write", "patch"].includes(tool) && /(^|\/)packages\/.*\.zip$/i.test(path)) {
+      manualZip.push(position());
+    }
+    if (tool === "trustable_completion_check") completions.push(position());
+  });
+
+  expect(manualZip, JSON.stringify(manualZip)).toEqual([]);
+  expect(mutations.length, JSON.stringify(toolParts.map((part) => part.tool))).toBeGreaterThan(0);
+  expect(deploys.length, JSON.stringify(toolParts)).toBeGreaterThan(0);
+  expect(completions.length, JSON.stringify(toolParts.map((part) => part.tool))).toBeGreaterThan(0);
+
+  for (const mutation of mutations) {
+    expect(
+      deploys.some((deploy) => compareTracePosition(mutation, deploy) < 0),
+      `No deploy follows action mutation ${JSON.stringify(mutation)} in ${JSON.stringify(toolParts)}`,
+    ).toBeTruthy();
   }
+
+  const finalMutation = mutations.slice().sort(compareTracePosition).at(-1);
+  const finalDeploy = deploys.filter((deploy) => compareTracePosition(finalMutation, deploy) < 0).sort(compareTracePosition).at(0);
+  const finalCompletion = completions.slice().sort(compareTracePosition).at(-1);
+  expect(finalDeploy, `No deploy follows final action mutation in ${JSON.stringify(toolParts)}`).toBeTruthy();
+  expect(compareTracePosition(finalMutation, finalDeploy)).toBeLessThan(0);
+  expect(compareTracePosition(finalDeploy, finalCompletion)).toBeLessThan(0);
+
+  if (env.TRUSTABLE_E2E_EXPECT_SETUP === "1") {
+    expect(setups.length, JSON.stringify(toolParts)).toBeGreaterThan(0);
+    const setupAfterDeploy = setups.find((setup) => compareTracePosition(finalDeploy, setup) < 0);
+    expect(setupAfterDeploy, `No setup follows final deploy in ${JSON.stringify(toolParts)}`).toBeTruthy();
+    expect(compareTracePosition(setupAfterDeploy, finalCompletion)).toBeLessThan(0);
+  }
+}
+
+function assertFinalAssistantResponse(messages) {
+  const finalAssistantMessages = messages.filter((message) =>
+    message.info?.role === "assistant" &&
+    message.info?.time?.completed &&
+    message.info?.finish &&
+    message.info.finish !== "tool-calls");
+  const finalAssistantText = finalAssistantMessages.flatMap((message) => message.parts || [])
+    .filter((part) => part.type === "text")
+    .map((part) => part.text || "")
+    .join("\n")
+    .trim();
+  expect(finalAssistantText, JSON.stringify(finalAssistantMessages)).not.toBe("");
+}
+
+function isBenignPromptToolError(part, toolParts = []) {
   const state = part.state || {};
+  const failedIndex = toolParts.indexOf(part);
+  const later = toolParts.slice(failedIndex + 1);
+  if (part.tool === "bash" && /do not mask critical command failures/i.test(state.error || "")) {
+    const critical = /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh|npm\s+run\s+build)/i;
+    const masked = /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i;
+    return later.some((candidate) => {
+      const command = String(candidate.state?.input?.command || "");
+      return candidate.tool === "bash" && candidate.state?.status === "completed" && critical.test(command) && !masked.test(command);
+    });
+  }
+  if (/session context was compacted.*trustable_context_recover/i.test(state.error || "")) {
+    return later.some((candidate) => candidate.tool === "trustable_context_recover" && candidate.state?.status === "completed");
+  }
+  if (part.tool === "read" && /File not found:/i.test(state.error || "")) {
+    const path = state.input?.filePath || state.input?.path || "";
+    const parent = path.replace(/\/[^/]+$/, "");
+    const parentRelative = parent.replace(/^\/home\/trustable\/workspace\/workbench\/[^/]+\//, "");
+    const inspectedParent = later.some((candidate) => {
+      const input = JSON.stringify(candidate.state?.input || {});
+      return ["list", "glob", "bash"].includes(candidate.tool) && (input.includes(parent) || input.includes(parentRelative)) && candidate.state?.status === "completed";
+    });
+    const readSibling = later.some((candidate) => candidate.tool === "read" && (candidate.state?.input?.filePath || candidate.state?.input?.path || "").startsWith(`${parent}/`) && candidate.state?.status === "completed");
+    return path.startsWith("/home/trustable/workspace/workbench/") && inspectedParent && readSibling;
+  }
+  if (["edit", "write"].includes(part.tool) && /(?:oldString.*not found|Could not find oldString|No changes to apply|oldString == newString)/i.test(state.error || "")) {
+    const path = state.input?.filePath || state.input?.path || "";
+    const rereadIndex = later.findIndex((candidate) => candidate.tool === "read" && (candidate.state?.input?.filePath || candidate.state?.input?.path) === path && candidate.state?.status === "completed");
+    return rereadIndex >= 0 && later.slice(rereadIndex + 1).some((candidate) => ["edit", "write"].includes(candidate.tool) && (candidate.state?.input?.filePath || candidate.state?.input?.path) === path && candidate.state?.status === "completed");
+  }
+  if (part.tool === "edit" && /invalid arguments:.*Missing key|SchemaError\(Missing key/i.test(state.error || "")) {
+    const path = state.input?.filePath || state.input?.path || "";
+    return Boolean(path) && later.some((candidate) =>
+      ["edit", "write"].includes(candidate.tool) &&
+      (candidate.state?.input?.filePath || candidate.state?.input?.path) === path &&
+      candidate.state?.status === "completed");
+  }
+  if (part.tool?.startsWith("browser_") && /(?:role is required|element not found|requires locator|execution context was destroyed)/i.test(state.error || "")) {
+    const failedIndex = toolParts.indexOf(part);
+    return toolParts.slice(failedIndex + 1).some((later) => later.tool === part.tool && later.state?.status === "completed");
+  }
+  if (part.tool !== "list") return false;
   const inputPath = state.input?.path || "";
   const error = state.error || "";
   return (
@@ -257,25 +426,13 @@ async function runPromptStep(request, app, launch) {
   const sessionID = launch.session_id;
   const promptNonce = `issue98-${Date.now().toString(36)}`;
   const prompt = (env.TRUSTABLE_E2E_PROMPT || defaultPrompt).replace("{nonce}", promptNonce);
-  const beforeMessages = await sessionMessages(request, sessionID, workbenchDir);
-  const beforeMessageIDs = new Set(beforeMessages.map((message) => message.info?.id).filter(Boolean));
-  const beforeStatus = workbenchGitStatus(workbenchDir);
+  const { messages, promptMessages, beforeStatus } = await sendPromptAndWait(request, app, launch, prompt);
 
-  const response = await request.post(
-    `${opencodeURL}/session/${sessionID}/prompt_async?directory=${encodeURIComponent(workbenchDir)}`,
-    {
-      data: {
-        agent: env.TRUSTABLE_E2E_PROMPT_AGENT || "build",
-        parts: [{ type: "text", text: prompt }],
-      },
-      timeout: 30_000,
-    },
-  );
-  expect(response.status(), await response.text()).toBe(204);
-
-  const messages = await waitForPromptIdle(request, sessionID, workbenchDir, beforeMessageIDs);
-  const promptMessages = messages.filter((message) => !beforeMessageIDs.has(message.info?.id));
   assertPromptToolSafety(promptMessages);
+  assertFinalAssistantResponse(promptMessages);
+  if (env.TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW === "1") {
+    assertActionWorkflow(promptMessages);
+  }
   if (!env.TRUSTABLE_E2E_PROMPT) {
     const promptParts = flattenMessageParts(promptMessages);
     const toolContainsNonce = promptParts.some((part) => {
@@ -296,6 +453,103 @@ async function runPromptStep(request, app, launch) {
   }
 
   return { messages, beforeStatus, afterStatus, checkerOutput };
+}
+
+async function validateExistingPromptStep(request, app, launch) {
+  const messages = await sessionMessages(request, launch.session_id, launch.encdir, 2_000);
+  expect(messages.some((message) => message.info?.role === "user"), JSON.stringify(messages)).toBeTruthy();
+  assertPromptToolSafety(messages);
+  assertFinalAssistantResponse(messages);
+  if (env.TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW === "1") assertActionWorkflow(messages);
+
+  const checkerOutput = podShell(
+    `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustable_app.sh .`,
+    { timeout: 150_000 },
+  );
+  expect(checkerOutput).toContain("Trustable app completion check passed");
+  if (env.TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES === "1") {
+    expect(workbenchGitStatus(launch.encdir), `No worktree changes found for retained app ${app}`).not.toBe("");
+  }
+}
+
+async function sendPromptAndWait(request, app, launch, prompt) {
+  const workbenchDir = launch.encdir;
+  const sessionID = launch.session_id;
+  const beforeMessages = await sessionMessages(request, sessionID, workbenchDir);
+  const beforeMessageIDs = new Set(beforeMessages.map((message) => message.info?.id).filter(Boolean));
+  const beforeStatus = workbenchGitStatus(workbenchDir);
+
+  const response = await request.post(
+    `${opencodeURL}/session/${sessionID}/prompt_async?directory=${encodeURIComponent(workbenchDir)}`,
+    {
+      data: {
+        agent: env.TRUSTABLE_E2E_PROMPT_AGENT || "build",
+        parts: [{ type: "text", text: prompt }],
+      },
+      timeout: 30_000,
+    },
+  );
+  expect(response.status(), await response.text()).toBe(204);
+
+  const messages = await waitForPromptIdle(request, sessionID, workbenchDir, beforeMessageIDs);
+  const promptMessages = messages.filter((message) => !beforeMessageIDs.has(message.info?.id));
+  return { messages, promptMessages, beforeMessages, beforeMessageIDs, beforeStatus, app };
+}
+
+function isTraceMutation(part) {
+  if (part.type !== "tool") return false;
+  const tool = part.tool || "";
+  const input = part.state?.input || {};
+  const command = String(input.command || "");
+  if (["edit", "write", "patch", "apply_patch"].includes(tool)) return true;
+  if (/^(?:openserverless_)?action[-_]/.test(tool)) return true;
+  if (tool !== "bash") return false;
+  return /(?:sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(?:add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(?:install|uninstall|update)|ops\s+ide\s+(?:deploy|setup|redeploy)|>{1,2})/i.test(command);
+}
+
+function assertCompactionRecovery(messages) {
+  const parts = flattenMessageParts(messages);
+  expect(parts.some((part) => part.type === "compaction"), JSON.stringify(parts)).toBeTruthy();
+  const tools = parts.filter((part) => part.type === "tool");
+  const recoveryIndex = tools.findIndex((part) => part.tool === "trustable_context_recover" && part.state?.status === "completed");
+  expect(recoveryIndex, JSON.stringify(tools.map((part) => [part.tool, part.state?.status]))).toBeGreaterThanOrEqual(0);
+  const firstMutation = tools.findIndex(isTraceMutation);
+  expect(firstMutation, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThan(recoveryIndex);
+  let completionIndex = -1;
+  tools.forEach((part, index) => {
+    if (part.tool === "trustable_completion_check" && part.state?.status === "completed") completionIndex = index;
+  });
+  expect(completionIndex, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThan(firstMutation);
+}
+
+async function compactOpenCodeSession(request, launch) {
+  const headers = { "X-Opencode-Directory": launch.encdir };
+  const current = await request.post(`${opencodeURL}/api/session/${launch.session_id}/compact`, {
+    headers,
+    timeout: 300_000,
+  });
+  if (current.status() === 204) return "compact";
+
+  const currentError = await current.text();
+  if (current.status() !== 503 || !currentError.includes("Session compact is not available yet")) {
+    expect(current.status(), currentError).toBe(204);
+  }
+
+  const modelRef = podShell(`jq -r '.model' ${shellQuote(`${launch.encdir}/opencode.json`)}`);
+  const separator = modelRef.indexOf("/");
+  expect(separator, `Invalid OpenCode model reference: ${modelRef}`).toBeGreaterThan(0);
+  const providerID = modelRef.slice(0, separator);
+  const modelID = modelRef.slice(separator + 1);
+  const legacy = await request.post(
+    `${opencodeURL}/session/${launch.session_id}/summarize?directory=${encodeURIComponent(launch.encdir)}`,
+    {
+      data: { providerID, modelID },
+      headers,
+      timeout: 300_000,
+    },
+  );
+  expect(legacy.status(), await legacy.text()).toBe(200);
+  return "summarize";
 }
 
 async function cleanupCreatedApp(request, app, created) {
@@ -474,9 +728,9 @@ test.describe("issue98 guardrail E2E", () => {
     }
   });
 
-  test("validates the generated authentication flow in a real browser", async ({ page, request }) => {
-    test.skip(env.TRUSTABLE_E2E_AUTH !== "1", "Set TRUSTABLE_E2E_AUTH=1 to run the generated-app authentication flow.");
-    test.setTimeout(Number(env.TRUSTABLE_E2E_AUTH_TIMEOUT_MS || 10 * 60 * 1000));
+  test("recovers mandatory context after real compaction and preserves the session", async ({ request }) => {
+    test.skip(env.TRUSTABLE_E2E_COMPACTION !== "1", "Set TRUSTABLE_E2E_COMPACTION=1 to run the long-session compaction test.");
+    test.setTimeout(Number(env.TRUSTABLE_E2E_COMPACTION_TEST_TIMEOUT_MS || 30 * 60 * 1000));
 
     let app = "";
     let created = false;
@@ -484,7 +738,75 @@ test.describe("issue98 guardrail E2E", () => {
       const appInfo = await ensureApp(request);
       app = appInfo.app;
       created = appInfo.created;
-      await launchApp(request, app);
+      const launch = await launchApp(request, app);
+      const marker = `issue98-compaction-${Date.now().toString(36)}`;
+
+      await test.step("establish a real pre-compaction conversation", async () => {
+        const initial = await sendPromptAndWait(
+          request,
+          app,
+          launch,
+          `Leggi le regole principali del progetto senza modificare file e rispondi includendo ${marker}.`,
+        );
+        expect(JSON.stringify(initial.promptMessages)).toContain(marker);
+      });
+
+      const beforeCompact = await sessionMessages(request, launch.session_id, launch.encdir, 100);
+      const beforeCompactIDs = new Set(beforeCompact.map((message) => message.info?.id).filter(Boolean));
+      await compactOpenCodeSession(request, launch);
+
+      const afterCompact = await waitForPromptIdle(request, launch.session_id, launch.encdir, beforeCompactIDs);
+      const compactMessages = afterCompact.filter((message) => !beforeCompactIDs.has(message.info?.id));
+
+      const followup = await test.step("continue with a source change after recovery", async () => {
+        return sendPromptAndWait(
+          request,
+          app,
+          launch,
+          `Ora rendi il titolo della pagina iniziale più accogliente e aggiungi il testo ${marker}. Controlla tu il risultato e completa il lavoro.`,
+        );
+      });
+      assertPromptToolSafety(followup.promptMessages);
+      assertCompactionRecovery([...compactMessages, ...followup.promptMessages]);
+
+      const checkerOutput = podShell(
+        `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustable_app.sh .`,
+        { timeout: 150_000 },
+      );
+      expect(checkerOutput).toContain("Trustable app completion check passed");
+
+      await api(request, "DELETE", "/api/launch", undefined, { timeout: 60_000 });
+      const relaunched = await launchApp(request, app);
+      expect(relaunched.session_id).toBe(launch.session_id);
+      const persisted = await sessionMessages(request, relaunched.session_id, relaunched.encdir, 100);
+      expect(JSON.stringify(persisted)).toContain(marker);
+    } finally {
+      if (app) await cleanupCreatedApp(request, app, created);
+    }
+  });
+
+  test("validates the generated authentication flow in a real browser", async ({ page, request }) => {
+    test.skip(env.TRUSTABLE_E2E_AUTH !== "1", "Set TRUSTABLE_E2E_AUTH=1 to run the generated-app authentication flow.");
+    test.setTimeout(Number(env.TRUSTABLE_E2E_AUTH_TIMEOUT_MS || 10 * 60 * 1000));
+
+    let app = "";
+    let created = false;
+    try {
+      await waitForTrustableReady(request);
+      const appInfo = await ensureApp(request);
+      app = appInfo.app;
+      created = appInfo.created;
+      const launch = await launchApp(request, app);
+
+      if (env.TRUSTABLE_E2E_RUN_PROMPT === "1") {
+        await test.step("build and verify authentication in this app", async () => {
+          await runPromptStep(request, app, launch);
+        });
+      } else if (env.TRUSTABLE_E2E_VALIDATE_EXISTING_PROMPT === "1") {
+        await test.step("revalidate the persisted OpenCode trace", async () => {
+          await validateExistingPromptStep(request, app, launch);
+        });
+      }
 
       const suffix = Date.now().toString(36);
       const username = `Tester ${suffix}`;

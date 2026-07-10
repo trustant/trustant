@@ -521,7 +521,20 @@ opens a circuit breaker after two equal completion failures, and prevents
 unverified completion claims. Any action MCP call or source mutation under
 `packages/` marks action deployment as required. Until a successful
 `ops ide deploy` is followed by a passing action checker, the plugin blocks
-`ops ide setup` and the completion gate.
+`ops ide setup` and the completion gate. A setup-action mutation additionally
+marks setup as required; deploy does not clear that state, and completion stays
+blocked until a successful `ops ide setup` runs after deploy.
+For shell tools, action detection must inspect both the command text and the
+normalized `cwd`/`workdir`/`directory` argument. A mutating command such as
+`sed -i module.py` executed from `packages/v1/action` still requires deploy;
+the same command from `packages/setup/action` also requires setup. Manual ZIP
+guards must use the same working-directory detection.
+The plugin must also reject failure-masking forms of critical commands,
+including `|| true`, `|| echo`, and `head`/`tail` pipelines applied to login,
+deploy, setup, Trustable checkers, or frontend builds.
+It must reject shell commands that kill processes or start `vite`,
+`npm run dev`, or `ops ide devel`, because those processes are owned by the
+Trustable launch lifecycle.
 
 See [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg).
 
@@ -529,7 +542,9 @@ Trustable must also install `check_trustable_frontend.sh` and the aggregate
 `check_trustable_app.sh` once in `~/.local/bin`. The aggregate checker runs the
 existing OpenServerless checker plus high-confidence frontend checks, including
 root-relative internal anchors used with `HashRouter` and passwords placed in
-request URLs.
+request URLs. With `HashRouter`, it must also reject `Link`, `NavLink`,
+`Navigate`, or `navigate(...)` targets beginning with `#/`; router APIs receive
+logical paths such as `/login` and add the hash themselves.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated

@@ -31,6 +31,8 @@ user explicitly asks to inspect them, and they must not override this contract.
   and frontend contract checkers, `git diff --check`, and the frontend build
   when present. Do not claim completion before it passes.
 - `ops ide devel` exposes the app in this pod at `http://localhost:5173`.
+- Do not kill or replace that managed process, and do not start `vite`,
+  `npm run dev`, or another `ops ide devel` instance.
 - OpenCode serves in this pod at `http://localhost:4096`.
 - Browser/ingress hosts such as `vite.<domain>` are external checks. Use them
   only after `ops ide deploy` succeeds and only when external routing matters.
@@ -152,7 +154,8 @@ Invalid examples:
   `timeout 120 ops ide deploy` before setup, runtime verification, or
   completion. This includes setup actions.
 - After setup action changes, run `timeout 120 ops ide setup` only after the
-  deploy succeeds.
+  deploy succeeds and before completion. The Trustable completion gate remains
+  blocked until setup runs successfully.
 - Never create or update action ZIP files manually. `ops ide deploy` owns the
   sibling `packages/<package>/<action>.zip` artifacts.
 - Run `timeout 60 check_openserverless_actions.sh .` after deploy and before
@@ -179,6 +182,8 @@ Invalid examples:
   verification.
 - Do not hide failures with `|| true` or output truncation that masks the first
   actionable error.
+- The Trustable plugin rejects `|| true`, `|| echo`, and `head`/`tail`
+  pipelines on deploy, setup, login, checker, and frontend-build commands.
 
 ## If Blocked
 

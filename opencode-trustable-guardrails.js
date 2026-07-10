@@ -9,7 +9,7 @@ const STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
 const COMPLETION_WORDS = /\b(done|complete|completed|fixed|resolved|working|success|risolto|risolta|completato|completata|funziona|prova ora)\b/i;
 const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|ancora|errore|problema|pagina bianca|bloccato)/i;
 const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
-const ACTION_TOOL = /^(action[-_]|openserverless_action_)/;
+const ACTION_TOOL = /^(?:action[-_](?!invoke(?:$|[-_]))|openserverless_action_(?!invoke(?:$|_)))/;
 const OPS_IDE_DEPLOY = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i;
 const OPS_IDE_SETUP = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+setup(?:\s|$)/i;
 
@@ -18,6 +18,10 @@ const CRITICAL_SYSTEM = [
   "After session compaction, call trustable_context_recover before any edit, write, action mutation, or deploy.",
   "For a reported bug, reproduce the exact user-visible symptom and record evidence with trustable_diagnostic_checkpoint before changing source.",
   "After any action MCP or packages/** source change, run ops ide deploy before setup or completion. Never create or modify action ZIP files manually.",
+  "After changing a setup action, run ops ide setup after deploy and before completion.",
+  "Never mask deploy, setup, login, checker, or build failures with || true, || echo, or head/tail pipelines.",
+  "Never kill Trustable-managed processes or start vite, npm run dev, or ops ide devel; use the already-running localhost:5173 server.",
+  "With React Router HashRouter, pass logical routes such as /login to Link, NavLink, Navigate, and useNavigate. Never pass #/login to router APIs and never use root-relative anchors for internal navigation.",
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
@@ -42,13 +46,50 @@ export function isOpsIdeSetupCommand(args = {}) {
   return OPS_IDE_SETUP.test(String(args.command || ""));
 }
 
+export function isMaskedCriticalCommand(args = {}) {
+  const command = String(args.command || "");
+  const critical = /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh|npm\s+run\s+build)/i.test(command);
+  const masked = /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i.test(command);
+  return critical && masked;
+}
+
+export function isManagedDevServerCommand(args = {}) {
+  const command = String(args.command || "");
+  const startsServer = /(?:^|[;&|]\s*)(?:(?:cd|env)\b[^;&|]*&&\s*)?(?:(?:npx|bunx)\s+)?vite\b|(?:^|[;&|]\s*)npm\s+run\s+dev\b|(?:^|[;&|]\s*)ops\s+ide\s+devel\b/i.test(command);
+  const killsProcess = /(?:^|[;&|]\s*)(?:sudo\s+)?(?:kill|pkill|killall)\b/i.test(command);
+  return startsServer || killsProcess;
+}
+
+function normalizedWorkingDirectory(args = {}) {
+  return String(args.cwd || args.workdir || args.directory || "").replaceAll("\\", "/").replace(/\/+$/, "");
+}
+
+function isPackagesDirectory(path) {
+  return /(^|\/)packages(?:\/|$)/i.test(path || "");
+}
+
+function isSetupPackagesDirectory(path) {
+  return /(^|\/)packages\/setup(?:\/|$)/i.test(path || "");
+}
+
 export function isActionMutation(toolID, args = {}) {
   if (ACTION_TOOL.test(toolID)) return true;
   const path = String(args.filePath || args.path || "").replaceAll("\\", "/");
   if (["edit", "write", "patch"].includes(toolID) && /(^|\/)packages\//.test(path)) return true;
   if (toolID === "apply_patch" && /(?:^|[\s/])packages\//m.test(String(args.patch || args.input || ""))) return true;
-  if (toolID === "bash" && isMutatingTool(toolID, args) && /(?:^|[\s'"`])packages\//i.test(String(args.command || ""))) return true;
+  if (toolID === "bash" && isMutatingTool(toolID, args)) {
+    const command = String(args.command || "");
+    if (/(?:^|[\s'"`])packages\//i.test(command) || isPackagesDirectory(normalizedWorkingDirectory(args))) return true;
+  }
   return false;
+}
+
+export function isSetupActionMutation(toolID, args = {}) {
+  if (!isActionMutation(toolID, args)) return false;
+  const path = String(args.filePath || args.path || "").replaceAll("\\", "/");
+  if (/(^|\/)packages\/setup\//.test(path)) return true;
+  const input = JSON.stringify(args).replaceAll("\\", "/");
+  return isSetupPackagesDirectory(normalizedWorkingDirectory(args)) || /(?:packages\/setup\/|["':/]setup\/)/i.test(input);
 }
 
 export function isManualActionZipMutation(toolID, args = {}) {
@@ -62,7 +103,7 @@ export function isManualActionZipMutation(toolID, args = {}) {
   if (toolID !== "bash") return false;
   const command = String(args.command || "");
   if (isOpsIdeDeployCommand(args)) return false;
-  const touchesPackages = /(?:^|[\s'"`])packages\//i.test(command);
+  const touchesPackages = /(?:^|[\s'"`])packages\//i.test(command) || isPackagesDirectory(normalizedWorkingDirectory(args));
   if (!touchesPackages) return false;
   return /zipfile\.ZipFile\s*\([^)]*,\s*["'](?:w|a|x)["']|python(?:3)?\s+-m\s+zipfile\s+-c|(^|[;&|]\s*)zip\s+(?!info)|(^|[;&|]\s*)(?:rm|mv|cp|install|touch|truncate|tee)\b[^;&|\n]*\.zip\b|>{1,2}\s*[^;&|\n]*\.zip\b/i.test(command);
 }
@@ -76,6 +117,7 @@ function defaultState() {
     verified: true,
     circuitOpen: false,
     actionDeployRequired: false,
+    actionSetupRequired: false,
     failureSignature: "",
     repeatedFailures: 0,
     evidence: "",
@@ -246,6 +288,11 @@ export default async function TrustableGuardrails({ directory }) {
                 passed: false,
                 output: "===== action deploy: FAIL =====\nAction source changed after the last verified deployment. Run timeout 120 ops ide deploy; do not create ZIP files manually.",
               }
+            : current.actionSetupRequired
+              ? {
+                  passed: false,
+                  output: "===== action setup: FAIL =====\nA setup action changed and was deployed but setup has not run yet. Run timeout 120 ops ide setup before completion.",
+                }
             : await completionChecks(context.directory);
           if (result.passed) {
             current.dirty = false;
@@ -254,6 +301,7 @@ export default async function TrustableGuardrails({ directory }) {
             current.reproduced = false;
             current.circuitOpen = false;
             current.actionDeployRequired = false;
+            current.actionSetupRequired = false;
             current.failureSignature = "";
             current.repeatedFailures = 0;
             saveState(context.sessionID, current);
@@ -308,6 +356,7 @@ export default async function TrustableGuardrails({ directory }) {
       if (current.diagnosticRequired && !current.reproduced) status += " DIAGNOSTIC REPRODUCTION IS REQUIRED BEFORE SOURCE CHANGES.";
       if (current.dirty && !current.verified) status += " THE CURRENT CHANGES HAVE NOT PASSED THE COMPLETION GATE.";
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
+      if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
       output.system.push(status);
     },
 
@@ -317,6 +366,12 @@ export default async function TrustableGuardrails({ directory }) {
     },
 
     "tool.execute.before": async (input, output) => {
+      if (input.tool === "bash" && isManagedDevServerCommand(output.args)) {
+        throw new Error("Trustable process guard: do not kill managed processes or start Vite/ops ide devel manually. Use the existing http://localhost:5173 server and diagnose its configured proxy without replacing it.");
+      }
+      if (input.tool === "bash" && isMaskedCriticalCommand(output.args)) {
+        throw new Error("Trustable validation guard: do not mask critical command failures with || true, || echo, or head/tail pipelines. Run the bounded command directly and inspect its complete actionable error.");
+      }
       if (isManualActionZipMutation(input.tool, output.args)) {
         throw new Error("Trustable action guard: manual ZIP creation or mutation under packages/ is forbidden. Edit action source and run ops ide deploy so ops generates and deploys the archive.");
       }
@@ -343,9 +398,15 @@ export default async function TrustableGuardrails({ directory }) {
       if (isActionMutation(input.tool, input.args)) {
         current.actionDeployRequired = true;
       }
+      if (isSetupActionMutation(input.tool, input.args)) {
+        current.actionSetupRequired = true;
+      }
       if (input.tool === "bash" && isOpsIdeDeployCommand(input.args)) {
         const deployCheck = await run("timeout 120 check_openserverless_actions.sh .", directory, 140_000);
         current.actionDeployRequired = deployCheck.exitCode !== 0;
+      }
+      if (input.tool === "bash" && isOpsIdeSetupCommand(input.args) && !current.actionDeployRequired) {
+        current.actionSetupRequired = false;
       }
       saveState(input.sessionID, current);
     },

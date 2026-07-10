@@ -53,6 +53,47 @@ TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES=1 \
 ./tests/e2e_issue98.sh --grep 'OpenCode prompt'
 ```
 
+Run the model-driven action ordering proof on a temporary app:
+
+```bash
+./tests/e2e_action_workflow.sh
+```
+
+This requires a real action mutation, a later `ops ide deploy`, setup after
+deploy, and `trustable_completion_check` after both. It rejects manual action
+ZIP operations and deletes the temporary app when finished.
+
+Run the real long-session compaction and persistence proof:
+
+```bash
+./tests/e2e_compaction.sh
+```
+
+This invokes OpenCode compaction, requires context recovery before subsequent
+mutations, then restarts the app and verifies the same session and marker are
+still present.
+
+Run the generated authentication proof:
+
+```bash
+./tests/e2e_auth.sh
+```
+
+The prompt and browser assertions use one app lifecycle. The OpenCode wait loop
+requires a completed assistant message whose finish reason is not `tool-calls`;
+an intermediate idle transition remains in progress. A final `stop` without
+visible assistant text fails immediately.
+
+Resume a retained app after a runner-only assertion failure while still
+revalidating its persisted model trace:
+
+```bash
+TRUSTABLE_E2E_APP=<app> \
+TRUSTABLE_E2E_RUN_PROMPT=0 \
+TRUSTABLE_E2E_VALIDATE_EXISTING_PROMPT=1 \
+./tests/e2e_auth.sh
+```
+
 Environment variables:
 
 - `TRUSTABLE_E2E_DOMAIN`: browser-visible base domain. Defaults to the
@@ -87,6 +128,10 @@ Environment variables:
   OpenServerless action MCP tool call in the prompt step.
 - `TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES=1`: require new workbench changes after
   the prompt.
+- `TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW=1`: require the ordered action
+  mutation/deploy/completion trace.
+- `TRUSTABLE_E2E_EXPECT_SETUP=1`: additionally require setup after the final
+  deploy and before completion.
 
 The test verifies:
 

@@ -43,13 +43,22 @@ source changes, run `trustable_completion_check` before claiming completion.
 After any OpenServerless action tool call or change under `packages/`, run
 `timeout 120 ops ide deploy` before setup, runtime verification, or completion.
 If a setup action changed, run `timeout 120 ops ide setup` only after deploy
-succeeds. Never create, edit, move, or delete action ZIP files manually; they
+succeeds and before `trustable_completion_check`. Never create, edit, move, or delete action ZIP files manually; they
 are deploy artifacts generated beside action directories by `ops ide deploy`.
+Never hide failures from deploy, setup, login, checkers, or frontend builds
+with `|| true`, `|| echo`, or `head`/`tail` pipelines.
+Never kill Trustable-managed processes or start `vite`, `npm run dev`, or
+`ops ide devel`; diagnose the existing `http://localhost:5173` server.
 
 Use the generated browser MCP to reproduce frontend behavior instead of
 guessing from source alone. `browser_open` in `development` mode targets only
 the Trustable-managed `http://localhost:5173`. Use `deployed` mode only after
 `ops ide deploy` for the derived `vite.<domain>` ingress check.
+
+When the app uses React Router `HashRouter`, use `Link`, `NavLink`, `Navigate`,
+or `useNavigate` with logical paths such as `/login`. React Router adds the hash
+itself: never pass `#/login` to a router API, and never use root-relative `<a
+href="/login">` anchors for internal navigation.
 
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small

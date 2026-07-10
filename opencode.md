@@ -94,8 +94,13 @@ build when available.
   `ops ide deploy/setup` flow instead of trying to bypass it.
 - Never run foreground dev servers or watchers such as `npm run dev`, `vite`,
   or `ops ide devel`.
+- Never kill, restart, or replace Trustable-managed processes. Diagnose the
+  existing `http://localhost:5173` server and its generated proxy configuration.
 - Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
   hang.
+- Never append `|| true` or `|| echo` to deploy, setup, login, checker, or build
+  commands, and never pipe those commands through `head` or `tail`; the plugin
+  blocks output masking because it can turn a real failure into apparent success.
 - Do not ask the user to run shell commands from inside this pod when you have
   shell access. Run bounded checks yourself, including `ops ide deploy`, `curl`,
   `npm run build`, `python3 -m compileall`, and `git diff --check`. Ask the
@@ -109,6 +114,7 @@ build when available.
   `timeout 120 ops ide deploy` before setup, runtime verification, or
   completion. This includes setup actions.
 - If setup actions change, run `timeout 120 ops ide setup` only after deploy.
+- The completion gate remains blocked until required setup succeeds.
 - Never create, edit, move, or delete action ZIP files manually. They are
   derived sibling artifacts owned by `ops ide deploy`.
 - Do not leave the user with only "try it now" when you can run a bounded
@@ -637,6 +643,10 @@ When an app has login or registration:
 - Protect direct routes too. If an unauthenticated user opens a protected hash
   route directly, redirect to the login/register route or render the auth view,
   not the protected page.
+- With React Router `HashRouter`, pass logical routes such as `/login` to
+  `Link`, `NavLink`, `Navigate`, and `useNavigate`. The router adds `#/` to the
+  browser URL. Never pass `#/login` to those APIs, and never use root-relative
+  anchors such as `<a href="/login">` for internal navigation.
 - After login, store only the returned session/token/user data needed by the
   frontend, then derive the authenticated UI state from that data or from a
   bounded `me` check.

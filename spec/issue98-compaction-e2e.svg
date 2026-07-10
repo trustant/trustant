@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="380" viewBox="0 0 980 380" role="img" aria-labelledby="title desc">
+  <title id="title">Issue 98 compaction recovery E2E</title>
+  <desc id="desc">Playwright drives a real OpenCode compaction, proves context recovery precedes mutations, then relaunches the app and verifies the same persistent session and messages.</desc>
+  <style>
+    text { font-family: Arial, sans-serif; fill: #172033; }
+    .title { font-size: 22px; font-weight: 700; }
+    .label { font-size: 14px; font-weight: 700; }
+    .small { font-size: 12px; }
+    .box { fill: #f7f9fc; stroke: #72809b; stroke-width: 1.5; rx: 6; }
+    .gate { fill: #fff4e5; stroke: #c87800; stroke-width: 1.5; rx: 6; }
+    .ok { fill: #e9f8ef; stroke: #21884a; stroke-width: 1.5; rx: 6; }
+    .arrow { stroke: #4d5b75; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#4d5b75"/></marker></defs>
+  <text x="34" y="38" class="title">Compaction is a controlled session transition</text>
+  <rect x="34" y="88" width="150" height="84" class="box"/>
+  <text x="109" y="117" text-anchor="middle" class="label">Active session</text>
+  <text x="109" y="141" text-anchor="middle" class="small">prompt + messages</text>
+  <text x="109" y="161" text-anchor="middle" class="small">stable session ID</text>
+  <rect x="224" y="78" width="165" height="104" class="gate"/>
+  <text x="307" y="107" text-anchor="middle" class="label">Real compaction</text>
+  <text x="307" y="131" text-anchor="middle" class="small">OpenCode compact API</text>
+  <text x="307" y="152" text-anchor="middle" class="small">session.compacted</text>
+  <text x="307" y="172" text-anchor="middle" class="small">needsRecovery = true</text>
+  <rect x="429" y="78" width="180" height="104" class="gate"/>
+  <text x="519" y="107" text-anchor="middle" class="label">Mandatory recovery</text>
+  <text x="519" y="131" text-anchor="middle" class="small">trustable_context_recover</text>
+  <text x="519" y="152" text-anchor="middle" class="small">rules + config + status</text>
+  <text x="519" y="172" text-anchor="middle" class="small">before every mutation</text>
+  <rect x="649" y="88" width="135" height="84" class="box"/>
+  <text x="717" y="117" text-anchor="middle" class="label">Continue work</text>
+  <text x="717" y="141" text-anchor="middle" class="small">edit + verification</text>
+  <text x="717" y="161" text-anchor="middle" class="small">completion gate</text>
+  <rect x="824" y="78" width="130" height="104" class="ok"/>
+  <text x="889" y="107" text-anchor="middle" class="label">Relaunch</text>
+  <text x="889" y="131" text-anchor="middle" class="small">same session ID</text>
+  <text x="889" y="152" text-anchor="middle" class="small">marker retained</text>
+  <text x="889" y="172" text-anchor="middle" class="small">history visible</text>
+  <path d="M184 130 H224" class="arrow"/><path d="M389 130 H429" class="arrow"/><path d="M609 130 H649" class="arrow"/><path d="M784 130 H824" class="arrow"/>
+  <rect x="224" y="246" width="560" height="82" class="box"/>
+  <text x="504" y="276" text-anchor="middle" class="label">E2E invariants</text>
+  <text x="504" y="300" text-anchor="middle" class="small">compaction evidence exists; recovery succeeds before first mutation; completion passes</text>
+  <text x="504" y="320" text-anchor="middle" class="small">process restart does not replace the session or lose pre/post-compaction messages</text>
+</svg>
