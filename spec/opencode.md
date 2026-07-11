@@ -116,6 +116,9 @@ It must say:
   a circuit breaker that requires new reproduction evidence. The failure
   signature must normalize volatile timestamps, durations, process/request IDs,
   and temporary paths while preserving the semantic failure text;
+- when the reproduction used the browser, every subsequent source change must
+  require fresh post-change browser evidence and a
+  `trustable_diagnostic_checkpoint` with `phase=verified` before completion;
 - after source changes, `trustable_completion_check` must pass the action and
   frontend checkers, `git diff --check`, and the available frontend build before
   the assistant claims completion.

@@ -42,6 +42,7 @@ const CRITICAL_SYSTEM = [
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
   "Every action endpoint created or modified in this session requires a focused executable application test under tests/actions/<endpoint> or packages/<endpoint> before completion. The completion gate runs it without installing dependencies; never ask the user to run tests.",
   "Browser work is bounded: after repeated interactions, take a fresh browser snapshot or diagnostics and reason from that evidence instead of continuing blind clicks or fills.",
+  "When a browser-reproduced bug is changed, verify the fixed flow in the browser and record phase=verified with trustable_diagnostic_checkpoint before the completion gate.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
 
@@ -217,6 +218,9 @@ function defaultState() {
     actionSetupRequired: false,
     touchedActionEndpoints: [],
     browserInteractionsSinceEvidence: 0,
+    browserDiagnosisObserved: false,
+    browserVerificationRequired: false,
+    browserEvidenceAfterMutation: false,
     failureSignature: "",
     repeatedFailures: 0,
     evidence: "",
@@ -665,13 +669,26 @@ export default async function TrustableGuardrails({ directory }) {
       }),
 
       trustable_diagnostic_checkpoint: tool({
-        description: "Record concrete reproduction evidence before modifying a reported bug. Use phase=reproduced only after observing the exact symptom through browser, HTTP, logs, or a deterministic test.",
+        description: "Record concrete diagnostic evidence. Use phase=reproduced before a fix. After changing a browser-reproduced bug, exercise the fixed flow in the browser and use phase=verified before completion.",
         args: {
-          phase: tool.schema.enum(["reproduced", "blocked"]),
+          phase: tool.schema.enum(["reproduced", "verified", "blocked"]),
           evidence: tool.schema.string().min(12).describe("Concise observed evidence: command/tool, URL or test, and actual result."),
         },
         async execute(args, context) {
           const current = stateFor(context.sessionID);
+          if (args.phase === "verified") {
+            if (!current.browserVerificationRequired) {
+              return "No browser verification checkpoint is currently required.";
+            }
+            if (!current.browserEvidenceAfterMutation) {
+              throw new Error("Trustable browser verification gate: exercise the fixed flow with browser tools after the last source change before recording phase=verified.");
+            }
+            current.evidence = args.evidence;
+            current.browserVerificationRequired = false;
+            current.browserEvidenceAfterMutation = false;
+            saveState(context.sessionID, current);
+            return "Browser verification checkpoint recorded. The deterministic completion gate may now run.";
+          }
           current.evidence = args.evidence;
           current.reproduced = args.phase === "reproduced";
           current.diagnosticRequired = args.phase !== "reproduced";
@@ -692,7 +709,12 @@ export default async function TrustableGuardrails({ directory }) {
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);
-          const result = current.actionDeployRequired
+          const result = current.browserVerificationRequired
+            ? {
+                passed: false,
+                output: "===== browser verification: FAIL =====\nA browser-reproduced flow changed after the last evidence. Exercise the fixed user flow with browser tools, then call trustable_diagnostic_checkpoint with phase=verified and concrete post-fix evidence.",
+              }
+            : current.actionDeployRequired
             ? {
                 passed: false,
                 output: "===== action deploy: FAIL =====\nAction source changed after the last verified deployment. Run timeout 120 ops ide deploy; do not create ZIP files manually.",
@@ -711,6 +733,9 @@ export default async function TrustableGuardrails({ directory }) {
             current.circuitOpen = false;
             current.actionDeployRequired = false;
             current.actionSetupRequired = false;
+            current.browserVerificationRequired = false;
+            current.browserEvidenceAfterMutation = false;
+            current.browserDiagnosisObserved = false;
             current.touchedActionEndpoints = [];
             current.failureSignature = "";
             current.repeatedFailures = 0;
@@ -757,6 +782,9 @@ export default async function TrustableGuardrails({ directory }) {
         current.reproduced = false;
         current.verified = false;
         current.evidence = "";
+        current.browserDiagnosisObserved = false;
+        current.browserVerificationRequired = false;
+        current.browserEvidenceAfterMutation = false;
       }
       saveState(input.sessionID, current);
     },
@@ -770,6 +798,7 @@ export default async function TrustableGuardrails({ directory }) {
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
       if (current.touchedActionEndpoints?.length) status += ` FOCUSED TESTS ARE REQUIRED FOR ACTION ENDPOINTS: ${current.touchedActionEndpoints.join(", ")}.`;
+      if (current.browserVerificationRequired) status += " POST-FIX BROWSER VERIFICATION AND A phase=verified DIAGNOSTIC CHECKPOINT ARE REQUIRED BEFORE COMPLETION.";
       output.system.push(status);
     },
 
@@ -815,11 +844,15 @@ export default async function TrustableGuardrails({ directory }) {
       const current = stateFor(input.sessionID);
       if (["browser_browser_open", "browser_browser_snapshot", "browser_browser_diagnostics"].includes(input.tool)) {
         current.browserInteractionsSinceEvidence = 0;
+        if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
+        if (current.browserVerificationRequired && current.dirty) current.browserEvidenceAfterMutation = true;
         saveState(input.sessionID, current);
         return;
       }
       if (input.tool === "browser_browser_interact") {
         current.browserInteractionsSinceEvidence += 1;
+        if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
+        if (current.browserVerificationRequired && current.dirty) current.browserEvidenceAfterMutation = true;
         saveState(input.sessionID, current);
         return;
       }
@@ -827,6 +860,10 @@ export default async function TrustableGuardrails({ directory }) {
       if (/^(Error:|Could not find oldString|No changes to apply)/i.test(output.output || "")) return;
       current.dirty = true;
       current.verified = false;
+      if (current.reproduced && current.browserDiagnosisObserved) {
+        current.browserVerificationRequired = true;
+        current.browserEvidenceAfterMutation = false;
+      }
       if (isActionMutation(input.tool, input.args)) {
         current.actionDeployRequired = true;
         current.touchedActionEndpoints = [...new Set([

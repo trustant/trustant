@@ -370,6 +370,57 @@ test("reported bugs require reproduction before edits", async () => {
   );
 });
 
+test("browser-reproduced fixes require fresh post-mutation verification evidence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-browser-fix-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_browser_fix_${Date.now()}`;
+  const context = { sessionID, directory, worktree: directory };
+
+  await plugin["chat.message"](
+    { sessionID },
+    {
+      message: { role: "user" },
+      parts: [{ type: "text", text: "dopo la registrazione torna al login, correggi il problema" }],
+    },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_open", sessionID, callID: "browser_before", args: { mode: "development", path: "/#/register" } },
+    { output: "URL changed to /#/login after submit" },
+  );
+  await plugin.tool.trustable_diagnostic_checkpoint.execute(
+    { phase: "reproduced", evidence: "Browser registration submit returned to /#/login." },
+    context,
+  );
+  await plugin["tool.execute.after"](
+    { tool: "edit", sessionID, callID: "edit_fix", args: { filePath: "src/AuthContext.tsx" } },
+    { output: "Edit applied successfully." },
+  );
+
+  const blocked = await plugin.tool.trustable_completion_check.execute({}, context);
+  assert.match(blocked, /browser verification: FAIL/);
+  await assert.rejects(
+    plugin.tool.trustable_diagnostic_checkpoint.execute(
+      { phase: "verified", evidence: "Registration now opens the protected dashboard." },
+      context,
+    ),
+    /exercise the fixed flow with browser tools/,
+  );
+
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_snapshot", sessionID, callID: "browser_after", args: {} },
+    { output: "URL is /#/dashboard and authenticated controls are visible" },
+  );
+  const recorded = await plugin.tool.trustable_diagnostic_checkpoint.execute(
+    { phase: "verified", evidence: "Browser registration opened /#/dashboard with authenticated controls." },
+    context,
+  );
+  assert.match(recorded, /Browser verification checkpoint recorded/);
+
+  const system = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  assert.doesNotMatch(system.system.join(" "), /POST-FIX BROWSER VERIFICATION/);
+});
+
 test("compaction blocks mutations and final responses until recovery", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-app-"));
   const plugin = await guardrails.default({ directory });

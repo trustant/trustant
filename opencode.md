@@ -78,6 +78,10 @@ reproduce the exact symptom before editing. Use browser, HTTP, logs, or a
 deterministic test, then call `trustable_diagnostic_checkpoint` with concise
 evidence. If the same completion failure occurs twice, the diagnostic circuit
 breaker requires fresh evidence before another source change.
+When the symptom was reproduced in the browser, exercise the fixed flow again
+after the last source change and call `trustable_diagnostic_checkpoint` with
+`phase=verified` and concrete browser evidence. Backend-only checks do not
+verify a browser-visible flow.
 
 After source changes, call `trustable_completion_check` before claiming the
 work is fixed or asking the user to try it. The completion tool runs the
