@@ -1170,9 +1170,17 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
+	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve canonical project directory %s: %w", projectDir, err)
+	}
+	canonicalProjectDir, err = filepath.Abs(canonicalProjectDir)
+	if err != nil {
+		return fmt.Errorf("failed to make canonical project directory absolute: %w", err)
+	}
 
-	contractPath := filepath.Join(projectDir, ".openserverless-contract.md")
-	mdPath := filepath.Join(projectDir, "opencode.md")
+	contractPath := filepath.Join(canonicalProjectDir, ".openserverless-contract.md")
+	mdPath := filepath.Join(canonicalProjectDir, "opencode.md")
 	guardrailPluginPath, err := ensureOpenCodeGuardrailPluginInstalled()
 	if err != nil {
 		return err

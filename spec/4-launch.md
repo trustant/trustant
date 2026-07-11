@@ -130,8 +130,11 @@ to the project directory instead of `~/.config/opencode/`.
 
 `.openserverless-contract.md` and `opencode.md` are written **alongside** the
 config in the project directory. `instructions` references the project's own
-`<workbenchdir>/<app>/.openserverless-contract.md` first and
-`<workbenchdir>/<app>/opencode.md` second (not absolute `~/.config` paths).
+canonical, symlink-resolved `<workbenchdir>/<app>/.openserverless-contract.md`
+first and `<workbenchdir>/<app>/opencode.md` second (not absolute `~/.config`
+paths). These paths must use the same canonical root as the OpenCode session;
+otherwise OpenCode treats its mandatory rules as external files and asks the
+user for an unnecessary permission.
 The OpenServerless action tools are no longer written as embedded plugin files;
 they are provided by the `openserverless` MCP server wired into the `mcp`
 section (see below).
@@ -485,9 +488,10 @@ template compatibility files such as `CLAUDE.md` to non-authoritative legacy
 notes. If an app already has `AGENTS.md`, Trustable updates only its managed
 block and preserves app-local notes below it. The checker is installed once at
 `~/.local/bin/check_openserverless_actions.sh`. The `instructions` array
-references the project's own
+references the project's own canonical, symlink-resolved
 `<workbenchdir>/<app>/.openserverless-contract.md` first and
-`<workbenchdir>/<app>/opencode.md` second. The action tools come from the
+`<workbenchdir>/<app>/opencode.md` second, matching the OpenCode session root.
+The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
 The checker must accept sibling `.zip` files created by `ops ide deploy`, such
 as `packages/v1/contacts.zip`. It must fail on ZIP files created inside action

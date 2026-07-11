@@ -398,7 +398,12 @@ func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
-	WorkbenchDir = t.TempDir()
+	durableWorkbench := t.TempDir()
+	workbenchAliasParent := t.TempDir()
+	WorkbenchDir = filepath.Join(workbenchAliasParent, "workbench")
+	if err := os.Symlink(durableWorkbench, WorkbenchDir); err != nil {
+		t.Fatalf("symlink workbench: %s", err)
+	}
 	checkerInstallPath := isolateOpenServerlessCheckerInstall(t)
 
 	app := "demo"
@@ -485,8 +490,8 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	// instructions must point first at the project's own OpenServerless
 	// contract, then at opencode.md.
 	instr, ok := got["instructions"].([]interface{})
-	wantContract := filepath.Join(appDir, ".openserverless-contract.md")
-	wantMd := filepath.Join(appDir, "opencode.md")
+	wantContract := filepath.Join(durableWorkbench, app, ".openserverless-contract.md")
+	wantMd := filepath.Join(durableWorkbench, app, "opencode.md")
 	if !ok || len(instr) != 2 || instr[0] != wantContract || instr[1] != wantMd {
 		t.Fatalf("instructions should reference %s then %s, got %#v", wantContract, wantMd, got["instructions"])
 	}

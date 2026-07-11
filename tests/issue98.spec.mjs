@@ -663,6 +663,10 @@ test.describe("issue98 guardrail E2E", () => {
         expect(agents).toContain("TRUSTABLE-MANAGED-AGENTS-BEGIN");
         expect(agents).toContain("Ignore `CLAUDE.md`");
         expect(agents).toContain(".openserverless-contract.md");
+        expect(config.instructions).toEqual([
+          `${workbenchDir}/.openserverless-contract.md`,
+          `${workbenchDir}/opencode.md`,
+        ]);
         const contractRealpath = podShell(`realpath ${shellQuote(config.instructions[0])}`);
         const opencodeRealpath = podShell(`realpath ${shellQuote(config.instructions[1])}`);
         expect(contractRealpath).toBe(`${workbenchDir}/.openserverless-contract.md`);
