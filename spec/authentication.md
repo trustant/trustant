@@ -60,7 +60,9 @@ Authentication endpoints:
 - `GET /api/auth/session` returns the username, expiry and CSRF token;
 - `POST /api/auth/logout` invalidates the server session and clears cookies.
 
-Login requires a same-origin `Origin` header and is rate limited per client IP.
+Login requires a same-origin `Origin` header and is rate limited by the
+transport peer address. Forwarded client-address headers are not trusted unless
+a future deployment explicitly configures trusted proxies.
 The response creates an opaque, signed, host-only cookie with `HttpOnly`,
 `SameSite=Strict`, `Path=/`, and `Secure` whenever the external request uses
 HTTPS. Sessions are stored only in memory, expire after eight hours, are

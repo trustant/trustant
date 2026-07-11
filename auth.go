@@ -522,9 +522,6 @@ func (a *authManager) cleanupSessionsLocked(now time.Time) {
 }
 
 func authClientKey(r *http.Request) string {
-	if candidate := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(candidate) != nil {
-		return candidate
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && host != "" {
 		return host

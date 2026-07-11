@@ -295,6 +295,15 @@ func TestLocalAuthLoginRateLimit(t *testing.T) {
 	}
 }
 
+func TestAuthRateLimitIdentityDoesNotTrustForwardedClientHeaders(t *testing.T) {
+	req := authRequest(http.MethodPost, "http://trustable.example.test/api/auth/login", nil)
+	req.Header.Set("X-Real-IP", "198.51.100.25")
+	req.Header.Set("X-Forwarded-For", "198.51.100.26")
+	if got := authClientKey(req); got != "192.0.2.10" {
+		t.Fatalf("auth client key = %q, want transport peer", got)
+	}
+}
+
 func TestEffectfulAuthRoutes(t *testing.T) {
 	for _, path := range []string{"/api/launch/demo", "/api/configure", "/api/ollama-connect", "/api/redeploy"} {
 		req := authRequest(http.MethodGet, "http://trustable.example.test"+path, nil)
