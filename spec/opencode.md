@@ -627,6 +627,10 @@ When an app has login or registration, the embedded guidance must say:
 - after login, the frontend should store only the returned session/token/user
   data it needs and derive authenticated UI state from that data or from a
   bounded `me` check;
+- successful registration must establish the same authenticated state as
+  login, either from returned session/token/user data or an immediate login;
+  the user must not be sent through a second manual login before reaching the
+  protected area;
 - protected navigation must include an explicit logout path;
 - every form control must have a stable `id`/`name` and an associated label
   (`label htmlFor` matching the input `id`). Repeated placeholders are not

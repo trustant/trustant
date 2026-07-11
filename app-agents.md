@@ -66,6 +66,10 @@ matching `htmlFor`. Repeated placeholders are not semantic labels. If
 appropriate or pass its explicit zero-based `index`; do not bypass a failed UI
 flow with direct API calls and call it verified.
 
+Successful registration establishes an authenticated session immediately,
+using the same token/session/user contract as login. Do not require the user to
+log in again before entering the protected area.
+
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small
 generated app modules or pages that you are replacing wholesale, use the file

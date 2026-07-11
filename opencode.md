@@ -650,6 +650,10 @@ When an app has login or registration:
 - After login, store only the returned session/token/user data needed by the
   frontend, then derive the authenticated UI state from that data or from a
   bounded `me` check.
+- A successful registration must establish the same authenticated session as
+  login, either by returning session/token/user data directly or by performing
+  an immediate login. Do not send the newly registered user back to a separate
+  login step before entering the protected area.
 - Add an explicit logout path when protected navigation is shown.
 - Give every form control a stable `id` and `name`, and associate each label
   with `htmlFor` matching that `id`. A placeholder is not a label. When a
