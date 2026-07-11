@@ -12,6 +12,8 @@ E2E_LOCK_DIR="${TMPDIR:-/tmp}/trustable-e2e-provider.lock"
 E2E_CONFIG_BACKUP=""
 E2E_CONFIG_STAGED=""
 E2E_LOCK_HELD=0
+E2E_CREDENTIAL_REQUIRED=false
+E2E_EFFECTIVE_CONFIG_JSON="{}"
 
 e2e_error() {
   echo "ERROR: $*" >&2
@@ -75,7 +77,8 @@ e2e_resolve_profile() {
     bestia)
       E2E_PROVIDER="bestia"
       E2E_BASE_URL="${TRUSTABLE_E2E_BASE_URL:-http://bestia:11434/v1}"
-      E2E_API_KEY="${TRUSTABLE_E2E_API_KEY:-}"
+      E2E_API_KEY=""
+      E2E_CREDENTIAL_REQUIRED=false
       ;;
     ollama-cloud)
       if [ -z "${TRUSTABLE_E2E_OLLAMA_API_KEY:-}" ] && [ -n "${OLLAMA_API_KEY:-}" ]; then
@@ -85,6 +88,7 @@ e2e_resolve_profile() {
       E2E_PROVIDER="ollama"
       E2E_BASE_URL="${TRUSTABLE_E2E_BASE_URL:-http://localhost:11434/v1}"
       E2E_API_KEY="$TRUSTABLE_E2E_OLLAMA_API_KEY"
+      E2E_CREDENTIAL_REQUIRED=true
       ;;
     regolo)
       if [ -z "${TRUSTABLE_E2E_API_KEY:-}" ] && [ -n "${API_KEY:-}" ]; then
@@ -94,12 +98,36 @@ e2e_resolve_profile() {
       E2E_PROVIDER="trustable"
       E2E_BASE_URL="${TRUSTABLE_E2E_BASE_URL:-https://api.nuvolaris.io/v1}"
       E2E_API_KEY="$TRUSTABLE_E2E_API_KEY"
+      E2E_CREDENTIAL_REQUIRED=true
       ;;
     *)
       e2e_error "unknown provider mode: $mode"
       return 1
       ;;
   esac
+}
+
+e2e_preflight_profile() {
+  local config_json="$1"
+  if ! jq -e \
+    --arg provider "$E2E_PROVIDER" \
+    --arg base_url "$E2E_BASE_URL" \
+    --arg model "$E2E_MODEL" \
+    --argjson max_token "$E2E_MAX_TOKEN" \
+    --argjson max_output "$E2E_MAX_OUTPUT" \
+    --argjson credential_required "$E2E_CREDENTIAL_REQUIRED" \
+    '.provider == $provider
+     and .base_url == $base_url
+     and .model == $model
+     and .small_model == $model
+     and .limits.max_token == $max_token
+     and .limits.max_output == $max_output
+     and .credential.required == $credential_required
+     and .credential.configured == $credential_required' \
+    <<<"$config_json" >/dev/null; then
+    e2e_error "temporary provider profile preflight failed"
+    return 1
+  fi
 }
 
 e2e_restore_config() {
@@ -157,7 +185,7 @@ e2e_apply_profile() {
     --argjson max_output "$E2E_MAX_OUTPUT" \
     '.provider = $provider
      | .base_url = $base_url
-     | .api_key = (if $api_key == "" then .api_key else $api_key end)
+     | if $api_key == "" then del(.api_key) else .api_key = $api_key end
      | .models = {($model): {maxToken: $max_token, maxOutput: $max_output}}
      | .opencode = {default: $model, small: $model}' \
     "$E2E_CONFIG_BACKUP" >"$E2E_CONFIG_STAGED"
@@ -166,13 +194,28 @@ e2e_apply_profile() {
   rm -f "$E2E_CONFIG_STAGED"
   E2E_CONFIG_STAGED=""
 
-  local selected
-  selected="$(kubectl -n "$E2E_NAMESPACE" exec "$E2E_POD" -c "$E2E_CONTAINER" -- \
-    jq -r '[.provider, .base_url, .opencode.default, .opencode.small] | @tsv' "$E2E_CONFIG_PATH")"
-  if [ "$selected" != "$(printf '%s\t%s\t%s\t%s' "$E2E_PROVIDER" "$E2E_BASE_URL" "$E2E_MODEL" "$E2E_MODEL")" ]; then
-    e2e_error "temporary provider profile verification failed"
-    return 1
-  fi
+  E2E_EFFECTIVE_CONFIG_JSON="$(kubectl -n "$E2E_NAMESPACE" exec "$E2E_POD" -c "$E2E_CONTAINER" -- \
+    jq -c --argjson credential_required "$E2E_CREDENTIAL_REQUIRED" '
+      {
+        provider: .provider,
+        base_url: .base_url,
+        model: .opencode.default,
+        small_model: .opencode.small,
+        limits: {
+          max_token: .models[.opencode.default].maxToken,
+          max_output: .models[.opencode.default].maxOutput
+        },
+        credential: {
+          required: $credential_required,
+          configured: (((.api_key // "") | length) > 0)
+        },
+        headroom: {
+          enabled: (.experimental.headroom.enabled // false),
+          mode: (.experimental.headroom.mode // "proxy"),
+          port: (.experimental.headroom.port // 8787)
+        }
+      }' "$E2E_CONFIG_PATH")"
+  e2e_preflight_profile "$E2E_EFFECTIVE_CONFIG_JSON"
 }
 
 e2e_write_report() {
@@ -187,6 +230,8 @@ e2e_write_report() {
   local artifact_path="$9"
   local outcome="failed"
   [ "$exit_code" = "0" ] && outcome="passed"
+  local headroom_result="disabled"
+  [ "$(jq -r '.headroom.enabled' <<<"$E2E_EFFECTIVE_CONFIG_JSON")" = "true" ] && headroom_result="enabled"
 
   jq -n \
     --arg schema "trustable-e2e-benchmark/v1" \
@@ -195,6 +240,8 @@ e2e_write_report() {
     --arg provider "$E2E_PROVIDER" \
     --arg model "$E2E_MODEL" \
     --arg base_url "$E2E_BASE_URL" \
+    --argjson effective_config "$E2E_EFFECTIVE_CONFIG_JSON" \
+    --arg headroom_result "$headroom_result" \
     --arg started_at "$started" \
     --arg ended_at "$ended" \
     --argjson duration_seconds "$duration" \
@@ -206,11 +253,15 @@ e2e_write_report() {
     --arg artifact_path "$artifact_path" \
     '{schema: $schema, run_id: $run_id, provider_mode: $provider_mode,
       provider: $provider, model: $model, base_url: $base_url,
+      effective_config: $effective_config,
+      headroom: ($effective_config.headroom + {status: $headroom_result}),
       started_at: $started_at, ended_at: $ended_at,
       duration_seconds: $duration_seconds, outcome: $outcome, exit_code: $exit_code,
       target: {app: (if $app == "" then null else $app end), repo: $repo},
       artifacts: {log: $log_path, playwright: $artifact_path},
       checks: [
+        {name: "provider_profile_preflight", result: "passed"},
+        {name: "headroom", result: $headroom_result},
         {name: "opencode_tool_safety", result: $outcome},
         {name: "openserverless_action_workflow", result: $outcome},
         {name: "deploy_setup_completion_order", result: $outcome},
@@ -263,6 +314,7 @@ e2e_provider_main() {
   echo "  mode:       $mode"
   echo "  provider:   $E2E_PROVIDER"
   echo "  model:      $E2E_MODEL"
+  echo "  headroom:   $(jq -r '.headroom | if .enabled then "enabled (\(.mode), port \(.port))" else "disabled" end' <<<"$E2E_EFFECTIVE_CONFIG_JSON")"
   echo "  results:    ${run_dir#$E2E_ROOT/}"
   echo
 
