@@ -406,7 +406,7 @@ export function discoverApplicationTestSuites(directory) {
 
 export async function runApplicationTests(directory) {
   const discovered = discoverApplicationTestSuites(directory);
-  if (discovered.error) return { passed: false, output: discovered.error };
+  if (discovered.error) return { passed: false, exitCode: 1, output: discovered.error };
 
   const reports = [];
   let passed = true;
@@ -426,7 +426,7 @@ export async function runApplicationTests(directory) {
   }
   for (const message of discovered.skipped) reports.push(`===== ${message}: SKIP =====`);
   if (reports.length === 0) reports.push("===== application tests: SKIP =====\nNo executable application test suites discovered; no framework is imposed.");
-  return { passed, output: reports.join("\n\n") };
+  return { passed, exitCode: passed ? 0 : 1, output: reports.join("\n\n") };
 }
 
 async function completionChecks(directory) {

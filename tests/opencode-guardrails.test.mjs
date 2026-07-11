@@ -385,3 +385,32 @@ test("trustable completion is blocked by a failing existing application test", a
   assert.match(result, /application tests: FAIL/);
   assert.match(result, /regression remains/);
 });
+
+test("trustable completion accepts a passing existing application test", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-completion-tests-pass-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  const checker = join(fakeBin, "check_trustable_app.sh");
+  writeFileSync(checker, "#!/usr/bin/env bash\necho contracts-pass\nexit 0\n");
+  chmodSync(checker, 0o755);
+  writeFileSync(join(directory, "test_completion.py"), [
+    "import unittest",
+    "class CompletionTest(unittest.TestCase):",
+    "    def test_completion(self):",
+    "        self.assertEqual('token-user', 'token-user')",
+    "",
+  ].join("\n"));
+
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const plugin = await guardrails.default({ directory });
+  const result = await plugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID: `ses_application_tests_pass_${Date.now()}`, directory, worktree: directory },
+  );
+  assert.match(result, /Trustable completion gate passed/);
+  assert.match(result, /application tests: PASS/);
+});
