@@ -1066,6 +1066,18 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	}
 }
 
+func applyHeadroomRoutingToModelProvider(provider map[string]interface{}, cfg headroomLaunchConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	options, ok := provider["options"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("generated provider has no options block for Headroom routing")
+	}
+	options["baseURL"] = headroomProxyBaseURL(cfg)
+	return nil
+}
+
 // generateOpencodeConfigForApp generates the complete OpenCode config for an app
 // directly in its workbench project folder. Per spec/4-launch.md there is a
 // single, self-contained <workbench>/<app>/opencode.json — there is no global
@@ -1133,6 +1145,10 @@ func writeManagedAppAgents(projectDir string) error {
 // server wired into the mcp section, not copied as plugins.
 func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
 	providers := make(map[string]interface{})
+	headroomCfg, headroomUpstream, err := headroomRoutingForTrustableConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("invalid Headroom routing configuration: %w", err)
+	}
 
 	// The OpenCode provider key tracks the active trustable provider:
 	// "ollama", "trustable", or "bestia". Default to "ollama" if unset.
@@ -1142,7 +1158,14 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	}
 
 	// Always generate the Trustable-managed provider entry.
-	providers[providerKey] = buildModelProvider(cfg)
+	modelProvider := buildModelProvider(cfg)
+	if headroomCfg.Enabled {
+		if err := applyHeadroomRoutingToModelProvider(modelProvider, headroomCfg); err != nil {
+			return fmt.Errorf("provider %q: %w", providerKey, err)
+		}
+		log.Printf("  - Headroom routing enabled: provider=%s proxy=%s upstream=%s", providerKey, headroomProxyBaseURL(headroomCfg), headroomUpstream)
+	}
+	providers[providerKey] = modelProvider
 
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)

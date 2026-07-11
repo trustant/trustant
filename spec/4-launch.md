@@ -596,8 +596,9 @@ and do not start any Headroom process.
 developer/operator environment overrides. If `TRUSTABLE_HEADROOM_ENABLED` is
 set, it overrides the saved UI value.
 
-When Headroom is enabled and mode is `proxy` (the default mode), launch starts a
-local Headroom proxy in the same process group as OpenCode:
+When Headroom is enabled and mode is `proxy` (the default mode), launch routes
+the generated OpenCode provider through a local Headroom proxy and starts that
+proxy in the same process group as OpenCode:
 
 ```
 headroom proxy --host 127.0.0.1 --port <TRUSTABLE_HEADROOM_PORT>
@@ -609,12 +610,30 @@ Defaults:
 - `TRUSTABLE_HEADROOM_PORT=8787`
 - `TRUSTABLE_HEADROOM_STATE_DIR=<workspacedir>/.trustable/headroom`
 
+The routing flow is shown in `spec/headroom-routing-flow.svg`. Trustable keeps
+the selected provider key, model IDs, model limits, API key, tool capability,
+MCP configuration, and generated app environment unchanged. It replaces only
+the generated provider `options.baseURL` with
+`http://127.0.0.1:<port>/v1`. Headroom receives the original provider root via
+`OPENAI_TARGET_API_URL`; for example, an OpenCode base URL ending in `/v1` is
+normalized by removing that final path component because Headroom appends the
+OpenAI-compatible `/v1/chat/completions` path itself.
+
+Phase 2 deliberately supports only absolute `http` or `https` provider base
+URLs ending in `/v1`. Credentials in the URL, query strings, fragments, and
+ambiguous non-`/v1` paths fail launch instead of silently changing routing.
+This shape covers local Ollama, Ollama Cloud, BestIA, and the Nuvolaris API
+proxy while preserving the configured upstream host and any path prefix before
+`/v1`.
+
 The proxy binds only to `127.0.0.1`, writes state/logs under the configured
-state directory, and is terminated with the normal launch process group. Phase 1
-does **not** route OpenCode model traffic through Headroom and does **not**
-change the generated `opencode.json`; it only proves the image, process
-lifecycle, and pod-local proxy are viable. Unsupported modes fail launch with a
-clear error.
+state directory, and is terminated with the normal launch process group. It is
+started with `--no-ccr-inject-tool` so the experiment does not add a synthetic
+retrieval tool to OpenCode's existing tool/MCP contract. A listening process is
+replaced only when `/health` identifies Headroom and the persisted
+`routing.json` matches both the proxy URL and original upstream, ensuring the
+replacement joins the current launch process group. An unrelated listener or
+different routing target fails launch with a clear error.
 
 The Headroom proxy environment sets `HEADROOM_WORKSPACE_DIR` to the configured
 state directory, `HEADROOM_CONFIG_DIR` to `<state>/config`, and
@@ -628,6 +647,10 @@ Ollama, Ollama Cloud/Trustable Cloud, BestIA, and the Nuvolaris
 `api.nuvolaris.io` proxy path. It must not hardcode local Ollama assumptions;
 the generated provider base URL, API key, model IDs, OpenAI-compatible paths,
 streaming, and tool-call behavior remain authoritative.
+
+Disabling Headroom restores direct provider routing on the next launch and
+does not start a Headroom process. Headroom does not modify MCP definitions;
+OpenServerless and service MCP processes remain direct OpenCode connections.
 
 ## start process group
 

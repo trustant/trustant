@@ -38,6 +38,12 @@ type headroomLaunchConfig struct {
 	StateDir string
 }
 
+type headroomRoutingDiagnostic struct {
+	Enabled      bool   `json:"enabled"`
+	ProxyBaseURL string `json:"proxy_base_url"`
+	UpstreamURL  string `json:"upstream_url"`
+}
+
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
 type opsConfig struct {
@@ -723,13 +729,86 @@ func headroomConfigForLaunch() (headroomLaunchConfig, error) {
 	return applyHeadroomEnvOverrides(headroomConfigFromTrustableConfig(cfg))
 }
 
-func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
+func headroomProxyBaseURL(cfg headroomLaunchConfig) string {
+	return fmt.Sprintf("http://%s:%d/v1", localLoopbackHost, cfg.Port)
+}
+
+// normalizeHeadroomOpenAIUpstream converts the OpenAI-compatible /v1 base URL
+// used by OpenCode into the target root expected by Headroom, which appends its
+// own /v1 endpoint path. Fail closed for URL shapes that cannot be forwarded
+// without changing their semantics.
+func normalizeHeadroomOpenAIUpstream(raw string) (string, error) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		raw = "http://localhost:11434/v1"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("Headroom requires an absolute OpenAI-compatible base URL, got %q", raw)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("Headroom only supports http/https OpenAI-compatible base URLs, got %q", raw)
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("Headroom cannot safely route a provider URL containing credentials, query, or fragment")
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	if !strings.HasSuffix(path, "/v1") {
+		return "", fmt.Errorf("Headroom routing requires the provider base URL to end in /v1, got %q", raw)
+	}
+	parsed.Path = strings.TrimSuffix(path, "/v1")
+	parsed.RawPath = ""
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func headroomRoutingForTrustableConfig(cfg *trustableConfig) (headroomLaunchConfig, string, error) {
+	headroomCfg, err := applyHeadroomEnvOverrides(headroomConfigFromTrustableConfig(cfg))
+	if err != nil || !headroomCfg.Enabled {
+		return headroomCfg, "", err
+	}
+	upstream, err := normalizeHeadroomOpenAIUpstream(cfg.BaseURL)
+	if err != nil {
+		return headroomCfg, "", err
+	}
+	return headroomCfg, upstream, nil
+}
+
+func headroomRoutingForLaunch() (headroomLaunchConfig, string, error) {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return headroomLaunchConfig{}, "", err
+	}
+	return headroomRoutingForTrustableConfig(cfg)
+}
+
+func headroomProxyEnv(base []string, cfg headroomLaunchConfig, upstream string) []string {
 	cacheDir := filepath.Join(cfg.StateDir, "cache")
 	dataDir := filepath.Join(cfg.StateDir, "data")
 	stateDir := filepath.Join(cfg.StateDir, "state")
 	logPath := filepath.Join(cfg.StateDir, "proxy.jsonl")
 
-	env := append([]string{}, base...)
+	managedKeys := map[string]bool{
+		"HEADROOM_HOST":                     true,
+		"HEADROOM_PORT":                     true,
+		"HEADROOM_WORKSPACE_DIR":            true,
+		"HEADROOM_CONFIG_DIR":               true,
+		"HEADROOM_LOG_FILE":                 true,
+		"HEADROOM_MEMORY_DB_PATH":           true,
+		"HEADROOM_CCR_SQLITE_PATH":          true,
+		"HEADROOM_NO_SUBSCRIPTION_TRACKING": true,
+		"HEADROOM_TELEMETRY":                true,
+		"OPENAI_TARGET_API_URL":             true,
+		"XDG_CACHE_HOME":                    true,
+		"XDG_DATA_HOME":                     true,
+		"XDG_STATE_HOME":                    true,
+	}
+	env := make([]string, 0, len(base)+len(managedKeys))
+	for _, entry := range base {
+		key, _, found := strings.Cut(entry, "=")
+		if !found || !managedKeys[key] {
+			env = append(env, entry)
+		}
+	}
 	env = append(env,
 		"HEADROOM_HOST=127.0.0.1",
 		"HEADROOM_PORT="+strconv.Itoa(cfg.Port),
@@ -740,6 +819,7 @@ func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
 		"HEADROOM_CCR_SQLITE_PATH="+filepath.Join(cfg.StateDir, "ccr_store.db"),
 		"HEADROOM_NO_SUBSCRIPTION_TRACKING=true",
 		"HEADROOM_TELEMETRY=off",
+		"OPENAI_TARGET_API_URL="+upstream,
 		"XDG_CACHE_HOME="+cacheDir,
 		"XDG_DATA_HOME="+dataDir,
 		"XDG_STATE_HOME="+stateDir,
@@ -747,8 +827,56 @@ func headroomProxyEnv(base []string, cfg headroomLaunchConfig) []string {
 	return env
 }
 
+func headroomRoutingDiagnosticPath(cfg headroomLaunchConfig) string {
+	return filepath.Join(cfg.StateDir, "routing.json")
+}
+
+func readHeadroomRoutingDiagnostic(cfg headroomLaunchConfig) (headroomRoutingDiagnostic, error) {
+	var diagnostic headroomRoutingDiagnostic
+	data, err := os.ReadFile(headroomRoutingDiagnosticPath(cfg))
+	if err != nil {
+		return diagnostic, err
+	}
+	if err := json.Unmarshal(data, &diagnostic); err != nil {
+		return diagnostic, err
+	}
+	return diagnostic, nil
+}
+
+func writeHeadroomRoutingDiagnostic(cfg headroomLaunchConfig, upstream string) error {
+	diagnostic := headroomRoutingDiagnostic{
+		Enabled:      true,
+		ProxyBaseURL: headroomProxyBaseURL(cfg),
+		UpstreamURL:  upstream,
+	}
+	data, err := json.MarshalIndent(diagnostic, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(headroomRoutingDiagnosticPath(cfg), data, 0644)
+}
+
+func headroomProxyHealthy(port int) bool {
+	client := &http.Client{Timeout: time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://%s:%d/health", localLoopbackHost, port))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var health struct {
+		Service string `json:"service"`
+		Status  string `json:"status"`
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&health) == nil &&
+		health.Service == "headroom-proxy" && health.Status == "healthy"
+}
+
 func ensureHeadroomProxy(pgid int) error {
-	cfg, err := headroomConfigForLaunch()
+	cfg, upstream, err := headroomRoutingForLaunch()
 	if err != nil {
 		return err
 	}
@@ -761,8 +889,17 @@ func ensureHeadroomProxy(pgid int) error {
 	}
 
 	if isPortListening(cfg.Port) {
-		log.Printf("headroom: proxy already listening on 127.0.0.1:%d, reusing", cfg.Port)
-		return nil
+		diagnostic, diagnosticErr := readHeadroomRoutingDiagnostic(cfg)
+		if diagnosticErr == nil && diagnostic.Enabled &&
+			diagnostic.ProxyBaseURL == headroomProxyBaseURL(cfg) &&
+			diagnostic.UpstreamURL == upstream && headroomProxyHealthy(cfg.Port) {
+			log.Printf("headroom: replacing verified stale proxy on port %d so it joins the current launch process group", cfg.Port)
+			if !reclaimPort(cfg.Port) {
+				return fmt.Errorf("failed to stop verified stale Headroom proxy on port %d", cfg.Port)
+			}
+		} else {
+			return fmt.Errorf("Headroom proxy port %d is already in use by an unverified or differently routed process", cfg.Port)
+		}
 	}
 	if !isPortFree(cfg.Port) && !reclaimPort(cfg.Port) {
 		return fmt.Errorf("headroom proxy port %d is not available", cfg.Port)
@@ -782,13 +919,14 @@ func ensureHeadroomProxy(pgid int) error {
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(cfg.Port),
 		"--no-telemetry",
+		"--no-ccr-inject-tool",
 		"--log-file", filepath.Join(cfg.StateDir, "proxy.jsonl"),
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = cfg.StateDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = headroomProxyEnv(os.Environ(), cfg)
+	cmd.Env = headroomProxyEnv(os.Environ(), cfg, upstream)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	log.Printf("headroom: starting proxy binary=%s cmd=`%s` dir=%s", bin, strings.Join(append([]string{"headroom"}, args...), " "), cfg.StateDir)
@@ -814,7 +952,13 @@ func ensureHeadroomProxy(pgid int) error {
 		return fmt.Errorf("Headroom proxy failed to listen on 127.0.0.1:%d: %w", cfg.Port, err)
 	}
 
-	log.Printf("headroom: proxy ready on 127.0.0.1:%d state=%s", cfg.Port, cfg.StateDir)
+	if !headroomProxyHealthy(cfg.Port) {
+		return fmt.Errorf("Headroom proxy on 127.0.0.1:%d did not report healthy", cfg.Port)
+	}
+	if err := writeHeadroomRoutingDiagnostic(cfg, upstream); err != nil {
+		return fmt.Errorf("write Headroom routing diagnostic: %w", err)
+	}
+	log.Printf("headroom: routing OpenCode via %s to upstream=%s state=%s", headroomProxyBaseURL(cfg), upstream, cfg.StateDir)
 	return nil
 }
 

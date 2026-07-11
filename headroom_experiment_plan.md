@@ -81,8 +81,9 @@ The first implementation must be reversible:
 - The enable/disable switch is exposed in the Configure UI and saved in the
   workspace `trustable.json` as `experimental.headroom.enabled`. Environment
   variables remain only developer/operator overrides.
-- The current implementation does not route OpenCode traffic through Headroom
-  and does not modify generated `opencode.json`.
+- Phase 1 did not route OpenCode traffic through Headroom. Phase 2 now applies
+  the reversible generated-provider routing described below when the existing
+  experiment flag is enabled.
 - Local image `ghcr.io/trustable-ai/trustable-app:local_headroom_phase1_26.183.2050`
   was built and rolled to `trustable-0` for Phase 1 verification.
 - Disabled mode was verified: Headroom logs as disabled, no proxy process is
@@ -96,6 +97,30 @@ The first implementation must be reversible:
   `ccr_store.db`, logs, cache, and update check state are written there; no
   new container-layer `/home/trustable/.headroom` files were created after the
   final env override.
+
+2026-07-11, Phase 2 implementation:
+
+- the installed `headroom-ai==0.28.0` proxy was inspected in the running pod;
+  it exposes the OpenAI-compatible `/v1/chat/completions` endpoint and accepts
+  a custom upstream through `OPENAI_TARGET_API_URL`;
+- Trustable now uses a reversible generated-provider overlay when Headroom is
+  enabled: provider key, model, API key, limits, tools, MCP definitions, and app
+  environment stay unchanged; only `options.baseURL` points at the loopback
+  Headroom proxy;
+- the original configured `/v1` provider URL is normalized to the target root
+  Headroom expects. Unsafe or ambiguous URL shapes fail closed;
+- `routing.json` records only the proxy and upstream URLs, never the API key,
+  and prevents an unverified or differently configured process from being
+  silently reused. A verified stale proxy is restarted in the current launch
+  process group so normal Stop cleanup still owns it;
+- a pod-local protocol test used a fake OpenAI-compatible upstream and proved
+  that Headroom 0.28.0 forwarded the original bearer header, model, tool
+  definition, streaming SSE frames, and streamed tool call. `/stats` recorded
+  the request;
+- this protocol proof does not yet claim successful long-running compression
+  against every production provider. Local Ollama, Ollama Cloud, and
+  `api.nuvolaris.io` still require provider-specific launch/E2E runs before the
+  experiment can be promoted beyond its disabled-by-default status.
 
 ## Proposed design
 
@@ -242,9 +267,14 @@ Acceptance for candidate B:
 - MCP tools remain unaffected;
 - disabling the flag fully restores the original generated `opencode.json`.
 
-Candidate B is riskier because Trustable currently uses provider-specific
-configuration generated from `trustable.json`; do not implement it until
-candidate A is proven insufficient.
+Candidate B is implemented as a transparent provider overlay. It does not add a
+new provider key or rewrite model names: it changes only the active generated
+provider's base URL. This avoids the unresolved `headroom/*` model behavior in
+wrap mode and preserves OpenCode's provider/model identity.
+
+The proxy runs with `--no-ccr-inject-tool` during Phase 2. Retrieval-tool
+injection belongs to Phase 3 and must not alter the established OpenServerless
+MCP/tool contract during routing validation.
 
 ### Phase 3: optional MCP tools
 
