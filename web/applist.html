@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable</title>
     <script src="tailwind.js"></script>
+    <script src="trustable-auth.js"></script>
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -19,6 +20,10 @@
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 md:justify-end">
+                <button type="button" data-trustable-logout onclick="TrustableAuth.logout()"
+                    class="hidden nu-btn nu-btn-secondary">
+                    Logout
+                </button>
                 <a href="configure.html"
                     class="nu-btn nu-btn-secondary">
                     Configure

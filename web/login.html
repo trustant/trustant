@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in - Trustable</title>
+    <script src="tailwind.js"></script>
+    <link rel="stylesheet" href="trustable-ui.css">
+</head>
+<body class="min-h-screen">
+    <header class="nu-topbar">
+        <div class="nu-shell px-4 md:px-8 py-5 flex items-center gap-4">
+            <img src="trustable-logo.svg" alt="Trustable Logo" class="w-16 h-16">
+            <div>
+                <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
+                <h1 class="text-3xl font-light text-[color:var(--nu-ink)]">Trustable</h1>
+            </div>
+        </div>
+    </header>
+
+    <main class="nu-shell-narrow px-4 py-12 md:py-20">
+        <section class="nu-panel p-6 md:p-8 max-w-md mx-auto">
+            <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Local administrator</p>
+            <h2 class="text-2xl font-light text-[color:var(--nu-ink)] mt-1 mb-6">Sign in</h2>
+
+            <div id="loginError" class="hidden nu-feedback nu-feedback-error px-4 py-3 mb-4 text-sm" role="alert"></div>
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label for="username" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Username</label>
+                    <input id="username" name="username" type="text" autocomplete="username" required autofocus
+                        class="nu-input w-full px-3 py-2">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Password</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required
+                        class="nu-input w-full px-3 py-2">
+                </div>
+                <button id="submitButton" type="submit" class="nu-btn nu-btn-primary w-full">Sign in</button>
+            </form>
+        </section>
+    </main>
+
+    <script>
+        function safeNext() {
+            const value = new URLSearchParams(window.location.search).get('next') || '/';
+            if (!value.startsWith('/') || value.startsWith('//')) return '/';
+            return value;
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const error = document.getElementById('loginError');
+            const button = document.getElementById('submitButton');
+            error.classList.add('hidden');
+            button.disabled = true;
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'Sign in failed');
+                window.location.replace(safeNext());
+            } catch (loginError) {
+                error.textContent = loginError.message;
+                error.classList.remove('hidden');
+                document.getElementById('password').value = '';
+                document.getElementById('password').focus();
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

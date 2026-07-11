@@ -40,6 +40,11 @@ var opencodeTrustableGuardrailsJS string
 var milvusCliTemplate string
 
 func main() {
+	auth, err := newAuthManagerFromEnv()
+	if err != nil {
+		log.Fatalf("Authentication configuration failed: %s", err)
+	}
+
 	// Run preflight checks
 	if err := runPreflight(); err != nil {
 		log.Fatalf("Preflight checks failed: %s", err)
@@ -94,6 +99,7 @@ func main() {
 	http.HandleFunc("/api/activations/poll", handleActivationPoll)
 	http.HandleFunc("/api/credits", handleCredits)
 	http.HandleFunc("/api/topup", handleTopUp)
+	auth.registerRoutes(http.DefaultServeMux)
 
 	// Static file serving
 	if _, err := os.Stat("web"); err == nil {
@@ -112,7 +118,7 @@ func main() {
 
 	log.Println("Starting server on :8910")
 	// Wrap with hostname verification middleware (implements spec points 7 & 8)
-	handler := hostnameMiddleware(http.DefaultServeMux)
+	handler := hostnameMiddleware(auth.middleware(http.DefaultServeMux))
 	if err := http.ListenAndServe(":8910", handler); err != nil {
 		log.Fatal(err)
 	}

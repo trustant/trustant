@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="520" viewBox="0 0 1120 520" role="img" aria-labelledby="title desc">
+  <title id="title">Trustable local administrator authentication flow</title>
+  <desc id="desc">A local administrator logs in with credentials verified against an explicit password hash. Trustable creates a bounded server-side session and requires a host-only cookie plus CSRF header for effectful routes.</desc>
+  <style>
+    .box { fill: #fff; stroke: #d7dde2; stroke-width: 2; rx: 4; }
+    .accent { fill: #edf8fc; stroke: #52a9c9; stroke-width: 2; rx: 4; }
+    .warn { fill: #fff8e8; stroke: #d7a52f; stroke-width: 2; rx: 4; }
+    .title { font: 600 18px "Work Sans", sans-serif; fill: #202124; }
+    .text { font: 14px "Work Sans", sans-serif; fill: #34383b; }
+    .small { font: 12px "Work Sans", sans-serif; fill: #62686d; }
+    .arrow { stroke: #34383b; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#34383b"/></marker>
+  </defs>
+
+  <text x="40" y="42" class="title">Trustable local-admin authentication</text>
+
+  <rect x="40" y="82" width="220" height="110" class="box"/>
+  <text x="62" y="112" class="title">Browser</text>
+  <text x="62" y="140" class="text">login.html</text>
+  <text x="62" y="164" class="small">Username + password</text>
+
+  <rect x="330" y="82" width="280" height="110" class="accent"/>
+  <text x="352" y="112" class="title">Trustable auth middleware</text>
+  <text x="352" y="140" class="text">POST /api/auth/login</text>
+  <text x="352" y="164" class="small">Origin check + bounded rate limit</text>
+
+  <rect x="680" y="82" width="360" height="110" class="box"/>
+  <text x="702" y="112" class="title">Explicit credential sources</text>
+  <text x="702" y="140" class="text">Secret-mounted files or environment</text>
+  <text x="702" y="164" class="small">Username, PBKDF2 hash, session key</text>
+
+  <path d="M260 137 H330" class="arrow"/>
+  <path d="M610 137 H680" class="arrow"/>
+
+  <rect x="330" y="250" width="280" height="130" class="accent"/>
+  <text x="352" y="280" class="title">Server-side session</text>
+  <text x="352" y="308" class="text">Random signed token</text>
+  <text x="352" y="332" class="text">Expiry + maximum session count</text>
+  <text x="352" y="356" class="small">Restart invalidates all sessions</text>
+
+  <rect x="40" y="250" width="220" height="130" class="box"/>
+  <text x="62" y="280" class="title">Host-only cookie</text>
+  <text x="62" y="308" class="text">HttpOnly</text>
+  <text x="62" y="332" class="text">SameSite=Strict</text>
+  <text x="62" y="356" class="small">Secure when request is HTTPS</text>
+
+  <rect x="680" y="250" width="360" height="130" class="box"/>
+  <text x="702" y="280" class="title">Protected Trustable routes</text>
+  <text x="702" y="308" class="text">Authenticated session for UI and APIs</text>
+  <text x="702" y="332" class="text">CSRF header for mutating/effectful routes</text>
+  <text x="702" y="356" class="small">Includes GET launch, configure and redeploy</text>
+
+  <path d="M470 192 V250" class="arrow"/>
+  <path d="M330 315 H260" class="arrow"/>
+  <path d="M610 315 H680" class="arrow"/>
+
+  <rect x="40" y="430" width="1000" height="58" class="warn"/>
+  <text x="62" y="456" class="title">Follow-up boundary</text>
+  <text x="242" y="456" class="text">OpenCode and Vite Kubernetes ingresses still bypass port 8910 and are not protected by this phase.</text>
+  <text x="62" y="478" class="small">Do not use a parent-domain cookie; future ingress protection requires host-specific session bootstrap.</text>
+</svg>
