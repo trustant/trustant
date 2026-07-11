@@ -5,6 +5,10 @@
   "scripts": {
     "e2e:issue98": "./tests/e2e_issue98.sh",
     "e2e:auth": "./tests/e2e_auth.sh",
+    "e2e:bestia": "./tests/e2e_bestia_app.sh",
+    "e2e:ollama-cloud": "./tests/e2e_ollama_cloud_app.sh",
+    "e2e:regolo": "./tests/e2e_regolo_app.sh",
+    "test:e2e-providers": "./tests/e2e_provider_common_test.sh",
     "test:guardrails": "node --test tests/opencode-guardrails.test.mjs"
   },
   "devDependencies": {
