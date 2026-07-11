@@ -237,6 +237,24 @@ async function waitForPromptIdle(request, sessionID, workbenchDir, baselineMessa
   throw new Error(`Timed out waiting for OpenCode prompt to finish. Last messages: ${JSON.stringify(lastMessages).slice(0, 4000)}`);
 }
 
+function unwrappedShellSegments(command) {
+  return String(command || "").split(/&&|\|\||[;|\n]/).map((rawSegment) => {
+    let segment = rawSegment.trim();
+    let previous = "";
+    while (segment && segment !== previous) {
+      previous = segment;
+      segment = segment
+        .replace(/^(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S+)\s+)+/, "")
+        .replace(/^timeout\s+(?:(?:--(?:signal|kill-after)(?:=\S+|\s+\S+)|--(?:preserve-status|foreground)|-[ks]\s+\S+)\s+)*\S+\s+/i, "")
+        .replace(/^env\s+(?:(?:--?\S+|[A-Za-z_]\w*=\S+)\s+)*/i, "")
+        .replace(/^sudo\s+(?:(?:-[A-Za-z]+|--\S+)(?:\s+\S+)?\s+)*/i, "")
+        .replace(/^command\s+/i, "")
+        .trim();
+    }
+    return segment;
+  });
+}
+
 function assertPromptToolSafety(messages) {
   const parts = flattenMessageParts(messages);
   const toolParts = parts.filter((part) => part.type === "tool");
@@ -255,9 +273,16 @@ function assertPromptToolSafety(messages) {
       return false;
     }
     const command = part.state?.input?.command || "";
-    return /(^|[;&|]\s*)ops\s+action(\s|$)/.test(command);
+    return unwrappedShellSegments(command).some((segment) => /^(?:ops|wsk)\s+action(?:\s|$)/i.test(segment));
   });
   expect(rawOpsAction, JSON.stringify(rawOpsAction)).toEqual([]);
+
+  const managedLogin = toolParts.filter((part) => {
+    if (part.tool !== "bash") return false;
+    const command = part.state?.input?.command || "";
+    return unwrappedShellSegments(command).some((segment) => /^ops\s+ide\s+login(?:\s|$)/i.test(segment));
+  });
+  expect(managedLogin, JSON.stringify(managedLogin)).toEqual([]);
 
   const maskedCritical = toolParts.filter((part) => {
     if (part.tool !== "bash" || part.state?.status !== "completed") return false;
@@ -408,7 +433,7 @@ function isBenignPromptToolError(part, toolParts = []) {
       (candidate.state?.input?.filePath || candidate.state?.input?.path) === path &&
       candidate.state?.status === "completed");
   }
-  if (part.tool?.startsWith("browser_") && /(?:role is required|element not found|requires locator|execution context was destroyed)/i.test(state.error || "")) {
+  if (part.tool?.startsWith("browser_") && /(?:role is required|element not found|requires locator|ambiguous locator|locator index out of range|execution context was destroyed)/i.test(state.error || "")) {
     const failedIndex = toolParts.indexOf(part);
     return toolParts.slice(failedIndex + 1).some((later) => later.tool === part.tool && later.state?.status === "completed");
   }
