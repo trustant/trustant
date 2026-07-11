@@ -5,7 +5,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 
-const STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
+const OPENCODE_DATA_DIR = join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "opencode");
+const STATE_DIR = join(OPENCODE_DATA_DIR, "trustable-guardrails");
+const LEGACY_STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
 const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|ancora|errore|problema|pagina bianca|bloccato)/i;
 const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
 const ACTION_TOOL = /^(?:action[-_](?!(?:invoke|list|get|inspect|status)(?:$|[-_]))|openserverless_action_(?!(?:invoke|list|get|inspect|status)(?:$|_)))/;
@@ -170,6 +172,16 @@ function endpointsFromPackagesText(value) {
   return endpoints;
 }
 
+function endpointsFromShellCd(value) {
+  const endpoints = new Set();
+  const pattern = /(?:^|&&|\|\||[;|\n])\s*cd\s+(?:--\s+)?(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/gim;
+  for (const match of String(value || "").replaceAll("\\", "/").matchAll(pattern)) {
+    const directory = match[1] || match[2] || match[3] || "";
+    for (const endpoint of endpointsFromPackagesText(`${directory}/__trustable_source__`)) endpoints.add(endpoint);
+  }
+  return endpoints;
+}
+
 export function touchedActionEndpoints(toolID, args = {}) {
   const endpoints = new Set();
   if (ACTION_TOOL.test(toolID)) {
@@ -185,6 +197,7 @@ export function touchedActionEndpoints(toolID, args = {}) {
   if (toolID === "bash" && isActionMutation(toolID, args)) {
     const command = String(args.command || "");
     for (const endpoint of endpointsFromPackagesText(command)) endpoints.add(endpoint);
+    for (const endpoint of endpointsFromShellCd(command)) endpoints.add(endpoint);
     if (!command.includes("__main__.py")) {
       for (const endpoint of endpointsFromPackagesText(`${normalizedWorkingDirectory(args)}/__trustable_source__`)) endpoints.add(endpoint);
     }
@@ -214,12 +227,47 @@ function statePath(sessionID) {
   return join(STATE_DIR, `${sessionID.replace(/[^a-zA-Z0-9_.-]/g, "_")}.json`);
 }
 
+function legacyStatePath(sessionID) {
+  return join(LEGACY_STATE_DIR, `${sessionID.replace(/[^a-zA-Z0-9_.-]/g, "_")}.json`);
+}
+
+function parsedState(path) {
+  const state = { ...defaultState(), ...JSON.parse(readFileSync(path, "utf8")) };
+  state.touchedActionEndpoints = Array.isArray(state.touchedActionEndpoints)
+    ? [...new Set(state.touchedActionEndpoints.map(normalizeActionEndpoint).filter(Boolean))].sort()
+    : [];
+  return state;
+}
+
+function writeState(path, state) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
 function loadState(sessionID) {
+  const durablePath = statePath(sessionID);
+  if (existsSync(durablePath)) {
+    try {
+      return parsedState(durablePath);
+    } catch {
+      try {
+        const state = parsedState(legacyStatePath(sessionID));
+        state.needsRecovery = true;
+        state.verified = false;
+        return state;
+      } catch {
+        return { ...defaultState(), needsRecovery: true, verified: false };
+      }
+    }
+  }
+
   try {
-    const state = { ...defaultState(), ...JSON.parse(readFileSync(statePath(sessionID), "utf8")) };
-    state.touchedActionEndpoints = Array.isArray(state.touchedActionEndpoints)
-      ? [...new Set(state.touchedActionEndpoints.map(normalizeActionEndpoint).filter(Boolean))].sort()
-      : [];
+    const state = parsedState(legacyStatePath(sessionID));
+    try {
+      writeState(durablePath, state);
+    } catch {
+      // Keep using the readable legacy state when the durable location is unavailable.
+    }
     return state;
   } catch {
     return defaultState();
@@ -227,8 +275,34 @@ function loadState(sessionID) {
 }
 
 function saveState(sessionID, state) {
-  mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(statePath(sessionID), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  try {
+    writeState(statePath(sessionID), state);
+  } catch (error) {
+    try {
+      writeState(legacyStatePath(sessionID), state);
+    } catch {
+      throw error;
+    }
+  }
+}
+
+export function normalizeCompletionFailureOutput(output) {
+  return String(output || "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b/g, "<timestamp>")
+    .replace(/\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b/g, "<time>")
+    .replace(/\b(?:duration(?:_ms)?|elapsed|runtime|took)\s*[:=]\s*\d+(?:\.\d+)?\s*(?:ms|msec|s|sec|seconds?)?\b/gi, "$1=<duration>")
+    .replace(/\b\d+(?:\.\d+)?\s*(?:milliseconds?|msecs?|ms|seconds?|secs?)\b/gi, "<duration>")
+    .replace(/\bpid\s*[:=]?\s*\d+\b/gi, "pid=<pid>")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "<uuid>")
+    .replace(/\/tmp\/[A-Za-z0-9_.-]*\d[A-Za-z0-9_.\/-]*/g, "/tmp/<volatile>")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function completionFailureSignature(output) {
+  return createHash("sha256").update(normalizeCompletionFailureOutput(output)).digest("hex").slice(0, 16);
 }
 
 function readGuidance(directory, name, maxBytes = 64 * 1024) {
@@ -644,7 +718,7 @@ export default async function TrustableGuardrails({ directory }) {
             return `Trustable completion gate passed.\n\n${result.output}`;
           }
 
-          const signature = createHash("sha256").update(result.output).digest("hex").slice(0, 16);
+          const signature = completionFailureSignature(result.output);
           current.repeatedFailures = current.failureSignature === signature ? current.repeatedFailures + 1 : 1;
           current.failureSignature = signature;
           current.verified = false;
@@ -775,6 +849,10 @@ export default async function TrustableGuardrails({ directory }) {
 
     "experimental.text.complete": async (input, output) => {
       const current = stateFor(input.sessionID);
+      if (current.needsRecovery) {
+        output.text = "Trustable context recovery gate: the session was compacted. Continue by calling trustable_context_recover before producing a final response.";
+        return;
+      }
       if (current.diagnosticRequired && !current.reproduced) {
         output.text = "Trustable diagnostic gate: the reported symptom has not been reproduced yet. Continue with read-only diagnostics and record evidence with trustable_diagnostic_checkpoint before changing source.";
         return;

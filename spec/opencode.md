@@ -102,9 +102,20 @@ It must say:
   source/action/deploy mutations after `session.compacted` until
   `trustable_context_recover` reloads authoritative guidance, sanitized config,
   git status, and project layout;
+- while recovery is pending, the plugin must also replace any attempted final
+  response with an instruction to call `trustable_context_recover`;
+- guardrail state must live under the OpenCode durable data root,
+  `$XDG_DATA_HOME/opencode/trustable-guardrails` or
+  `~/.local/share/opencode/trustable-guardrails`, not under an expendable cache.
+  Existing state under `~/.cache/trustable/opencode-guardrails` must be read and
+  migrated when the durable file is absent. If durable state is corrupt, the
+  plugin must fail closed and require recovery; if durable writes fail, it may
+  conservatively fall back to the legacy location;
 - reported bugs must be reproduced before source changes and recorded through
   `trustable_diagnostic_checkpoint`; two repeated completion failures must open
-  a circuit breaker that requires new reproduction evidence;
+  a circuit breaker that requires new reproduction evidence. The failure
+  signature must normalize volatile timestamps, durations, process/request IDs,
+  and temporary paths while preserving the semantic failure text;
 - after source changes, `trustable_completion_check` must pass the action and
   frontend checkers, `git diff --check`, and the available frontend build before
   the assistant claims completion.
@@ -143,7 +154,8 @@ The embedded guidance must include these rules:
 - A shell mutation remains an action change when its command names only a local
   file and the shell `cwd`/`workdir` is already inside `packages/`; the plugin
   must still require deploy, and setup when the directory is under
-  `packages/setup/`.
+  `packages/setup/`. The same endpoint tracking applies when the command enters
+  the action inline with `cd packages/<package>/<action> && ...`.
 - If setup actions change, run `timeout 120 ops ide setup` only after deploy.
 - The generated completion gate must remain blocked until required setup runs.
 - Never create, edit, move, or delete action ZIP files manually; deploy owns

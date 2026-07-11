@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 const isolatedHome = mkdtempSync(join(tmpdir(), "trustable-guardrails-home-"));
 process.env.HOME = isolatedHome;
+process.env.XDG_DATA_HOME = join(isolatedHome, ".local", "share");
 
 const guardrails = await import("../opencode-trustable-guardrails.js");
 
@@ -66,6 +67,18 @@ test("action endpoint tracking is precise and ignores generated entrypoints", ()
       command: "sed -i 's/old/new/' db.py",
     }),
     ["setup/db"],
+  );
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("bash", {
+      command: "cd packages/v1/profile && sed -i 's/old/new/' profile.py",
+    }),
+    ["v1/profile"],
+  );
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("bash", {
+      command: "cd 'packages/setup/database' && printf value > database.py",
+    }),
+    ["setup/database"],
   );
   assert.deepEqual(
     guardrails.touchedActionEndpoints("edit", { filePath: "/tmp/app/packages/v1/profile/__main__.py" }),
@@ -357,7 +370,7 @@ test("reported bugs require reproduction before edits", async () => {
   );
 });
 
-test("compaction blocks mutations and unverified claims", async () => {
+test("compaction blocks mutations and final responses until recovery", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-app-"));
   const plugin = await guardrails.default({ directory });
   const sessionID = `ses_compact_${Date.now()}`;
@@ -380,7 +393,98 @@ test("compaction blocks mutations and unverified claims", async () => {
     { sessionID, messageID: "msg", partID: "part" },
     text,
   );
-  assert.match(text.text, /completion gate|diagnostic gate/);
+  assert.match(text.text, /context recovery gate.*trustable_context_recover/i);
+});
+
+test("guardrail state migrates from cache into durable OpenCode data and survives reload", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-state-migration-"));
+  const sessionID = `ses_migrate_${Date.now()}`;
+  const filename = `${sessionID}.json`;
+  const legacyDirectory = join(isolatedHome, ".cache", "trustable", "opencode-guardrails");
+  const durableDirectory = join(process.env.XDG_DATA_HOME, "opencode", "trustable-guardrails");
+  mkdirSync(legacyDirectory, { recursive: true });
+  writeFileSync(join(legacyDirectory, filename), JSON.stringify({ needsRecovery: true, verified: false }));
+
+  const plugin = await guardrails.default({ directory });
+  const blocked = { text: "Done." };
+  await plugin["experimental.text.complete"]({ sessionID }, blocked);
+  assert.match(blocked.text, /context recovery gate/i);
+  assert.equal(existsSync(join(durableDirectory, filename)), true);
+
+  await plugin.tool.trustable_context_recover.execute({}, { sessionID, directory, worktree: directory });
+  const reloadedPlugin = await guardrails.default({ directory });
+  const recovered = { text: "Done." };
+  await reloadedPlugin["experimental.text.complete"]({ sessionID }, recovered);
+  assert.equal(recovered.text, "Done.");
+});
+
+test("corrupt durable guardrail state fails closed even with a permissive legacy file", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-state-corrupt-"));
+  const sessionID = `ses_corrupt_${Date.now()}`;
+  const filename = `${sessionID}.json`;
+  const legacyDirectory = join(isolatedHome, ".cache", "trustable", "opencode-guardrails");
+  const durableDirectory = join(process.env.XDG_DATA_HOME, "opencode", "trustable-guardrails");
+  mkdirSync(legacyDirectory, { recursive: true });
+  mkdirSync(durableDirectory, { recursive: true });
+  writeFileSync(join(legacyDirectory, filename), JSON.stringify({ needsRecovery: false, verified: true }));
+  writeFileSync(join(durableDirectory, filename), "{not-json");
+
+  const plugin = await guardrails.default({ directory });
+  const text = { text: "Done." };
+  await plugin["experimental.text.complete"]({ sessionID }, text);
+  assert.match(text.text, /context recovery gate/i);
+});
+
+test("completion failure signatures ignore volatile timestamps, durations, ids, and temp paths", () => {
+  const first = [
+    "2026-07-11T12:03:04.123Z FAIL auth contract",
+    "duration_ms: 18.42",
+    "pid 4217 request 6f9619ff-8b86-4e25-a8f8-3f2f94f22a10",
+    "artifact /tmp/trustable-run-12345/output.log",
+    "Expected authenticated user, got anonymous",
+  ].join("\n");
+  const second = [
+    "2026-07-11T12:09:59.991Z FAIL auth contract",
+    "duration_ms: 932.7",
+    "pid=9981 request 550e8400-e29b-41d4-a716-446655440000",
+    "artifact /tmp/trustable-run-98765/output.log",
+    "Expected authenticated user, got anonymous",
+  ].join("\n");
+  const differentFailure = second.replace("got anonymous", "got forbidden");
+
+  assert.equal(guardrails.completionFailureSignature(first), guardrails.completionFailureSignature(second));
+  assert.notEqual(guardrails.completionFailureSignature(first), guardrails.completionFailureSignature(differentFailure));
+});
+
+test("normalized repeated completion failures open the circuit breaker", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-normalized-breaker-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  const checker = join(fakeBin, "check_trustable_app.sh");
+  writeFileSync(checker, "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(checker, 0o755);
+  writeFileSync(join(directory, "package.json"), JSON.stringify({
+    scripts: { test: "node volatile.test.js" },
+  }));
+  writeFileSync(join(directory, "volatile.test.js"), [
+    "console.error(new Date().toISOString(), 'FAIL auth contract');",
+    "console.error('duration_ms:', process.uptime() * 1000);",
+    "console.error('pid', process.pid, 'Expected authenticated user, got anonymous');",
+    "process.exit(1);",
+    "",
+  ].join("\n"));
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const plugin = await guardrails.default({ directory });
+  const context = { sessionID: `ses_normalized_breaker_${Date.now()}`, directory, worktree: directory };
+  const first = await plugin.tool.trustable_completion_check.execute({}, context);
+  const second = await plugin.tool.trustable_completion_check.execute({}, context);
+
+  assert.doesNotMatch(first, /Circuit breaker OPEN/);
+  assert.match(second, /Circuit breaker OPEN/);
 });
 
 test("dirty sessions cannot stop with neutral final wording", async () => {
