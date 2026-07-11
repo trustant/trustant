@@ -30,6 +30,8 @@ test("mutation detection keeps read-only diagnostics available", () => {
   assert.equal(guardrails.isManagedDevServerCommand({ command: "curl -i http://localhost:5173" }), false);
   assert.equal(guardrails.isActionMutation("openserverless_action_add_s3", {}), true);
   assert.equal(guardrails.isActionMutation("action-invoke", {}), false);
+  assert.equal(guardrails.isActionMutation("openserverless_action_list", {}), false);
+  assert.equal(guardrails.isActionMutation("openserverless_action_get", { endpoint: "v1/profile" }), false);
   assert.equal(guardrails.isActionMutation("openserverless_action_invoke", {}), false);
   assert.equal(guardrails.isActionMutation("edit", { filePath: "/tmp/app/packages/v1/stack/stack.py" }), true);
   assert.equal(guardrails.isActionMutation("bash", {
@@ -47,6 +49,55 @@ test("mutation detection keeps read-only diagnostics available", () => {
     command: "sed -i 's/old/new/' database.py",
   }), true);
   assert.equal(guardrails.isSetupActionMutation("edit", { filePath: "/tmp/app/packages/v1/stack/stack.py" }), false);
+});
+
+test("action endpoint tracking is precise and ignores generated entrypoints", () => {
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("openserverless_action_add_mongodb", { endpoint: "/v1/profile/" }),
+    ["v1/profile"],
+  );
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("edit", { filePath: "/tmp/app/packages/v1/profile/profile.py" }),
+    ["v1/profile"],
+  );
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("bash", {
+      workdir: "/tmp/app/packages/setup/db",
+      command: "sed -i 's/old/new/' db.py",
+    }),
+    ["setup/db"],
+  );
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("edit", { filePath: "/tmp/app/packages/v1/profile/__main__.py" }),
+    [],
+  );
+  assert.deepEqual(
+    guardrails.touchedActionEndpoints("openserverless_action_get", { endpoint: "v1/profile" }),
+    [],
+  );
+});
+
+test("raw ops and wsk action shell commands are recognized through wrappers", () => {
+  assert.equal(guardrails.isRawActionCommand({ command: "ops action invoke setup/db" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "timeout 60 ops action invoke setup/db" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "env OPS_DEBUG=1 timeout 60 wsk action list" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "OPS_DEBUG=1 timeout 60 ops action invoke setup/db" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "cd /tmp/app && command ops action get v1/profile" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "sudo -u ops wsk action update v1/profile profile.zip" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "printf '%s' 'ops action invoke is documentation'" }), false);
+  assert.equal(guardrails.isRawActionCommand({ command: "timeout 120 ops ide deploy" }), false);
+});
+
+test("raw action shell commands are rejected before shell execution", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-raw-action-"));
+  const plugin = await guardrails.default({ directory });
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "bash", sessionID: `ses_raw_action_${Date.now()}`, callID: "call_raw_action" },
+      { args: { command: "timeout 60 ops action invoke setup/db" } },
+    ),
+    /raw ops action\/wsk action shell commands are forbidden.*OpenServerless MCP/s,
+  );
 });
 
 test("manual action ZIP mutations are denied but read-only inspection is allowed", () => {
@@ -338,8 +389,9 @@ test("existing critical action tests are blocking", async () => {
   assert.equal(discovered.suites.length, 1);
   assert.equal(discovered.suites[0].critical, true);
 
-  const result = await guardrails.runApplicationTests(directory);
+  const result = await guardrails.runApplicationTests(directory, ["v1/auth"]);
   assert.equal(result.passed, false);
+  assert.match(result.output, /focused action tests: PASS/);
   assert.match(result.output, /Python tests \(unittest; packages\/v1\/auth; test_\*\.py\) \[critical\]: FAIL/);
   assert.match(result.output, /browser-user.*token-user|token-user.*browser-user/s);
 });
@@ -413,4 +465,102 @@ test("trustable completion accepts a passing existing application test", async (
   );
   assert.match(result, /Trustable completion gate passed/);
   assert.match(result, /application tests: PASS/);
+});
+
+test("action completion remains blocked until every persisted endpoint has a focused test", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-action-test-required-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  for (const name of ["check_trustable_app.sh", "check_openserverless_actions.sh"]) {
+    const checker = join(fakeBin, name);
+    writeFileSync(checker, "#!/usr/bin/env bash\nexit 0\n");
+    chmodSync(checker, 0o755);
+  }
+  const action = join(directory, "packages", "v1", "profile");
+  mkdirSync(action, { recursive: true });
+  writeFileSync(join(action, "profile.py"), "def main(args):\n    return {'ok': True}\n");
+
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const sessionID = `ses_action_test_required_${Date.now()}`;
+  const plugin = await guardrails.default({ directory });
+  await plugin["tool.execute.after"](
+    { tool: "openserverless_action_add_mongodb", sessionID, callID: "call_action", args: { endpoint: "v1/profile" } },
+    { output: "Action source created." },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "action-new", sessionID, callID: "call_second_action", args: { endpoint: "v1/session" } },
+    { output: "Second action source created." },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "bash", sessionID, callID: "call_deploy", args: { command: "timeout 120 ops ide deploy" } },
+    { output: "Deployment completed." },
+  );
+
+  const reloadedPlugin = await guardrails.default({ directory });
+  const result = await reloadedPlugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID, directory, worktree: directory },
+  );
+  assert.match(result, /Trustable completion gate failed/);
+  assert.match(result, /Missing executable focused application test for: v1\/profile, v1\/session/);
+
+  const system = { system: [] };
+  await reloadedPlugin["experimental.chat.system.transform"]({ sessionID }, system);
+  assert.match(system.system.join(" "), /FOCUSED TESTS ARE REQUIRED FOR ACTION ENDPOINTS: v1\/profile, v1\/session/);
+});
+
+test("focused action test is executed and clears endpoint debt after completion", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-action-test-pass-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  for (const name of ["check_trustable_app.sh", "check_openserverless_actions.sh"]) {
+    const checker = join(fakeBin, name);
+    writeFileSync(checker, "#!/usr/bin/env bash\nexit 0\n");
+    chmodSync(checker, 0o755);
+  }
+  const action = join(directory, "packages", "v1", "profile");
+  mkdirSync(action, { recursive: true });
+  writeFileSync(join(action, "profile.py"), "def main(args):\n    return {'ok': True}\n");
+  const tests = join(directory, "tests", "actions", "v1", "profile");
+  mkdirSync(tests, { recursive: true });
+  writeFileSync(join(tests, "test_profile.py"), [
+    "import unittest",
+    "class ProfileActionTest(unittest.TestCase):",
+    "    def test_profile_contract(self):",
+    "        self.assertEqual({'ok': True}, {'ok': True})",
+    "",
+  ].join("\n"));
+
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const sessionID = `ses_action_test_pass_${Date.now()}`;
+  const plugin = await guardrails.default({ directory });
+  await plugin["tool.execute.after"](
+    { tool: "openserverless_action_add_mongodb", sessionID, callID: "call_action", args: { endpoint: "v1/profile" } },
+    { output: "Action source and focused test created." },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "bash", sessionID, callID: "call_deploy", args: { command: "timeout 120 ops ide deploy" } },
+    { output: "Deployment completed." },
+  );
+
+  const result = await plugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID, directory, worktree: directory },
+  );
+  assert.match(result, /Trustable completion gate passed/);
+  assert.match(result, /focused action tests: PASS/);
+  assert.match(result, /Covered endpoints: v1\/profile/);
+  assert.match(result, /Python tests .*: PASS/);
+
+  const system = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  assert.doesNotMatch(system.system.join(" "), /FOCUSED TESTS ARE REQUIRED/);
 });

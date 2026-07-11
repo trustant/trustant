@@ -9,7 +9,7 @@ const STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
 const COMPLETION_WORDS = /\b(done|complete|completed|fixed|resolved|working|success|risolto|risolta|completato|completata|funziona|prova ora)\b/i;
 const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|ancora|errore|problema|pagina bianca|bloccato)/i;
 const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
-const ACTION_TOOL = /^(?:action[-_](?!invoke(?:$|[-_]))|openserverless_action_(?!invoke(?:$|_)))/;
+const ACTION_TOOL = /^(?:action[-_](?!(?:invoke|list|get|inspect|status)(?:$|[-_]))|openserverless_action_(?!(?:invoke|list|get|inspect|status)(?:$|_)))/;
 const OPS_IDE_DEPLOY = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i;
 const OPS_IDE_SETUP = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+setup(?:\s|$)/i;
 const TEST_DISCOVERY_MAX_DEPTH = 8;
@@ -31,12 +31,13 @@ const CRITICAL_SYSTEM = [
   "After session compaction, call trustable_context_recover before any edit, write, action mutation, or deploy.",
   "For a reported bug, reproduce the exact user-visible symptom and record evidence with trustable_diagnostic_checkpoint before changing source.",
   "After any action MCP or packages/** source change, run ops ide deploy before setup or completion. Never create or modify action ZIP files manually.",
+  "Never run raw shell ops action or wsk action commands, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, and invocation; use ops ide deploy and ops ide setup for lifecycle operations.",
   "After changing a setup action, run ops ide setup after deploy and before completion.",
   "Never mask deploy, setup, login, checker, or build failures with || true, || echo, or head/tail pipelines.",
   "Never kill Trustable-managed processes or start vite, npm run dev, or ops ide devel; use the already-running localhost:5173 server.",
   "With React Router HashRouter, pass logical routes such as /login to Link, NavLink, Navigate, and useNavigate. Never pass #/login to router APIs and never use root-relative anchors for internal navigation.",
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
-  "The completion gate automatically runs existing Go, Python, and JavaScript application tests without installing dependencies. Add focused regression tests for changed critical behavior when the app already has a compatible test structure; never ask the user to run them.",
+  "Every action endpoint created or modified in this session requires a focused executable application test under tests/actions/<endpoint> or packages/<endpoint> before completion. The completion gate runs it without installing dependencies; never ask the user to run tests.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
 
@@ -58,6 +59,25 @@ export function isOpsIdeDeployCommand(args = {}) {
 
 export function isOpsIdeSetupCommand(args = {}) {
   return OPS_IDE_SETUP.test(String(args.command || ""));
+}
+
+export function isRawActionCommand(args = {}) {
+  const segments = String(args.command || "").split(/&&|\|\||[;|\n]/);
+  return segments.some((rawSegment) => {
+    let segment = rawSegment.trim();
+    let previous = "";
+    while (segment && segment !== previous) {
+      previous = segment;
+      segment = segment
+        .replace(/^(?:[A-Za-z_]\w*=(?:'[^']*'|"[^"]*"|\S+)\s+)+/, "")
+        .replace(/^timeout\s+(?:(?:--(?:signal|kill-after)(?:=\S+|\s+\S+)|--(?:preserve-status|foreground)|-[ks]\s+\S+)\s+)*\S+\s+/i, "")
+        .replace(/^env\s+(?:(?:--?\S+|[A-Za-z_]\w*=\S+)\s+)*/i, "")
+        .replace(/^sudo\s+(?:(?:-[A-Za-z]+|--\S+)(?:\s+\S+)?\s+)*/i, "")
+        .replace(/^command\s+/i, "")
+        .trim();
+    }
+    return /^(?:ops|wsk)\s+action(?:\s|$)/i.test(segment);
+  });
 }
 
 export function isMaskedCriticalCommand(args = {}) {
@@ -122,6 +142,47 @@ export function isManualActionZipMutation(toolID, args = {}) {
   return /zipfile\.ZipFile\s*\([^)]*,\s*["'](?:w|a|x)["']|python(?:3)?\s+-m\s+zipfile\s+-c|(^|[;&|]\s*)zip\s+(?!info)|(^|[;&|]\s*)(?:rm|mv|cp|install|touch|truncate|tee)\b[^;&|\n]*\.zip\b|>{1,2}\s*[^;&|\n]*\.zip\b/i.test(command);
 }
 
+function normalizeActionEndpoint(value) {
+  const endpoint = String(value || "").replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+  const parts = endpoint.split("/").filter(Boolean);
+  if (parts.length < 2 || parts.slice(0, 2).some((part) => !/^[A-Za-z0-9_.-]+$/.test(part))) return "";
+  return parts.slice(0, 2).join("/");
+}
+
+function endpointsFromPackagesText(value) {
+  const text = String(value || "").replaceAll("\\", "/");
+  const endpoints = new Set();
+  const pattern = /(?:^|[\s'"`:/])packages\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/([^\s'"`]+)/gm;
+  for (const match of text.matchAll(pattern)) {
+    const file = match[3].replace(/[),;:]+$/, "");
+    if (basename(file) === "__main__.py" || file.endsWith(".zip")) continue;
+    endpoints.add(`${match[1]}/${match[2]}`);
+  }
+  return endpoints;
+}
+
+export function touchedActionEndpoints(toolID, args = {}) {
+  const endpoints = new Set();
+  if (ACTION_TOOL.test(toolID)) {
+    const endpoint = normalizeActionEndpoint(args.endpoint || args.action);
+    if (endpoint) endpoints.add(endpoint);
+  }
+
+  const path = String(args.filePath || args.path || "");
+  for (const endpoint of endpointsFromPackagesText(path)) endpoints.add(endpoint);
+  if (toolID === "apply_patch") {
+    for (const endpoint of endpointsFromPackagesText(args.patch || args.input)) endpoints.add(endpoint);
+  }
+  if (toolID === "bash" && isActionMutation(toolID, args)) {
+    const command = String(args.command || "");
+    for (const endpoint of endpointsFromPackagesText(command)) endpoints.add(endpoint);
+    if (!command.includes("__main__.py")) {
+      for (const endpoint of endpointsFromPackagesText(`${normalizedWorkingDirectory(args)}/__trustable_source__`)) endpoints.add(endpoint);
+    }
+  }
+  return [...endpoints].sort();
+}
+
 function defaultState() {
   return {
     needsRecovery: false,
@@ -132,6 +193,7 @@ function defaultState() {
     circuitOpen: false,
     actionDeployRequired: false,
     actionSetupRequired: false,
+    touchedActionEndpoints: [],
     failureSignature: "",
     repeatedFailures: 0,
     evidence: "",
@@ -144,7 +206,11 @@ function statePath(sessionID) {
 
 function loadState(sessionID) {
   try {
-    return { ...defaultState(), ...JSON.parse(readFileSync(statePath(sessionID), "utf8")) };
+    const state = { ...defaultState(), ...JSON.parse(readFileSync(statePath(sessionID), "utf8")) };
+    state.touchedActionEndpoints = Array.isArray(state.touchedActionEndpoints)
+      ? [...new Set(state.touchedActionEndpoints.map(normalizeActionEndpoint).filter(Boolean))].sort()
+      : [];
+    return state;
   } catch {
     return defaultState();
   }
@@ -321,11 +387,13 @@ export function discoverApplicationTestSuites(directory) {
   }
 
   for (const moduleRoot of [...goModules].sort()) {
+    const testFiles = [...fileSet].filter((path) => path.startsWith(`${moduleRoot}/`) && path.endsWith("_test.go"));
     suites.push({
       name: `Go tests (${relative(root, moduleRoot) || "."})`,
       command: "GOTOOLCHAIN=local GOPROXY=off go test ./...",
       cwd: moduleRoot,
-      critical: [...fileSet].some((path) => path.startsWith(`${moduleRoot}/`) && path.endsWith("_test.go") && CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
+      testFiles,
+      critical: testFiles.some((path) => CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
     });
   }
 
@@ -336,6 +404,7 @@ export function discoverApplicationTestSuites(directory) {
         name: "Python tests (pytest)",
         command: "python3 -m pytest --disable-warnings --maxfail=1",
         cwd: root,
+        testFiles: pythonTests,
         critical: pythonTests.some((path) => CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
       });
     } else {
@@ -356,6 +425,7 @@ export function discoverApplicationTestSuites(directory) {
             name: `Python tests (unittest; ${relative(root, testDirectory) || "."}; ${pattern})`,
             command: `python3 -m unittest discover -s . -p '${pattern}'`,
             cwd: testDirectory,
+            testFiles: pythonTests.filter((path) => dirname(path) === testDirectory && (pattern.startsWith("test_") ? basename(path).startsWith("test_") : !basename(path).startsWith("test_"))),
             critical: patterns.critical,
           });
         }
@@ -371,6 +441,7 @@ export function discoverApplicationTestSuites(directory) {
       suites.push({
         name: `JavaScript tests (${relative(root, packageRoot) || "."})`,
         invalid: `invalid package.json: ${error.message}`,
+        testFiles,
       });
       continue;
     }
@@ -383,6 +454,7 @@ export function discoverApplicationTestSuites(directory) {
       suites.push({
         name: `JavaScript tests (${relative(root, packageRoot) || "."})`,
         invalid: `the ${scriptName} script may install or download dependencies; use an already-installed project test runner`,
+        testFiles,
       });
       continue;
     }
@@ -390,6 +462,7 @@ export function discoverApplicationTestSuites(directory) {
       name: `JavaScript tests (${relative(root, packageRoot) || "."})`,
       command: `CI=1 npm_config_offline=true npm_config_update_notifier=false npm run ${scriptName}`,
       cwd: packageRoot,
+      testFiles,
       critical: testFiles.some((path) => CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
     });
   }
@@ -404,12 +477,31 @@ export function discoverApplicationTestSuites(directory) {
   return { suites, skipped, error: "" };
 }
 
-export async function runApplicationTests(directory) {
+function endpointHasFocusedTest(directory, endpoint, suites) {
+  const prefixes = [`packages/${endpoint}/`, `tests/actions/${endpoint}/`];
+  return suites.some((suite) => (suite.testFiles || []).some((path) => {
+    const rel = relative(directory, path).replaceAll("\\", "/");
+    return basename(rel) !== "__main__.py" && prefixes.some((prefix) => rel.startsWith(prefix));
+  }));
+}
+
+export async function runApplicationTests(directory, requiredActionEndpoints = []) {
   const discovered = discoverApplicationTestSuites(directory);
   if (discovered.error) return { passed: false, exitCode: 1, output: discovered.error };
 
   const reports = [];
-  let passed = true;
+  const required = [...new Set(requiredActionEndpoints.map(normalizeActionEndpoint).filter(Boolean))].sort();
+  const missing = required.filter((endpoint) => !endpointHasFocusedTest(directory, endpoint, discovered.suites));
+  let passed = missing.length === 0;
+  if (missing.length > 0) {
+    reports.push([
+      "===== focused action tests: FAIL =====",
+      `Missing executable focused application test for: ${missing.join(", ")}`,
+      "Add a recognized test under tests/actions/<endpoint>/ or packages/<endpoint>/; do not modify generated __main__.py.",
+    ].join("\n"));
+  } else if (required.length > 0) {
+    reports.push(`===== focused action tests: PASS =====\nCovered endpoints: ${required.join(", ")}`);
+  }
   const deadline = Date.now() + TEST_TOTAL_TIMEOUT_MS;
   for (const suite of discovered.suites) {
     const remaining = deadline - Date.now();
@@ -429,7 +521,7 @@ export async function runApplicationTests(directory) {
   return { passed, exitCode: passed ? 0 : 1, output: reports.join("\n\n") };
 }
 
-async function completionChecks(directory) {
+async function completionChecks(directory, requiredActionEndpoints = []) {
   const checks = [];
   checks.push(["git diff", await run("git diff --check", directory, 60_000)]);
   checks.push(["Trustable contracts", await run("timeout 120 check_trustable_app.sh .", directory, 140_000)]);
@@ -446,7 +538,7 @@ async function completionChecks(directory) {
     }
   }
 
-  checks.push(["application tests", await runApplicationTests(directory)]);
+  checks.push(["application tests", await runApplicationTests(directory, requiredActionEndpoints)]);
 
   const failed = checks.filter(([, result]) => result.exitCode !== 0);
   const output = checks.map(([name, result]) => [
@@ -526,7 +618,7 @@ export default async function TrustableGuardrails({ directory }) {
                   passed: false,
                   output: "===== action setup: FAIL =====\nA setup action changed and was deployed but setup has not run yet. Run timeout 120 ops ide setup before completion.",
                 }
-            : await completionChecks(context.directory);
+            : await completionChecks(context.directory, current.touchedActionEndpoints);
           if (result.passed) {
             current.dirty = false;
             current.verified = true;
@@ -535,6 +627,7 @@ export default async function TrustableGuardrails({ directory }) {
             current.circuitOpen = false;
             current.actionDeployRequired = false;
             current.actionSetupRequired = false;
+            current.touchedActionEndpoints = [];
             current.failureSignature = "";
             current.repeatedFailures = 0;
             saveState(context.sessionID, current);
@@ -590,6 +683,7 @@ export default async function TrustableGuardrails({ directory }) {
       if (current.dirty && !current.verified) status += " THE CURRENT CHANGES HAVE NOT PASSED THE COMPLETION GATE.";
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
+      if (current.touchedActionEndpoints?.length) status += ` FOCUSED TESTS ARE REQUIRED FOR ACTION ENDPOINTS: ${current.touchedActionEndpoints.join(", ")}.`;
       output.system.push(status);
     },
 
@@ -599,6 +693,9 @@ export default async function TrustableGuardrails({ directory }) {
     },
 
     "tool.execute.before": async (input, output) => {
+      if (input.tool === "bash" && isRawActionCommand(output.args)) {
+        throw new Error("Trustable action guard: raw ops action/wsk action shell commands are forbidden, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, or invocation; use ops ide deploy and ops ide setup for lifecycle operations.");
+      }
       if (input.tool === "bash" && isManagedDevServerCommand(output.args)) {
         throw new Error("Trustable process guard: do not kill managed processes or start Vite/ops ide devel manually. Use the existing http://localhost:5173 server and diagnose its configured proxy without replacing it.");
       }
@@ -630,6 +727,10 @@ export default async function TrustableGuardrails({ directory }) {
       current.verified = false;
       if (isActionMutation(input.tool, input.args)) {
         current.actionDeployRequired = true;
+        current.touchedActionEndpoints = [...new Set([
+          ...(Array.isArray(current.touchedActionEndpoints) ? current.touchedActionEndpoints : []),
+          ...touchedActionEndpoints(input.tool, input.args),
+        ])].sort();
       }
       if (isSetupActionMutation(input.tool, input.args)) {
         current.actionSetupRequired = true;

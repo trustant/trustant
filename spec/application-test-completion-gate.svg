@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="420" viewBox="0 0 1040 420" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1220" height="460" viewBox="0 0 1220 460" role="img" aria-labelledby="title desc">
   <title id="title">Trustable application test completion gate</title>
-  <desc id="desc">Flow from completion request through bounded test discovery and execution to pass or blocked completion.</desc>
+  <desc id="desc">Flow from action endpoint tracking through focused test coverage, bounded test discovery, and completion.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#343a40"/>
@@ -15,38 +15,48 @@
     </style>
   </defs>
 
-  <rect class="box" x="30" y="145" width="180" height="90"/>
-  <text class="label" x="120" y="180">Completion request</text>
-  <text class="small" x="120" y="205">trustable_completion_check</text>
+  <rect class="box" x="20" y="150" width="170" height="100"/>
+  <text class="label" x="105" y="182">Touched endpoints</text>
+  <text class="small" x="105" y="207">MCP args.endpoint</text>
+  <text class="small" x="105" y="229">packages source edits</text>
 
-  <rect class="box" x="270" y="130" width="210" height="120"/>
-  <text class="label" x="375" y="165">Existing gates</text>
-  <text class="small" x="375" y="192">deploy / setup</text>
-  <text class="small" x="375" y="214">contracts / build</text>
+  <rect class="box" x="235" y="140" width="190" height="120"/>
+  <text class="label" x="330" y="175">Completion request</text>
+  <text class="small" x="330" y="201">deploy / setup</text>
+  <text class="small" x="330" y="223">contracts / build</text>
 
-  <rect class="box" x="540" y="95" width="220" height="190"/>
-  <text class="label" x="650" y="130">Bounded discovery</text>
-  <text class="small" x="650" y="160">Go: *_test.go</text>
-  <text class="small" x="650" y="183">Python: test_*.py</text>
-  <text class="small" x="650" y="206">JS/TS: tests + script</text>
-  <text class="small" x="650" y="242">no installs, fixed limits</text>
+  <rect class="box" x="470" y="105" width="210" height="190"/>
+  <text class="label" x="575" y="140">Bounded discovery</text>
+  <text class="small" x="575" y="170">Go: *_test.go</text>
+  <text class="small" x="575" y="193">Python: test_*.py</text>
+  <text class="small" x="575" y="216">JS/TS: tests + script</text>
+  <text class="small" x="575" y="252">no installs, fixed limits</text>
 
-  <rect class="box" x="820" y="35" width="190" height="100"/>
-  <text class="label" x="915" y="72">Run suites</text>
-  <text class="small" x="915" y="98">sequential + timeout</text>
+  <rect class="box" x="725" y="115" width="210" height="170"/>
+  <text class="label" x="830" y="150">Endpoint coverage</text>
+  <text class="small" x="830" y="180">packages/&lt;endpoint&gt;</text>
+  <text class="small" x="830" y="203">or tests/actions/&lt;endpoint&gt;</text>
+  <text class="small" x="830" y="237">must be executable</text>
+  <text class="small" x="830" y="259">ignore __main__.py</text>
 
-  <rect class="pass" x="820" y="180" width="190" height="85"/>
-  <text class="label" x="915" y="215">PASS</text>
-  <text class="small" x="915" y="239">completion allowed</text>
+  <rect class="box" x="980" y="35" width="210" height="100"/>
+  <text class="label" x="1085" y="72">Run suites</text>
+  <text class="small" x="1085" y="98">sequential + timeout</text>
 
-  <rect class="fail" x="820" y="310" width="190" height="85"/>
-  <text class="label" x="915" y="345">FAIL</text>
-  <text class="small" x="915" y="369">completion blocked</text>
+  <rect class="pass" x="980" y="190" width="210" height="85"/>
+  <text class="label" x="1085" y="225">PASS</text>
+  <text class="small" x="1085" y="249">clear endpoints</text>
 
-  <path class="line" d="M210 190 H270"/>
-  <path class="line" d="M480 190 H540"/>
-  <path class="line" d="M760 145 L820 100"/>
-  <path class="line" d="M915 135 V180"/>
-  <path class="line" d="M760 235 L820 330"/>
-  <text class="small" x="785" y="276">failure / timeout / limit</text>
+  <rect class="fail" x="980" y="335" width="210" height="85"/>
+  <text class="label" x="1085" y="370">FAIL</text>
+  <text class="small" x="1085" y="394">retain endpoint debt</text>
+
+  <path class="line" d="M190 200 H235"/>
+  <path class="line" d="M425 200 H470"/>
+  <path class="line" d="M680 200 H725"/>
+  <path class="line" d="M935 145 L980 105"/>
+  <path class="line" d="M1085 135 V190"/>
+  <path class="line" d="M935 255 L980 355"/>
+  <text class="small" x="930" y="314">missing / failure / timeout</text>
+  <text class="small" x="610" y="445">Raw ops action / wsk action commands are rejected before execution, independently of permission patterns.</text>
 </svg>

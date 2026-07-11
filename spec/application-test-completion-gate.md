@@ -7,8 +7,10 @@ before OpenCode can claim that a change is complete. The gate is automatic and
 must never ask the application user to run shell commands.
 
 The gate does not choose a testing framework for an application and does not
-fail merely because an application has no tests. It never installs dependencies
-or invokes package runners that may download code.
+fail merely because a frontend-only application has no tests. It never installs
+dependencies or invokes package runners that may download code. A created or
+modified OpenServerless action is different: each action endpoint touched in the
+current session requires one focused executable application test.
 
 ## Discovery
 
@@ -46,22 +48,47 @@ fails, times out, or lacks its declared runner is a blocking failure.
 
 ## Critical components and actions
 
-Action code under `packages/` and security-sensitive application components
-such as authentication, authorization, upload, payment, and persistence receive
-no framework-specific mandate. When they already have tests, those tests must be
-discovered and pass; the gate must not downgrade their failure to a warning.
+The session guard records normalized action endpoints from mutating MCP calls
+using `args.endpoint` and from source edits below
+`packages/<package>/<action>/...`. Generated `__main__.py` files do not create
+or satisfy test debt. Duplicate endpoint observations collapse to one persisted
+entry and survive compaction or plugin restart.
 
-When no tests exist, the gate reports that fact without inventing a framework.
-OpenCode's mandatory guidance still requires it to add focused regression tests
-when it changes critical behavior and the application's existing test structure
-provides a compatible place for them.
+Before completion, every touched endpoint must have at least one recognized test
+file in either:
+
+- `packages/<endpoint>/...`, alongside the action; or
+- `tests/actions/<endpoint>/...`, in the dedicated application test tree.
+
+The test must belong to an executable suite discovered by this gate. A JS test
+without a declared `test` or `test:ci` script does not satisfy the endpoint.
+After coverage is established, the bounded runner executes the suite and its
+failure remains blocking. A successful completion clears the persisted endpoint
+list; a failed completion retains it.
+
+Security-sensitive frontend components such as authentication, authorization,
+upload, payment, and persistence receive no framework-specific mandate when no
+action endpoint was touched. Existing tests are still discovered and failures
+remain blocking, but a frontend-only change does not cause a new global test
+framework requirement.
 
 ## Completion behavior
 
 Application tests run after git validation, Trustable contract checks, required
 action deploy/setup, and any frontend build. Completion remains blocked until
-all executable discovered suites pass. The normal repeated-failure circuit
-breaker applies to stable test failures.
+all touched endpoints have focused tests and all executable discovered suites
+pass. The normal repeated-failure circuit breaker applies to stable test
+failures.
+
+## Raw action shell commands
+
+The plugin rejects shell execution of `ops action ...` and `wsk action ...`
+before shell execution, independently of OpenCode permission pattern matching.
+This includes read-looking operations such as `list` and runtime operations such
+as `invoke`. Detection also applies when the command is wrapped by `timeout`,
+`env`, `sudo`, or `command`, or follows a `cd ... &&` segment. OpenCode must use
+the OpenServerless MCP for action mutation, inspection, and invocation, and
+`ops ide deploy` / `ops ide setup` for lifecycle operations.
 
 See [application-test-completion-gate.svg](application-test-completion-gate.svg)
 for the execution flow.
