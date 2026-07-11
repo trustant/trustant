@@ -560,12 +560,6 @@ Sections (rendered top to bottom in this order):
   /api/configuration` enforces the same policy server-side before writing
   `trustable.json`; UI filtering alone is not sufficient.
 - **Git User** — name and email (unchanged).
-- **Experimental** — contains a Headroom checkbox. It is off by default and is
-  saved to `experimental.headroom.enabled` in the workspace `trustable.json`.
-  The section uses the same compact `nu-card` and shared form-control styling
-  as the rest of the configuration page. The UI does not expose Headroom port,
-  mode, or state directory; those remain developer/operator overrides.
-
 If the URL has `?reselect=1` (set by the splash or applist when `status[provider].modelsVersion` bumped — see "Model catalog → Version tracking (per provider)"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
 
 The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)

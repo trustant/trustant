@@ -15,18 +15,14 @@ import (
 
 // Environment configuration loaded from .env
 var (
-	WorkspaceDir     string
-	WorkbenchDir     string
-	OpenAIBaseUrl    string
-	OpenAIApiKey     string
-	OllamaEndpoint   string
-	AIPRegisterURL   string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
-	AIPBaseURL       string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
-	OpsSkills        string
-	HeadroomEnabled  bool
-	HeadroomMode     string
-	HeadroomPort     int
-	HeadroomStateDir string
+	WorkspaceDir   string
+	WorkbenchDir   string
+	OpenAIBaseUrl  string
+	OpenAIApiKey   string
+	OllamaEndpoint string
+	AIPRegisterURL string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
+	AIPBaseURL     string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
+	OpsSkills      string
 )
 
 // loadEnv reads .env from the current directory and sets the config variables,
@@ -88,15 +84,6 @@ func loadEnv() error {
 	if AIPBaseURL == "" {
 		return fmt.Errorf("AIP_BASE_URL is not set")
 	}
-	if headroomCfg, err := headroomConfigForLaunch(); err == nil {
-		HeadroomEnabled = headroomCfg.Enabled
-		HeadroomMode = headroomCfg.Mode
-		HeadroomPort = headroomCfg.Port
-		HeadroomStateDir = headroomCfg.StateDir
-	} else {
-		log.Printf("  Warning: invalid Headroom configuration: %s", err)
-	}
-
 	return nil
 }
 
@@ -118,11 +105,6 @@ func runPreflight() error {
 	log.Printf("  AIPRegisterURL:     %s", AIPRegisterURL)
 	log.Printf("  AIPBaseURL:         %s", AIPBaseURL)
 	log.Printf("  OpsSkills:          %s", OpsSkills)
-	if HeadroomEnabled {
-		log.Printf("  Headroom:           enabled mode=%s port=%d state=%s", HeadroomMode, HeadroomPort, HeadroomStateDir)
-	} else {
-		log.Printf("  Headroom:           disabled")
-	}
 	log.Println("✓ Environment loaded")
 
 	// Step 1: Clean up PGID file if exists

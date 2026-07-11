@@ -55,7 +55,7 @@ test_profile_preflight() {
   E2E_MAX_OUTPUT=32768
   E2E_CREDENTIAL_REQUIRED=false
   local config
-  config='{"provider":"bestia","base_url":"http://bestia:11434/v1","model":"coding-model","small_model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false},"headroom":{"enabled":false,"mode":"proxy","port":8787}}'
+  config='{"provider":"bestia","base_url":"http://bestia:11434/v1","model":"coding-model","small_model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
   e2e_preflight_profile "$config" || fail "valid BestIA preflight failed"
   if e2e_preflight_profile "$(jq '.provider = "trustable"' <<<"$config")" 2>/dev/null; then
     fail "preflight accepted the wrong effective provider"
@@ -69,7 +69,7 @@ test_report() {
   E2E_PROVIDER="bestia"
   E2E_MODEL="coding-model"
   E2E_BASE_URL="http://bestia:11434/v1"
-  E2E_EFFECTIVE_CONFIG_JSON='{"provider":"bestia","base_url":"http://bestia:11434/v1","model":"coding-model","small_model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false},"headroom":{"enabled":true,"mode":"proxy","port":8787}}'
+  E2E_EFFECTIVE_CONFIG_JSON='{"provider":"bestia","base_url":"http://bestia:11434/v1","model":"coding-model","small_model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
   e2e_write_report "$report" "run-1" bestia "2026-01-01T00:00:00Z" \
     "2026-01-01T00:00:07Z" 7 0 "benchmark-results/run-1/run.log" \
     "benchmark-results/run-1/playwright"
@@ -77,9 +77,7 @@ test_report() {
     .duration_seconds == 7 and .provider == "bestia" and
     .effective_config.provider == "bestia" and
     .effective_config.credential == {"required":false,"configured":false} and
-    .headroom == {"enabled":true,"mode":"proxy","port":8787,"status":"enabled"} and
-    (.checks | map(select(.name == "provider_profile_preflight" and .result == "passed")) | length == 1) and
-    (.checks | map(select(.name == "headroom" and .result == "enabled")) | length == 1)' \
+    (.checks | map(select(.name == "provider_profile_preflight" and .result == "passed")) | length == 1)' \
     "$report" >/dev/null || fail "invalid normalized report"
   if rg -q 'secret' "$report"; then
     fail "report contains a credential marker"

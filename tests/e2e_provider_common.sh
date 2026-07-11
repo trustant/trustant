@@ -208,11 +208,6 @@ e2e_apply_profile() {
         credential: {
           required: $credential_required,
           configured: (((.api_key // "") | length) > 0)
-        },
-        headroom: {
-          enabled: (.experimental.headroom.enabled // false),
-          mode: (.experimental.headroom.mode // "proxy"),
-          port: (.experimental.headroom.port // 8787)
         }
       }' "$E2E_CONFIG_PATH")"
   e2e_preflight_profile "$E2E_EFFECTIVE_CONFIG_JSON"
@@ -230,9 +225,6 @@ e2e_write_report() {
   local artifact_path="$9"
   local outcome="failed"
   [ "$exit_code" = "0" ] && outcome="passed"
-  local headroom_result="disabled"
-  [ "$(jq -r '.headroom.enabled' <<<"$E2E_EFFECTIVE_CONFIG_JSON")" = "true" ] && headroom_result="enabled"
-
   jq -n \
     --arg schema "trustable-e2e-benchmark/v1" \
     --arg run_id "$run_id" \
@@ -241,7 +233,6 @@ e2e_write_report() {
     --arg model "$E2E_MODEL" \
     --arg base_url "$E2E_BASE_URL" \
     --argjson effective_config "$E2E_EFFECTIVE_CONFIG_JSON" \
-    --arg headroom_result "$headroom_result" \
     --arg started_at "$started" \
     --arg ended_at "$ended" \
     --argjson duration_seconds "$duration" \
@@ -254,14 +245,12 @@ e2e_write_report() {
     '{schema: $schema, run_id: $run_id, provider_mode: $provider_mode,
       provider: $provider, model: $model, base_url: $base_url,
       effective_config: $effective_config,
-      headroom: ($effective_config.headroom + {status: $headroom_result}),
       started_at: $started_at, ended_at: $ended_at,
       duration_seconds: $duration_seconds, outcome: $outcome, exit_code: $exit_code,
       target: {app: (if $app == "" then null else $app end), repo: $repo},
       artifacts: {log: $log_path, playwright: $artifact_path},
       checks: [
         {name: "provider_profile_preflight", result: "passed"},
-        {name: "headroom", result: $headroom_result},
         {name: "opencode_tool_safety", result: $outcome},
         {name: "openserverless_action_workflow", result: $outcome},
         {name: "deploy_setup_completion_order", result: $outcome},
@@ -314,7 +303,6 @@ e2e_provider_main() {
   echo "  mode:       $mode"
   echo "  provider:   $E2E_PROVIDER"
   echo "  model:      $E2E_MODEL"
-  echo "  headroom:   $(jq -r '.headroom | if .enabled then "enabled (\(.mode), port \(.port))" else "disabled" end' <<<"$E2E_EFFECTIVE_CONFIG_JSON")"
   echo "  results:    ${run_dir#$E2E_ROOT/}"
   echo
 

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { descendantSessionIDs, mergeChronologicalMessages } from "./issue98-session-tree.mjs";
 
 const env = process.env;
 
@@ -140,6 +141,16 @@ async function sessionMessages(request, sessionID, workbenchDir, limit = 40) {
   );
   expect(response.ok(), await response.text()).toBeTruthy();
   return response.json();
+}
+
+async function sessionsForDirectory(request, workbenchDir) {
+  const response = await request.get(
+    `${opencodeURL}/session?directory=${encodeURIComponent(workbenchDir)}`,
+    { timeout: 30_000 },
+  );
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const body = await response.json();
+  return Array.isArray(body) ? body : body.data || [];
 }
 
 async function sessionStatus(request) {
@@ -511,6 +522,8 @@ async function sendPromptAndWait(request, app, launch, prompt) {
   const sessionID = launch.session_id;
   const beforeMessages = await sessionMessages(request, sessionID, workbenchDir);
   const beforeMessageIDs = new Set(beforeMessages.map((message) => message.info?.id).filter(Boolean));
+  const beforeSessions = await sessionsForDirectory(request, workbenchDir);
+  const beforeSessionIDs = new Set(beforeSessions.map((session) => session.id).filter(Boolean));
   const beforeStatus = workbenchGitStatus(workbenchDir);
 
   const response = await request.post(
@@ -526,7 +539,14 @@ async function sendPromptAndWait(request, app, launch, prompt) {
   expect(response.status(), await response.text()).toBe(204);
 
   const messages = await waitForPromptIdle(request, sessionID, workbenchDir, beforeMessageIDs);
-  const promptMessages = messages.filter((message) => !beforeMessageIDs.has(message.info?.id));
+  const parentPromptMessages = messages.filter((message) => !beforeMessageIDs.has(message.info?.id));
+  const afterSessions = await sessionsForDirectory(request, workbenchDir);
+  const childSessionIDs = descendantSessionIDs(afterSessions, sessionID, beforeSessionIDs);
+  const childMessageGroups = [];
+  for (const childSessionID of childSessionIDs) {
+    childMessageGroups.push(await sessionMessages(request, childSessionID, workbenchDir, 2_000));
+  }
+  const promptMessages = mergeChronologicalMessages([parentPromptMessages, ...childMessageGroups]);
   return { messages, promptMessages, beforeMessages, beforeMessageIDs, beforeStatus, app };
 }
 

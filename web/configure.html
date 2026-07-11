@@ -136,16 +136,6 @@
             </div>
         </div>
 
-        <!-- Experimental -->
-        <div class="nu-card p-5 mb-6">
-            <h2 class="text-lg font-medium mb-4">Experimental</h2>
-            <label class="flex items-center justify-between gap-4 cursor-pointer">
-                <span class="text-sm font-medium text-[color:var(--nu-ink)]">Headroom</span>
-                <input id="headroomEnabled" type="checkbox"
-                    class="h-4 w-4 rounded border-[color:var(--nu-rule)] text-[color:var(--nu-brand)] focus:ring-[color:var(--nu-brand)]">
-            </label>
-        </div>
-
         <!-- Actions -->
         <div class="flex flex-col gap-3">
             <div class="flex gap-3">
@@ -219,7 +209,6 @@
                 renderOpencodeSelects();
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
-                document.getElementById('headroomEnabled').checked = !!config.experimental?.headroom?.enabled;
                 if (config.provider === 'bestia') {
                     await loadBestiaModels();
                 }
@@ -604,14 +593,6 @@
                 const port = document.getElementById('ollamaPort').value.trim();
                 baseURL = `http://${host}:${port}/v1`;
             }
-            const experimental = {
-                ...(config.experimental || {}),
-                headroom: {
-                    ...(config.experimental?.headroom || {}),
-                    enabled: document.getElementById('headroomEnabled').checked,
-                    mode: config.experimental?.headroom?.mode || 'proxy'
-                }
-            };
             return {
                 provider: config.provider || '',
                 base_url: baseURL,
@@ -626,7 +607,6 @@
                     user: document.getElementById('gitUser').value.trim(),
                     email: document.getElementById('gitEmail').value.trim()
                 },
-                experimental,
                 apps: config.apps || {}
             };
         }

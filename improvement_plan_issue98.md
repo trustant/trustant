@@ -18,10 +18,11 @@ combination of:
 - automatic checks that catch forbidden patterns before deploy;
 - runtime verification paths that prove repo and deployed actions match.
 
-Headroom/context compression and the OpenCode version upgrade are intentionally
-out of scope for this issue-98 guardrail PR. Track them separately in
-`headroom_experiment_plan.md` and `opencode_upgrade_plan.md` so the critical
-OpenServerless workflow fix is not blocked by runtime/toolchain experiments.
+The OpenCode version upgrade remains tracked separately in
+`opencode_upgrade_plan.md`. The Headroom experiment was unsuccessful and has
+been removed from the product; `headroom_experiment_plan.md` retains only its
+decision record. The critical OpenServerless workflow does not depend on a
+context-compression proxy.
 
 ## What issue 98 says
 

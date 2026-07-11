@@ -26,19 +26,6 @@ type opencodeConfig struct {
 	Small   string `json:"small"`
 }
 
-// experimentalConfig holds disabled-by-default feature experiments controlled
-// from the configuration UI.
-type experimentalConfig struct {
-	Headroom *headroomExperimentConfig `json:"headroom,omitempty"`
-}
-
-type headroomExperimentConfig struct {
-	Enabled  bool   `json:"enabled"`
-	Mode     string `json:"mode,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	StateDir string `json:"state_dir,omitempty"`
-}
-
 // ModelLimits is the per-model hint block from /api/v2/status and what we
 // persist in trustable.json under the active provider's `models` map.
 // All three fields are optional (omitempty); zero values are dropped.
@@ -108,7 +95,6 @@ type trustableConfig struct {
 	Models        map[string]*ModelLimits `json:"models,omitempty"`
 	Opencode      *opencodeConfig         `json:"opencode,omitempty"`
 	Git           *GitConfig              `json:"git,omitempty"`
-	Experimental  *experimentalConfig     `json:"experimental,omitempty"`
 	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
 	Current       string                  `json:"current,omitempty"`
 
@@ -267,28 +253,10 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 		result.Git = override.Git
 	}
 
-	if override.Experimental != nil {
-		result.Experimental = mergeExperimentalConfig(base.Experimental, override.Experimental)
-	}
-
 	if override.Apps != nil {
 		result.Apps = override.Apps
 	}
 
-	return &result
-}
-
-func mergeExperimentalConfig(base, override *experimentalConfig) *experimentalConfig {
-	if base == nil {
-		return override
-	}
-	if override == nil {
-		return base
-	}
-	result := *base
-	if override.Headroom != nil {
-		result.Headroom = override.Headroom
-	}
 	return &result
 }
 
@@ -1066,18 +1034,6 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	}
 }
 
-func applyHeadroomRoutingToModelProvider(provider map[string]interface{}, cfg headroomLaunchConfig) error {
-	if !cfg.Enabled {
-		return nil
-	}
-	options, ok := provider["options"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("generated provider has no options block for Headroom routing")
-	}
-	options["baseURL"] = headroomProxyBaseURL(cfg)
-	return nil
-}
-
 // generateOpencodeConfigForApp generates the complete OpenCode config for an app
 // directly in its workbench project folder. Per spec/4-launch.md there is a
 // single, self-contained <workbench>/<app>/opencode.json — there is no global
@@ -1145,10 +1101,6 @@ func writeManagedAppAgents(projectDir string) error {
 // server wired into the mcp section, not copied as plugins.
 func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
 	providers := make(map[string]interface{})
-	headroomCfg, headroomUpstream, err := headroomRoutingForTrustableConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("invalid Headroom routing configuration: %w", err)
-	}
 
 	// The OpenCode provider key tracks the active trustable provider:
 	// "ollama", "trustable", or "bestia". Default to "ollama" if unset.
@@ -1159,12 +1111,6 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 
 	// Always generate the Trustable-managed provider entry.
 	modelProvider := buildModelProvider(cfg)
-	if headroomCfg.Enabled {
-		if err := applyHeadroomRoutingToModelProvider(modelProvider, headroomCfg); err != nil {
-			return fmt.Errorf("provider %q: %w", providerKey, err)
-		}
-		log.Printf("  - Headroom routing enabled: provider=%s proxy=%s upstream=%s", providerKey, headroomProxyBaseURL(headroomCfg), headroomUpstream)
-	}
 	providers[providerKey] = modelProvider
 
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
@@ -1922,9 +1868,6 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		}
 		if wsCfg.Current != "" && cfg.Current == "" {
 			cfg.Current = wsCfg.Current
-		}
-		if wsCfg.Experimental != nil && cfg.Experimental == nil {
-			cfg.Experimental = wsCfg.Experimental
 		}
 	}
 

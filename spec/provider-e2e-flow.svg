@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="640" viewBox="0 0 1100 640" role="img" aria-labelledby="title desc">
   <title id="title">Trustable multi-provider E2E benchmark flow</title>
-  <desc id="desc">Three provider entrypoints build isolated temporary profiles, verify the effective provider identity and configuration, run the guarded Stack application test, restore configuration, and report checks including Headroom.</desc>
+  <desc id="desc">Three provider entrypoints build isolated temporary profiles, verify the effective provider identity and configuration, run the guarded Stack application test across parent and delegated OpenCode sessions, restore configuration, and report normalized checks and artifacts.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#147d92"/>
@@ -41,12 +41,12 @@
   <rect x="245" y="310" width="610" height="130" class="box"/>
   <text x="275" y="345" class="label">Guarded Stack application runner</text>
   <text x="275" y="375" class="small">OpenCode prompt: real Redis, MongoDB, PostgreSQL and S3 read/write</text>
-  <text x="275" y="400" class="small">MCP action mutation, deploy, setup, completion checker, browser-visible result</text>
+  <text x="275" y="400" class="small">parent + task-child tools: MCP mutation, deploy, setup, completion, browser result</text>
   <path d="M885 230 V275 H550 V310" class="line"/>
 
   <rect x="245" y="505" width="610" height="105" class="artifact"/>
   <text x="275" y="538" class="label">benchmark-results/&lt;run-id&gt;/</text>
-  <text x="275" y="565" class="small">report.json records effective provider/config and explicit Headroom status</text>
+  <text x="275" y="565" class="small">report.json records provider/config, normalized checks, timings, and artifact paths</text>
   <text x="275" y="588" class="small">run.log + Playwright artifacts; index.jsonl + summary.tsv aggregate runs</text>
   <path d="M550 440 V505" class="line"/>
 </svg>
