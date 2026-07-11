@@ -117,6 +117,24 @@ The first implementation must be reversible:
   that Headroom 0.28.0 forwarded the original bearer header, model, tool
   definition, streaming SSE frames, and streamed tool call. `/stats` recorded
   the request;
+- `headroom_test.go` now makes that protocol contract repeatable. The normal
+  suite uses a loopback fake upstream and controlled proxy executable to verify
+  enable, forwarding, process-group ownership, verified stale-proxy replacement
+  on relaunch, stop, and disabled relaunch without external network access;
+- an image-level test uses the real Headroom 0.28.0 binary with the same proxy
+  arguments and environment as Trustable. It was run in the local Trustable
+  image with Docker networking disabled and verified `/v1/chat/completions`,
+  the exact bearer header and model id, the tool definition, SSE framing, and a
+  streamed tool call. The test skips on developer hosts where `headroom` is not
+  installed and is intended to run in the built image;
+- Headroom 0.28.0 aggregate `/health` currently reports `unhealthy` without
+  external DNS because it also checks its default Anthropic upstream, even when
+  the configured OpenAI target is a healthy loopback server. Consequently the
+  real-proxy protocol test starts the binary directly, while lifecycle tests
+  use the controlled proxy. Trustable's strict `ensureHeadroomProxy` health
+  gate cannot launch the real proxy in a fully network-isolated environment
+  until the unused-backend health behavior is configured or the readiness
+  contract is narrowed safely;
 - this protocol proof does not yet claim successful long-running compression
   against every production provider. Local Ollama, Ollama Cloud, and
   `api.nuvolaris.io` still require provider-specific launch/E2E runs before the
@@ -362,6 +380,11 @@ closed without touching the issue-98 guardrails or the OpenCode upgrade.
    candidate B explicitly.
 10. Run the same app-generation task with and without Headroom.
 11. Compare behavior and metrics before proposing default inclusion.
+
+Automated coverage corresponding to steps 3-6 lives in `headroom_test.go`.
+The fake upstream and lifecycle proxy bind only to loopback. The real-proxy
+protocol case must be run where Headroom 0.28.0 is installed, normally inside
+the built Trustable image; it does not require an external provider or network.
 
 ## Metrics
 
