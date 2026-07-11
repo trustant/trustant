@@ -17,6 +17,7 @@ const TEST_DISCOVERY_MAX_ENTRIES = 5_000;
 const TEST_SUITE_LIMIT = 12;
 const TEST_TIMEOUT_MS = 180_000;
 const TEST_TOTAL_TIMEOUT_MS = 600_000;
+const BROWSER_INTERACTION_BUDGET = 12;
 const TEST_IGNORED_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
   "__pycache__", "node_modules", "vendor", "coverage", "dist", "build",
@@ -39,6 +40,7 @@ const CRITICAL_SYSTEM = [
   "With React Router HashRouter, pass logical routes such as /login to Link, NavLink, Navigate, and useNavigate. Never pass #/login to router APIs and never use root-relative anchors for internal navigation.",
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
   "Every action endpoint created or modified in this session requires a focused executable application test under tests/actions/<endpoint> or packages/<endpoint> before completion. The completion gate runs it without installing dependencies; never ask the user to run tests.",
+  "Browser work is bounded: after repeated interactions, take a fresh browser snapshot or diagnostics and reason from that evidence instead of continuing blind clicks or fills.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
 
@@ -202,6 +204,7 @@ function defaultState() {
     actionDeployRequired: false,
     actionSetupRequired: false,
     touchedActionEndpoints: [],
+    browserInteractionsSinceEvidence: 0,
     failureSignature: "",
     repeatedFailures: 0,
     evidence: "",
@@ -673,13 +676,15 @@ export default async function TrustableGuardrails({ directory }) {
 
     "chat.message": async (input, output) => {
       if (output.message?.role !== "user") return;
-      const text = (output.parts || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
-      if (!isDiagnosticRequest(text)) return;
       const current = stateFor(input.sessionID);
-      current.diagnosticRequired = true;
-      current.reproduced = false;
-      current.verified = false;
-      current.evidence = "";
+      current.browserInteractionsSinceEvidence = 0;
+      const text = (output.parts || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
+      if (isDiagnosticRequest(text)) {
+        current.diagnosticRequired = true;
+        current.reproduced = false;
+        current.verified = false;
+        current.evidence = "";
+      }
       saveState(input.sessionID, current);
     },
 
@@ -701,6 +706,10 @@ export default async function TrustableGuardrails({ directory }) {
     },
 
     "tool.execute.before": async (input, output) => {
+      const current = stateFor(input.sessionID);
+      if (input.tool === "browser_browser_interact" && current.browserInteractionsSinceEvidence >= BROWSER_INTERACTION_BUDGET) {
+        throw new Error(`Trustable browser diagnostic circuit breaker: ${BROWSER_INTERACTION_BUDGET} interactions ran without fresh evidence. Call browser_browser_snapshot or browser_browser_diagnostics, inspect the result, then continue with a bounded next action.`);
+      }
       if (input.tool === "bash" && isRawActionCommand(output.args)) {
         throw new Error("Trustable action guard: raw ops action/wsk action shell commands are forbidden, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, or invocation; use ops ide deploy and ops ide setup for lifecycle operations.");
       }
@@ -717,7 +726,6 @@ export default async function TrustableGuardrails({ directory }) {
         throw new Error("Trustable action guard: manual ZIP creation or mutation under packages/ is forbidden. Edit action source and run ops ide deploy so ops generates and deploys the archive.");
       }
       if (["trustable_context_recover", "trustable_diagnostic_checkpoint", "trustable_completion_check"].includes(input.tool)) return;
-      const current = stateFor(input.sessionID);
       if (current.actionDeployRequired && input.tool === "bash" && isOpsIdeSetupCommand(output.args)) {
         throw new Error("Trustable action guard: action source changed after the last deploy. Run timeout 120 ops ide deploy before ops ide setup.");
       }
@@ -731,9 +739,19 @@ export default async function TrustableGuardrails({ directory }) {
     },
 
     "tool.execute.after": async (input, output) => {
+      const current = stateFor(input.sessionID);
+      if (["browser_browser_open", "browser_browser_snapshot", "browser_browser_diagnostics"].includes(input.tool)) {
+        current.browserInteractionsSinceEvidence = 0;
+        saveState(input.sessionID, current);
+        return;
+      }
+      if (input.tool === "browser_browser_interact") {
+        current.browserInteractionsSinceEvidence += 1;
+        saveState(input.sessionID, current);
+        return;
+      }
       if (!isMutatingTool(input.tool, input.args)) return;
       if (/^(Error:|Could not find oldString|No changes to apply)/i.test(output.output || "")) return;
-      const current = stateFor(input.sessionID);
       current.dirty = true;
       current.verified = false;
       if (isActionMutation(input.tool, input.args)) {

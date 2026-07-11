@@ -133,6 +133,40 @@ test("managed ops ide login is rejected before shell execution", async () => {
   }
 });
 
+test("browser interactions require fresh evidence after a bounded run", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-browser-budget-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_browser_budget_${Date.now()}`;
+
+  for (let index = 0; index < 12; index++) {
+    await plugin["tool.execute.before"](
+      { tool: "browser_browser_interact", sessionID, callID: `before_${index}` },
+      { args: { action: "fill", kind: "label", target: "Password", value: "secret" } },
+    );
+    await plugin["tool.execute.after"](
+      { tool: "browser_browser_interact", sessionID, callID: `after_${index}`, args: { action: "fill", kind: "label", target: "Password", value: "secret" } },
+      { output: "ok" },
+    );
+  }
+
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "browser_browser_interact", sessionID, callID: "blocked" },
+      { args: { action: "click", kind: "role", role: "button", target: "Accedi" } },
+    ),
+    /browser diagnostic circuit breaker.*snapshot or browser_browser_diagnostics/s,
+  );
+
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_snapshot", sessionID, callID: "snapshot", args: {} },
+    { output: "fresh state" },
+  );
+  await plugin["tool.execute.before"](
+    { tool: "browser_browser_interact", sessionID, callID: "unblocked" },
+    { args: { action: "click", kind: "role", role: "button", target: "Accedi" } },
+  );
+});
+
 test("manual action ZIP mutations are denied but read-only inspection is allowed", () => {
   assert.equal(guardrails.isManualActionZipMutation("write", {
     filePath: "/tmp/app/packages/v1/stack/stack.zip",

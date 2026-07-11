@@ -106,5 +106,17 @@ application. The agent must not retry login or replace/restart the managed dev
 server. `ops ide deploy` and `ops ide setup` remain allowed where their existing
 action lifecycle guards require them.
 
+## Browser diagnostic budget
+
+Browser work is bounded per user turn. After twelve consecutive
+`browser_browser_interact` calls without fresh browser evidence, the plugin
+blocks more interactions and requires `browser_browser_snapshot` or
+`browser_browser_diagnostics`. Opening the target again also supplies a fresh
+snapshot. A new user message resets the counter.
+
+This is a diagnostic checkpoint, not a browser feature limit. It prevents long
+sessions from consuming context through repeated blind fills and clicks while
+still allowing complex flows to continue in short, observed segments.
+
 See [application-test-completion-gate.svg](application-test-completion-gate.svg)
 for the execution flow.
