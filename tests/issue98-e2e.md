@@ -70,8 +70,11 @@ Run the real long-session compaction and persistence proof:
 ```
 
 This invokes OpenCode compaction, requires context recovery before subsequent
-mutations, then restarts the app and verifies the same session and marker are
-still present.
+mutations, and first attempts an immediate final response. The response must be
+replaced by the context-recovery gate until `trustable_context_recover`
+completes. The test then restarts the app and verifies the same session and
+marker are still present. This is a real compacted OpenCode session and model
+turn, not a replay of the guardrail unit test.
 
 Run the generated authentication proof:
 
@@ -82,7 +85,12 @@ Run the generated authentication proof:
 The prompt and browser assertions use one app lifecycle. The OpenCode wait loop
 requires a completed assistant message whose finish reason is not `tool-calls`;
 an intermediate idle transition remains in progress. A final `stop` without
-visible assistant text fails immediately.
+visible assistant text fails immediately. The browser records the generated
+private URL after registration, proves direct access is denied in a fresh
+anonymous context that has never logged in, and retries that same URL after
+logout. Same-origin private-looking GET APIs are tested after logout only when
+they were observed as successful fetch/XHR traffic while authenticated; no API
+path is invented by the runner.
 
 Resume a retained app after a runner-only assertion failure while still
 revalidating its persisted model trace:

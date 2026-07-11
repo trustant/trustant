@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="380" viewBox="0 0 980 380" role="img" aria-labelledby="title desc">
   <title id="title">Issue 98 generated authentication E2E</title>
-  <desc id="desc">One temporary app is created, OpenCode builds authentication through the guarded action workflow, the runner waits for a final assistant response rather than an intermediate tool call, and Playwright verifies registration, persistence, logout, protected routes, and login.</desc>
+  <desc id="desc">One temporary app is created, OpenCode builds authentication through the guarded action workflow, immediate finalization after compaction stays blocked until recovery, and Playwright verifies direct protected access before login and after logout, discovered protected APIs when available, registration, persistence, and login.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }
     .title { font-size: 22px; font-weight: 700; }
@@ -20,14 +20,14 @@
   <rect x="454" y="78" width="145" height="104" class="box"/>
   <text x="527" y="107" text-anchor="middle" class="label">Contract gates</text><text x="527" y="131" text-anchor="middle" class="small">action MCP + backend</text><text x="527" y="152" text-anchor="middle" class="small">deploy + setup</text><text x="527" y="172" text-anchor="middle" class="small">router + completion checks</text>
   <rect x="639" y="78" width="145" height="104" class="box"/>
-  <text x="712" y="107" text-anchor="middle" class="label">Browser flow</text><text x="712" y="131" text-anchor="middle" class="small">register + private area</text><text x="712" y="152" text-anchor="middle" class="small">reload + logout</text><text x="712" y="172" text-anchor="middle" class="small">login + reload</text>
+  <text x="712" y="107" text-anchor="middle" class="label">Browser flow</text><text x="712" y="131" text-anchor="middle" class="small">direct private access denied</text><text x="712" y="152" text-anchor="middle" class="small">register + reload + logout</text><text x="712" y="172" text-anchor="middle" class="small">direct retry denied + login</text>
   <rect x="824" y="88" width="130" height="84" class="ok"/>
-  <text x="889" y="117" text-anchor="middle" class="label">Proof</text><text x="889" y="141" text-anchor="middle" class="small">same credentials</text><text x="889" y="161" text-anchor="middle" class="small">session persists</text>
+  <text x="889" y="117" text-anchor="middle" class="label">Proof</text><text x="889" y="141" text-anchor="middle" class="small">route/API guarded</text><text x="889" y="161" text-anchor="middle" class="small">session persists</text>
   <path d="M189 130 H229" class="arrow"/><path d="M414 130 H454" class="arrow"/><path d="M599 130 H639" class="arrow"/><path d="M784 130 H824" class="arrow"/>
-  <rect x="229" y="246" width="555" height="82" class="box"/>
-  <text x="507" y="276" text-anchor="middle" class="label">No split test state</text>
-  <text x="507" y="298" text-anchor="middle" class="small">prompt and browser assertions run before cleanup on the same generated app</text>
-  <text x="507" y="316" text-anchor="middle" class="small">idle after finish=tool-calls is intermediate; stop without final text fails immediately</text>
-  <text x="507" y="334" text-anchor="middle" class="small">trace, screenshot, video, console, and network evidence stay attached on failure</text>
-  <text x="507" y="360" text-anchor="middle" class="small">a failed assertion may resume by revalidating the persisted trace, never by skipping it</text>
+  <rect x="229" y="226" width="555" height="140" class="box"/>
+  <text x="507" y="254" text-anchor="middle" class="label">No split test state</text>
+  <text x="507" y="280" text-anchor="middle" class="small">prompt and browser assertions run before cleanup on the same generated app</text>
+  <text x="507" y="306" text-anchor="middle" class="small">post-compaction finalization is rejected until trustable_context_recover completes</text>
+  <text x="507" y="332" text-anchor="middle" class="small">protected route and observed same-origin API are rediscovered from the generated app</text>
+  <text x="507" y="358" text-anchor="middle" class="small">trace, screenshot, video, console, and network evidence stay attached on failure</text>
 </svg>
