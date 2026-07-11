@@ -126,3 +126,7 @@ Use `./start.sh -k` first only when you want a clean rebuild.
 ./start.sh -s stops the VM without deleting it, so a later `./start.sh` restarts
 it (no reinstall) — the Stopped path above.
 ./start.sh -k stops and deletes the VM.
+
+
+---
+add user in group sudo and do not create another group (use useradd -g sudo)
