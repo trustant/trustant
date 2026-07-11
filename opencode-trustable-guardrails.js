@@ -6,7 +6,6 @@ import { homedir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 
 const STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
-const COMPLETION_WORDS = /\b(done|complete|completed|fixed|resolved|working|success|risolto|risolta|completato|completata|funziona|prova ora)\b/i;
 const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|ancora|errore|problema|pagina bianca|bloccato)/i;
 const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
 const ACTION_TOOL = /^(?:action[-_](?!(?:invoke|list|get|inspect|status)(?:$|[-_]))|openserverless_action_(?!(?:invoke|list|get|inspect|status)(?:$|_)))/;
@@ -776,13 +775,13 @@ export default async function TrustableGuardrails({ directory }) {
 
     "experimental.text.complete": async (input, output) => {
       const current = stateFor(input.sessionID);
-      if (!COMPLETION_WORDS.test(output.text || "")) return;
       if (current.diagnosticRequired && !current.reproduced) {
         output.text = "Trustable diagnostic gate: the reported symptom has not been reproduced yet. Continue with read-only diagnostics and record evidence with trustable_diagnostic_checkpoint before changing source.";
         return;
       }
       if (current.dirty && !current.verified) {
         output.text = "Trustable completion gate: the current changes are not verified. Continue by calling trustable_completion_check; do not ask the user to test an unverified result.";
+        return;
       }
     },
   };

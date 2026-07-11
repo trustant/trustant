@@ -80,6 +80,11 @@ all touched endpoints have focused tests and all executable discovered suites
 pass. The normal repeated-failure circuit breaker applies to stable test
 failures.
 
+When session state is dirty or diagnostic reproduction is still required, the
+plugin replaces any final assistant response with the relevant gate message.
+This does not depend on completion keywords: neutral wording such as "ho
+aggiornato la pagina" cannot bypass verification.
+
 ## Raw action shell commands
 
 The plugin rejects shell execution of `ops action ...` and `wsk action ...`

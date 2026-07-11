@@ -424,7 +424,13 @@ function isBenignPromptToolError(part, toolParts = []) {
   if (["edit", "write"].includes(part.tool) && /(?:oldString.*not found|Could not find oldString|No changes to apply|oldString == newString)/i.test(state.error || "")) {
     const path = state.input?.filePath || state.input?.path || "";
     const rereadIndex = later.findIndex((candidate) => candidate.tool === "read" && (candidate.state?.input?.filePath || candidate.state?.input?.path) === path && candidate.state?.status === "completed");
-    return rereadIndex >= 0 && later.slice(rereadIndex + 1).some((candidate) => ["edit", "write"].includes(candidate.tool) && (candidate.state?.input?.filePath || candidate.state?.input?.path) === path && candidate.state?.status === "completed");
+    if (rereadIndex < 0) return false;
+    const rereadOutput = String(later[rereadIndex].state?.output || "");
+    const oldString = String(state.input?.oldString || "");
+    const newString = String(state.input?.newString || "");
+    const alreadyApplied = Boolean(newString) && rereadOutput.includes(newString) && (!oldString || !rereadOutput.includes(oldString));
+    const laterEdit = later.slice(rereadIndex + 1).some((candidate) => ["edit", "write"].includes(candidate.tool) && (candidate.state?.input?.filePath || candidate.state?.input?.path) === path && candidate.state?.status === "completed");
+    return alreadyApplied || laterEdit;
   }
   if (part.tool === "edit" && /invalid arguments:.*Missing key|SchemaError\(Missing key/i.test(state.error || "")) {
     const path = state.input?.filePath || state.input?.path || "";

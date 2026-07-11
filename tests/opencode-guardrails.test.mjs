@@ -383,6 +383,23 @@ test("compaction blocks mutations and unverified claims", async () => {
   assert.match(text.text, /completion gate|diagnostic gate/);
 });
 
+test("dirty sessions cannot stop with neutral final wording", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-neutral-final-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_neutral_final_${Date.now()}`;
+
+  await plugin["tool.execute.after"](
+    { tool: "edit", sessionID, callID: "edit", args: { filePath: join(directory, "src", "App.tsx") } },
+    { output: "updated" },
+  );
+  const text = { text: "Ho aggiornato la pagina come richiesto." };
+  await plugin["experimental.text.complete"](
+    { sessionID, messageID: "msg", partID: "part" },
+    text,
+  );
+  assert.match(text.text, /completion gate.*not verified/i);
+});
+
 test("application test discovery does not impose a framework on apps without tests", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-app-tests-empty-"));
   writeFileSync(join(directory, "package.json"), JSON.stringify({ scripts: { build: "echo build" } }));
