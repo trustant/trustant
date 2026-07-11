@@ -60,6 +60,12 @@ or `useNavigate` with logical paths such as `/login`. React Router adds the hash
 itself: never pass `#/login` to a router API, and never use root-relative `<a
 href="/login">` anchors for internal navigation.
 
+Give form controls stable `id` and `name` attributes and associate labels with
+matching `htmlFor`. Repeated placeholders are not semantic labels. If
+`browser_interact` reports an ambiguous locator, fix the form semantics when
+appropriate or pass its explicit zero-based `index`; do not bypass a failed UI
+flow with direct API calls and call it verified.
+
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small
 generated app modules or pages that you are replacing wholesale, use the file

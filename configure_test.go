@@ -1292,6 +1292,31 @@ func TestFrontendCheckerRejectsPasswordInQueryString(t *testing.T) {
 	}
 }
 
+func TestFrontendCheckerRejectsBrowserControlledIdentity(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	api := "export const hardcoded = () => fetch('/api/profile?user_id=1');\n" +
+		"export const dynamic = (token, user) => fetch(`/api/profile?user_id=${user.id}`, { headers: { Authorization: `Bearer ${token}` } });\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "api.ts"), []byte(api), 0644); err != nil {
+		t.Fatalf("write api: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("browser-controlled identity should fail, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Do not hardcode browser-visible user_id") {
+		t.Fatalf("hardcoded identity error missing: %s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "frontend authentication identity") {
+		t.Fatalf("bearer plus browser user_id error missing: %s", strings.TrimSpace(string(out)))
+	}
+}
+
 // Without an AgentiReact() opt-in, no agentireact server is added.
 func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir

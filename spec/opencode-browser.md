@@ -4,6 +4,8 @@ Trustable provides a bounded Playwright browser to the OpenCode session through
 the generated `browser` MCP entry. It is an app-development diagnostic tool,
 not a general web browser.
 
+The strict indexed locator contract is exposed by browser MCP version `0.2.0`.
+
 ## Targets
 
 - `development` resolves only to `http://localhost:5173` inside the Trustable
@@ -27,7 +29,10 @@ The server exposes a deliberately small persistent browser surface:
 - `browser_open`: open the development or deployed target;
 - `browser_snapshot`: return URL, title, aria snapshot, visible text, console
   warnings/errors, and failed HTTP requests;
-- `browser_interact`: one click, fill, key press, reload, or back operation;
+- `browser_interact`: one click, fill, key press, reload, or back operation.
+  Locator resolution is strict: zero matches reports the complete locator,
+  multiple matches require an explicit zero-based `index`, and a supplied
+  index selects with Playwright `nth(index)`;
 - `browser_diagnostics`: return console/page/network failures;
 - `browser_capture`: save a full-page screenshot plus structured JSON evidence;
 - `browser_close`: close and discard the isolated browser context.
@@ -46,7 +51,10 @@ not reuse a stale base image.
 ## Verification
 
 `browser-mcp` unit/integration tests must verify URL restrictions, navigation,
-accessibility snapshots, browser console capture, and failed-network capture.
+accessibility snapshots, browser console capture, failed-network capture, and
+real form submission when two password inputs share the same placeholder. The
+duplicate locator must fail without `index`; indices `0` and `1` must fill the
+two distinct inputs before the registration request is submitted.
 The generated OpenCode and Claude MCP configs must both include the browser
 server. A live pod test must confirm `browser_open` can inspect
 `http://localhost:5173` for the currently launched app.

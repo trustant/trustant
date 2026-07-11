@@ -61,9 +61,13 @@ if [ "${#frontend_files[@]}" -gt 0 ]; then
     error "$hit" "Do not put passwords in URLs or query strings. Send credentials in a JSON request body."
   done < <(grep -Ein '(fetch|axios).*(\?|&)[^[:space:]]*password|password[^[:space:]]*(\?|&).*(fetch|axios)' "${frontend_files[@]}" 2>/dev/null || true)
 
+  while IFS= read -r hit; do
+    error "$hit" "Do not hardcode browser-visible user_id values. Protected APIs must derive identity from the validated token/session."
+  done < <(grep -Ein "user_id[[:space:]]*[=:][[:space:]]*['\"]?[0-9]+|[?&]user_id=[0-9]+" "${frontend_files[@]}" 2>/dev/null || true)
+
   if grep -Eqs 'Authorization[^\n]*Bearer|Bearer[^\n]*Authorization' "${frontend_files[@]}" &&
     grep -Eqs 'user_id[=:][[:space:]]*\$?\{|user_id=.*localStorage|localStorage.*user_id' "${frontend_files[@]}"; then
-    warn "frontend authentication identity" "The frontend sends a bearer token but also supplies user_id. Protected APIs should derive identity from the validated token instead of trusting a browser-provided id."
+    error "frontend authentication identity" "The frontend sends a bearer token but also supplies user_id. Protected APIs must derive identity from the validated token instead of trusting a browser-provided id."
   fi
 
   if grep -Eqs 'localStorage\.(getItem|setItem)\([^)]*(token|session)' "${frontend_files[@]}" &&

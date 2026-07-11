@@ -651,6 +651,12 @@ When an app has login or registration:
   frontend, then derive the authenticated UI state from that data or from a
   bounded `me` check.
 - Add an explicit logout path when protected navigation is shown.
+- Give every form control a stable `id` and `name`, and associate each label
+  with `htmlFor` matching that `id`. A placeholder is not a label. When a
+  browser locator matches multiple controls, fix missing form semantics when
+  appropriate or pass the browser MCP's explicit zero-based `index`; never
+  bypass the rendered registration/login flow with `curl` and claim the browser
+  flow passed.
 - Do not hardcode browser-visible identity such as `user_id=1` in fetch URLs or
   request bodies. The backend must derive the current user from authenticated
   request state, such as a token/session header, not from a user id supplied by

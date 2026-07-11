@@ -545,6 +545,9 @@ root-relative internal anchors used with `HashRouter` and passwords placed in
 request URLs. With `HashRouter`, it must also reject `Link`, `NavLink`,
 `Navigate`, or `navigate(...)` targets beginning with `#/`; router APIs receive
 logical paths such as `/login` and add the hash themselves.
+It must reject hardcoded `user_id` values in frontend requests and
+bearer-authenticated requests that also send a browser-controlled `user_id`;
+protected actions derive identity from the validated token/session.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated

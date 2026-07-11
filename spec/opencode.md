@@ -628,10 +628,18 @@ When an app has login or registration, the embedded guidance must say:
   data it needs and derive authenticated UI state from that data or from a
   bounded `me` check;
 - protected navigation must include an explicit logout path;
+- every form control must have a stable `id`/`name` and an associated label
+  (`label htmlFor` matching the input `id`). Repeated placeholders are not
+  semantic names. If a browser locator is ambiguous, assistants must fix the
+  form accessibility when appropriate or use the browser MCP's explicit
+  zero-based `index`; they must not bypass the UI with direct API calls and
+  claim the browser flow passed;
 - browser-visible identity such as `user_id=1` must not be hardcoded in fetch
   URLs or request bodies. The backend must derive the current user from
   authenticated request state, such as a token/session header, not from a user id
-  supplied by the browser.
+  supplied by the browser. The frontend checker must treat hardcoded user IDs,
+  or bearer-authenticated requests that also send browser-controlled `user_id`,
+  as blocking errors.
 
 ## Setup And Data Initialization
 

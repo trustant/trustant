@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="360" viewBox="0 0 980 360" role="img" aria-labelledby="title desc">
   <title id="title">OpenCode bounded browser MCP flow</title>
-  <desc id="desc">OpenCode uses a low-noise Playwright MCP inside the Trustable pod to inspect the managed development server and, only after deploy, the configured Vite ingress.</desc>
+  <desc id="desc">OpenCode uses a low-noise Playwright MCP inside the Trustable pod with strict, indexed locator resolution to inspect the managed development server and, only after deploy, the configured Vite ingress.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }
     .title { font-size: 22px; font-weight: 700; }
@@ -25,8 +25,9 @@
   <rect x="285" y="72" width="230" height="118" class="box"/>
   <text x="400" y="103" text-anchor="middle" class="label">trustable-browser-mcp</text>
   <text x="400" y="127" text-anchor="middle" class="small">headless Chromium + Playwright</text>
-  <text x="400" y="148" text-anchor="middle" class="small">URL, aria snapshot, console, network</text>
-  <text x="400" y="169" text-anchor="middle" class="small">bounded actions and artifacts</text>
+  <text x="400" y="146" text-anchor="middle" class="small">URL, aria snapshot, console, network</text>
+  <text x="400" y="165" text-anchor="middle" class="small">strict locator + explicit index</text>
+  <text x="400" y="184" text-anchor="middle" class="small">bounded actions and artifacts</text>
 
   <rect x="600" y="60" width="300" height="92" class="dev"/>
   <text x="750" y="91" text-anchor="middle" class="label">Development target</text>

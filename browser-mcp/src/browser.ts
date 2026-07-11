@@ -96,12 +96,38 @@ export class TrustableBrowser {
     switch (kind) {
       case "role":
         if (!role) throw new Error("role is required when locator kind is role")
-        return page.getByRole(role as Parameters<Page["getByRole"]>[0], { name: target, exact: false }).first()
-      case "text": return page.getByText(target, { exact: false }).first()
-      case "label": return page.getByLabel(target, { exact: false }).first()
-      case "placeholder": return page.getByPlaceholder(target, { exact: false }).first()
-      case "css": return page.locator(target).first()
+        return page.getByRole(role as Parameters<Page["getByRole"]>[0], { name: target, exact: false })
+      case "text": return page.getByText(target, { exact: false })
+      case "label": return page.getByLabel(target, { exact: false })
+      case "placeholder": return page.getByPlaceholder(target, { exact: false })
+      case "css": return page.locator(target)
     }
+  }
+
+  private locatorDescription(kind: LocatorKind, target: string, role?: string): string {
+    if (kind === "role") return `role=${role || "(missing)"} name=${JSON.stringify(target)}`
+    return `${kind}=${JSON.stringify(target)}`
+  }
+
+  private async selectedLocator(page: Page, options: {
+    kind: LocatorKind
+    target: string
+    role?: string
+    index?: number
+  }): Promise<Locator> {
+    const locator = this.locator(page, options.kind, options.target, options.role)
+    const description = this.locatorDescription(options.kind, options.target, options.role)
+    const count = await locator.count()
+    if (count === 0) throw new Error(`element not found: ${description}`)
+    if (options.index === undefined && count > 1) {
+      throw new Error(`ambiguous locator: ${description} matched ${count} elements; specify zero-based index 0..${count - 1}`)
+    }
+    const index = options.index ?? 0
+    if (!Number.isInteger(index) || index < 0) throw new Error("locator index must be a non-negative integer")
+    if (index >= count) {
+      throw new Error(`locator index out of range: ${description} matched ${count} elements; received index ${index}`)
+    }
+    return locator.nth(index)
   }
 
   async interact(action: Interaction, options: {
@@ -109,6 +135,7 @@ export class TrustableBrowser {
     target?: string
     role?: string
     value?: string
+    index?: number
   }): Promise<BrowserSnapshot> {
     const page = await this.ensurePage()
     if (action === "reload") {
@@ -120,8 +147,12 @@ export class TrustableBrowser {
       return this.snapshot()
     }
     if (!options.kind || !options.target) throw new Error(`${action} requires locator kind and target`)
-    const locator = this.locator(page, options.kind, options.target, options.role)
-    if (await locator.count() === 0) throw new Error(`element not found: ${options.kind}=${options.target}`)
+    const locator = await this.selectedLocator(page, {
+      kind: options.kind,
+      target: options.target,
+      role: options.role,
+      index: options.index,
+    })
 
     if (action === "click") await locator.click({ timeout: 10_000 })
     if (action === "fill") {
