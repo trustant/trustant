@@ -1,9 +1,9 @@
 import { tool } from "@opencode-ai/plugin";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 
 const STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
 const COMPLETION_WORDS = /\b(done|complete|completed|fixed|resolved|working|success|risolto|risolta|completato|completata|funziona|prova ora)\b/i;
@@ -12,6 +12,19 @@ const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s
 const ACTION_TOOL = /^(?:action[-_](?!invoke(?:$|[-_]))|openserverless_action_(?!invoke(?:$|_)))/;
 const OPS_IDE_DEPLOY = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i;
 const OPS_IDE_SETUP = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+setup(?:\s|$)/i;
+const TEST_DISCOVERY_MAX_DEPTH = 8;
+const TEST_DISCOVERY_MAX_ENTRIES = 5_000;
+const TEST_SUITE_LIMIT = 12;
+const TEST_TIMEOUT_MS = 180_000;
+const TEST_TOTAL_TIMEOUT_MS = 600_000;
+const TEST_IGNORED_DIRECTORIES = new Set([
+  ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
+  "__pycache__", "node_modules", "vendor", "coverage", "dist", "build",
+  ".next", ".nuxt", ".svelte-kit",
+]);
+const JS_TEST_FILE = /(?:^|\/)(?:tests?\/.*\.[cm]?[jt]sx?|[^/]+\.(?:test|spec)\.[cm]?[jt]sx?)$/i;
+const PYTHON_TEST_FILE = /(?:^|\/)(?:test_[^/]+|[^/]+_test)\.py$/i;
+const CRITICAL_TEST_PATH = /(?:^|\/)(?:packages|auth(?:entication|orization)?|login|register|session|security|upload|payment|billing|storage|database|persistence)(?:\/|[_.-]|$)/i;
 
 const CRITICAL_SYSTEM = [
   "Trustable enforcement is active.",
@@ -23,6 +36,7 @@ const CRITICAL_SYSTEM = [
   "Never kill Trustable-managed processes or start vite, npm run dev, or ops ide devel; use the already-running localhost:5173 server.",
   "With React Router HashRouter, pass logical routes such as /login to Link, NavLink, Navigate, and useNavigate. Never pass #/login to router APIs and never use root-relative anchors for internal navigation.",
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
+  "The completion gate automatically runs existing Go, Python, and JavaScript application tests without installing dependencies. Add focused regression tests for changed critical behavior when the app already has a compatible test structure; never ask the user to run them.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
 
@@ -184,9 +198,10 @@ async function run(command, cwd, timeoutMs = 180_000) {
       const output = `${stdout}${stderr ? `\nSTDERR:\n${stderr}` : ""}${error ? `\n${error}` : ""}`.trim();
       resolve({ exitCode, output });
     };
+    const { NODE_TEST_CONTEXT: _nodeTestContext, ...childEnv } = process.env;
     const proc = spawn("/bin/bash", ["-lc", command], {
       cwd,
-      env: process.env,
+      env: childEnv,
       signal: controller.signal,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -196,6 +211,222 @@ async function run(command, cwd, timeoutMs = 180_000) {
     proc.on("close", (code) => finish(Number.isInteger(code) ? code : 124));
     timer = setTimeout(() => controller.abort(), timeoutMs);
   });
+}
+
+function discoverFiles(directory) {
+  const files = [];
+  let entries = 0;
+  let exceeded = false;
+
+  const visit = (current, depth) => {
+    if (exceeded || depth > TEST_DISCOVERY_MAX_DEPTH) return;
+    let children;
+    try {
+      children = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    children.sort((left, right) => left.name.localeCompare(right.name));
+    for (const child of children) {
+      entries += 1;
+      if (entries > TEST_DISCOVERY_MAX_ENTRIES) {
+        exceeded = true;
+        return;
+      }
+      const path = join(current, child.name);
+      if (child.isSymbolicLink()) continue;
+      if (child.isDirectory()) {
+        if (!TEST_IGNORED_DIRECTORIES.has(child.name)) visit(path, depth + 1);
+      } else if (child.isFile()) {
+        files.push(path);
+      }
+    }
+  };
+
+  visit(directory, 0);
+  return { files, exceeded };
+}
+
+function nearestProjectFile(start, directory, candidates) {
+  let current = dirname(start);
+  while (current === directory || current.startsWith(`${directory}/`)) {
+    for (const candidate of candidates) {
+      const path = join(current, candidate);
+      if (existsSync(path)) return path;
+    }
+    if (current === directory) break;
+    current = dirname(current);
+  }
+  return "";
+}
+
+function readsAsPytest(path) {
+  try {
+    return /(?:^|\n)\s*(?:from\s+pytest\s+import|import\s+pytest\b)/m.test(readFileSync(path, "utf8").slice(0, 64 * 1024));
+  } catch {
+    return false;
+  }
+}
+
+function projectDeclaresPytest(directory) {
+  for (const name of ["pyproject.toml", "setup.cfg", "requirements.txt", "requirements-dev.txt", "pytest.ini"]) {
+    const path = join(directory, name);
+    if (!existsSync(path)) continue;
+    try {
+      if (name === "pytest.ini" || /(?:^|[^a-z])pytest(?:[^a-z]|$)/i.test(readFileSync(path, "utf8").slice(0, 128 * 1024))) return true;
+    } catch {
+      // An unreadable declaration will be reported by its runner if selected elsewhere.
+    }
+  }
+  return false;
+}
+
+function unsafeTestScript(script) {
+  return /(?:^|[;&|]\s*)(?:npm\s+(?:i|install|ci|update|uninstall)|yarn\s+(?:add|install)|pnpm\s+(?:add|install|update|dlx)|bun\s+(?:add|install)|pip(?:3)?\s+install|uv\s+sync|poetry\s+install|npx\b|bunx\b)/i.test(script);
+}
+
+export function discoverApplicationTestSuites(directory) {
+  const root = directory.replace(/\/+$/, "");
+  const { files, exceeded } = discoverFiles(root);
+  if (exceeded) {
+    return {
+      suites: [],
+      skipped: [],
+      error: `Application test discovery exceeded ${TEST_DISCOVERY_MAX_ENTRIES} filesystem entries. Narrow generated content or dependency trees before completion.`,
+    };
+  }
+
+  const suites = [];
+  const skipped = [];
+  const fileSet = new Set(files);
+  const goModules = new Set();
+  const jsPackages = new Map();
+  const pythonTests = [];
+
+  for (const path of files) {
+    const rel = relative(root, path).replaceAll("\\", "/");
+    if (rel.endsWith("_test.go")) {
+      const moduleFile = nearestProjectFile(path, root, ["go.mod"]);
+      if (moduleFile) goModules.add(dirname(moduleFile));
+    }
+    if (PYTHON_TEST_FILE.test(rel)) pythonTests.push(path);
+    if (JS_TEST_FILE.test(rel)) {
+      const packageFile = nearestProjectFile(path, root, ["package.json"]);
+      if (packageFile) {
+        const packageRoot = dirname(packageFile);
+        if (!jsPackages.has(packageRoot)) jsPackages.set(packageRoot, []);
+        jsPackages.get(packageRoot).push(path);
+      }
+    }
+  }
+
+  for (const moduleRoot of [...goModules].sort()) {
+    suites.push({
+      name: `Go tests (${relative(root, moduleRoot) || "."})`,
+      command: "GOTOOLCHAIN=local GOPROXY=off go test ./...",
+      cwd: moduleRoot,
+      critical: [...fileSet].some((path) => path.startsWith(`${moduleRoot}/`) && path.endsWith("_test.go") && CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
+    });
+  }
+
+  if (pythonTests.length > 0) {
+    const usesPytest = projectDeclaresPytest(root) || pythonTests.some(readsAsPytest);
+    if (usesPytest) {
+      suites.push({
+        name: "Python tests (pytest)",
+        command: "python3 -m pytest --disable-warnings --maxfail=1",
+        cwd: root,
+        critical: pythonTests.some((path) => CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
+      });
+    } else {
+      const testDirectories = new Map();
+      for (const path of pythonTests) {
+        const testDirectory = dirname(path);
+        const current = testDirectories.get(testDirectory) || { prefix: false, suffix: false, critical: false };
+        const name = basename(path);
+        if (name.startsWith("test_")) current.prefix = true;
+        else current.suffix = true;
+        current.critical ||= CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"));
+        testDirectories.set(testDirectory, current);
+      }
+      for (const [testDirectory, patterns] of [...testDirectories.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+        for (const [present, pattern] of [[patterns.prefix, "test_*.py"], [patterns.suffix, "*_test.py"]]) {
+          if (!present) continue;
+          suites.push({
+            name: `Python tests (unittest; ${relative(root, testDirectory) || "."}; ${pattern})`,
+            command: `python3 -m unittest discover -s . -p '${pattern}'`,
+            cwd: testDirectory,
+            critical: patterns.critical,
+          });
+        }
+      }
+    }
+  }
+
+  for (const [packageRoot, testFiles] of [...jsPackages.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+    } catch (error) {
+      suites.push({
+        name: `JavaScript tests (${relative(root, packageRoot) || "."})`,
+        invalid: `invalid package.json: ${error.message}`,
+      });
+      continue;
+    }
+    const scriptName = pkg.scripts?.["test:ci"] ? "test:ci" : pkg.scripts?.test ? "test" : "";
+    if (!scriptName || /no test specified/i.test(pkg.scripts[scriptName])) {
+      skipped.push(`JavaScript tests (${relative(root, packageRoot) || "."}): test files exist but no executable test/test:ci script is declared`);
+      continue;
+    }
+    if (unsafeTestScript(pkg.scripts[scriptName])) {
+      suites.push({
+        name: `JavaScript tests (${relative(root, packageRoot) || "."})`,
+        invalid: `the ${scriptName} script may install or download dependencies; use an already-installed project test runner`,
+      });
+      continue;
+    }
+    suites.push({
+      name: `JavaScript tests (${relative(root, packageRoot) || "."})`,
+      command: `CI=1 npm_config_offline=true npm_config_update_notifier=false npm run ${scriptName}`,
+      cwd: packageRoot,
+      critical: testFiles.some((path) => CRITICAL_TEST_PATH.test(relative(root, path).replaceAll("\\", "/"))),
+    });
+  }
+
+  if (suites.length > TEST_SUITE_LIMIT) {
+    return {
+      suites: [],
+      skipped,
+      error: `Application test discovery found ${suites.length} executable suites; the bounded limit is ${TEST_SUITE_LIMIT}. Consolidate duplicate suite declarations before completion.`,
+    };
+  }
+  return { suites, skipped, error: "" };
+}
+
+export async function runApplicationTests(directory) {
+  const discovered = discoverApplicationTestSuites(directory);
+  if (discovered.error) return { passed: false, output: discovered.error };
+
+  const reports = [];
+  let passed = true;
+  const deadline = Date.now() + TEST_TOTAL_TIMEOUT_MS;
+  for (const suite of discovered.suites) {
+    const remaining = deadline - Date.now();
+    const result = suite.invalid
+      ? { exitCode: 1, output: suite.invalid }
+      : remaining <= 0
+        ? { exitCode: 124, output: `Application test budget of ${TEST_TOTAL_TIMEOUT_MS / 1000} seconds exhausted before this suite.` }
+        : await run(suite.command, suite.cwd, Math.min(TEST_TIMEOUT_MS, remaining));
+    if (result.exitCode !== 0) passed = false;
+    reports.push([
+      `===== ${suite.name}${suite.critical ? " [critical]" : ""}: ${result.exitCode === 0 ? "PASS" : "FAIL"} =====`,
+      result.output || "(no output)",
+    ].join("\n"));
+  }
+  for (const message of discovered.skipped) reports.push(`===== ${message}: SKIP =====`);
+  if (reports.length === 0) reports.push("===== application tests: SKIP =====\nNo executable application test suites discovered; no framework is imposed.");
+  return { passed, output: reports.join("\n\n") };
 }
 
 async function completionChecks(directory) {
@@ -214,6 +445,8 @@ async function completionChecks(directory) {
       checks.push(["package.json", { exitCode: 1, output: error.message }]);
     }
   }
+
+  checks.push(["application tests", await runApplicationTests(directory)]);
 
   const failed = checks.filter(([, result]) => result.exitCode !== 0);
   const output = checks.map(([name, result]) => [
@@ -279,7 +512,7 @@ export default async function TrustableGuardrails({ directory }) {
       }),
 
       trustable_completion_check: tool({
-        description: "Run the deterministic Trustable completion gate after source changes: git diff validation, OpenServerless and frontend contract checkers, and the frontend build when available.",
+        description: "Run the deterministic Trustable completion gate after source changes: git diff validation, contract checkers, frontend build, and bounded existing Go/Python/JavaScript application tests.",
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);

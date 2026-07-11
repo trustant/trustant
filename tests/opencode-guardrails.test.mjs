@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -262,4 +263,125 @@ test("compaction blocks mutations and unverified claims", async () => {
     text,
   );
   assert.match(text.text, /completion gate|diagnostic gate/);
+});
+
+test("application test discovery does not impose a framework on apps without tests", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-app-tests-empty-"));
+  writeFileSync(join(directory, "package.json"), JSON.stringify({ scripts: { build: "echo build" } }));
+
+  const discovered = guardrails.discoverApplicationTestSuites(directory);
+  assert.deepEqual(discovered.suites, []);
+  assert.equal(discovered.error, "");
+
+  const result = await guardrails.runApplicationTests(directory);
+  assert.equal(result.passed, true);
+  assert.match(result.output, /SKIP/);
+  assert.match(result.output, /no framework is imposed/i);
+});
+
+test("application test gate executes existing Go, Python, and JavaScript suites", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-app-tests-mixed-"));
+
+  writeFileSync(join(directory, "go.mod"), "module example.test/app\n\ngo 1.22\n");
+  writeFileSync(join(directory, "value.go"), "package app\nfunc Value() int { return 42 }\n");
+  writeFileSync(join(directory, "value_test.go"), "package app\nimport \"testing\"\nfunc TestValue(t *testing.T) { if Value() != 42 { t.Fatal(\"wrong value\") } }\n");
+
+  mkdirSync(join(directory, "python"));
+  writeFileSync(join(directory, "python", "test_value.py"), [
+    "import unittest",
+    "class ValueTest(unittest.TestCase):",
+    "    def test_value(self):",
+    "        self.assertEqual(42, 42)",
+    "if __name__ == '__main__':",
+    "    unittest.main()",
+    "",
+  ].join("\n"));
+
+  mkdirSync(join(directory, "frontend"));
+  writeFileSync(join(directory, "frontend", "package.json"), JSON.stringify({
+    type: "module",
+    scripts: { test: "node --test" },
+  }));
+  writeFileSync(join(directory, "frontend", "value.test.js"), [
+    "import assert from 'node:assert/strict';",
+    "import test from 'node:test';",
+    "test('value', () => assert.equal(42, 42));",
+    "",
+  ].join("\n"));
+
+  const discovered = guardrails.discoverApplicationTestSuites(directory);
+  assert.equal(discovered.error, "");
+  assert.equal(discovered.suites.length, 3);
+
+  const result = await guardrails.runApplicationTests(directory);
+  assert.equal(result.passed, true, result.output);
+  assert.match(result.output, /Go tests .*: PASS/);
+  assert.match(result.output, /Python tests \(unittest; python; test_\*\.py\): PASS/);
+  assert.match(result.output, /JavaScript tests .*: PASS/);
+});
+
+test("existing critical action tests are blocking", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-app-tests-critical-"));
+  const action = join(directory, "packages", "v1", "auth");
+  mkdirSync(action, { recursive: true });
+  writeFileSync(join(action, "test_auth.py"), [
+    "import unittest",
+    "class AuthTest(unittest.TestCase):",
+    "    def test_token_identity(self):",
+    "        self.assertEqual('browser-user', 'token-user')",
+    "if __name__ == '__main__':",
+    "    unittest.main()",
+    "",
+  ].join("\n"));
+
+  const discovered = guardrails.discoverApplicationTestSuites(directory);
+  assert.equal(discovered.suites.length, 1);
+  assert.equal(discovered.suites[0].critical, true);
+
+  const result = await guardrails.runApplicationTests(directory);
+  assert.equal(result.passed, false);
+  assert.match(result.output, /Python tests \(unittest; packages\/v1\/auth; test_\*\.py\) \[critical\]: FAIL/);
+  assert.match(result.output, /browser-user.*token-user|token-user.*browser-user/s);
+});
+
+test("JavaScript test scripts cannot install or download dependencies", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-app-tests-download-"));
+  writeFileSync(join(directory, "package.json"), JSON.stringify({
+    scripts: { test: "npx vitest run" },
+  }));
+  writeFileSync(join(directory, "app.test.js"), "throw new Error('must not execute');\n");
+
+  const result = await guardrails.runApplicationTests(directory);
+  assert.equal(result.passed, false);
+  assert.match(result.output, /may install or download dependencies/);
+});
+
+test("trustable completion is blocked by a failing existing application test", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-completion-tests-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  const checker = join(fakeBin, "check_trustable_app.sh");
+  writeFileSync(checker, "#!/usr/bin/env bash\necho contracts-pass\nexit 0\n");
+  chmodSync(checker, 0o755);
+  writeFileSync(join(directory, "test_completion.py"), [
+    "import unittest",
+    "class CompletionTest(unittest.TestCase):",
+    "    def test_completion(self):",
+    "        self.fail('regression remains')",
+    "",
+  ].join("\n"));
+
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const plugin = await guardrails.default({ directory });
+  const result = await plugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID: `ses_application_tests_${Date.now()}`, directory, worktree: directory },
+  );
+  assert.match(result, /Trustable completion gate failed/);
+  assert.match(result, /application tests: FAIL/);
+  assert.match(result, /regression remains/);
 });
