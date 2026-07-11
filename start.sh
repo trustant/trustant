@@ -382,13 +382,12 @@ ensure_guest_user() {
 if ! id "$HOST_USER" >/dev/null 2>&1; then
   # Only pin the UID if it isn't already taken by another account.
   if [ -n "${HOST_UID:-}" ] && ! getent passwd "$HOST_UID" >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -u "$HOST_UID" "$HOST_USER"
+    useradd -g sudo -m -s /bin/bash -u "$HOST_UID" "$HOST_USER"
   else
-    useradd -m -s /bin/bash "$HOST_USER"
+    useradd -g sudo -m -s /bin/bash "$HOST_USER"
   fi
   echo "created guest user $HOST_USER ($(id -u "$HOST_USER"))"
 fi
-usermod -aG sudo "$HOST_USER" 2>/dev/null || true
 printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$HOST_USER" > "/etc/sudoers.d/90-$HOST_USER"
 chmod 0440 "/etc/sudoers.d/90-$HOST_USER"
 install -d -o "$HOST_USER" -g "$HOST_USER" -m 0700 "/home/$HOST_USER/.ssh"
