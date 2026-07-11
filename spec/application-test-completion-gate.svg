@@ -58,5 +58,6 @@
   <path class="line" d="M1085 135 V190"/>
   <path class="line" d="M935 255 L980 355"/>
   <text class="small" x="930" y="314">missing / failure / timeout</text>
-  <text class="small" x="610" y="445">Raw ops action / wsk action commands are rejected before execution, independently of permission patterns.</text>
+  <text class="small" x="610" y="438">Raw ops action / wsk action commands are rejected before execution, independently of permission patterns.</text>
+  <text class="small" x="610" y="456">Trustable owns ops ide login; deploy and setup remain guarded agent lifecycle operations.</text>
 </svg>

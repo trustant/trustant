@@ -30,6 +30,7 @@ const CRITICAL_SYSTEM = [
   "Trustable enforcement is active.",
   "After session compaction, call trustable_context_recover before any edit, write, action mutation, or deploy.",
   "For a reported bug, reproduce the exact user-visible symptom and record evidence with trustable_diagnostic_checkpoint before changing source.",
+  "Trustable already ran ops ide login and launched the managed dev server with the configured application environment. Never rerun ops ide login during the session.",
   "After any action MCP or packages/** source change, run ops ide deploy before setup or completion. Never create or modify action ZIP files manually.",
   "Never run raw shell ops action or wsk action commands, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, and invocation; use ops ide deploy and ops ide setup for lifecycle operations.",
   "After changing a setup action, run ops ide setup after deploy and before completion.",
@@ -61,9 +62,8 @@ export function isOpsIdeSetupCommand(args = {}) {
   return OPS_IDE_SETUP.test(String(args.command || ""));
 }
 
-export function isRawActionCommand(args = {}) {
-  const segments = String(args.command || "").split(/&&|\|\||[;|\n]/);
-  return segments.some((rawSegment) => {
+function unwrappedShellSegments(args = {}) {
+  return String(args.command || "").split(/&&|\|\||[;|\n]/).map((rawSegment) => {
     let segment = rawSegment.trim();
     let previous = "";
     while (segment && segment !== previous) {
@@ -76,8 +76,16 @@ export function isRawActionCommand(args = {}) {
         .replace(/^command\s+/i, "")
         .trim();
     }
-    return /^(?:ops|wsk)\s+action(?:\s|$)/i.test(segment);
+    return segment;
   });
+}
+
+export function isRawActionCommand(args = {}) {
+  return unwrappedShellSegments(args).some((segment) => /^(?:ops|wsk)\s+action(?:\s|$)/i.test(segment));
+}
+
+export function isManagedIdeLoginCommand(args = {}) {
+  return unwrappedShellSegments(args).some((segment) => /^ops\s+ide\s+login(?:\s|$)/i.test(segment));
 }
 
 export function isMaskedCriticalCommand(args = {}) {
@@ -695,6 +703,9 @@ export default async function TrustableGuardrails({ directory }) {
     "tool.execute.before": async (input, output) => {
       if (input.tool === "bash" && isRawActionCommand(output.args)) {
         throw new Error("Trustable action guard: raw ops action/wsk action shell commands are forbidden, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, or invocation; use ops ide deploy and ops ide setup for lifecycle operations.");
+      }
+      if (input.tool === "bash" && isManagedIdeLoginCommand(output.args)) {
+        throw new Error("Trustable process guard: Trustable already authenticated and configured this app with ops ide login and launched its managed dev server. Do not rerun ops ide login or replace/restart the managed server; continue with the launch environment already provided by Trustable.");
       }
       if (input.tool === "bash" && isManagedDevServerCommand(output.args)) {
         throw new Error("Trustable process guard: do not kill managed processes or start Vite/ops ide devel manually. Use the existing http://localhost:5173 server and diagnose its configured proxy without replacing it.");

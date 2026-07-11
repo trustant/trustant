@@ -90,5 +90,21 @@ as `invoke`. Detection also applies when the command is wrapped by `timeout`,
 the OpenServerless MCP for action mutation, inspection, and invocation, and
 `ops ide deploy` / `ops ide setup` for lifecycle operations.
 
+## Managed login lifecycle
+
+Trustable launch already runs `ops ide login`, configures the application, and
+starts the managed development server with the resulting environment. OpenCode
+must not run `ops ide login` again during the session: doing so can change the
+workspace credentials and bindings while the running server still uses its
+previous launch environment.
+
+The process guard rejects `ops ide login` before shell execution, including
+commands prefixed by `timeout`, `env`, inline environment assignments, `sudo`,
+or `command`, and login commands appearing in a concatenated shell segment.
+The diagnostic states that Trustable already authenticated and configured the
+application. The agent must not retry login or replace/restart the managed dev
+server. `ops ide deploy` and `ops ide setup` remain allowed where their existing
+action lifecycle guards require them.
+
 See [application-test-completion-gate.svg](application-test-completion-gate.svg)
 for the execution flow.

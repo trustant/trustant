@@ -84,6 +84,7 @@ test("raw ops and wsk action shell commands are recognized through wrappers", ()
   assert.equal(guardrails.isRawActionCommand({ command: "OPS_DEBUG=1 timeout 60 ops action invoke setup/db" }), true);
   assert.equal(guardrails.isRawActionCommand({ command: "cd /tmp/app && command ops action get v1/profile" }), true);
   assert.equal(guardrails.isRawActionCommand({ command: "sudo -u ops wsk action update v1/profile profile.zip" }), true);
+  assert.equal(guardrails.isRawActionCommand({ command: "cd /tmp/app && timeout 60 wsk action invoke setup/db" }), true);
   assert.equal(guardrails.isRawActionCommand({ command: "printf '%s' 'ops action invoke is documentation'" }), false);
   assert.equal(guardrails.isRawActionCommand({ command: "timeout 120 ops ide deploy" }), false);
 });
@@ -91,13 +92,45 @@ test("raw ops and wsk action shell commands are recognized through wrappers", ()
 test("raw action shell commands are rejected before shell execution", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-raw-action-"));
   const plugin = await guardrails.default({ directory });
-  await assert.rejects(
-    plugin["tool.execute.before"](
-      { tool: "bash", sessionID: `ses_raw_action_${Date.now()}`, callID: "call_raw_action" },
-      { args: { command: "timeout 60 ops action invoke setup/db" } },
-    ),
-    /raw ops action\/wsk action shell commands are forbidden.*OpenServerless MCP/s,
-  );
+  for (const [index, command] of [
+    "timeout 60 ops action invoke setup/db",
+    "cd /tmp/app && env DEBUG=1 timeout 60 wsk action list",
+  ].entries()) {
+    await assert.rejects(
+      plugin["tool.execute.before"](
+        { tool: "bash", sessionID: `ses_raw_action_${Date.now()}_${index}`, callID: `call_raw_action_${index}` },
+        { args: { command } },
+      ),
+      /raw ops action\/wsk action shell commands are forbidden.*OpenServerless MCP/s,
+    );
+  }
+});
+
+test("managed ops ide login is recognized through prefixes and concatenated commands", () => {
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "ops ide login" }), true);
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "timeout 60 ops ide login" }), true);
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "env OPS_DEBUG=1 timeout 60 ops ide login" }), true);
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "cd /tmp/app && OPS_DEBUG=1 command ops ide login" }), true);
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "echo 'ops ide login is managed'" }), false);
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "timeout 120 ops ide deploy" }), false);
+  assert.equal(guardrails.isManagedIdeLoginCommand({ command: "timeout 120 ops ide setup" }), false);
+});
+
+test("managed ops ide login is rejected before shell execution", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-managed-login-"));
+  const plugin = await guardrails.default({ directory });
+  for (const [index, command] of [
+    "timeout 60 ops ide login",
+    "cd /tmp/app && env OPS_DEBUG=1 timeout 60 ops ide login",
+  ].entries()) {
+    await assert.rejects(
+      plugin["tool.execute.before"](
+        { tool: "bash", sessionID: `ses_managed_login_${Date.now()}_${index}`, callID: `call_managed_login_${index}` },
+        { args: { command } },
+      ),
+      /Trustable already authenticated and configured this app.*Do not rerun ops ide login/s,
+    );
+  }
 });
 
 test("manual action ZIP mutations are denied but read-only inspection is allowed", () => {
