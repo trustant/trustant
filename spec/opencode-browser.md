@@ -33,6 +33,10 @@ The server exposes a deliberately small persistent browser surface:
   Locator resolution is strict: zero matches reports the complete locator,
   multiple matches require an explicit zero-based `index`, and a supplied
   index selects with Playwright `nth(index)`;
+  `kind=role` also accepts a bounded shorthand: a role name in `target`, or an
+  accessible name whose role is inferred from the interaction (`textbox` for
+  fill/press and `button` for click). Repeating the same value in `role` and
+  `target` is treated as a role-only locator. Strict match counting still applies;
 - `browser_diagnostics`: return console/page/network failures;
 - `browser_capture`: save a full-page screenshot plus structured JSON evidence;
 - `browser_close`: close and discard the isolated browser context.

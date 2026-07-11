@@ -17,6 +17,11 @@ export interface BrowserSnapshot {
 
 const MAX_DIAGNOSTICS = 100
 const MAX_SNAPSHOT_TEXT = 12_000
+const COMMON_ARIA_ROLES = new Set([
+  "button", "checkbox", "combobox", "dialog", "heading", "link", "listbox",
+  "menuitem", "option", "radio", "searchbox", "slider", "spinbutton", "switch",
+  "tab", "textbox", "treeitem",
+])
 
 function normalizedPath(path: string | undefined): string {
   const value = (path || "/").trim()
@@ -96,7 +101,9 @@ export class TrustableBrowser {
     switch (kind) {
       case "role":
         if (!role) throw new Error("role is required when locator kind is role")
-        return page.getByRole(role as Parameters<Page["getByRole"]>[0], { name: target, exact: false })
+        return target
+          ? page.getByRole(role as Parameters<Page["getByRole"]>[0], { name: target, exact: false })
+          : page.getByRole(role as Parameters<Page["getByRole"]>[0])
       case "text": return page.getByText(target, { exact: false })
       case "label": return page.getByLabel(target, { exact: false })
       case "placeholder": return page.getByPlaceholder(target, { exact: false })
@@ -146,11 +153,24 @@ export class TrustableBrowser {
       await page.goBack({ waitUntil: "domcontentloaded", timeout: 60_000 })
       return this.snapshot()
     }
-    if (!options.kind || !options.target) throw new Error(`${action} requires locator kind and target`)
+    if (!options.kind || (!options.target && !options.role)) throw new Error(`${action} requires locator kind and target`)
+    let target = options.target || ""
+    let role = options.role
+    if (options.kind === "role" && !role) {
+      if (COMMON_ARIA_ROLES.has(target.toLowerCase())) {
+        role = target.toLowerCase()
+        target = ""
+      } else {
+        role = action === "fill" || action === "press" ? "textbox" : "button"
+      }
+    }
+    if (options.kind === "role" && role && target.toLowerCase() === role.toLowerCase()) {
+      target = ""
+    }
     const locator = await this.selectedLocator(page, {
       kind: options.kind,
-      target: options.target,
-      role: options.role,
+      target,
+      role,
       index: options.index,
     })
 

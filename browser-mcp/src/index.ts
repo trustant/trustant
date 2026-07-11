@@ -26,11 +26,11 @@ server.registerTool("browser_snapshot", {
 }, async () => text(await browser.snapshot()))
 
 server.registerTool("browser_interact", {
-  description: "Perform one bounded browser interaction, then return a fresh structured snapshot. Prefer role, label, placeholder, or text locators over CSS. Locators are strict: when multiple elements match, retry with the explicit zero-based index reported by the error.",
+  description: "Perform one bounded browser interaction, then return a fresh structured snapshot. Prefer role, label, placeholder, or text locators over CSS. For kind=role, pass role plus the accessible-name target. As a shorthand, target may be a role such as button, or an accessible name whose role is inferred from the action. Locators remain strict: when multiple elements match, retry with the explicit zero-based index reported by the error.",
   inputSchema: {
     action: z.enum(["click", "fill", "press", "reload", "back"]),
     kind: z.enum(["role", "text", "label", "placeholder", "css"]).optional(),
-    target: z.string().optional().describe("Accessible name, visible text, label, placeholder, or CSS selector."),
+    target: z.string().optional().describe("Accessible name, visible text, label, placeholder, CSS selector, or a role shorthand such as button when kind=role."),
     role: z.string().optional().describe("ARIA role when kind=role, for example button or link."),
     value: z.string().optional().describe("Text for fill or key name for press."),
     index: z.number().int().nonnegative().optional().describe("Zero-based match index. Required only when the locator is ambiguous."),

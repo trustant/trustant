@@ -118,6 +118,35 @@ test("browser submits registration with duplicate password placeholders by expli
   })
 })
 
+test("role interactions accept bounded shorthand without weakening strict matches", async (t) => {
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html; charset=utf-8")
+    response.end(`<!doctype html><html><body>
+      <label for="email">Email</label><input id="email">
+      <button type="button">Registrati</button>
+      <button type="button">Annulla</button>
+    </body></html>`)
+  })
+  await new Promise<void>((resolve) => server.listen(5173, "127.0.0.1", resolve))
+  t.after(() => server.close())
+
+  const browser = new TrustableBrowser("", `/tmp/trustable-browser-role-${Date.now()}`)
+  t.after(() => browser.close())
+  await browser.open("development", "/")
+
+  await browser.interact("fill", { kind: "role", target: "Email", value: "user@example.test" })
+  await browser.interact("click", { kind: "role", target: "Registrati" })
+  await assert.rejects(
+    browser.interact("click", { kind: "role", target: "button" }),
+    /ambiguous locator: role=button name="" matched 2 elements/,
+  )
+  await assert.rejects(
+    browser.interact("click", { kind: "role", role: "button", target: "button" }),
+    /ambiguous locator: role=button name="" matched 2 elements/,
+  )
+  await browser.interact("click", { kind: "role", target: "button", index: 1 })
+})
+
 test("MCP stdio contract exposes index and forwards it to browser_interact", async (t) => {
   const server = createServer((_request, response) => {
     response.setHeader("content-type", "text/html; charset=utf-8")
