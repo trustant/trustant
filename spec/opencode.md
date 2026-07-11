@@ -119,6 +119,9 @@ It must say:
 - when the reproduction used the browser, every subsequent source change must
   require fresh post-change browser evidence and a
   `trustable_diagnostic_checkpoint` with `phase=verified` before completion;
+- the frontend checker must reject protected views that initialize user/session
+  data to null, load it asynchronously, and redirect on that null value before
+  the request has completed; such views need an explicit loading state;
 - after source changes, `trustable_completion_check` must pass the action and
   frontend checkers, `git diff --check`, and the available frontend build before
   the assistant claims completion.

@@ -75,6 +75,43 @@ if [ "${#frontend_files[@]}" -gt 0 ]; then
     ! grep -Eqs '(bootstrap|hydrate|restore|initialize|init)Auth|Auth(Bootstrap|Provider|Gate)' "${frontend_files[@]}"; then
     warn "authentication bootstrap" "A persisted token and an initially false auth state were found, but no obvious application-level auth bootstrap was detected. Verify persistence after a full page reload."
   fi
+
+  while IFS= read -r hit; do
+    error "$hit" "An asynchronously loaded auth/user state redirects while its initial value is still null. Keep an explicit loading state until the protected identity request completes, then decide whether to redirect."
+  done < <(python3 - "${frontend_files[@]}" <<'PY'
+import pathlib
+import re
+import sys
+
+state = re.compile(r"const\s*\[\s*([A-Za-z_$][\w$]*)\s*,\s*set[A-Za-z_$][\w$]*\s*\]\s*=\s*useState(?:<[^;]+?>)?\(null\)")
+for name in sys.argv[1:]:
+    text = pathlib.Path(name).read_text(encoding="utf-8", errors="replace")
+    if "useEffect" not in text or "fetch(" not in text or "<Navigate" not in text:
+        continue
+    for match in state.finditer(text):
+        variable = re.escape(match.group(1))
+        redirect = re.compile(rf"if\s*\([^)]*!\s*{variable}\b[^)]*\)\s*(?:\{{\s*)?return\s*<Navigate", re.S)
+        redirect_match = redirect.search(text)
+        if redirect_match:
+            loading_states = [
+                (loading, setter)
+                for loading, setter in re.findall(
+                    r"const\s*\[\s*([A-Za-z_$][\w$]*)\s*,\s*(set[A-Za-z_$][\w$]*)\s*\]\s*=\s*useState\s*\(true\)",
+                    text,
+                )
+                if "loading" in loading.lower()
+            ]
+            guarded = any(
+                re.search(rf"if\s*\(\s*{re.escape(loading)}\s*\)", text[:redirect_match.start()])
+                and re.search(rf"{re.escape(setter)}\s*\(false\)", text)
+                for loading, setter in loading_states
+            )
+            if guarded:
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            print(f"{name}:{line}: async state '{match.group(1)}' starts null and immediately guards a Navigate")
+PY
+  )
 fi
 
 python_files=()

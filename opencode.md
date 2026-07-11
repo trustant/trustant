@@ -82,6 +82,8 @@ When the symptom was reproduced in the browser, exercise the fixed flow again
 after the last source change and call `trustable_diagnostic_checkpoint` with
 `phase=verified` and concrete browser evidence. Backend-only checks do not
 verify a browser-visible flow.
+Protected views that load identity asynchronously must keep a distinct loading
+state; do not redirect merely because the initial user/profile value is null.
 
 After source changes, call `trustable_completion_check` before claiming the
 work is fixed or asking the user to try it. The completion tool runs the

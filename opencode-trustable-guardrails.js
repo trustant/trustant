@@ -894,6 +894,10 @@ export default async function TrustableGuardrails({ directory }) {
         output.text = "Trustable diagnostic gate: the reported symptom has not been reproduced yet. Continue with read-only diagnostics and record evidence with trustable_diagnostic_checkpoint before changing source.";
         return;
       }
+      if (current.browserVerificationRequired) {
+        output.text = "Trustable browser verification gate: exercise the fixed user flow with browser tools, then call trustable_diagnostic_checkpoint with phase=verified and concrete post-fix evidence before completion.";
+        return;
+      }
       if (current.dirty && !current.verified) {
         output.text = "Trustable completion gate: the current changes are not verified. Continue by calling trustable_completion_check; do not ask the user to test an unverified result.";
         return;

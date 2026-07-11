@@ -1322,6 +1322,59 @@ func TestFrontendCheckerRejectsBrowserControlledIdentity(t *testing.T) {
 	}
 }
 
+func TestFrontendCheckerRejectsAsyncIdentityRedirectBeforeLoad(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	page := "import { useEffect, useState } from 'react';\n" +
+		"import { Navigate } from 'react-router-dom';\n" +
+		"export const Dashboard = () => {\n" +
+		"  const [currentUser, setCurrentUser] = useState<User | null>(null);\n" +
+		"  useEffect(() => { fetch('/api/me').then(r => r.json()).then(setCurrentUser); }, []);\n" +
+		"  if (!currentUser) return <Navigate to='/login' replace />;\n" +
+		"  return <p>{currentUser.email}</p>;\n};\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "Dashboard.tsx"), []byte(page), 0644); err != nil {
+		t.Fatalf("write dashboard: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("premature async identity redirect should fail, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "explicit loading state") {
+		t.Fatalf("unexpected frontend checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestFrontendCheckerAcceptsAsyncIdentityWithLoadingGate(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	page := "import { useEffect, useState } from 'react';\n" +
+		"import { Navigate } from 'react-router-dom';\n" +
+		"export const Dashboard = () => {\n" +
+		"  const [currentUser, setCurrentUser] = useState<User | null>(null);\n" +
+		"  const [loading, setLoading] = useState(true);\n" +
+		"  useEffect(() => { fetch('/api/me').then(r => r.json()).then(setCurrentUser).finally(() => setLoading(false)); }, []);\n" +
+		"  if (loading) return <p>Loading</p>;\n" +
+		"  if (!currentUser) return <Navigate to='/login' replace />;\n" +
+		"  return <p>{currentUser.email}</p>;\n};\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "Dashboard.tsx"), []byte(page), 0644); err != nil {
+		t.Fatalf("write dashboard: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("loading-gated async identity should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+}
+
 // Without an AgentiReact() opt-in, no agentireact server is added.
 func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
