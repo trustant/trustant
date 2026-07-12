@@ -1,4 +1,13 @@
 #!/bin/bash
+#
+# setup.sh — recreate the image/Dockerfile environment INSIDE the trudev VM.
+#
+# Runs as the mirrored guest user inside the Ubuntu VM created by ./start.sh
+# (invoke via `./ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
+# Everything is installed for the local user (~/.local/bin, ~/.config/opencode),
+# no /opt/uv/*, no sudo except for system packages (the guest has passwordless
+# sudo). See spec/setup.md — that is the source of truth for these steps.
+#
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -20,10 +29,9 @@ case "$ARCH" in
 esac
 
 RC_FILES=("$HOME/.bashrc")
-[[ "$OS" == "darwin" ]] && RC_FILES+=("$HOME/.zshrc")
 
-# Snapshot the shell's PATH before add_to_path mutates it, so step 13 can
-# check what the user's environment actually has, not our in-process changes.
+# Snapshot the shell's PATH before add_to_path mutates it, so the ~/.local/bin
+# check reflects the user's environment, not our in-process changes.
 ORIGINAL_PATH="$PATH"
 
 add_to_path() {
@@ -53,42 +61,65 @@ for v in OLLAMA_VERSION OPENCODE_VERSION OPS_BRANCH OPS_REPO; do
   ok "$v=$val"
 done
 
-# --- 1. Check .env and .env.dist, load .env, check WORKSPACE_DIR/WORKBENCH_DIR ---
+# --- 1. Ensure a proper .env exists (create if absent), then load it ---
+# Three env sources: .env.dist (template), image/env (baked image), and the .env
+# we generate here (image layout but rooted at the guest user's own $HOME).
 echo "--- Checking .env ---"
-[[ -f .env ]] || fail ".env file not found. Create it based on .env.dist."
 [[ -f .env.dist ]] || fail ".env.dist not found"
 
-while IFS='=' read -r key _; do
-  [[ -z "$key" || "$key" =~ ^# ]] && continue
-  key=$(echo "$key" | xargs)
-  val=$(grep "^${key}=" .env | cut -d'=' -f2-)
-  if [[ -z "$val" || "$val" == "<"*">" ]]; then
-    fail "Variable $key is not set in .env (still has placeholder or is empty)"
-  fi
-done < .env.dist
-ok ".env is present and all variables from .env.dist are set"
+if [[ ! -f .env ]]; then
+  warn ".env not found — creating an in-VM .env"
+  cat > .env <<ENV
+WORKSPACE_DIR=$HOME/workspace
+WORKBENCH_DIR=$HOME/workbench
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=dummy
+OLLAMA_ENDPOINT=http://localhost:11434
+AIP_REGISTER_URL=https://api.nuvolaris.io/_register
+AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
+GIT_USER=TrustableUser
+GIT_EMAIL=noreply@example.com
+ENV
+  ok "created .env"
+else
+  # Present: do not overwrite — validate every .env.dist key is set.
+  while IFS='=' read -r key _; do
+    [[ -z "$key" || "$key" =~ ^# ]] && continue
+    key=$(echo "$key" | xargs)
+    val=$(grep "^${key}=" .env | cut -d'=' -f2-)
+    if [[ -z "$val" || "$val" == "<"*">" ]]; then
+      fail "Variable $key is not set in .env (still has placeholder or is empty)"
+    fi
+  done < .env.dist
+  ok ".env is present and all variables from .env.dist are set"
+fi
 
 set -a
 source ./.env
 set +a
 
 WORKSPACE_DIR_EXPANDED=$(eval echo "${WORKSPACE_DIR}")
-[[ -d "${WORKSPACE_DIR_EXPANDED}" ]] || fail "WORKSPACE_DIR '${WORKSPACE_DIR}' does not exist"
+mkdir -p "${WORKSPACE_DIR_EXPANDED}"
+[[ -d "${WORKSPACE_DIR_EXPANDED}" ]] || fail "WORKSPACE_DIR '${WORKSPACE_DIR}' could not be created"
 ok "WORKSPACE_DIR exists: ${WORKSPACE_DIR_EXPANDED}"
 
 WORKBENCH_DIR_EXPANDED=$(eval echo "${WORKBENCH_DIR}")
-[[ -d "${WORKBENCH_DIR_EXPANDED}" ]] || fail "WORKBENCH_DIR '${WORKBENCH_DIR}' does not exist"
+mkdir -p "${WORKBENCH_DIR_EXPANDED}"
+[[ -d "${WORKBENCH_DIR_EXPANDED}" ]] || fail "WORKBENCH_DIR '${WORKBENCH_DIR}' could not be created"
 ok "WORKBENCH_DIR exists: ${WORKBENCH_DIR_EXPANDED}"
 
 # --- 2. Check ops is in PATH and OPS_REPO/OPS_BRANCH match Dockerfile values ---
+# ops may already be present from the VM's trustable package.
 echo "--- Checking ops ---"
 if ! command -v ops &>/dev/null; then
-  warn "ops not found in PATH"
-  warn "Set these and install ops:"
-  warn "  export OPS_REPO=${OPS_REPO}"
-  warn "  export OPS_BRANCH=${OPS_BRANCH}"
-  warn "  curl -sL n7s.co/get-ops | bash"
-  fail "ops is not installed"
+  warn "ops not found in PATH, installing..."
+  export OPS_REPO OPS_BRANCH
+  curl -sL n7s.co/get-ops | bash || fail "ops install failed"
+  add_to_path "$HOME/.local/bin"
+  add_to_path "$HOME/.ops/linux-${ARCH}/bin"
+  hash -r
+  command -v ops &>/dev/null || fail "ops is not installed"
+  ok "ops installed"
 fi
 
 OPS_INFO=$(ops -info 2>/dev/null || true)
@@ -101,27 +132,31 @@ OPS_BRANCH_ACTUAL="${OPS_BRANCH_ACTUAL:-${OPS_BRANCH:-}}"
 
 if [[ "$OPS_REPO_ACTUAL" != "$OPS_REPO" ]]; then
   warn "ops OPS_REPO is '${OPS_REPO_ACTUAL}', expected '${OPS_REPO}'"
-  warn "Recommend: export OPS_REPO=${OPS_REPO} and reinstall ops (curl -sL n7s.co/get-ops | bash)"
+  warn "Recommend: export OPS_REPO=${OPS_REPO} and reinstall ops (curl -fsSL n7s.co/get-ops | bash)"
   fail "OPS_REPO mismatch"
 fi
 if [[ "$OPS_BRANCH_ACTUAL" != "$OPS_BRANCH" ]]; then
   warn "ops OPS_BRANCH is '${OPS_BRANCH_ACTUAL}', expected '${OPS_BRANCH}'"
-  warn "Recommend: export OPS_BRANCH=${OPS_BRANCH} and reinstall ops (curl -sL n7s.co/get-ops | bash)"
+  warn "Recommend: export OPS_BRANCH=${OPS_BRANCH} and reinstall ops (curl -fsSL n7s.co/get-ops | bash)"
   fail "OPS_BRANCH mismatch"
 fi
 ok "ops is installed with correct OPS_REPO and OPS_BRANCH"
 
-# --- 3. Add ~/.ops/<os>-<arch>/bin to PATH and check bun, uv ---
-echo "--- Checking ops bin tools (bun, uv) ---"
-add_to_path "$HOME/.ops/${OS}-${ARCH}/bin"
+# --- 3. Add ~/.ops/linux-<arch>/bin to PATH and ensure uv ---
+echo "--- Checking ops bin dir and uv ---"
+add_to_path "$HOME/.ops/linux-${ARCH}/bin"
 
-command -v bun &>/dev/null || fail "bun not found in PATH"
-ok "bun is available"
-
+if ! command -v uv &>/dev/null; then
+  warn "uv not found, installing for the local user..."
+  curl -LsSf https://astral.sh/uv/install.sh \
+    | env UV_INSTALL_DIR="$HOME/.local/bin" INSTALLER_NO_MODIFY_PATH=1 sh \
+    || fail "uv install failed"
+  add_to_path "$HOME/.local/bin"
+fi
 command -v uv &>/dev/null || fail "uv not found in PATH"
 ok "uv is available"
 
-# --- 4. Check Go (install via g if missing), activate version from go.mod, install air ---
+# --- 4. Check Go (install via g if missing), activate version from go.mod, air ---
 echo "--- Checking Go ---"
 GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
 
@@ -143,24 +178,26 @@ fi
 go version 2>/dev/null | grep -qF "go${GO_VERSION}" || fail "Go ${GO_VERSION} not active after g use"
 ok "Go ${GO_VERSION} is available"
 
+# go install drops binaries in GOBIN if set, else GOPATH/bin. Add that dir to
+# PATH (and to the login rc below) so air and other go tools are found.
+GO_BIN="$(go env GOBIN)"
+[[ -n "$GO_BIN" ]] || GO_BIN="$(go env GOPATH)/bin"
+add_to_path "$GO_BIN"
+
 echo "--- Checking air ---"
 if ! command -v air &>/dev/null; then
   warn "air not found, installing..."
-  go install github.com/air-verse/air@latest
-  add_to_path "$(go env GOPATH)/bin"
+  go install github.com/air-verse/air@latest || fail "go install air failed"
 fi
 command -v air &>/dev/null || fail "air installation failed"
 ok "air is available"
 
-# --- 5. Install npm via fnm if missing ---
+# --- 5. Install Node 24 via NodeSource if npm is missing (may be from the .deb) ---
 echo "--- Checking npm ---"
 if ! command -v npm &>/dev/null; then
-  warn "npm not found, installing fnm + node 24..."
-  curl -o- https://fnm.vercel.app/install | bash || fail "fnm install failed"
-  add_to_path "$HOME/.local/share/fnm"
-  eval "$(fnm env)" 2>/dev/null || true
-  fnm install 24 || fail "fnm install 24 failed"
-  fnm use 24 || fail "fnm use 24 failed"
+  warn "npm not found, installing Node 24 via NodeSource..."
+  curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - || fail "NodeSource setup failed"
+  sudo apt-get install -y nodejs || fail "apt-get install nodejs failed"
 fi
 command -v npm &>/dev/null || fail "npm not in PATH after install"
 ok "npm is available"
@@ -178,19 +215,15 @@ else
 fi
 
 # --- 7. Reach OpenWhisk ---
+# Inside the VM you talk to traefik on :80 directly (it matches the *.miniops.me
+# ingress hosts). Do NOT use the host-side <ip>.nip.io:8080 reverse proxy.
 echo "--- Locating OpenWhisk apihost ---"
-APIHOST_ENV="${APIHOST:-}"
-APIHOST=""
 if [[ -n "${OPS_APIHOST:-}" ]]; then
   APIHOST="$OPS_APIHOST"
-elif [[ -n "$APIHOST_ENV" ]]; then
-  APIHOST="$APIHOST_ENV"
+elif [[ -n "${APIHOST:-}" ]]; then
+  APIHOST="$APIHOST"
 elif [[ -n "${TRUSTABLE_DEFAULT_APIHOST:-}" ]]; then
   APIHOST="$TRUSTABLE_DEFAULT_APIHOST"
-elif [[ "$OS" == "darwin" && -f "$HOME/Library/Application Support/Trustable/apihost" ]]; then
-  APIHOST="$(cat "$HOME/Library/Application Support/Trustable/apihost")"
-elif [[ "$OS" == "msys" || "$OS" == "cygwin" || "$OS" == mingw* ]] && [[ -f "${LOCALAPPDATA:-}/Trustable/apihost" ]]; then
-  APIHOST="$(cat "${LOCALAPPDATA}/Trustable/apihost")"
 else
   APIHOST="http://miniops.me"
 fi
@@ -201,27 +234,17 @@ WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) 
 [[ "$WHISK_DESC" == "OpenWhisk" ]] || fail "Cannot reach OpenWhisk at ${APIHOST}/api/info (got: ${WHISK_DESC:-no response})"
 ok "OpenWhisk reachable at ${APIHOST}"
 
-# --- 8. Start the backend VM and extract kubeconfig (mac only) ---
-if [[ "$OS" == "darwin" ]]; then
-  ID_FILE="$HOME/Library/Application Support/Trustable/id_ed25519"
-  IP_FILE="$HOME/Library/Application Support/Trustable/current.ip"
-
-  # Ensure the backend VM is up before we read anything from it. start.sh is
-  # idempotent: it no-ops if the VM is already healthy, starts it if stopped,
-  # and reinstalls the package if the VM came back blank.
-  echo "--- Starting backend VM ---"
-  ./start.sh || fail "Failed to start the backend VM (./start.sh)"
-
-  if [[ -f "$ID_FILE" ]]; then
-    echo "--- Extracting kubeconfig ---"
-    mkdir -p "$HOME/.ops/tmp"
-    IP="$(cat "$IP_FILE")"
-    ./ssh.sh sudo cat /etc/rancher/k3s/k3s.yaml \
-      | sed -e "/server:/ s/127.0.0.1/$IP/" \
-      > "$HOME/.ops/tmp/kubeconfig" \
-      || fail "Failed to extract kubeconfig"
-    ok "kubeconfig written to ~/.ops/tmp/kubeconfig"
-  fi
+# --- 8. Extract kubeconfig for ops from the LOCAL k3s (no ssh, no IP rewrite) ---
+# The 127.0.0.1 in k3s.yaml is already correct inside the VM.
+echo "--- Ensuring ops kubeconfig ---"
+KUBECONFIG_FILE="$HOME/.ops/tmp/kubeconfig"
+if KUBECONFIG="$KUBECONFIG_FILE" kubectl --raw='/readyz' &>/dev/null; then
+  ok "kubeconfig already valid at $KUBECONFIG_FILE"
+else
+  mkdir -p "$HOME/.ops/tmp"
+  sudo cat /etc/rancher/k3s/k3s.yaml > "$KUBECONFIG_FILE" || fail "failed to read /etc/rancher/k3s/k3s.yaml"
+  chmod 600 "$KUBECONFIG_FILE"
+  ok "kubeconfig written to $KUBECONFIG_FILE"
 fi
 
 # --- 9. Check admin power ---
@@ -229,30 +252,25 @@ echo "--- Checking admin access ---"
 ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
-# --- 10. Check CLI tools are installed in /opt/homebrew/bin (warn, don't abort) ---
-echo "--- Checking CLI tools in /opt/homebrew/bin (uv, kubefwd, rclone, psql, redis-cli, milvus_cli) ---"
-BREW_BIN="/opt/homebrew/bin"
-check_brew_cli() {
-  local cmd="$1" brew_pkg="$2" pipx_pkg="$3"
-  if [[ -x "${BREW_BIN}/${cmd}" ]]; then
-    ok "$cmd is installed in ${BREW_BIN}"
-    return
-  fi
-  warn "$cmd not found in ${BREW_BIN}"
-  if [[ -n "$brew_pkg" ]]; then
-    warn "  install with: brew install ${brew_pkg}"
-  fi
-  if [[ -n "$pipx_pkg" ]]; then
-    warn "  or with: pipx install ${pipx_pkg}"
-  fi
-}
+# --- 10. Ensure the image's CLI tools are available (install any missing) ---
+# No /opt/homebrew and no kubefwd in the VM — cluster services are local.
+echo "--- Checking CLI tools (psql, redis-cli, rclone, milvus-cli) ---"
+APT_MISSING=()
+command -v psql      &>/dev/null || APT_MISSING+=(postgresql-client-16)
+command -v redis-cli &>/dev/null || APT_MISSING+=(redis-tools)
+command -v rclone    &>/dev/null || APT_MISSING+=(rclone)
+if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
+  warn "installing missing apt packages: ${APT_MISSING[*]}"
+  sudo apt-get update -qq || fail "apt-get update failed"
+  sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
+fi
+ok "psql, redis-cli, rclone available"
 
-check_brew_cli uv        uv               ""
-check_brew_cli kubefwd   kubefwd          ""
-check_brew_cli rclone    rclone           ""
-check_brew_cli psql      libpq            ""
-check_brew_cli redis-cli redis            ""
-check_brew_cli milvus_cli ""              milvus-cli
+if ! command -v milvus_cli &>/dev/null && ! command -v milvus-cli &>/dev/null; then
+  warn "milvus-cli not found, installing via uv..."
+  env UV_TOOL_BIN_DIR="$LOCAL_BIN" uv tool install milvus-cli || fail "uv tool install milvus-cli failed"
+fi
+ok "milvus-cli available"
 
 # --- 11. Check opencode version matches OPENCODE_VERSION, install if needed ---
 echo "--- Checking opencode ---"
@@ -275,11 +293,8 @@ fi
 command -v opencode &>/dev/null || fail "opencode installation failed"
 ok "opencode ${OPENCODE_VERSION} is available"
 
-# --- 12. Install MCP servers (openserverless, redis, milvus, postgres, s3) for local use ---
-# Mirrors the procedure in image/Dockerfile: uv tool install for the python
-# servers, npm for the openserverless server, and the mcp-s3 release tarball for
-# s3 — installed into the user's local bin (~/.local/bin) rather than
-# system-wide, so no sudo is needed.
+# --- 12. Install MCP servers (openserverless, redis, milvus, postgres, mongodb, s3) ---
+# Mirrors image/Dockerfile but for the local user (~/.local/bin, no /opt/uv/*).
 echo "--- Installing MCP servers for local use ---"
 MCP_BIN="$HOME/.local/bin"
 mkdir -p "$MCP_BIN"
@@ -298,21 +313,62 @@ do
     uv tool install "$tool" || fail "uv tool install $tool failed"
 done
 
-# openserverless MCP server via npm (global, for the local user)
-command -v npm &>/dev/null || fail "npm is required to install the openserverless MCP server"
-npm install -g github:apache/openserverless-mcp || fail "npm install openserverless-mcp failed"
+# openserverless + mongodb MCP servers via npm (global, for the local user).
+# Run from $HOME so npm's git fetch does not stumble into this repo's broken
+# submodule worktree (.git/modules/...), and force the https transport so it
+# never falls back to ssh://git@github.com (which needs SSH keys).
+command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"
+# --prefix "$HOME/.local" so binaries land in ~/.local/bin (already first in
+# PATH) and packages under ~/.local/lib — never the root-owned /usr/lib.
+( cd "$HOME" && GIT_CONFIG_COUNT=1 \
+    GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf \
+    GIT_CONFIG_VALUE_0=ssh://git@github.com/ \
+    npm install -g --prefix "$HOME/.local" git+https://github.com/apache/openserverless-mcp.git mongodb-mcp-server@1.13.0 ) \
+  || fail "npm install of openserverless-mcp/mongodb-mcp-server failed"
 
-# s3 MCP server from the txn2/mcp-s3 release (host OS/arch)
-if ! command -v mcp-s3 &>/dev/null; then
+# s3 MCP: the txn2/mcp-s3 release binary behind the repo's Python wrapper (as the
+# Dockerfile does): release -> mcp-s3-real, wrapper (image/mcp-s3) -> mcp-s3. The
+# wrapper blocks list_buckets tools and normalizes empty bucket lists.
+if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
   MCP_S3_VER=1.3.0
   curl -sL "https://github.com/txn2/mcp-s3/releases/download/v${MCP_S3_VER}/mcp-s3_${MCP_S3_VER}_${OS}_${ARCH}.tar.gz" \
     | tar -C "$MCP_BIN" -xzf - mcp-s3 \
-    || fail "mcp-s3 install failed"
+    || fail "mcp-s3 download failed"
+  mv "$MCP_BIN/mcp-s3" "$MCP_BIN/mcp-s3-real" || fail "renaming mcp-s3 -> mcp-s3-real failed"
+fi
+install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
+
+ok "MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
+
+# --- 13. Recreate the opencode plugin and PATH (image stage2-user) ---
+echo "--- Setting up opencode plugin ---"
+mkdir -p "$HOME/.config/opencode"
+(
+  cd "$HOME/.config/opencode"
+  npm init -y >/dev/null
+  npm install "@opencode-ai/plugin@$(opencode --version)"
+) || fail "opencode plugin install failed"
+test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin" \
+  || fail "@opencode-ai/plugin not installed"
+ok "opencode plugin installed"
+
+# Ensure ~/.bashrc PATH matches the image ordering, including BOTH the Go toolchain
+# dir (GOROOT/bin — where `go` itself lives, via g) and the Go install bin dir
+# (GOBIN/GOPATH-bin — where air lands), so a fresh login shell (as run.sh uses)
+# finds `go` AND `air`. Omitting GOROOT/bin makes `go` vanish in the login shell,
+# which in turn hides air.
+GO_ROOT_BIN="$(go env GOROOT)/bin"
+IMAGE_PATH="\$HOME/.local/bin:\$HOME/.ops/linux-${ARCH}/bin:${GO_ROOT_BIN}:${GO_BIN}:/usr/local/bin:/usr/bin:/bin"
+if ! grep -qF "$IMAGE_PATH" "$HOME/.bashrc" 2>/dev/null; then
+  echo "export PATH=\"$IMAGE_PATH\"" >> "$HOME/.bashrc"
+  ok "added image PATH ordering to ~/.bashrc"
 fi
 
-ok "MCP servers (openserverless, postgres, redis, milvus, s3) installed in $MCP_BIN"
+# Note: per-app opencode.md / .openserverless-contract.md are written at launch by
+# the Go binary, and skills come from OPS_SKILLS (default trustable-ai/skills)
+# cloned at launch by skills.go — setup does nothing for these.
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"
 echo "Restart your shell or run: source ~/.bashrc"
-[[ "$OS" == "darwin" ]] && echo "  or: source ~/.zshrc"
+echo "Then run ./run.sh inside the VM."

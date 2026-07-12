@@ -27,13 +27,12 @@ jobs:
 
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4

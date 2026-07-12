@@ -849,17 +849,27 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Configure git user (provider-independent)
+	// Configure git user (provider-independent). Run from $HOME so git does not
+	// discover the process CWD's .git — in a submodule checkout that .git points
+	// at a parent gitdir that may be absent, making even `git config --global`
+	// fail with exit 128.
 	if cfg.Git != nil {
+		gitConfigGlobal := func(key, val string) error {
+			c := exec.Command("git", "config", "--global", key, val)
+			if home, err := os.UserHomeDir(); err == nil {
+				c.Dir = home
+			}
+			return c.Run()
+		}
 		if cfg.Git.User != "" {
-			if err := exec.Command("git", "config", "--global", "user.name", cfg.Git.User).Run(); err != nil {
+			if err := gitConfigGlobal("user.name", cfg.Git.User); err != nil {
 				sendMsg("ERROR: failed to set git user.name: " + err.Error())
 			} else {
 				sendMsg("OK: git user.name set to " + cfg.Git.User)
 			}
 		}
 		if cfg.Git.Email != "" {
-			if err := exec.Command("git", "config", "--global", "user.email", cfg.Git.Email).Run(); err != nil {
+			if err := gitConfigGlobal("user.email", cfg.Git.Email); err != nil {
 				sendMsg("ERROR: failed to set git user.email: " + err.Error())
 			} else {
 				sendMsg("OK: git user.email set to " + cfg.Git.Email)

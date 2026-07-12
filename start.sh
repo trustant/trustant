@@ -5,9 +5,14 @@
 # where the macOS app would put it: ~/Library/Application Support/Trustable/.
 #
 # Plain run:   boots a plain Ubuntu VM (vz), then installs the Trustable .deb
-#              (k3s + helpers) inside it, and writes the VM ip, apihost and ssh
-#              key to the Trustable support dir.
+#              (k3s + helpers) inside it, installs a CPU-only ollama host
+#              (localhost:11434, pinned to the image's OLLAMA_VERSION), and
+#              writes the VM ip, apihost and ssh key to the Trustable support dir.
 #   ./start.sh
+#
+# Stop:        stops the VM without deleting it, so a later ./start.sh restarts
+#              it (no reinstall).
+#   ./start.sh -s
 #
 # Teardown:    stops and deletes the VM.
 #   ./start.sh -k
@@ -26,12 +31,17 @@ fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
 cd "$(dirname "$0")"
 
-VM_NAME="trustable"
+VM_NAME="trudev"
 SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
 LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
 DOWNLOAD_BASE="https://landing2.nuvolaris.org/api/my/v1/download"
 TRUSTABLE_VERSION="0.3.10"
 DIST_DIR="dist"                              # host-side cache for the .deb
+
+# CPU-only ollama is installed as a host process in the VM (localhost:11434); the
+# app mostly uses cloud models. Pin to the same version as the image (ARG line in
+# image/Dockerfile) so the VM matches the container.
+OLLAMA_VERSION="$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
 
 # The current macOS user + the folder start.sh runs from. Both are mirrored into
 # the VM: a guest user with the same name and UID owns a virtiofs mount of this
@@ -178,6 +188,28 @@ GUEST
   ok "reverse proxy listening on :8080"
 }
 
+# Install a CPU-only ollama as a host process inside the VM, pinned to
+# OLLAMA_VERSION, and enable its service so it serves on localhost:11434 (the
+# app's OLLAMA_ENDPOINT). Apple's vz gives the Linux guest no GPU passthrough, so
+# this is CPU-only — fine, since the app mostly uses cloud models. Idempotent:
+# skips the install when ollama is already present at the pinned version.
+ensure_ollama() {
+  echo "--- Ensuring CPU ollama in the VM (localhost:11434) ---"
+  limactl shell "$VM_NAME" sudo OLLAMA_VERSION="${OLLAMA_VERSION:-}" bash -euo pipefail -s <<'GUEST'
+have="$(command -v ollama >/dev/null 2>&1 && ollama --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [ -n "$have" ] && { [ -z "$OLLAMA_VERSION" ] || [ "$have" = "$OLLAMA_VERSION" ]; }; then
+  echo "ollama already installed (${have})"
+else
+  curl -fsSL https://ollama.com/install.sh >/tmp/ollama-install.sh
+  env OLLAMA_VERSION="$OLLAMA_VERSION" bash /tmp/ollama-install.sh
+  rm -f /tmp/ollama-install.sh
+fi
+# The installer registers a systemd service; make sure it is up on 127.0.0.1:11434.
+systemctl enable --now ollama 2>/dev/null || true
+GUEST
+  ok "ollama serving on localhost:11434 in the VM"
+}
+
 # Read the host-reachable IP from the running VM and write the Trustable support
 # files. Used both by the fresh-install path and when the VM already exists.
 finish() {
@@ -220,15 +252,26 @@ finish() {
   fi
 
   ensure_guest_user
+  ensure_ollama
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
+
+  # Provision the in-VM toolchain (ops/go/air/uv/node/opencode + MCP servers) by
+  # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir
+  # (Lima mounts it at the same path). Idempotent — re-runs just verify.
+  echo "--- Running setup.sh in the VM as $HOST_USER ---"
+  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./setup.sh \
+    || fail "setup.sh failed in the VM"
+  ok "setup.sh completed"
 
   echo
   echo -e "${GREEN}=== Trustable VM ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
   echo "  ssh:          ./ssh.sh <cmd>"
+  echo "  ollama:       http://localhost:11434  (CPU, in-VM)"
   echo "  mount:        $MOUNT_DIR  (owned by $HOST_USER in the VM)"
+  echo "  stop:         ./start.sh -s   (keep the VM; restart with ./start.sh)"
   echo "  destroy:      ./start.sh -k"
 }
 
@@ -339,13 +382,12 @@ ensure_guest_user() {
 if ! id "$HOST_USER" >/dev/null 2>&1; then
   # Only pin the UID if it isn't already taken by another account.
   if [ -n "${HOST_UID:-}" ] && ! getent passwd "$HOST_UID" >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -u "$HOST_UID" "$HOST_USER"
+    useradd -g sudo -m -s /bin/bash -u "$HOST_UID" "$HOST_USER"
   else
-    useradd -m -s /bin/bash "$HOST_USER"
+    useradd -g sudo -m -s /bin/bash "$HOST_USER"
   fi
   echo "created guest user $HOST_USER ($(id -u "$HOST_USER"))"
 fi
-usermod -aG sudo "$HOST_USER" 2>/dev/null || true
 printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$HOST_USER" > "/etc/sudoers.d/90-$HOST_USER"
 chmod 0440 "/etc/sudoers.d/90-$HOST_USER"
 install -d -o "$HOST_USER" -g "$HOST_USER" -m 0700 "/home/$HOST_USER/.ssh"
@@ -365,6 +407,23 @@ package_installed() {
 }
 
 command -v limactl >/dev/null 2>&1 || fail "limactl not found (brew install lima)"
+
+# --- stop (keep the VM): ./start.sh -s --------------------------------------
+if [[ "${1:-}" == "-s" ]]; then
+  if limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
+    STATUS="$(limactl list --format '{{.Status}}' "$VM_NAME" 2>/dev/null)"
+    if [[ "$STATUS" == "Running" ]]; then
+      echo "--- Stopping VM '$VM_NAME' (keeping it) ---"
+      limactl stop "$VM_NAME" || fail "failed to stop VM '$VM_NAME'"
+      ok "VM '$VM_NAME' stopped — run ./start.sh to restart it (no reinstall)"
+    else
+      warn "VM '$VM_NAME' is not running ($STATUS) — nothing to do"
+    fi
+  else
+    warn "VM '$VM_NAME' does not exist — nothing to do"
+  fi
+  exit 0
+fi
 
 # --- teardown: ./start.sh -k -----------------------------------------------
 if [[ "${1:-}" == "-k" ]]; then

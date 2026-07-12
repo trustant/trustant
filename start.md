@@ -83,6 +83,11 @@ subdomains ops derives from this base also route.
 Success check: curl http://<ip>.nip.io:8080/api/info returns .description == "OpenWhisk"
 (OpenWhisk takes ~60-90s to come up after install).
 
+The final "VM ready" summary must print the actual resolved apihost — the real
+lima0 IP substituted in (e.g. http://192.168.252.3.nip.io:8080) — never the
+literal 127.0.0.1 or an unexpanded <ip> placeholder. It's the value written to
+~/Library/Application Support/Trustable/apihost, so echo that same string.
+
 ## Host-rewrite reverse proxy (in k3s)
 
 traefik's ingresses only match the *.miniops.me hostnames, but from the macOS
@@ -98,6 +103,16 @@ Port 8080 is used (not 80) so traefik keeps owning the node's :80 untouched, and
 8080 is outside the package's :80/:443/:6443 firewall DROP. The proxy is
 re-applied on every run so it tracks the current VM IP.
 
+## CPU ollama in the VM
+
+Install ollama as a host process inside the VM (not a pod), pinned to the
+image's OLLAMA_VERSION (the `ARG OLLAMA_VERSION=` line in image/Dockerfile), and
+enable its systemd service so it serves on localhost:11434 — the app's
+OLLAMA_ENDPOINT. Apple's vz gives the Linux guest no GPU passthrough, so this is
+CPU-only; that's fine because the app mostly uses cloud models. Idempotent: skip
+the install when ollama is already present at the pinned version. Runs on every
+start (in the finish path), so an existing VM gets ollama too.
+
 ## Re-running when the VM already exists
 
 `./start.sh` is idempotent — an existing VM is not an error:
@@ -108,4 +123,10 @@ re-applied on every run so it tracks the current VM IP.
 Use `./start.sh -k` first only when you want a clean rebuild.
 
 ---
+./start.sh -s stops the VM without deleting it, so a later `./start.sh` restarts
+it (no reinstall) — the Stopped path above.
 ./start.sh -k stops and deletes the VM.
+
+
+---
+add user in group sudo and do not create another group (use useradd -g sudo)
