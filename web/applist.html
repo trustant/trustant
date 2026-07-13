@@ -16,7 +16,10 @@
                 <div>
                     <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
                     <h1 class="text-3xl md:text-4xl font-light text-[color:var(--nu-ink)]">Trustable</h1>
-                    <p id="versionText" class="text-xs text-[color:var(--nu-muted)] mt-1">Version loading...</p>
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                        <p id="versionText" class="text-xs text-[color:var(--nu-muted)]">Version loading...</p>
+                        <span id="releaseTag" class="nu-status-pill hidden px-2 py-1" title="Build information"></span>
+                    </div>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 md:justify-end">
@@ -1501,6 +1504,17 @@
                 }
                 if (data.version) {
                     document.getElementById('versionText').textContent = String(data.version).replace(/^Trustable\s+Trustable\s+/, 'Trustable ');
+                }
+                const releaseTag = document.getElementById('releaseTag');
+                const shortVersion = String(data.version || '').replace(/^Trustable\s+/, '');
+                const stream = data.stream || data.branch || '';
+                if (shortVersion || stream) {
+                    releaseTag.textContent = [shortVersion, stream].filter(Boolean).join(' \u00b7 ');
+                    releaseTag.title = [
+                        data.branch ? 'Branch: ' + data.branch : '',
+                        data.build ? 'Build: ' + data.build : ''
+                    ].filter(Boolean).join(' | ') || 'Build information';
+                    releaseTag.classList.remove('hidden');
                 }
                 if (data.build) {
                     document.getElementById('buildText').textContent = 'Build: ' + data.build;

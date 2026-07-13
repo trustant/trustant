@@ -18,6 +18,8 @@ import (
 var (
 	appVersion string
 	appBuild   string
+	appBranch  string
+	appStream  string
 	expiryDate time.Time
 )
 
@@ -30,6 +32,10 @@ func parseVersion(content string) {
 			appVersion = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
 		} else if strings.HasPrefix(line, "Build:") {
 			appBuild = strings.TrimSpace(strings.TrimPrefix(line, "Build:"))
+		} else if strings.HasPrefix(line, "Branch:") {
+			appBranch = strings.TrimSpace(strings.TrimPrefix(line, "Branch:"))
+		} else if strings.HasPrefix(line, "Stream:") {
+			appStream = strings.TrimSpace(strings.TrimPrefix(line, "Stream:"))
 		} else if strings.HasPrefix(line, "Expiry:") {
 			dateStr := strings.TrimSpace(strings.TrimPrefix(line, "Expiry:"))
 			t, err := time.Parse("2006/01/02", dateStr)
@@ -40,7 +46,7 @@ func parseVersion(content string) {
 			}
 		}
 	}
-	log.Printf("Version: %s, Build: %s, Expiry: %s", appVersion, appBuild, expiryDate.Format("2006/01/02"))
+	log.Printf("Version: %s, Build: %s, Branch: %s, Stream: %s, Expiry: %s", appVersion, appBuild, appBranch, appStream, expiryDate.Format("2006/01/02"))
 }
 
 // isExpired checks if the current date is past the expiration date
@@ -61,6 +67,8 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"version": fmt.Sprintf("Trustable %s", appVersion),
 		"build":   appBuild,
+		"branch":  appBranch,
+		"stream":  appStream,
 		"expire":  expiryDate.Format("2006/01/02"),
 	})
 }

@@ -18,6 +18,11 @@ After the provider guard passes, fetch `GET /api/status` and apply the same per-
 
 The page shows centered the Trustable logo (`trustable-logo.svg`) and the text returned by the version api in large font.
 
+Beside the version, show a compact release tag with `<version> · <stream>`.
+The tag tooltip reports the source branch and exact build label. This lets local,
+development, feature-stream, and release images remain distinguishable without
+hardcoding labels in the page.
+
 Immediately **after the title** (below the version line, above the Applications card), show a **Credits box** — but only when the merged configuration's `provider` field equals `"trustable"`. For any other provider the box is not rendered. See "Credits" below.
 
 Show also in smaller font at the end of the page "Expiration date: <date>"
