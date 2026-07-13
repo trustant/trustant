@@ -7,6 +7,9 @@ ARG OPS_REPO=https://github.com/nuvolaris/bestia
 FROM oven/bun:1.3.14 AS opencode-builder
 ARG OPENCODE_VERSION
 WORKDIR /src
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
 COPY trustable-code /src
 RUN HUSKY=0 bun install --frozen-lockfile
 RUN \

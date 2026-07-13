@@ -205,7 +205,9 @@ and verifies its reported version against `OPENCODE_VERSION` in
 `image/Dockerfile`. The base-image hash includes the exact subrepo commit, so a
 pointer change always rebuilds the agent binary. The image must compile that
 pinned source and must not download a separate OpenCode binary from
-`opencode.ai`.
+`opencode.ai`. Native compiler dependencies needed by upstream packages belong
+only to the disposable Trustable Code builder stage and must not be copied into
+the runtime image.
 
 Whenever that pin changes, the image build must install
 `@opencode-ai/plugin` at the exact version returned by
