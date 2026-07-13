@@ -821,3 +821,31 @@ runtime generation details live in:
 - `spec/7-skills.md`: installed app skills under `.agents/skills`;
 - `spec/opencode-guardrail-flow.svg`: flow diagram for contract, checker,
   deploy, and runtime verification.
+
+## Trustable Code Core Workflow
+
+When `TRUSTABLE_RUNTIME_CONFIG` is active, Trustable Code owns the execution
+workflow independently of generated prompt files. Every real user message
+updates the persisted active task and marks the previous execution plan stale.
+Before source or deployment mutations, the agent must register a sufficiently
+detailed `todowrite` plan for that exact task, keep one step in progress, and
+update the plan after each significant implementation or user iteration.
+
+The workflow must inspect project governance, preserve requested application
+behavior in `spec.md`, and update `AGENTS.md`, `rules.md`, `skill.md`, README,
+implementation plan, and architecture documentation only when the iteration
+carries a relevant decision. Genuinely missing functional input is requested
+with OpenCode's structured `question` tool and incorporated into the plan; the
+agent must never delegate shell commands to the user.
+
+Integrated compaction is deterministic. It creates a bounded checkpoint from
+the persisted task and plan, successful file mutations, recent actual tool
+outcomes, and mandatory host context without a provider call. Failed or
+interrupted mutation bodies and unsigned historical reasoning are omitted from
+future model history. The session resumes by rereading current source and
+continuing the current plan.
+
+While a turn is busy, the Trustable Code UI derives visible progress from real
+tool events and displays planning, exploration, editing, verification, or
+context-preparation activity with elapsed time. It must not show private
+reasoning or control-plane gate text as progress.
