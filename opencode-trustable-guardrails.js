@@ -75,6 +75,12 @@ export function isStatusRequest(text) {
   return /(?:hai\s+(?:gi[aà]\s+)?risolto|cosa\s+hai\s+fatto|fammi\s+un\s+(?:recap|riepilogo)|(?:qual\s+è|dimmi)\s+lo\s+stato|a\s+che\s+punto\s+sei|what\s+did\s+you\s+do|is\s+it\s+fixed|status\s+update|give\s+me\s+(?:a\s+)?(?:recap|summary))/i.test(String(text || ""));
 }
 
+function continueInternally(output, text) {
+  output.text = text;
+  output.synthetic = true;
+  output.continue = true;
+}
+
 export function isMutatingTool(toolID, args = {}) {
   if (["edit", "write", "patch", "apply_patch"].includes(toolID)) return true;
   if (ACTION_TOOL.test(toolID)) return true;
@@ -1139,21 +1145,21 @@ export default async function TrustableGuardrails(context = {}) {
         return;
       }
       if (current.needsRecovery) {
-        output.text = `Trustable context recovery gate: automatic recovery has not run yet. Resume the active request after recovery; do not summarize. Active request: ${current.activeTask || "unknown"}`;
+        continueInternally(output, `Internal Trustable gate: context recovery is pending. Resume the active request after recovery and do not answer the user yet. Active request: ${current.activeTask || "unknown"}`);
         return;
       }
       if (current.diagnosticRequired && !current.reproduced) {
-        output.text = "Non ho ancora modificato l'applicazione: non sono riuscito a riprodurre il problema nel browser. La diagnosi resta aperta e il problema non è verificato come risolto.";
+        continueInternally(output, "Internal Trustable gate: diagnostic reproduction is pending. Reproduce the exact reported symptom with the browser tools before editing, then continue the active request. Do not answer the user yet.");
         return;
       }
       if (current.browserVerificationRequired) {
-        output.text = taskRequiresActiveAudio(current)
-          ? "Ho applicato modifiche all'applicazione, ma la verifica browser non ha ancora osservato audio attivo. Non dichiaro il problema risolto: serve completare il flusso utente e vedere l'audio realmente in esecuzione."
-          : "Ho applicato modifiche all'applicazione, ma la verifica del flusso utente nel browser non è ancora riuscita. Non dichiaro il problema risolto finché il comportamento corretto non è osservabile.";
+        continueInternally(output, taskRequiresActiveAudio(current)
+          ? "Internal Trustable gate: post-change browser verification has not observed active audio. Exercise the exact user flow until audio is observably running, then run the completion check. Do not answer the user yet."
+          : "Internal Trustable gate: post-change browser verification is pending. Exercise the exact fixed user flow with browser tools, collect concrete evidence, then run the completion check. Do not answer the user yet.");
         return;
       }
       if (current.dirty && !current.verified) {
-        output.text = "Ho applicato modifiche all'applicazione, ma il Trustable completion gate non le ha ancora verificate. Non dichiaro il lavoro completato e non chiedo all'utente di testare un risultato non verificato.";
+        continueInternally(output, "Internal Trustable gate: the current changes are not verified. Run trustable_completion_check, resolve every reported failure, and continue until the gate passes. Do not answer the user yet.");
         return;
       }
     },

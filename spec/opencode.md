@@ -25,8 +25,11 @@ request the assistant's truthful response remains visible and the plugin adds a
 short deterministic statement of the still-pending gate instead of replacing
 the entire response with an instruction loop.
 When a normal turn stops at a diagnostic, browser verification, or completion
-gate, the plugin must return a user-readable truthful recap of what remains
-unverified, not the internal tool instruction text.
+gate, the plugin must replace the premature answer with synthetic internal
+feedback and request another provider turn. Trustable Code persists this
+feedback for the model, hides it from the session UI, and keeps the active user
+request running. The user sees only the final verified answer or an explicitly
+requested status response, never control-plane gate instructions.
 
 ## Purpose
 

@@ -511,7 +511,9 @@ test("automatic browser verification requires active audio evidence for sound fi
   );
   const pendingRecap = { text: "Fatto." };
   await plugin["experimental.text.complete"]({ sessionID }, pendingRecap);
-  assert.match(pendingRecap.text, /modifiche.*audio attivo.*non dichiaro il problema risolto/is);
+  assert.match(pendingRecap.text, /internal trustable gate.*active audio/is);
+  assert.equal(pendingRecap.synthetic, true);
+  assert.equal(pendingRecap.continue, true);
   await plugin["tool.execute.after"](
     { tool: "browser_browser_interact", sessionID, callID: "audio_still_suspended", args: { action: "click", kind: "role", role: "button", target: "Play" } },
     { output: '{"audio":{"contexts":[{"state":"suspended"}],"active":false}}' },
@@ -572,7 +574,9 @@ test("guardrail state migrates from cache into durable OpenCode data and survive
   const plugin = await guardrails.default({ directory });
   const blocked = { text: "Done." };
   await plugin["experimental.text.complete"]({ sessionID }, blocked);
-  assert.match(blocked.text, /context recovery gate/i);
+  assert.match(blocked.text, /internal trustable gate.*context recovery/i);
+  assert.equal(blocked.synthetic, true);
+  assert.equal(blocked.continue, true);
   assert.equal(existsSync(join(durableDirectory, filename)), true);
 
   await plugin.tool.trustable_context_recover.execute({}, { sessionID, directory, worktree: directory });
@@ -596,7 +600,9 @@ test("corrupt durable guardrail state fails closed even with a permissive legacy
   const plugin = await guardrails.default({ directory });
   const text = { text: "Done." };
   await plugin["experimental.text.complete"]({ sessionID }, text);
-  assert.match(text.text, /context recovery gate/i);
+  assert.match(text.text, /internal trustable gate.*context recovery/i);
+  assert.equal(text.synthetic, true);
+  assert.equal(text.continue, true);
 });
 
 test("completion failure signatures ignore volatile timestamps, durations, ids, and temp paths", () => {
@@ -665,7 +671,9 @@ test("dirty sessions cannot stop with neutral final wording", async () => {
     { sessionID, messageID: "msg", partID: "part" },
     text,
   );
-  assert.match(text.text, /completion gate.*non le ha ancora verificate/i);
+  assert.match(text.text, /internal trustable gate.*not verified/i);
+  assert.equal(text.synthetic, true);
+  assert.equal(text.continue, true);
 });
 
 test("application test discovery does not impose a framework on apps without tests", async () => {
