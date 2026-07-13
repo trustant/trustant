@@ -134,6 +134,14 @@ It must say:
   a circuit breaker that requires new reproduction evidence. The failure
   signature must normalize volatile timestamps, durations, process/request IDs,
   and temporary paths while preserving the semantic failure text;
+- with the integrated Trustable Code runtime, task classification and
+  diagnostic transitions belong to the core agent state machine rather than
+  the plugin. Feature requests containing labels such as `Problems` or
+  `Errors` must not activate diagnostic mode. Pending diagnostics remove
+  mutation tools from the model catalog, allow one bounded hidden recovery
+  turn, and then stop with visible output instead of retrying or leaving an
+  empty assistant message. The plugin keeps this behavior only for legacy
+  non-integrated OpenCode runtimes;
 - when the reproduction used the browser, every subsequent source change must
   require fresh post-change `browser_interact` evidence bound automatically to
   the current task and mutation revision before completion. Audio fixes must

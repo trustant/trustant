@@ -393,6 +393,32 @@ test("reported bugs require reproduction before edits", async () => {
   );
 });
 
+test("integrated Trustable Code owns diagnostic transitions instead of the plugin", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-core-owned-diagnostic-"));
+  process.env.TRUSTABLE_RUNTIME_CONFIG = join(directory, "runtime.json");
+  try {
+    const plugin = await guardrails.default({ directory });
+    const sessionID = `ses_core_owned_${Date.now()}`;
+    await plugin["chat.message"](
+      { sessionID },
+      {
+        message: { role: "user" },
+        parts: [{ type: "text", text: "la pagina non funziona" }],
+      },
+    );
+    await plugin["tool.execute.before"](
+      { tool: "write", sessionID, callID: "core_owned" },
+      { args: { filePath: "src/App.tsx", content: "core decides" } },
+    );
+    const completion = { text: "done" };
+    await plugin["experimental.text.complete"]({ sessionID }, completion);
+    assert.equal(completion.synthetic, undefined);
+    assert.equal(completion.continue, undefined);
+  } finally {
+    delete process.env.TRUSTABLE_RUNTIME_CONFIG;
+  }
+});
+
 test("browser bug diagnostics stop file exploration after the bounded read budget", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-browser-budget-"));
   const plugin = await guardrails.default({ directory });

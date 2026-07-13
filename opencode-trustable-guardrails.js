@@ -803,6 +803,7 @@ export function normalizePluginDirectory(value) {
 
 export default async function TrustableGuardrails(context = {}) {
   const directory = normalizePluginDirectory(context.directory ?? context.worktree ?? context.project);
+  const coreManaged = Boolean(process.env.TRUSTABLE_RUNTIME_CONFIG);
   const states = new Map();
   const stateFor = (sessionID) => {
     if (!states.has(sessionID)) states.set(sessionID, loadState(sessionID));
@@ -836,6 +837,9 @@ export default async function TrustableGuardrails(context = {}) {
         },
         async execute(args, context) {
           const current = stateFor(context.sessionID);
+          if (coreManaged && args.phase === "reproduced") {
+            return "Diagnostic checkpoint accepted by Trustable core.";
+          }
           let browserEvidence = args.evidence_id ? browserEvidenceFor(current, args.evidence_id) : undefined;
           if (!args.evidence_id && args.phase === "reproduced") {
             browserEvidence = latestBrowserEvidence(current, (item) => (
@@ -963,7 +967,13 @@ export default async function TrustableGuardrails(context = {}) {
         current.activeTask = text.trim().slice(0, MAX_ACTIVE_TASK_CHARS);
         current.activeTaskFingerprint = fingerprint(current.activeTask);
       }
-      if (isDiagnosticRequest(text)) {
+      if (coreManaged) {
+        current.diagnosticRequired = false;
+        current.reproduced = false;
+        current.circuitOpen = false;
+        current.browserDiagnosticRequired = false;
+        current.diagnosticReadCount = 0;
+      } else if (isDiagnosticRequest(text)) {
         current.diagnosticRequired = true;
         current.reproduced = false;
         current.verified = false;
@@ -990,7 +1000,7 @@ export default async function TrustableGuardrails(context = {}) {
         output.system.push(packet);
       }
       let status = CRITICAL_SYSTEM;
-      if (current.diagnosticRequired && !current.reproduced) status += " DIAGNOSTIC REPRODUCTION IS REQUIRED BEFORE SOURCE CHANGES.";
+      if (!coreManaged && current.diagnosticRequired && !current.reproduced) status += " DIAGNOSTIC REPRODUCTION IS REQUIRED BEFORE SOURCE CHANGES.";
       if (current.dirty && !current.verified) status += " THE CURRENT CHANGES HAVE NOT PASSED THE COMPLETION GATE.";
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
@@ -1034,6 +1044,7 @@ export default async function TrustableGuardrails(context = {}) {
       }
       if (["trustable_context_recover", "trustable_diagnostic_checkpoint", "trustable_completion_check"].includes(input.tool)) return;
       if (
+        !coreManaged &&
         current.browserDiagnosticRequired &&
         current.diagnosticRequired &&
         !current.reproduced &&
@@ -1056,7 +1067,7 @@ export default async function TrustableGuardrails(context = {}) {
       if (current.needsRecovery) {
         throw new Error("Trustable guardrail: session context was compacted. Call trustable_context_recover before modifying files, actions, or deployment state.");
       }
-      if ((current.diagnosticRequired && !current.reproduced) || current.circuitOpen) {
+      if (!coreManaged && ((current.diagnosticRequired && !current.reproduced) || current.circuitOpen)) {
         throw new Error("Trustable diagnostic circuit breaker: reproduce the exact symptom with a successful browser_interact before modifying source. Trustable records that browser evidence automatically; use trustable_diagnostic_checkpoint only for explicit or non-browser evidence.");
       }
     },
@@ -1148,7 +1159,7 @@ export default async function TrustableGuardrails(context = {}) {
         continueInternally(output, `Internal Trustable gate: context recovery is pending. Resume the active request after recovery and do not answer the user yet. Active request: ${current.activeTask || "unknown"}`);
         return;
       }
-      if (current.diagnosticRequired && !current.reproduced) {
+      if (!coreManaged && current.diagnosticRequired && !current.reproduced) {
         continueInternally(output, "Internal Trustable gate: diagnostic reproduction is pending. Reproduce the exact reported symptom with the browser tools before editing, then continue the active request. Do not answer the user yet.");
         return;
       }
