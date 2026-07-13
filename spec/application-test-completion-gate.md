@@ -60,11 +60,23 @@ file in either:
 - `packages/<endpoint>/...`, alongside the action; or
 - `tests/actions/<endpoint>/...`, in the dedicated application test tree.
 
+Failure output must print the exact expected directories for every endpoint and
+must explicitly warn against flattening endpoint separators into underscores.
+For example, `v1/stackcheck` maps to `tests/actions/v1/stackcheck/`, not
+`tests/actions/v1_stackcheck/`.
+
 The test must belong to an executable suite discovered by this gate. A JS test
 without a declared `test` or `test:ci` script does not satisfy the endpoint.
 After coverage is established, the bounded runner executes the suite and its
 failure remains blocking. A successful completion clears the persisted endpoint
 list; a failed completion retains it.
+
+Trustable may force one internal recovery turn after an unverified final answer.
+If that turn ends without a new completion check or other progress, the session
+must stop with a concise visible status instead of injecting another hidden
+continuation. Inspecting a checker file with a read-only `cat ... | head` command
+is not classified as masked checker execution; executing the checker and piping
+its result to `head` or `tail` remains forbidden.
 
 Security-sensitive frontend components such as authentication, authorization,
 upload, payment, and persistence receive no framework-specific mandate when no

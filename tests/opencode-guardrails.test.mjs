@@ -238,6 +238,12 @@ test("critical validation commands cannot hide failures", async () => {
     ),
     /do not mask critical command failures/,
   );
+  assert.equal(guardrails.isMaskedCriticalCommand({
+    command: "cat /home/trustable/.local/bin/check_openserverless_actions.sh | head -80",
+  }), false);
+  assert.equal(guardrails.isMaskedCriticalCommand({
+    command: "timeout 60 /home/trustable/.local/bin/check_openserverless_actions.sh . | head -80",
+  }), true);
 });
 
 test("Trustable-managed dev processes cannot be killed or replaced", async () => {
@@ -700,6 +706,15 @@ test("dirty sessions cannot stop with neutral final wording", async () => {
   assert.match(text.text, /internal trustable gate.*not verified/i);
   assert.equal(text.synthetic, true);
   assert.equal(text.continue, true);
+
+  const stopped = { text: "" };
+  await plugin["experimental.text.complete"](
+    { sessionID, messageID: "msg-2", partID: "part-2" },
+    stopped,
+  );
+  assert.match(stopped.text, /salvato il lavoro svolto/i);
+  assert.equal(stopped.synthetic, false);
+  assert.equal(stopped.continue, false);
 });
 
 test("application test discovery does not impose a framework on apps without tests", async () => {
@@ -893,6 +908,8 @@ test("action completion remains blocked until every persisted endpoint has a foc
   );
   assert.match(result, /Trustable completion gate failed/);
   assert.match(result, /Missing executable focused application test for: v1\/profile, v1\/session/);
+  assert.match(result, /Expected directory for v1\/profile: tests\/actions\/v1\/profile\/ or packages\/v1\/profile\//);
+  assert.match(result, /wrong: tests\/actions\/v1_profile\//);
 
   const system = { system: [] };
   await reloadedPlugin["experimental.chat.system.transform"]({ sessionID }, system);

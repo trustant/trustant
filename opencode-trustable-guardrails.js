@@ -125,7 +125,9 @@ export function isManagedIdeLoginCommand(args = {}) {
 
 export function isMaskedCriticalCommand(args = {}) {
   const command = String(args.command || "");
-  const critical = /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh|npm\s+run\s+build)/i.test(command);
+  const critical = unwrappedShellSegments(args).some((segment) =>
+    /^(?:ops\s+ide\s+(?:login|deploy|setup)(?:\s|$)|npm\s+run\s+build(?:\s|$)|(?:(?:bash|sh)\s+)?(?:\S*\/)?check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh(?:\s|$))/i.test(segment),
+  );
   const masked = /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i.test(command);
   return critical && masked;
 }
@@ -267,6 +269,8 @@ function defaultState() {
     activeTaskFingerprint: "",
     automaticRecoveryCount: 0,
     statusRequest: false,
+    completionRecoveryAttempts: 0,
+    lastCompletionFailure: "",
   };
 }
 
@@ -731,10 +735,20 @@ export async function runApplicationTests(directory, requiredActionEndpoints = [
   const missing = required.filter((endpoint) => !endpointHasFocusedTest(directory, endpoint, discovered.suites));
   let passed = missing.length === 0;
   if (missing.length > 0) {
+    const expected = missing.flatMap((endpoint) => {
+      const flattened = endpoint.replaceAll("/", "_");
+      return [
+        `Expected directory for ${endpoint}: tests/actions/${endpoint}/ or packages/${endpoint}/`,
+        ...(flattened === endpoint
+          ? []
+          : [`Do not replace endpoint separators with underscores (wrong: tests/actions/${flattened}/).`]),
+      ];
+    });
     reports.push([
       "===== focused action tests: FAIL =====",
       `Missing executable focused application test for: ${missing.join(", ")}`,
-      "Add a recognized test under tests/actions/<endpoint>/ or packages/<endpoint>/; do not modify generated __main__.py.",
+      ...expected,
+      "Move or add a recognized executable test in the exact endpoint directory; do not modify generated __main__.py.",
     ].join("\n"));
   } else if (required.length > 0) {
     reports.push(`===== focused action tests: PASS =====\nCovered endpoints: ${required.join(", ")}`);
@@ -924,6 +938,8 @@ export default async function TrustableGuardrails(context = {}) {
             current.touchedActionEndpoints = [];
             current.failureSignature = "";
             current.repeatedFailures = 0;
+            current.completionRecoveryAttempts = 0;
+            current.lastCompletionFailure = "";
             saveState(context.sessionID, current);
             return `Trustable completion gate passed.\n\n${result.output}`;
           }
@@ -931,12 +947,17 @@ export default async function TrustableGuardrails(context = {}) {
           const signature = completionFailureSignature(result.output);
           current.repeatedFailures = current.failureSignature === signature ? current.repeatedFailures + 1 : 1;
           current.failureSignature = signature;
+          current.lastCompletionFailure = result.output.match(/Missing executable focused application test for:[^\n]*/)?.[0]
+            || "one or more automatic checks are still failing";
           current.verified = false;
           current.dirty = true;
           if (current.repeatedFailures >= 2) {
             current.circuitOpen = true;
             current.diagnosticRequired = true;
             current.reproduced = false;
+            current.completionRecoveryAttempts = 1;
+          } else {
+            current.completionRecoveryAttempts = 0;
           }
           saveState(context.sessionID, current);
           const breaker = current.circuitOpen
@@ -962,10 +983,13 @@ export default async function TrustableGuardrails(context = {}) {
       const current = stateFor(input.sessionID);
       current.browserInteractionsSinceEvidence = 0;
       const text = (output.parts || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
+      const synthetic = (output.parts || []).some((part) => part.synthetic === true) || isSyntheticContinuation(text);
       current.statusRequest = isStatusRequest(text);
-      if (text.trim() && !current.statusRequest && !isSyntheticContinuation(text)) {
+      if (text.trim() && !current.statusRequest && !synthetic) {
         current.activeTask = text.trim().slice(0, MAX_ACTIVE_TASK_CHARS);
         current.activeTaskFingerprint = fingerprint(current.activeTask);
+        current.completionRecoveryAttempts = 0;
+        current.lastCompletionFailure = "";
       }
       if (coreManaged) {
         current.diagnosticRequired = false;
@@ -1170,7 +1194,16 @@ export default async function TrustableGuardrails(context = {}) {
         return;
       }
       if (current.dirty && !current.verified) {
-        continueInternally(output, "Internal Trustable gate: the current changes are not verified. Run trustable_completion_check, resolve every reported failure, and continue until the gate passes. Do not answer the user yet.");
+        if (current.completionRecoveryAttempts >= 1) {
+          output.text = "Ho salvato il lavoro svolto, ma non sono riuscito a completare l'ultimo passaggio in questa sessione.";
+          output.synthetic = false;
+          output.continue = false;
+          saveState(input.sessionID, current);
+          return;
+        }
+        current.completionRecoveryAttempts += 1;
+        saveState(input.sessionID, current);
+        continueInternally(output, `Internal Trustable gate: the current changes are not verified. Resolve this exact remaining failure: ${current.lastCompletionFailure || "run trustable_completion_check and inspect its complete output"}. Use read for source inspection; do not inspect checker scripts with shell pipelines. Rerun trustable_completion_check after the fix. Do not answer the user yet.`);
         return;
       }
     },
