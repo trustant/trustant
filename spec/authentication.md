@@ -102,3 +102,35 @@ explicitly.
 Unit tests cover disabled compatibility, configuration loading, password hash
 validation, login throttling, cookie flags, bounded/expiring sessions, page/API
 authentication, CSRF on normal mutations and effectful GET routes, and logout.
+
+## Development-mode stream
+
+Authentication must be a deployment choice, not an implicit dependency of an
+image or Git branch. A development deployment must be able to run with
+`TRUSTABLE_AUTH_MODE=disabled` without a reachable Keycloak, OIDC discovery,
+OIDC Secret, or auth-specific volume. Switching between `main`, `devel`, and a
+local image must preserve the explicitly selected mode and must not leave an
+incompatible mode from a previous image active.
+
+Implementation phases:
+
+1. Add an installer/deployment setting with the explicit values `disabled`,
+   `local`, and `oidc`; development installs default to `disabled` and
+   production does not silently fall back from `oidc` after an OIDC error.
+2. Render only the environment variables, Secret mounts, and volumes required
+   by the selected mode. Changing to `disabled` removes stale OIDC deployment
+   configuration but does not delete the operator-owned Kubernetes Secret.
+3. Expose the same setting in the Trustable configuration UI after the
+   deployment API can apply it safely. Enabling `oidc` requires validated
+   Keycloak configuration before rollout; disabling it requires explicit user
+   confirmation because it changes the access boundary.
+4. Add rollout E2E coverage for `disabled -> oidc -> disabled`, including an
+   unavailable Keycloak, branch/image changes, and verification that no auth
+   value reaches generated application `.env` files.
+
+The current local cluster demonstrated the required compatibility behavior:
+the public `main` image predates OIDC and failed to start while the StatefulSet
+still supplied `TRUSTABLE_AUTH_MODE=oidc`. Setting the deployment explicitly to
+`disabled` restored the server without changing the image or requiring
+Keycloak. The final implementation must make this transition a supported,
+idempotent product operation rather than a manual `kubectl set env` command.
