@@ -759,6 +759,30 @@ password-in-query defects as failures. More ambiguous session-token and
 browser-supplied identity patterns remain warnings to avoid noisy false
 positives.
 
+## Pipeline follow-up: circuit-breaker recovery UX
+
+The `trulongsession` long run exposed a blocking recovery failure. A source
+`write` was correctly rejected because diagnostic browser evidence was still
+missing, but the model retried the same blocked operation three times. The
+hidden continuation did not change its strategy; the final assistant turn was
+empty, the backend became idle, and the UI gave the user no explanation.
+
+Required follow-up:
+
+1. A blocked mutation must produce one bounded internal recovery action that
+   identifies the missing evidence and the valid next tool operation.
+2. The same mutation cannot be retried while its diagnostic precondition is
+   unchanged. A repeated attempt must collect fresh evidence or finish with a
+   concise visible status.
+3. Browser evidence must distinguish interactive flows from failures that can
+   be reproduced with a snapshot, diagnostics, console, or network evidence.
+4. Hidden continuations must never end in an empty assistant turn.
+5. The UI must clear thinking from authoritative session status and show a
+   bounded explanation when recovery cannot proceed.
+
+This must not weaken the source-mutation gate. The correction is deterministic
+recovery and honest user feedback, not allowing the rejected write.
+
 Authentication is also added to the real E2E flow. The runner prompts OpenCode
 in non-technical language, then Playwright validates registration, login,
 protected navigation, full-page reload persistence, logout, and login reuse.
