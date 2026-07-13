@@ -144,6 +144,17 @@ The generated `mcp` section must also always contain the local
 directory under `$WORKSPACE_DIR/.trustable/browser/<app>` and the external
 origin derived as `<protocol>://vite.<configured-apihost>`. No browser
 credentials or generated app `.env` variables are added.
+Browser snapshots expose bounded stable control refs and observable
+AudioContext/media state so frontend verification can prove form and sound
+behavior instead of relying on source inspection. The session plugin records
+successful evidence-bearing browser interactions automatically. It unlocks a
+diagnostic fix after reproduction and clears post-change verification only
+after fresh evidence for the same task and mutation revision; sound fixes also
+require observable active audio state. The manual checkpoint remains a
+fallback and binds the latest valid interaction when its internal evidence ID
+is omitted. For a reported browser bug, at most eight read-only file discovery
+calls are allowed before a browser-only phase makes `browser_interact`
+mandatory and rejects shell, file, task, and editor tools.
 
 The launch/config generation also installs
 `~/.local/bin/check_openserverless_actions.sh` with executable mode. This
@@ -519,7 +530,11 @@ Trustable must install the session-enforcement plugin as the auto-loaded local
 plugin `~/.config/opencode/plugins/trustable-guardrails.js`. The plugin listens for
 `session.compacted`, injects a short critical contract into every system prompt,
 and exposes `trustable_context_recover`, `trustable_diagnostic_checkpoint`, and
-`trustable_completion_check`. It blocks mutations after compaction, blocks
+`trustable_completion_check`. After compaction it automatically injects a
+bounded recovery packet with the exact active real user request, contracts,
+sanitized config, git status, and a bounded file map before tools run. The
+manual recovery tool is a fallback only if that gate explicitly remains
+active. It blocks mutations while recovery is pending, blocks
 speculative edits for a reported bug until reproduction evidence is recorded,
 opens a circuit breaker after two equal completion failures, and prevents
 unverified completion claims. Any action MCP call or source mutation under
@@ -552,6 +567,10 @@ logical paths such as `/login` and add the hash themselves.
 It must reject hardcoded `user_id` values in frontend requests and
 bearer-authenticated requests that also send a browser-controlled `user_id`;
 protected actions derive identity from the validated token/session.
+It must also reject a frontend that initializes authenticated state directly
+from a cached localStorage user/profile without an observable backend
+`me`/session validation. A full reload keeps an explicit loading state,
+validates the token and its expiry, and clears cached identity on failure.
 
 After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
 in the **Claude Code** format, containing every MCP server from the generated

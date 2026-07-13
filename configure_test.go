@@ -1375,6 +1375,55 @@ func TestFrontendCheckerAcceptsAsyncIdentityWithLoadingGate(t *testing.T) {
 	}
 }
 
+func TestFrontendCheckerRejectsCachedUserAsAuthoritativeSession(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	page := "import { useState } from 'react';\n" +
+		"export const AuthProvider = () => {\n" +
+		"  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('auth_user') || 'null'));\n" +
+		"  const isAuthenticated = !!user;\n" +
+		"  return <button onClick={() => logout()}>Logout</button>;\n};\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "AuthProvider.tsx"), []byte(page), 0644); err != nil {
+		t.Fatalf("write auth provider: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("cached browser identity should not establish a session, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "cached user/profile") {
+		t.Fatalf("unexpected frontend checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestFrontendCheckerAcceptsCachedProfileAfterBackendSessionValidation(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %s", err)
+	}
+	page := "import { useEffect, useState } from 'react';\n" +
+		"export const AuthProvider = () => {\n" +
+		"  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('auth_user') || 'null'));\n" +
+		"  const [loading, setLoading] = useState(true);\n" +
+		"  useEffect(() => { fetch('/api/my/v1/auth', { method: 'POST', body: JSON.stringify({ operation: 'me' }) }).then(r => r.json()).then(setUser).finally(() => setLoading(false)); }, []);\n" +
+		"  const isAuthenticated = !loading && !!user;\n" +
+		"  return <button onClick={() => logout()}>Logout</button>;\n};\n"
+	if err := os.WriteFile(filepath.Join(srcDir, "AuthProvider.tsx"), []byte(page), 0644); err != nil {
+		t.Fatalf("write auth provider: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("backend-validated cached profile should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+}
+
 // Without an AgentiReact() opt-in, no agentireact server is added.
 func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir

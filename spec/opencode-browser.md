@@ -4,7 +4,8 @@ Trustable provides a bounded Playwright browser to the OpenCode session through
 the generated `browser` MCP entry. It is an app-development diagnostic tool,
 not a general web browser.
 
-The strict indexed locator contract is exposed by browser MCP version `0.2.0`.
+The strict locator and observable-audio contract is exposed by browser MCP
+version `0.3.0`.
 
 ## Targets
 
@@ -28,16 +29,18 @@ The server exposes a deliberately small persistent browser surface:
 
 - `browser_open`: open the development or deployed target;
 - `browser_snapshot`: return URL, title, aria snapshot, visible text, console
-  warnings/errors, and failed HTTP requests;
+  warnings/errors, failed HTTP requests, a bounded control list with snapshot
+  refs (`e0`, `e1`, ...), and observable Web Audio/media state;
 - `browser_interact`: one click, fill, key press, reload, or back operation.
-  Locator resolution is strict: zero matches reports the complete locator,
+  A `ref` from the latest snapshot is the preferred exact locator. Locator
+  resolution is strict: zero matches reports the complete locator,
   multiple matches require an explicit zero-based `index`, and a supplied
   index selects with Playwright `nth(index)`;
   `kind=role` also accepts a bounded shorthand: a role name in `target`, or an
   accessible name whose role is inferred from the interaction (`textbox` for
   fill/press and `button` for click). Repeating the same value in `role` and
   `target` is treated as a role-only locator. Strict match counting still applies;
-- `browser_diagnostics`: return console/page/network failures;
+- `browser_diagnostics`: return console/page/network failures and audio state;
 - `browser_capture`: save a full-page screenshot plus structured JSON evidence;
 - `browser_close`: close and discard the isolated browser context.
 
@@ -59,6 +62,9 @@ accessibility snapshots, browser console capture, failed-network capture, and
 real form submission when two password inputs share the same placeholder. The
 duplicate locator must fail without `index`; indices `0` and `1` must fill the
 two distinct inputs before the registration request is submitted.
+The same form must also be fillable through two distinct snapshot refs. An
+audio test must create and resume an `AudioContext` after a real click and prove
+that the next snapshot reports it as running and active.
 The generated OpenCode and Claude MCP configs must both include the browser
 server. A live pod test must confirm `browser_open` can inspect
 `http://localhost:5173` for the currently launched app.

@@ -64,24 +64,23 @@ again, and rerun the checker. If the contract is missing or the checker is
 unavailable in PATH, say so and fall back to this file's rules. Do not invent
 manual zip or raw `ops action create/update/deploy` workflows.
 
-After compaction, do not continue editing from memory. Re-read this file,
-`.openserverless-contract.md` if present, `opencode.json`, and git status.
-Then inspect available MCP/tool names before touching action or service code.
-
-Trustable enforces this recovery through `trustable_context_recover`. The
-plugin blocks edit/write/action/deploy mutations after compaction until that
-tool reloads the authoritative files, sanitized config, git status, and project
-layout. Do not attempt to bypass the gate.
+After compaction, do not continue editing from memory. Trustable automatically
+injects a bounded recovery packet containing the exact active user request,
+this file, `.openserverless-contract.md`, sanitized `opencode.json`, git status,
+and a bounded project map before tools run. Resume that request rather than a
+generic continuation message. Call `trustable_context_recover` only if the
+automatic recovery gate explicitly remains active; do not bypass the gate.
 
 When the user reports a bug or says a previous fix still does not work,
-reproduce the exact symptom before editing. Use browser, HTTP, logs, or a
-deterministic test, then call `trustable_diagnostic_checkpoint` with concise
-evidence. If the same completion failure occurs twice, the diagnostic circuit
-breaker requires fresh evidence before another source change.
+reproduce the exact symptom before editing. Use `browser_interact` for browser
+bugs; Trustable records successful browser evidence automatically. For HTTP,
+logs, or deterministic tests, call `trustable_diagnostic_checkpoint` with
+concise evidence. If the same completion failure occurs twice, the diagnostic
+circuit breaker requires fresh evidence before another source change.
 When the symptom was reproduced in the browser, exercise the fixed flow again
-after the last source change and call `trustable_diagnostic_checkpoint` with
-`phase=verified` and concrete browser evidence. Backend-only checks do not
-verify a browser-visible flow.
+with `browser_interact` after the last source change. Trustable binds that
+evidence automatically; sound fixes must show active audio state. Backend-only
+checks do not verify a browser-visible flow.
 Protected views that load identity asynchronously must keep a distinct loading
 state; do not redirect merely because the initial user/profile value is null.
 
@@ -653,9 +652,15 @@ When an app has login or registration:
   `Link`, `NavLink`, `Navigate`, and `useNavigate`. The router adds `#/` to the
   browser URL. Never pass `#/login` to those APIs, and never use root-relative
   anchors such as `<a href="/login">` for internal navigation.
-- After login, store only the returned session/token/user data needed by the
-  frontend, then derive the authenticated UI state from that data or from a
-  bounded `me` check.
+- After login, persist only the opaque session token needed by the frontend.
+  A cached user/profile may improve rendering but is never authoritative proof
+  of authentication.
+- On every full-page load, keep an explicit authentication loading state and
+  validate the persisted token through a bounded backend `me`/session endpoint
+  before rendering protected routes. The backend validates expiry and derives
+  identity from the token. On any validation failure, clear the token and
+  cached identity and render the public authentication flow; never fall back to
+  a cached localStorage user as an authenticated session.
 - A successful registration must establish the same authenticated session as
   login, either by returning session/token/user data directly or by performing
   an immediate login. Do not send the newly registered user back to a separate
@@ -664,9 +669,14 @@ When an app has login or registration:
 - Give every form control a stable `id` and `name`, and associate each label
   with `htmlFor` matching that `id`. A placeholder is not a label. When a
   browser locator matches multiple controls, fix missing form semantics when
-  appropriate or pass the browser MCP's explicit zero-based `index`; never
+  appropriate, use a `ref` from the latest browser snapshot, or pass the
+  browser MCP's explicit zero-based `index`; never
   bypass the rendered registration/login flow with `curl` and claim the browser
   flow passed.
+- For audio behavior, verification requires browser evidence after the user
+  gesture. Confirm that the browser snapshot/diagnostics reports a running
+  AudioContext or active unmuted media; source inspection and a visible music
+  toggle are not proof that sound is produced.
 - Do not hardcode browser-visible identity such as `user_id=1` in fetch URLs or
   request bodies. The backend must derive the current user from authenticated
   request state, such as a token/session header, not from a user id supplied by

@@ -3,8 +3,23 @@ import { join } from "node:path"
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright"
 
 export type BrowserMode = "development" | "deployed"
-export type LocatorKind = "role" | "text" | "label" | "placeholder" | "css"
+export type LocatorKind = "ref" | "role" | "text" | "label" | "placeholder" | "css"
 export type Interaction = "click" | "fill" | "press" | "reload" | "back"
+
+export interface BrowserControl {
+  ref: string
+  tag: string
+  role: string
+  name: string
+  type: string
+  placeholder: string
+}
+
+export interface BrowserAudioStatus {
+  contexts: Array<{ state: string; sampleRate: number }>
+  media: Array<{ tag: string; paused: boolean; muted: boolean; volume: number; currentTime: number }>
+  active: boolean
+}
 
 export interface BrowserSnapshot {
   url: string
@@ -13,6 +28,8 @@ export interface BrowserSnapshot {
   text: string
   console: string[]
   network: string[]
+  controls: BrowserControl[]
+  audio: BrowserAudioStatus
 }
 
 const MAX_DIAGNOSTICS = 100
@@ -70,6 +87,22 @@ export class TrustableBrowser {
       viewport: { width: 1440, height: 900 },
       ignoreHTTPSErrors: false,
     })
+    await this.context.addInitScript({ content: `(() => {
+      window.__trustableAudioContexts = [];
+      const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!NativeAudioContext) return;
+      function TrackedAudioContext(...args) {
+        const context = Reflect.construct(NativeAudioContext, args, new.target || NativeAudioContext);
+        window.__trustableAudioContexts.push(context);
+        return context;
+      }
+      Object.setPrototypeOf(TrackedAudioContext, NativeAudioContext);
+      TrackedAudioContext.prototype = NativeAudioContext.prototype;
+      Object.defineProperty(window, "AudioContext", { configurable: true, value: TrackedAudioContext });
+      if (window.webkitAudioContext) {
+        Object.defineProperty(window, "webkitAudioContext", { configurable: true, value: TrackedAudioContext });
+      }
+    })();` })
     this.page = await this.context.newPage()
     this.page.on("console", (message) => {
       if (["warning", "error"].includes(message.type())) {
@@ -99,6 +132,9 @@ export class TrustableBrowser {
 
   private locator(page: Page, kind: LocatorKind, target: string, role?: string): Locator {
     switch (kind) {
+      case "ref":
+        if (!/^e\d+$/.test(target)) throw new Error("browser ref must match e<number> from the latest snapshot")
+        return page.locator(`[data-trustable-browser-ref="${target}"]`)
       case "role":
         if (!role) throw new Error("role is required when locator kind is role")
         return target
@@ -190,10 +226,49 @@ export class TrustableBrowser {
   async snapshot(): Promise<BrowserSnapshot> {
     const page = await this.ensurePage()
     const body = page.locator("body")
-    const [title, aria, text] = await Promise.all([
+    const [title, aria, text, controls, audio] = await Promise.all([
       page.title(),
       body.ariaSnapshot({ timeout: 5_000 }).catch(() => "(aria snapshot unavailable)"),
       body.innerText({ timeout: 5_000 }).catch(() => "(body text unavailable)"),
+      page.locator("a,button,input,select,textarea,[role]").evaluateAll((elements) => elements.map((element, index) => {
+        const node = element as HTMLElement
+        const input = element as HTMLInputElement
+        const ref = `e${index}`
+        node.dataset.trustableBrowserRef = ref
+        const labels = "labels" in input && input.labels
+          ? Array.from(input.labels).map((label) => label.textContent?.trim() || "").filter(Boolean).join(" ")
+          : ""
+        return {
+          ref,
+          tag: node.tagName.toLowerCase(),
+          role: node.getAttribute("role") || "",
+          name: node.getAttribute("aria-label") || labels || node.innerText?.trim() || node.getAttribute("title") || input.name || "",
+          type: input.type || "",
+          placeholder: input.placeholder || "",
+        }
+      })).catch(() => [] as BrowserControl[]),
+      page.evaluate(() => {
+        const target = window as typeof window & { __trustableAudioContexts?: AudioContext[] }
+        const contexts = (target.__trustableAudioContexts || []).map((context) => ({
+          state: context.state,
+          sampleRate: context.sampleRate,
+        }))
+        const media = Array.from(document.querySelectorAll("audio,video")).map((element) => {
+          const item = element as HTMLMediaElement
+          return {
+            tag: item.tagName.toLowerCase(),
+            paused: item.paused,
+            muted: item.muted,
+            volume: item.volume,
+            currentTime: item.currentTime,
+          }
+        })
+        return {
+          contexts,
+          media,
+          active: contexts.some((context) => context.state === "running") || media.some((item) => !item.paused && !item.muted && item.volume > 0),
+        }
+      }).catch(() => ({ contexts: [], media: [], active: false })),
     ])
     return {
       url: page.url(),
@@ -202,14 +277,27 @@ export class TrustableBrowser {
       text: text.slice(0, MAX_SNAPSHOT_TEXT),
       console: [...this.consoleMessages],
       network: [...this.networkFailures],
+      controls,
+      audio,
     }
   }
 
-  diagnostics() {
+  async diagnostics() {
     return {
       url: this.page?.url() || "about:blank",
       console: [...this.consoleMessages],
       network: [...this.networkFailures],
+      audio: this.page
+        ? await this.page.evaluate(() => {
+            const target = window as typeof window & { __trustableAudioContexts?: AudioContext[] }
+            const contexts = (target.__trustableAudioContexts || []).map((context) => ({ state: context.state, sampleRate: context.sampleRate }))
+            const media = Array.from(document.querySelectorAll("audio,video")).map((element) => {
+              const item = element as HTMLMediaElement
+              return { tag: item.tagName.toLowerCase(), paused: item.paused, muted: item.muted, volume: item.volume, currentTime: item.currentTime }
+            })
+            return { contexts, media, active: contexts.some((context) => context.state === "running") || media.some((item) => !item.paused && !item.muted && item.volume > 0) }
+          }).catch(() => ({ contexts: [], media: [], active: false }))
+        : { contexts: [], media: [], active: false },
     }
   }
 

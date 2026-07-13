@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="420" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
   <title id="title">Issue 98 session enforcement flow</title>
-  <desc id="desc">OpenCode compaction and diagnostic failures activate deterministic Trustable recovery, circuit breaker, action mutation tracking including shell working directories, and completion checks.</desc>
+  <desc id="desc">OpenCode compaction automatically restores the exact active request with bounded Trustable context; diagnostic failures activate evidence-bound circuit breakers and completion checks.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }
     .title { font-size: 22px; font-weight: 700; }
@@ -28,15 +28,15 @@
   <text x="405" y="144" text-anchor="middle" class="small">writes and deploys blocked</text>
 
   <rect x="580" y="70" width="230" height="98" class="box"/>
-  <text x="695" y="99" text-anchor="middle" class="label">Context recovery tool</text>
-  <text x="695" y="122" text-anchor="middle" class="small">contracts + sanitized config</text>
-  <text x="695" y="142" text-anchor="middle" class="small">git status + app structure</text>
+  <text x="695" y="99" text-anchor="middle" class="label">Automatic recovery packet</text>
+  <text x="695" y="122" text-anchor="middle" class="small">exact task + bounded contracts</text>
+  <text x="695" y="142" text-anchor="middle" class="small">sanitized config + status + map</text>
 
   <rect x="580" y="225" width="230" height="108" class="gate"/>
   <text x="695" y="253" text-anchor="middle" class="label">Diagnostic circuit breaker</text>
   <text x="695" y="277" text-anchor="middle" class="small">bug must be reproduced first</text>
   <text x="695" y="297" text-anchor="middle" class="small">two equal failures reopen gate</text>
-  <text x="695" y="317" text-anchor="middle" class="small">evidence required before edits</text>
+  <text x="695" y="317" text-anchor="middle" class="small">evidence ID bound to revision</text>
 
   <rect x="300" y="235" width="210" height="88" class="box"/>
   <text x="405" y="266" text-anchor="middle" class="label">Completion check</text>

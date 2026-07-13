@@ -112,6 +112,40 @@ for name in sys.argv[1:]:
             print(f"{name}:{line}: async state '{match.group(1)}' starts null and immediately guards a Navigate")
 PY
   )
+
+  while IFS= read -r hit; do
+    error "$hit" "A cached user/profile from localStorage is being used as authoritative authentication state without an observable backend session validation. Persist a token, bootstrap through a bounded me/session validation, keep an explicit loading state, and clear cached identity when validation fails."
+  done < <(python3 - "${frontend_files[@]}" <<'PY'
+import pathlib
+import re
+import sys
+
+files = []
+for name in sys.argv[1:]:
+    text = pathlib.Path(name).read_text(encoding="utf-8", errors="replace")
+    files.append((name, text))
+
+all_text = "\n".join(text for _, text in files)
+auth_surface = re.search(r"\b(?:login|logout|register|isAuthenticated|Authorization|Bearer|authToken)\b", all_text, re.I)
+backend_validation = re.search(
+    r"fetch\s*\([^;]{0,600}(?:/me\b|whoami|validate[-_/]?session|['\"]?(?:operation|op|action)['\"]?\s*:\s*['\"]me['\"])"
+    r"|\b(?:bootstrapAuth|restoreAuth|validateSession|getCurrentUser|loadCurrentUser)\s*\(",
+    all_text,
+    re.I | re.S,
+)
+if auth_surface and not backend_validation:
+    direct_cache = re.compile(
+        r"(?:useState\s*\([^;]{0,300}|set(?:User|Profile|Account|CurrentUser)\s*\([^;]{0,300})"
+        r"JSON\.parse\s*\(\s*(?:window\.)?localStorage\.getItem\s*\(\s*['\"][^'\"]*(?:user|profile|account)[^'\"]*['\"]",
+        re.I | re.S,
+    )
+    for name, text in files:
+        match = direct_cache.search(text)
+        if match:
+            line = text.count("\n", 0, match.start()) + 1
+            print(f"{name}:{line}: cached browser identity initializes authenticated state")
+PY
+  )
 fi
 
 python_files=()

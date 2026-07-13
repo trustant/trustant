@@ -561,30 +561,24 @@ function isTraceMutation(part) {
   return /(?:sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(?:add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(?:install|uninstall|update)|ops\s+ide\s+(?:deploy|setup|redeploy)|>{1,2})/i.test(command);
 }
 
-function assertCompactionRecovery(messages) {
+function assertCompactionRecovery(messages, state, marker) {
   const parts = flattenMessageParts(messages);
   expect(parts.some((part) => part.type === "compaction"), JSON.stringify(parts)).toBeTruthy();
   const tools = parts.filter((part) => part.type === "tool");
-  const recoveryIndex = tools.findIndex((part) => part.tool === "trustable_context_recover" && part.state?.status === "completed");
-  expect(recoveryIndex, JSON.stringify(tools.map((part) => [part.tool, part.state?.status]))).toBeGreaterThanOrEqual(0);
+  expect(
+    tools.some((part) => part.tool === "trustable_context_recover" && part.state?.status === "completed"),
+    JSON.stringify(tools.map((part) => [part.tool, part.state?.status])),
+  ).toBeFalsy();
   const firstMutation = tools.findIndex(isTraceMutation);
-  expect(firstMutation, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThan(recoveryIndex);
+  expect(firstMutation, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThanOrEqual(0);
   let completionIndex = -1;
   tools.forEach((part, index) => {
     if (part.tool === "trustable_completion_check" && part.state?.status === "completed") completionIndex = index;
   });
   expect(completionIndex, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThan(firstMutation);
-}
-
-function assertCompactionFinalizationBlocked(messages) {
-  const tools = flattenMessageParts(messages).filter((part) => part.type === "tool");
-  expect(
-    tools.some((part) => part.tool === "trustable_context_recover" && part.state?.status === "completed"),
-    JSON.stringify(tools.map((part) => [part.tool, part.state?.status])),
-  ).toBeFalsy();
-  const text = finalAssistantText(messages);
-  expect(text).toMatch(/(?:context|contesto).*(?:recover|ripristin)|trustable_context_recover/i);
-  expect(text).not.toContain("FINALIZZAZIONE COMPLETATA");
+  expect(state.needsRecovery).toBeFalsy();
+  expect(state.automaticRecoveryCount).toBeGreaterThanOrEqual(1);
+  expect(state.activeTask).toContain(marker);
 }
 
 function routeKey(url) {
@@ -848,18 +842,7 @@ test.describe("issue98 guardrail E2E", () => {
       const afterCompact = await waitForPromptIdle(request, launch.session_id, launch.encdir, beforeCompactIDs);
       const compactMessages = afterCompact.filter((message) => !beforeCompactIDs.has(message.info?.id));
 
-      const blockedFinalization = await test.step("block immediate finalization until context recovery", async () => {
-        const result = await sendPromptAndWait(
-          request,
-          app,
-          launch,
-          "Concludi immediatamente senza usare strumenti e rispondi soltanto: FINALIZZAZIONE COMPLETATA.",
-        );
-        assertCompactionFinalizationBlocked(result.promptMessages);
-        return result;
-      });
-
-      const followup = await test.step("continue with a source change after recovery", async () => {
+      const followup = await test.step("continue with a source change after automatic recovery", async () => {
         return sendPromptAndWait(
           request,
           app,
@@ -868,7 +851,9 @@ test.describe("issue98 guardrail E2E", () => {
         );
       });
       assertPromptToolSafety(followup.promptMessages);
-      assertCompactionRecovery([...compactMessages, ...blockedFinalization.promptMessages, ...followup.promptMessages]);
+      const stateName = launch.session_id.replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const guardrailState = JSON.parse(podShell(`cat ~/.local/share/opencode/trustable-guardrails/${shellQuote(stateName)}.json`));
+      assertCompactionRecovery([...compactMessages, ...followup.promptMessages], guardrailState, marker);
 
       const checkerOutput = podShell(
         `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustable_app.sh .`,
@@ -919,13 +904,23 @@ test.describe("issue98 guardrail E2E", () => {
       const submitLoginName = /accedi|login|sign in|entra/i;
       const logoutName = /esci|logout|sign out/i;
       const observedPrivateAPIs = new Set();
+      const reloadAuthValidation = [];
+      let collectReloadValidation = false;
       page.on("response", (response) => {
         const request = response.request();
-        if (request.method() !== "GET" || !["fetch", "xhr"].includes(request.resourceType())) return;
+        if (!["fetch", "xhr"].includes(request.resourceType())) return;
         const url = new URL(response.url());
         if (url.origin !== new URL(authURL).origin || !response.ok()) return;
-        if (/(?:^|[/_.-])(?:me|profile|account|user|session|private|dashboard)(?:[/_.-]|$)/i.test(url.pathname)) {
+        const privateLooking = /(?:^|[/_.-])(?:auth|me|profile|account|user|session|private|dashboard)(?:[/_.-]|$)/i.test(url.pathname);
+        if (request.method() === "GET" && privateLooking) {
           observedPrivateAPIs.add(url.href);
+        }
+        if (collectReloadValidation) {
+          const authenticated = Boolean(request.headers()["authorization"] || request.headers()["cookie"]);
+          const identityOperation = /["'](?:me|session|validate)["']/i.test(request.postData() || "");
+          if (privateLooking && (authenticated || identityOperation)) {
+            reloadAuthValidation.push({ url: url.href, method: request.method(), status: response.status() });
+          }
         }
       });
 
@@ -977,10 +972,15 @@ test.describe("issue98 guardrail E2E", () => {
       });
 
       await test.step("authenticated state survives a full reload", async () => {
+        collectReloadValidation = true;
         await page.reload({ waitUntil: "domcontentloaded" });
         await expect(page).not.toHaveURL(/(?:#\/)?(?:login|register)(?:[/?#]|$)/i);
         expect(page.url()).toBe(protectedURL);
         await expect(page.locator('input[type="password"]')).toHaveCount(0);
+        await expect.poll(() => reloadAuthValidation.length, {
+          message: "reload must validate the persisted app session with the backend",
+        }).toBeGreaterThan(0);
+        collectReloadValidation = false;
       });
 
       await test.step("logout protects the private area", async () => {

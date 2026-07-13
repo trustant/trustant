@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="430" viewBox="0 0 980 430" role="img" aria-labelledby="title desc">
   <title id="title">Issue 98 compaction recovery E2E</title>
-  <desc id="desc">Playwright drives a real OpenCode compaction, persists the recovery guard beside OpenCode data, proves context recovery precedes mutations and final responses, then relaunches the app and verifies the same persistent session and messages.</desc>
+  <desc id="desc">Playwright drives a real OpenCode compaction, proves automatic bounded recovery restores the exact active request before mutation, then relaunches the app and verifies the same persistent session and messages.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }
     .title { font-size: 22px; font-weight: 700; }
@@ -23,14 +23,14 @@
   <text x="307" y="152" text-anchor="middle" class="small">session.compacted</text>
   <text x="307" y="172" text-anchor="middle" class="small">needsRecovery = true</text>
   <rect x="429" y="78" width="180" height="104" class="gate"/>
-  <text x="519" y="107" text-anchor="middle" class="label">Mandatory recovery</text>
-  <text x="519" y="131" text-anchor="middle" class="small">trustable_context_recover</text>
-  <text x="519" y="152" text-anchor="middle" class="small">rules + config + status</text>
-  <text x="519" y="172" text-anchor="middle" class="small">before mutation or final</text>
+  <text x="519" y="107" text-anchor="middle" class="label">Automatic recovery</text>
+  <text x="519" y="131" text-anchor="middle" class="small">exact active user request</text>
+  <text x="519" y="152" text-anchor="middle" class="small">bounded rules + config + status</text>
+  <text x="519" y="172" text-anchor="middle" class="small">before the first tool call</text>
   <rect x="649" y="88" width="135" height="84" class="box"/>
   <text x="717" y="117" text-anchor="middle" class="label">Continue work</text>
   <text x="717" y="141" text-anchor="middle" class="small">edit + browser evidence</text>
-  <text x="717" y="161" text-anchor="middle" class="small">verification checkpoint</text>
+  <text x="717" y="161" text-anchor="middle" class="small">automatic verification evidence</text>
   <rect x="824" y="78" width="130" height="104" class="ok"/>
   <text x="889" y="107" text-anchor="middle" class="label">Relaunch</text>
   <text x="889" y="131" text-anchor="middle" class="small">same session ID</text>
@@ -44,6 +44,6 @@
   <path d="M504 226 V182" class="arrow"/>
   <rect x="224" y="322" width="560" height="82" class="box"/>
   <text x="504" y="352" text-anchor="middle" class="label">E2E invariants</text>
-  <text x="504" y="376" text-anchor="middle" class="small">recovery precedes edits; browser fixes require post-edit evidence; completion passes</text>
+  <text x="504" y="376" text-anchor="middle" class="small">automatic recovery count precedes edits; browser fixes require revision-bound evidence</text>
   <text x="504" y="396" text-anchor="middle" class="small">process restart does not replace the session or lose guardrail state and pre/post-compaction messages</text>
 </svg>

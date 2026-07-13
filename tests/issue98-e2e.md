@@ -69,12 +69,12 @@ Run the real long-session compaction and persistence proof:
 ./tests/e2e_compaction.sh
 ```
 
-This invokes OpenCode compaction, requires context recovery before subsequent
-mutations, and first attempts an immediate final response. The response must be
-replaced by the context-recovery gate until `trustable_context_recover`
-completes. The test then restarts the app and verifies the same session and
-marker are still present. This is a real compacted OpenCode session and model
-turn, not a replay of the guardrail unit test.
+This invokes OpenCode compaction and requires the first continued model turn to
+receive automatic bounded recovery containing the exact active request. The
+test verifies durable `automaticRecoveryCount`, a post-recovery mutation and
+completion without a manual recovery-tool call, then restarts the app and
+checks that the same session and marker are still present. This is a real
+compacted OpenCode session and model turn, not a replay of the unit test.
 
 Run the generated authentication proof:
 
@@ -85,7 +85,9 @@ Run the generated authentication proof:
 The prompt and browser assertions use one app lifecycle. The OpenCode wait loop
 requires a completed assistant message whose finish reason is not `tool-calls`;
 an intermediate idle transition remains in progress. A final `stop` without
-visible assistant text fails immediately. The browser records the generated
+visible assistant text fails immediately. On reload the browser also requires
+a successful backend session/identity validation; localStorage identity alone
+does not count as persistence. The browser records the generated
 private URL after registration, proves direct access is denied in a fresh
 anonymous context that has never logged in, and retries that same URL after
 logout. Same-origin private-looking GET APIs are tested after logout only when

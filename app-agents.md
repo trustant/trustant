@@ -35,10 +35,15 @@ OpenCode has shell access in the Trustable pod. Run bounded checks yourself
 instead of asking the user to run shell commands.
 
 Trustable session enforcement is provided by the generated OpenCode plugin.
-After compaction, call `trustable_context_recover` before modifying source,
-actions, or deployment state. For reported bugs, reproduce the exact symptom
-and record it with `trustable_diagnostic_checkpoint` before editing. After
-source changes, run `trustable_completion_check` before claiming completion.
+After compaction, Trustable automatically injects a bounded recovery packet
+with the exact active user request before tools run. Resume that request; call
+`trustable_context_recover` only if the recovery gate explicitly remains
+active. For reported browser bugs, reproduce the exact symptom with
+`browser_interact` before editing; Trustable records successful browser
+evidence automatically. After source changes, run the fixed flow again with
+`browser_interact`, then run `trustable_completion_check`. Sound fixes must
+show active audio state. Use `trustable_diagnostic_checkpoint` for explicit or
+non-browser evidence.
 
 After any OpenServerless action tool call or change under `packages/`, run
 `timeout 120 ops ide deploy` before setup, runtime verification, or completion.
@@ -63,12 +68,21 @@ href="/login">` anchors for internal navigation.
 Give form controls stable `id` and `name` attributes and associate labels with
 matching `htmlFor`. Repeated placeholders are not semantic labels. If
 `browser_interact` reports an ambiguous locator, fix the form semantics when
-appropriate or pass its explicit zero-based `index`; do not bypass a failed UI
-flow with direct API calls and call it verified.
+appropriate, use a `ref` from the latest browser snapshot, or pass its explicit
+zero-based `index`; do not bypass a failed UI flow with direct API calls and
+call it verified. For sound, verify after a user gesture that browser evidence
+reports a running AudioContext or active unmuted media.
 
 Successful registration establishes an authenticated session immediately,
 using the same token/session/user contract as login. Do not require the user to
 log in again before entering the protected area.
+
+Persist only an opaque app session token as authoritative browser state. On a
+full reload, keep an explicit auth loading state and validate that token through
+a backend `me`/session endpoint before protected routes render. The backend
+derives identity from the validated token. A cached localStorage user/profile
+is display data only; clear it with the token when validation fails and never
+use it as an authenticated fallback.
 
 Avoid stale edit failures. Before editing a file that was created or changed in
 this session, re-read it and base replacements on the current text. For small

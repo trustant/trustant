@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="380" viewBox="0 0 980 380" role="img" aria-labelledby="title desc">
   <title id="title">Issue 98 generated authentication E2E</title>
-  <desc id="desc">One temporary app is created, OpenCode builds authentication through the guarded action workflow, immediate finalization after compaction stays blocked until recovery, and Playwright verifies direct protected access before login and after logout, discovered protected APIs when available, registration, persistence, and login.</desc>
+  <desc id="desc">One temporary app is created, OpenCode builds authentication through the guarded action workflow, and Playwright verifies protected access, registration, backend-validated reload persistence, logout, and login.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }
     .title { font-size: 22px; font-weight: 700; }
@@ -27,7 +27,7 @@
   <rect x="229" y="226" width="555" height="140" class="box"/>
   <text x="507" y="254" text-anchor="middle" class="label">No split test state</text>
   <text x="507" y="280" text-anchor="middle" class="small">prompt and browser assertions run before cleanup on the same generated app</text>
-  <text x="507" y="306" text-anchor="middle" class="small">post-compaction finalization is rejected until trustable_context_recover completes</text>
+  <text x="507" y="306" text-anchor="middle" class="small">reload persistence requires backend token/session validation, not only cached identity</text>
   <text x="507" y="332" text-anchor="middle" class="small">protected route and observed same-origin API are rediscovered from the generated app</text>
   <text x="507" y="358" text-anchor="middle" class="small">trace, screenshot, video, console, and network evidence stay attached on failure</text>
 </svg>

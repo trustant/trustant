@@ -8,7 +8,10 @@ import { basename, dirname, join, relative } from "node:path";
 const OPENCODE_DATA_DIR = join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "opencode");
 const STATE_DIR = join(OPENCODE_DATA_DIR, "trustable-guardrails");
 const LEGACY_STATE_DIR = join(homedir(), ".cache", "trustable", "opencode-guardrails");
-const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|ancora|errore|problema|pagina bianca|bloccato)/i;
+const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|broken|doesn't)|failed|broken|white page|blank page|error|bug|fix(?: this)?|non funziona|non funzionano|non fa|non fanno|non si (?:sente|vede|apre|salva|carica)|non (?:viene|vengono|riesce|riescono|resta|restano)|ancora|errore|problema|pagina bianca|bloccato)/i;
+const BROWSER_DIAGNOSTIC_REQUEST = /(browser|pagina|form|login|log in|register|registration|registr|auth|session|reload|refresh|routing|route|redirect|music|audio|sound|suono|musica|schermata|pulsante|button|link)/i;
+const SYNTHETIC_CONTINUATION = /^(?:continue if you have next steps.*|continue with the next steps.*|what did we do so far\??|prosegui se hai altri passaggi.*)$/i;
+const UNBOUNDED_TASK_REQUEST = /(return|read|include|show|dump)\s+(?:the\s+)?full\s+(?:content|contents|text)|read\s+(?:all|every)\s+(?:files?|source)|explore\s+the\s+codebase\s+thoroughly/i;
 const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
 const ACTION_TOOL = /^(?:action[-_](?!(?:invoke|list|get|inspect|status)(?:$|[-_]))|openserverless_action_(?!(?:invoke|list|get|inspect|status)(?:$|_)))/;
 const OPS_IDE_DEPLOY = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i;
@@ -19,6 +22,11 @@ const TEST_SUITE_LIMIT = 12;
 const TEST_TIMEOUT_MS = 180_000;
 const TEST_TOTAL_TIMEOUT_MS = 600_000;
 const BROWSER_INTERACTION_BUDGET = 12;
+const DIAGNOSTIC_READ_BUDGET = 8;
+const RECOVERY_GUIDANCE_BYTES = 6 * 1024;
+const MAX_ACTIVE_TASK_CHARS = 4_000;
+const MAX_READ_OUTPUT_CHARS = 32_000;
+const MAX_TASK_OUTPUT_CHARS = 12_000;
 const TEST_IGNORED_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
   "__pycache__", "node_modules", "vendor", "coverage", "dist", "build",
@@ -30,8 +38,8 @@ const CRITICAL_TEST_PATH = /(?:^|\/)(?:packages|auth(?:entication|orization)?|lo
 
 const CRITICAL_SYSTEM = [
   "Trustable enforcement is active.",
-  "After session compaction, call trustable_context_recover before any edit, write, action mutation, or deploy.",
-  "For a reported bug, reproduce the exact user-visible symptom and record evidence with trustable_diagnostic_checkpoint before changing source.",
+  "After session compaction, Trustable injects a bounded recovery packet containing the exact active user request before tools run. Resume that request; call trustable_context_recover only if the recovery gate explicitly remains active.",
+  "For a reported browser bug, reproduce the exact user-visible symptom with browser_interact before changing source. Trustable records successful browser evidence automatically; trustable_diagnostic_checkpoint remains available for explicit evidence or non-browser diagnostics.",
   "Trustable already ran ops ide login and launched the managed dev server with the configured application environment. Never rerun ops ide login during the session.",
   "After any action MCP or packages/** source change, run ops ide deploy before setup or completion. Never create or modify action ZIP files manually.",
   "Never run raw shell ops action or wsk action commands, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, and invocation; use ops ide deploy and ops ide setup for lifecycle operations.",
@@ -42,12 +50,29 @@ const CRITICAL_SYSTEM = [
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
   "Every action endpoint created or modified in this session requires a focused executable application test under tests/actions/<endpoint> or packages/<endpoint> before completion. The completion gate runs it without installing dependencies; never ask the user to run tests.",
   "Browser work is bounded: after repeated interactions, take a fresh browser snapshot or diagnostics and reason from that evidence instead of continuing blind clicks or fills.",
-  "When a browser-reproduced bug is changed, verify the fixed flow in the browser and record phase=verified with trustable_diagnostic_checkpoint before the completion gate.",
+  "Delegate only bounded questions. Never ask a subagent to read or return full files or the whole codebase; request concise findings with paths and line references.",
+  "When a browser-reproduced bug is changed, verify the fixed flow with browser_interact before the completion gate. Trustable binds successful post-change browser evidence automatically; audio work requires observable active audio state.",
   "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
 ].join(" ");
 
 export function isDiagnosticRequest(text) {
   return DIAGNOSTIC_REQUEST.test(text || "");
+}
+
+export function isBrowserDiagnosticRequest(text) {
+  return isDiagnosticRequest(text) && BROWSER_DIAGNOSTIC_REQUEST.test(text || "");
+}
+
+export function isSyntheticContinuation(text) {
+  return SYNTHETIC_CONTINUATION.test(String(text || "").trim());
+}
+
+export function isUnboundedTaskRequest(args = {}) {
+  return UNBOUNDED_TASK_REQUEST.test(`${args.description || ""}\n${args.prompt || ""}`);
+}
+
+export function isStatusRequest(text) {
+  return /(?:hai\s+(?:gi[aà]\s+)?risolto|cosa\s+hai\s+fatto|fammi\s+un\s+(?:recap|riepilogo)|(?:qual\s+è|dimmi)\s+lo\s+stato|a\s+che\s+punto\s+sei|what\s+did\s+you\s+do|is\s+it\s+fixed|status\s+update|give\s+me\s+(?:a\s+)?(?:recap|summary))/i.test(String(text || ""));
 }
 
 export function isMutatingTool(toolID, args = {}) {
@@ -218,12 +243,24 @@ function defaultState() {
     actionSetupRequired: false,
     touchedActionEndpoints: [],
     browserInteractionsSinceEvidence: 0,
+    diagnosticReadCount: 0,
     browserDiagnosisObserved: false,
     browserVerificationRequired: false,
     browserEvidenceAfterMutation: false,
+    browserDiagnosticRequired: false,
+    browserSuccessfulInteractions: 0,
+    lastBrowserInteractionRevision: -1,
+    browserEvidenceSequence: 0,
+    browserEvidence: [],
+    mutationRevision: 0,
     failureSignature: "",
     repeatedFailures: 0,
     evidence: "",
+    evidenceID: "",
+    activeTask: "",
+    activeTaskFingerprint: "",
+    automaticRecoveryCount: 0,
+    statusRequest: false,
   };
 }
 
@@ -240,6 +277,7 @@ function parsedState(path) {
   state.touchedActionEndpoints = Array.isArray(state.touchedActionEndpoints)
     ? [...new Set(state.touchedActionEndpoints.map(normalizeActionEndpoint).filter(Boolean))].sort()
     : [];
+  state.browserEvidence = Array.isArray(state.browserEvidence) ? state.browserEvidence.slice(-20) : [];
   return state;
 }
 
@@ -309,11 +347,115 @@ export function completionFailureSignature(output) {
   return createHash("sha256").update(normalizeCompletionFailureOutput(output)).digest("hex").slice(0, 16);
 }
 
-function readGuidance(directory, name, maxBytes = 64 * 1024) {
+function readGuidance(directory, name, maxBytes = RECOVERY_GUIDANCE_BYTES) {
   const path = join(directory, name);
   if (!existsSync(path)) return `${name}: missing`;
   const text = readFileSync(path, "utf8");
   return `===== ${name} =====\n${text.slice(0, maxBytes)}`;
+}
+
+function fingerprint(value) {
+  return createHash("sha256").update(String(value || "")).digest("hex").slice(0, 16);
+}
+
+function boundedOutput(value, limit, label) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  const head = Math.floor(limit * 0.75);
+  const tail = limit - head;
+  return `${text.slice(0, head)}\n\n[Trustable bounded ${label}: ${text.length - limit} characters omitted]\n\n${text.slice(-tail)}`;
+}
+
+async function recoveryPacket(directory, current) {
+  const status = await run("git status --short --branch", directory, 30_000);
+  const layout = await run("find . -maxdepth 3 -type f -not -path './.git/*' -not -path './node_modules/*' -not -path './web/assets/*' | sort | head -160", directory, 30_000);
+  const activeTask = current.activeTask || "No active user request was captured. Re-read the latest real user message before acting.";
+  return [
+    "===== TRUSTABLE AUTOMATIC CONTEXT RECOVERY =====",
+    "Resume the active task below. Do not summarize the session and do not interpret OpenCode's generic continuation message as a new user request.",
+    `ACTIVE USER REQUEST (${current.activeTaskFingerprint || "unknown"}):\n${activeTask}`,
+    `GATE STATE: diagnosticRequired=${current.diagnosticRequired}; reproduced=${current.reproduced}; dirty=${current.dirty}; mutationRevision=${current.mutationRevision}; deployRequired=${current.actionDeployRequired}; setupRequired=${current.actionSetupRequired}; browserVerificationRequired=${current.browserVerificationRequired}`,
+    CRITICAL_SYSTEM,
+    readGuidance(directory, "AGENTS.md"),
+    readGuidance(directory, ".openserverless-contract.md"),
+    readGuidance(directory, "opencode.md", 4 * 1024),
+    sanitizedOpenCodeConfig(directory),
+    "===== git status =====",
+    status.output || "(clean)",
+    "===== bounded project file map =====",
+    layout.output || basename(directory),
+  ].join("\n\n");
+}
+
+function toolOutputText(output) {
+  if (typeof output?.output === "string") return output.output;
+  if (output?.output === undefined || output?.output === null) return "";
+  try {
+    return JSON.stringify(output.output);
+  } catch {
+    return String(output.output);
+  }
+}
+
+function recordBrowserEvidence(current, input, output) {
+  current.browserEvidenceSequence += 1;
+  const id = `browser-${current.browserEvidenceSequence}-${fingerprint(`${input.tool}\n${JSON.stringify(input.args || {})}\n${toolOutputText(output)}`)}`;
+  const item = {
+    id,
+    tool: input.tool,
+    action: String(input.args?.action || ""),
+    revision: current.mutationRevision,
+    taskFingerprint: current.activeTaskFingerprint,
+  };
+  current.browserEvidence = [...current.browserEvidence, item].slice(-20);
+  if (input.tool === "browser_browser_interact") current.browserSuccessfulInteractions += 1;
+  if (input.tool === "browser_browser_interact") current.lastBrowserInteractionRevision = current.mutationRevision;
+  if (typeof output.output === "string") output.output = `Trustable browser evidence ID: ${id}\n\n${output.output}`;
+  return item;
+}
+
+function browserInteractionCanCheckpoint(input, output) {
+  return ["click", "press", "reload", "back"].includes(String(input.args?.action || ""));
+}
+
+function taskRequiresActiveAudio(current) {
+  return /(?:music|audio|sound|suono|musica)/i.test(current.activeTask || "");
+}
+
+function browserOutputShowsActiveAudio(output) {
+  const text = toolOutputText(output);
+  return /"active"\s*:\s*true/i.test(text) ||
+    /"state"\s*:\s*"running"/i.test(text);
+}
+
+function applyAutomaticBrowserCheckpoint(current, input, output, evidence) {
+  if (!browserInteractionCanCheckpoint(input, output)) return;
+  if (current.diagnosticRequired && !current.reproduced) {
+    current.evidence = `Automatic browser reproduction evidence from ${input.args?.action || "interaction"}.`;
+    current.evidenceID = evidence.id;
+    current.reproduced = true;
+    current.diagnosticRequired = false;
+    current.circuitOpen = false;
+    current.repeatedFailures = 0;
+    current.failureSignature = "";
+    current.diagnosticReadCount = 0;
+    return;
+  }
+  if (!current.browserVerificationRequired || !current.dirty) return;
+  if (taskRequiresActiveAudio(current) && !browserOutputShowsActiveAudio(output)) return;
+  current.evidence = `Automatic post-change browser verification from ${input.args?.action || "interaction"}.`;
+  current.evidenceID = evidence.id;
+  current.browserVerificationRequired = false;
+  current.browserEvidenceAfterMutation = false;
+  current.diagnosticReadCount = 0;
+}
+
+function browserEvidenceFor(current, evidenceID) {
+  return current.browserEvidence.find((item) => item.id === evidenceID);
+}
+
+function latestBrowserEvidence(current, predicate) {
+  return [...current.browserEvidence].reverse().find(predicate);
 }
 
 function sanitizedOpenCodeConfig(directory) {
@@ -440,6 +582,7 @@ function unsafeTestScript(script) {
 }
 
 export function discoverApplicationTestSuites(directory) {
+  directory = normalizePluginDirectory(directory);
   const root = directory.replace(/\/+$/, "");
   const { files, exceeded } = discoverFiles(root);
   if (exceeded) {
@@ -636,7 +779,24 @@ async function completionChecks(directory, requiredActionEndpoints = []) {
   return { passed: failed.length === 0, output };
 }
 
-export default async function TrustableGuardrails({ directory }) {
+function pluginDirectoryCandidate(value) {
+  if (typeof value === "string" && value.trim()) return value;
+  if (value instanceof URL && value.protocol === "file:") return value.pathname;
+  if (value && typeof value === "object") {
+    for (const key of ["directory", "worktree", "path", "pathname", "cwd"]) {
+      const normalized = pluginDirectoryCandidate(value[key]);
+      if (normalized) return normalized;
+    }
+  }
+  return "";
+}
+
+export function normalizePluginDirectory(value) {
+  return pluginDirectoryCandidate(value) || process.cwd();
+}
+
+export default async function TrustableGuardrails(context = {}) {
+  const directory = normalizePluginDirectory(context.directory ?? context.worktree ?? context.project);
   const states = new Map();
   const stateFor = (sessionID) => {
     if (!states.has(sessionID)) states.set(sessionID, loadState(sessionID));
@@ -646,25 +806,18 @@ export default async function TrustableGuardrails({ directory }) {
   return {
     tool: {
       trustable_context_recover: tool({
-        description: "Recover mandatory Trustable app context after OpenCode compaction. Reads authoritative instructions, sanitized MCP/model configuration, git status, and project layout, then unlocks mutations.",
+        description: "Fallback recovery for mandatory Trustable app context. Normal compaction recovery is injected automatically; call this only when the recovery gate explicitly remains active.",
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);
-          const status = await run("git status --short --branch", context.directory, 30_000);
-          const layout = await run("find . -maxdepth 2 -type d -not -path './.git*' -not -path './node_modules*' | sort | head -120", context.directory, 30_000);
+          if (!current.needsRecovery) {
+            return "Trustable automatic context recovery is already complete. Resume the active user request without reinjecting guidance.";
+          }
+          const packet = await recoveryPacket(context.directory, current);
           current.needsRecovery = false;
+          current.automaticRecoveryCount += 1;
           saveState(context.sessionID, current);
-          return [
-            CRITICAL_SYSTEM,
-            readGuidance(context.directory, "AGENTS.md"),
-            readGuidance(context.directory, ".openserverless-contract.md"),
-            readGuidance(context.directory, "opencode.md"),
-            sanitizedOpenCodeConfig(context.directory),
-            "===== git status =====",
-            status.output || "(clean)",
-            "===== project layout =====",
-            layout.output || basename(context.directory),
-          ].join("\n\n");
+          return packet;
         },
       }),
 
@@ -673,23 +826,44 @@ export default async function TrustableGuardrails({ directory }) {
         args: {
           phase: tool.schema.enum(["reproduced", "verified", "blocked"]),
           evidence: tool.schema.string().min(12).describe("Concise observed evidence: command/tool, URL or test, and actual result."),
+          evidence_id: tool.schema.string().optional().describe("Optional Trustable browser evidence ID. When omitted, Trustable binds the latest valid browser evidence for this task and mutation revision."),
         },
         async execute(args, context) {
           const current = stateFor(context.sessionID);
+          let browserEvidence = args.evidence_id ? browserEvidenceFor(current, args.evidence_id) : undefined;
+          if (!args.evidence_id && args.phase === "reproduced") {
+            browserEvidence = latestBrowserEvidence(current, (item) => (
+              item.tool === "browser_browser_interact" &&
+              item.taskFingerprint === current.activeTaskFingerprint
+            ));
+          }
+          if (!args.evidence_id && args.phase === "verified") {
+            browserEvidence = latestBrowserEvidence(current, (item) => (
+              item.revision === current.mutationRevision &&
+              item.taskFingerprint === current.activeTaskFingerprint
+            ));
+          }
           if (args.phase === "verified") {
             if (!current.browserVerificationRequired) {
               return "No browser verification checkpoint is currently required.";
             }
-            if (!current.browserEvidenceAfterMutation) {
-              throw new Error("Trustable browser verification gate: exercise the fixed flow with browser tools after the last source change before recording phase=verified.");
+            if (!browserEvidence || browserEvidence.revision !== current.mutationRevision || browserEvidence.taskFingerprint !== current.activeTaskFingerprint || current.lastBrowserInteractionRevision !== current.mutationRevision) {
+              throw new Error("Trustable browser verification gate: pass the evidence_id from a successful browser interaction or snapshot produced after the latest source change in this session.");
             }
             current.evidence = args.evidence;
+            current.evidenceID = browserEvidence.id;
             current.browserVerificationRequired = false;
             current.browserEvidenceAfterMutation = false;
             saveState(context.sessionID, current);
             return "Browser verification checkpoint recorded. The deterministic completion gate may now run.";
           }
+          if (args.phase === "reproduced" && current.browserDiagnosticRequired) {
+            if (!browserEvidence || browserEvidence.taskFingerprint !== current.activeTaskFingerprint || current.browserSuccessfulInteractions < 1) {
+              throw new Error("Trustable diagnostic gate: reproduce the user-visible symptom with browser_interact, then call trustable_diagnostic_checkpoint again. Omit evidence_id to bind the latest valid browser interaction automatically. Source inspection or browser_open alone is not reproduction evidence.");
+            }
+          }
           current.evidence = args.evidence;
+          current.evidenceID = browserEvidence?.id || args.evidence_id || "";
           current.reproduced = args.phase === "reproduced";
           current.diagnosticRequired = args.phase !== "reproduced";
           if (current.reproduced) {
@@ -712,7 +886,7 @@ export default async function TrustableGuardrails({ directory }) {
           const result = current.browserVerificationRequired
             ? {
                 passed: false,
-                output: "===== browser verification: FAIL =====\nA browser-reproduced flow changed after the last evidence. Exercise the fixed user flow with browser tools, then call trustable_diagnostic_checkpoint with phase=verified and concrete post-fix evidence.",
+                output: "===== browser verification: FAIL =====\nA browser-reproduced flow changed after the last evidence. Exercise the fixed user flow with browser_interact; Trustable binds successful post-fix evidence automatically. Audio fixes must report active audio state.",
               }
             : current.actionDeployRequired
             ? {
@@ -736,6 +910,7 @@ export default async function TrustableGuardrails({ directory }) {
             current.browserVerificationRequired = false;
             current.browserEvidenceAfterMutation = false;
             current.browserDiagnosisObserved = false;
+            current.diagnosticReadCount = 0;
             current.touchedActionEndpoints = [];
             current.failureSignature = "";
             current.repeatedFailures = 0;
@@ -777,40 +952,64 @@ export default async function TrustableGuardrails({ directory }) {
       const current = stateFor(input.sessionID);
       current.browserInteractionsSinceEvidence = 0;
       const text = (output.parts || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
+      current.statusRequest = isStatusRequest(text);
+      if (text.trim() && !current.statusRequest && !isSyntheticContinuation(text)) {
+        current.activeTask = text.trim().slice(0, MAX_ACTIVE_TASK_CHARS);
+        current.activeTaskFingerprint = fingerprint(current.activeTask);
+      }
       if (isDiagnosticRequest(text)) {
         current.diagnosticRequired = true;
         current.reproduced = false;
         current.verified = false;
         current.evidence = "";
+        current.evidenceID = "";
+        current.browserDiagnosticRequired = isBrowserDiagnosticRequest(text);
+        current.browserSuccessfulInteractions = 0;
+        current.browserEvidence = [];
         current.browserDiagnosisObserved = false;
         current.browserVerificationRequired = false;
         current.browserEvidenceAfterMutation = false;
+        current.diagnosticReadCount = 0;
       }
       saveState(input.sessionID, current);
     },
 
     "experimental.chat.system.transform": async (input, output) => {
       const current = input.sessionID ? stateFor(input.sessionID) : defaultState();
+      if (input.sessionID && current.needsRecovery) {
+        const packet = await recoveryPacket(directory, current);
+        current.needsRecovery = false;
+        current.automaticRecoveryCount += 1;
+        saveState(input.sessionID, current);
+        output.system.push(packet);
+      }
       let status = CRITICAL_SYSTEM;
-      if (current.needsRecovery) status += " CONTEXT RECOVERY IS REQUIRED NOW.";
       if (current.diagnosticRequired && !current.reproduced) status += " DIAGNOSTIC REPRODUCTION IS REQUIRED BEFORE SOURCE CHANGES.";
       if (current.dirty && !current.verified) status += " THE CURRENT CHANGES HAVE NOT PASSED THE COMPLETION GATE.";
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
       if (current.touchedActionEndpoints?.length) status += ` FOCUSED TESTS ARE REQUIRED FOR ACTION ENDPOINTS: ${current.touchedActionEndpoints.join(", ")}.`;
-      if (current.browserVerificationRequired) status += " POST-FIX BROWSER VERIFICATION AND A phase=verified DIAGNOSTIC CHECKPOINT ARE REQUIRED BEFORE COMPLETION.";
+      if (current.browserVerificationRequired) status += " POST-FIX BROWSER VERIFICATION IS REQUIRED BEFORE COMPLETION; SUCCESSFUL browser_interact EVIDENCE IS BOUND AUTOMATICALLY.";
       output.system.push(status);
     },
 
-    "experimental.session.compacting": async (_input, output) => {
+    "experimental.session.compacting": async (input, output) => {
+      const current = input.sessionID ? stateFor(input.sessionID) : defaultState();
       output.context.push(CRITICAL_SYSTEM);
-      output.context.push("Compaction recovery state will block source mutations until trustable_context_recover is called in the continued turn.");
+      output.context.push(`ACTIVE USER REQUEST TO RESUME AFTER COMPACTION (${current.activeTaskFingerprint || "unknown"}):\n${current.activeTask || "Re-read the latest real user request."}`);
+      output.context.push("Trustable injects a bounded recovery packet automatically on the continued turn. Resume the active request; do not summarize and do not treat OpenCode's generic continuation text as a new user request.");
     },
 
     "tool.execute.before": async (input, output) => {
       const current = stateFor(input.sessionID);
       if (input.tool === "browser_browser_interact" && current.browserInteractionsSinceEvidence >= BROWSER_INTERACTION_BUDGET) {
         throw new Error(`Trustable browser diagnostic circuit breaker: ${BROWSER_INTERACTION_BUDGET} interactions ran without fresh evidence. Call browser_browser_snapshot or browser_browser_diagnostics, inspect the result, then continue with a bounded next action.`);
+      }
+      if (input.tool === "task") {
+        if (isUnboundedTaskRequest(output.args)) {
+          throw new Error("Trustable context budget: subagents may not read or return full files or the whole codebase. Delegate one bounded question, at most eight relevant files, and request concise findings with paths and line references.");
+        }
+        output.args.prompt = `${output.args.prompt || ""}\n\nTrustable bounds: inspect at most eight relevant files; do not return full file contents; report concise findings with paths and line references; do not infer that packages/ is absent from one empty listing.`;
       }
       if (input.tool === "bash" && isRawActionCommand(output.args)) {
         throw new Error("Trustable action guard: raw ops action/wsk action shell commands are forbidden, including invoke and list. Use OpenServerless MCP tools for action mutation, inspection, or invocation; use ops ide deploy and ops ide setup for lifecycle operations.");
@@ -828,6 +1027,22 @@ export default async function TrustableGuardrails({ directory }) {
         throw new Error("Trustable action guard: manual ZIP creation or mutation under packages/ is forbidden. Edit action source and run ops ide deploy so ops generates and deploys the archive.");
       }
       if (["trustable_context_recover", "trustable_diagnostic_checkpoint", "trustable_completion_check"].includes(input.tool)) return;
+      if (
+        current.browserDiagnosticRequired &&
+        current.diagnosticRequired &&
+        !current.reproduced &&
+        current.diagnosticReadCount >= DIAGNOSTIC_READ_BUDGET &&
+        ![
+          "browser_browser_open",
+          "browser_browser_interact",
+          "browser_browser_snapshot",
+          "browser_browser_diagnostics",
+          "trustable_context_recover",
+          "trustable_diagnostic_checkpoint",
+        ].includes(input.tool)
+      ) {
+        throw new Error(`Trustable browser diagnostic budget exhausted after ${DIAGNOSTIC_READ_BUDGET} read-only inspections. Browser-only phase is active: stop using shell, file, task, and editor tools; reproduce the user-visible symptom now with browser_interact. Successful evidence is recorded automatically.`);
+      }
       if (current.actionDeployRequired && input.tool === "bash" && isOpsIdeSetupCommand(output.args)) {
         throw new Error("Trustable action guard: action source changed after the last deploy. Run timeout 120 ops ide deploy before ops ide setup.");
       }
@@ -836,7 +1051,7 @@ export default async function TrustableGuardrails({ directory }) {
         throw new Error("Trustable guardrail: session context was compacted. Call trustable_context_recover before modifying files, actions, or deployment state.");
       }
       if ((current.diagnosticRequired && !current.reproduced) || current.circuitOpen) {
-        throw new Error("Trustable diagnostic circuit breaker: reproduce the exact symptom and call trustable_diagnostic_checkpoint with concrete evidence before modifying source.");
+        throw new Error("Trustable diagnostic circuit breaker: reproduce the exact symptom with a successful browser_interact before modifying source. Trustable records that browser evidence automatically; use trustable_diagnostic_checkpoint only for explicit or non-browser evidence.");
       }
     },
 
@@ -844,6 +1059,7 @@ export default async function TrustableGuardrails({ directory }) {
       const current = stateFor(input.sessionID);
       if (["browser_browser_open", "browser_browser_snapshot", "browser_browser_diagnostics"].includes(input.tool)) {
         current.browserInteractionsSinceEvidence = 0;
+        recordBrowserEvidence(current, input, output);
         if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
         if (current.browserVerificationRequired && current.dirty) current.browserEvidenceAfterMutation = true;
         saveState(input.sessionID, current);
@@ -851,8 +1067,27 @@ export default async function TrustableGuardrails({ directory }) {
       }
       if (input.tool === "browser_browser_interact") {
         current.browserInteractionsSinceEvidence += 1;
+        const evidence = recordBrowserEvidence(current, input, output);
         if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
         if (current.browserVerificationRequired && current.dirty) current.browserEvidenceAfterMutation = true;
+        applyAutomaticBrowserCheckpoint(current, input, output, evidence);
+        saveState(input.sessionID, current);
+        return;
+      }
+      if (input.tool === "task" && typeof output.output === "string") {
+        output.output = boundedOutput(output.output, MAX_TASK_OUTPUT_CHARS, "subagent output");
+        return;
+      }
+      if (input.tool === "read" && typeof output.output === "string") {
+        if (current.browserDiagnosticRequired && current.diagnosticRequired && !current.reproduced) {
+          current.diagnosticReadCount += 1;
+          saveState(input.sessionID, current);
+        }
+        output.output = boundedOutput(output.output, MAX_READ_OUTPUT_CHARS, "read output");
+        return;
+      }
+      if (["glob", "grep", "list"].includes(input.tool) && current.browserDiagnosticRequired && current.diagnosticRequired && !current.reproduced) {
+        current.diagnosticReadCount += 1;
         saveState(input.sessionID, current);
         return;
       }
@@ -860,6 +1095,7 @@ export default async function TrustableGuardrails({ directory }) {
       if (/^(Error:|Could not find oldString|No changes to apply)/i.test(output.output || "")) return;
       current.dirty = true;
       current.verified = false;
+      current.mutationRevision += 1;
       if (current.reproduced && current.browserDiagnosisObserved) {
         current.browserVerificationRequired = true;
         current.browserEvidenceAfterMutation = false;
@@ -886,20 +1122,38 @@ export default async function TrustableGuardrails({ directory }) {
 
     "experimental.text.complete": async (input, output) => {
       const current = stateFor(input.sessionID);
+      if (current.statusRequest) {
+        const pending = current.needsRecovery
+          ? "Context recovery is still required."
+          : current.browserVerificationRequired
+            ? "Post-fix browser verification is still pending."
+            : current.diagnosticRequired && !current.reproduced
+              ? "Diagnostic reproduction is still pending."
+              : current.dirty && !current.verified
+                ? "The current changes have not passed the completion gate yet."
+                : "No Trustable verification gate is pending.";
+        if (!String(output.text || "").trim()) output.text = "Work is still in progress.";
+        output.text = `${output.text}\n\nTrustable status: ${pending}`;
+        current.statusRequest = false;
+        saveState(input.sessionID, current);
+        return;
+      }
       if (current.needsRecovery) {
-        output.text = "Trustable context recovery gate: the session was compacted. Continue by calling trustable_context_recover before producing a final response.";
+        output.text = `Trustable context recovery gate: automatic recovery has not run yet. Resume the active request after recovery; do not summarize. Active request: ${current.activeTask || "unknown"}`;
         return;
       }
       if (current.diagnosticRequired && !current.reproduced) {
-        output.text = "Trustable diagnostic gate: the reported symptom has not been reproduced yet. Continue with read-only diagnostics and record evidence with trustable_diagnostic_checkpoint before changing source.";
+        output.text = "Non ho ancora modificato l'applicazione: non sono riuscito a riprodurre il problema nel browser. La diagnosi resta aperta e il problema non è verificato come risolto.";
         return;
       }
       if (current.browserVerificationRequired) {
-        output.text = "Trustable browser verification gate: exercise the fixed user flow with browser tools, then call trustable_diagnostic_checkpoint with phase=verified and concrete post-fix evidence before completion.";
+        output.text = taskRequiresActiveAudio(current)
+          ? "Ho applicato modifiche all'applicazione, ma la verifica browser non ha ancora osservato audio attivo. Non dichiaro il problema risolto: serve completare il flusso utente e vedere l'audio realmente in esecuzione."
+          : "Ho applicato modifiche all'applicazione, ma la verifica del flusso utente nel browser non è ancora riuscita. Non dichiaro il problema risolto finché il comportamento corretto non è osservabile.";
         return;
       }
       if (current.dirty && !current.verified) {
-        output.text = "Trustable completion gate: the current changes are not verified. Continue by calling trustable_completion_check; do not ask the user to test an unverified result.";
+        output.text = "Ho applicato modifiche all'applicazione, ma il Trustable completion gate non le ha ancora verificate. Non dichiaro il lavoro completato e non chiedo all'utente di testare un risultato non verificato.";
         return;
       }
     },

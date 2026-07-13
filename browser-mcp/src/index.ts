@@ -6,7 +6,7 @@ import { z } from "zod"
 import { TrustableBrowser } from "./browser.ts"
 
 const browser = new TrustableBrowser()
-const server = new McpServer({ name: "trustable-browser-mcp", version: "0.2.0" })
+const server = new McpServer({ name: "trustable-browser-mcp", version: "0.3.0" })
 
 function text(value: unknown) {
   return { content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] }
@@ -21,16 +21,16 @@ server.registerTool("browser_open", {
 }, async ({ mode, path }) => text(await browser.open(mode, path)))
 
 server.registerTool("browser_snapshot", {
-  description: "Read the current URL, title, accessibility snapshot, visible text, console warnings/errors, and failed HTTP requests without changing the page.",
+  description: "Read the current URL, title, accessibility snapshot, visible text, stable control refs, audio state, console warnings/errors, and failed HTTP requests without changing the page.",
   inputSchema: {},
 }, async () => text(await browser.snapshot()))
 
 server.registerTool("browser_interact", {
-  description: "Perform one bounded browser interaction, then return a fresh structured snapshot. Prefer role, label, placeholder, or text locators over CSS. For kind=role, pass role plus the accessible-name target. As a shorthand, target may be a role such as button, or an accessible name whose role is inferred from the action. Locators remain strict: when multiple elements match, retry with the explicit zero-based index reported by the error.",
+  description: "Perform one bounded browser interaction, then return a fresh structured snapshot. Prefer a ref from the latest snapshot, then role, label, placeholder, or text over CSS. For kind=role, pass role plus the accessible-name target. As a shorthand, target may be a role such as button, or an accessible name whose role is inferred from the action. Locators remain strict: when multiple elements match, retry with the explicit zero-based index reported by the error.",
   inputSchema: {
     action: z.enum(["click", "fill", "press", "reload", "back"]),
-    kind: z.enum(["role", "text", "label", "placeholder", "css"]).optional(),
-    target: z.string().optional().describe("Accessible name, visible text, label, placeholder, CSS selector, or a role shorthand such as button when kind=role."),
+    kind: z.enum(["ref", "role", "text", "label", "placeholder", "css"]).optional(),
+    target: z.string().optional().describe("Control ref such as e3 from the latest snapshot, accessible name, visible text, label, placeholder, CSS selector, or a role shorthand such as button when kind=role."),
     role: z.string().optional().describe("ARIA role when kind=role, for example button or link."),
     value: z.string().optional().describe("Text for fill or key name for press."),
     index: z.number().int().nonnegative().optional().describe("Zero-based match index. Required only when the locator is ambiguous."),
@@ -38,9 +38,9 @@ server.registerTool("browser_interact", {
 }, async ({ action, kind, target, role, value, index }) => text(await browser.interact(action, { kind, target, role, value, index })))
 
 server.registerTool("browser_diagnostics", {
-  description: "Return the current URL plus collected console warnings/errors, page errors, failed requests, and HTTP responses with status >= 400.",
+  description: "Return the current URL, audio state, collected console warnings/errors, page errors, failed requests, and HTTP responses with status >= 400.",
   inputSchema: {},
-}, async () => text(browser.diagnostics()))
+}, async () => text(await browser.diagnostics()))
 
 server.registerTool("browser_capture", {
   description: "Save a full-page screenshot and structured JSON snapshot for tester evidence. Returns pod-local artifact paths.",

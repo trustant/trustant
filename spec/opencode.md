@@ -13,6 +13,21 @@ sources.
 The embedded guidance is for coding assistants working inside user-created
 apps. It is not guidance for editing `trustable-app` itself.
 
+The runtime guardrail plugin must normalize the project directory supplied by
+the pinned OpenCode plugin API. It accepts a path string, file URL, or the
+directory/worktree/path fields of a structured context and falls back to the
+process working directory. A plugin API shape change must not disable the
+issue98 guardrails during startup.
+
+Verification and recovery gates may block an unverified completion claim, but
+must not suppress a user's explicit request for status or a recap. For such a
+request the assistant's truthful response remains visible and the plugin adds a
+short deterministic statement of the still-pending gate instead of replacing
+the entire response with an instruction loop.
+When a normal turn stops at a diagnostic, browser verification, or completion
+gate, the plugin must return a user-readable truthful recap of what remains
+unverified, not the internal tool instruction text.
+
 ## Purpose
 
 The embedded `opencode.md` must teach the assistant the Trustable serverless
@@ -94,16 +109,14 @@ It must say:
   another deploy, and another checker run;
 - if the contract is missing or the checker is unavailable in PATH, assistants
   must report that and fall back to `opencode.md`;
-- after compaction, assistants must not continue from memory; they must re-read
-  `opencode.md`, `.openserverless-contract.md` if present, `opencode.json`,
-  git status, and available MCP/tool names before touching action or service
-  code;
-- the generated Trustable OpenCode plugin must enforce that rule by blocking
-  source/action/deploy mutations after `session.compacted` until
-  `trustable_context_recover` reloads authoritative guidance, sanitized config,
-  git status, and project layout;
-- while recovery is pending, the plugin must also replace any attempted final
-  response with an instruction to call `trustable_context_recover`;
+- after compaction, assistants must not continue from memory. The generated
+  Trustable plugin must automatically inject a bounded recovery packet with the
+  exact active real user request, `opencode.md`,
+  `.openserverless-contract.md`, sanitized `opencode.json`, git status, and a
+  bounded project map before tools run;
+- the plugin must block source/action/deploy mutations while that automatic
+  recovery is pending. `trustable_context_recover` remains a fallback only
+  when the automatic gate explicitly remains active;
 - guardrail state must live under the OpenCode durable data root,
   `$XDG_DATA_HOME/opencode/trustable-guardrails` or
   `~/.local/share/opencode/trustable-guardrails`, not under an expendable cache.
@@ -111,17 +124,31 @@ It must say:
   migrated when the durable file is absent. If durable state is corrupt, the
   plugin must fail closed and require recovery; if durable writes fail, it may
   conservatively fall back to the legacy location;
-- reported bugs must be reproduced before source changes and recorded through
-  `trustable_diagnostic_checkpoint`; two repeated completion failures must open
+- reported bugs must be reproduced before source changes. A successful,
+  evidence-bearing `browser_interact` records browser reproduction
+  automatically; `trustable_diagnostic_checkpoint` remains available for
+  explicit or non-browser evidence. Two repeated completion failures must open
   a circuit breaker that requires new reproduction evidence. The failure
   signature must normalize volatile timestamps, durations, process/request IDs,
   and temporary paths while preserving the semantic failure text;
 - when the reproduction used the browser, every subsequent source change must
-  require fresh post-change browser evidence and a
-  `trustable_diagnostic_checkpoint` with `phase=verified` before completion;
+  require fresh post-change `browser_interact` evidence bound automatically to
+  the current task and mutation revision before completion. Audio fixes must
+  expose active audio state; suspended audio is not valid verification
+  evidence. The manual checkpoint remains a fallback and must bind the latest
+  valid evidence deterministically when its internal ID is omitted;
+- subagent work must be bounded to one question, at most eight relevant files,
+  concise paths/line references, and capped tool output. Full-file or whole
+  codebase delegation must be rejected before it consumes session context;
+- browser bug diagnosis must allow at most eight `read`, `glob`, `grep`, or
+  `list` inspections before reproduction. Once exhausted, a browser-only phase
+  must reject shell, file, task, and editor tools until a successful
+  `browser_interact` supplies observable evidence;
 - the frontend checker must reject protected views that initialize user/session
   data to null, load it asynchronously, and redirect on that null value before
   the request has completed; such views need an explicit loading state;
+- the frontend checker must reject localStorage user/profile data used as
+  authoritative authentication without a backend `me`/session validation;
 - after source changes, `trustable_completion_check` must pass the action and
   frontend checkers, `git diff --check`, and the available frontend build before
   the assistant claims completion.

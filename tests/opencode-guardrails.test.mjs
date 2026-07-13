@@ -13,8 +13,31 @@ const guardrails = await import("../opencode-trustable-guardrails.js");
 
 test("diagnostic request detection covers the observed issue98 language", () => {
   assert.equal(guardrails.isDiagnosticRequest("crea account e accedi non funzionano"), true);
+  assert.equal(guardrails.isDiagnosticRequest("dopo il refresh i dati non vengono ripristinati e la musica non si sente"), true);
+  assert.equal(guardrails.isBrowserDiagnosticRequest("dopo il refresh i dati non vengono ripristinati e la musica non si sente"), true);
   assert.equal(guardrails.isDiagnosticRequest("still gives a white page"), true);
   assert.equal(guardrails.isDiagnosticRequest("aggiungi una pagina profilo"), false);
+});
+
+test("synthetic continuation text cannot replace the active user task", () => {
+  assert.equal(guardrails.isSyntheticContinuation("Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."), true);
+  assert.equal(guardrails.isSyntheticContinuation("Sistema login e musica"), false);
+});
+
+test("unbounded subagent prompts are rejected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-task-budget-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_task_budget_${Date.now()}`;
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "task", sessionID, callID: "task" },
+      { args: { description: "Explore", prompt: "Explore the codebase thoroughly and return the FULL content of all relevant files." } },
+    ),
+    /subagents may not read or return full files/i,
+  );
+  const bounded = { args: { description: "Inspect auth", prompt: "Inspect auth bootstrap in the relevant files." } };
+  await plugin["tool.execute.before"]({ tool: "task", sessionID, callID: "bounded" }, bounded);
+  assert.match(bounded.args.prompt, /at most eight relevant files/i);
 });
 
 test("mutation detection keeps read-only diagnostics available", () => {
@@ -356,17 +379,64 @@ test("reported bugs require reproduction before edits", async () => {
       { tool: "edit", sessionID, callID: "call_1" },
       { args: { filePath: "src/App.tsx" } },
     ),
-    /reproduce the exact symptom/,
+    /reproduce the exact symptom.*records that browser evidence automatically/s,
   );
 
-  await plugin.tool.trustable_diagnostic_checkpoint.execute(
-    { phase: "reproduced", evidence: "Clicked ACCEDI; URL became /login and the homepage remained visible." },
-    { sessionID, directory, worktree: directory },
+  const browserOutput = { output: { url: "/login", text: "Homepage still visible after clicking ACCEDI." } };
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "browser_reproduce", args: { action: "click", kind: "text", target: "ACCEDI" } },
+    browserOutput,
   );
-
   await plugin["tool.execute.before"](
     { tool: "edit", sessionID, callID: "call_2" },
     { args: { filePath: "src/App.tsx" } },
+  );
+});
+
+test("browser bug diagnostics stop file exploration after the bounded read budget", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-browser-budget-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_browser_budget_${Date.now()}`;
+
+  await plugin["chat.message"](
+    { sessionID },
+    {
+      message: { role: "user" },
+      parts: [{ type: "text", text: "la musica non si sente, correggila" }],
+    },
+  );
+  for (let index = 0; index < 8; index += 1) {
+    await plugin["tool.execute.before"](
+      { tool: "read", sessionID, callID: `read_before_${index}` },
+      { args: { filePath: `src/file-${index}.ts` } },
+    );
+    await plugin["tool.execute.after"](
+      { tool: "read", sessionID, callID: `read_after_${index}`, args: { filePath: `src/file-${index}.ts` } },
+      { output: "source" },
+    );
+  }
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "grep", sessionID, callID: "read_over_budget" },
+      { args: { pattern: "audio" } },
+    ),
+    /browser diagnostic budget exhausted.*browser_interact/s,
+  );
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "bash", sessionID, callID: "shell_over_budget" },
+      { args: { command: "git status --short" } },
+    ),
+    /Browser-only phase is active.*stop using shell/s,
+  );
+
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "browser_reproduce", args: { action: "click", kind: "role", role: "button", target: "Play" } },
+    { output: '{"audio":{"contexts":[{"state":"suspended"}],"active":false}}' },
+  );
+  await plugin["tool.execute.before"](
+    { tool: "grep", sessionID, callID: "read_after_browser" },
+    { args: { pattern: "audio" } },
   );
 });
 
@@ -383,13 +453,10 @@ test("browser-reproduced fixes require fresh post-mutation verification evidence
       parts: [{ type: "text", text: "dopo la registrazione torna al login, correggi il problema" }],
     },
   );
+  const reproducedOutput = { output: "URL changed to /#/login after registration submit" };
   await plugin["tool.execute.after"](
-    { tool: "browser_browser_open", sessionID, callID: "browser_before", args: { mode: "development", path: "/#/register" } },
-    { output: "URL changed to /#/login after submit" },
-  );
-  await plugin.tool.trustable_diagnostic_checkpoint.execute(
-    { phase: "reproduced", evidence: "Browser registration submit returned to /#/login." },
-    context,
+    { tool: "browser_browser_interact", sessionID, callID: "browser_before", args: { action: "click", kind: "role", role: "button", target: "Register" } },
+    reproducedOutput,
   );
   await plugin["tool.execute.after"](
     { tool: "edit", sessionID, callID: "edit_fix", args: { filePath: "src/AuthContext.tsx" } },
@@ -403,29 +470,71 @@ test("browser-reproduced fixes require fresh post-mutation verification evidence
       { phase: "verified", evidence: "Registration now opens the protected dashboard." },
       context,
     ),
-    /exercise the fixed flow with browser tools/,
+    /browser verification gate/,
   );
 
+  const fixedInteraction = { output: "Registration button opened /#/dashboard." };
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "browser_after_interact", args: { action: "click", kind: "role", role: "button", target: "Register" } },
+    fixedInteraction,
+  );
+  const fixedSnapshot = { output: "URL is /#/dashboard and authenticated controls are visible" };
   await plugin["tool.execute.after"](
     { tool: "browser_browser_snapshot", sessionID, callID: "browser_after", args: {} },
-    { output: "URL is /#/dashboard and authenticated controls are visible" },
+    fixedSnapshot,
   );
-  const recorded = await plugin.tool.trustable_diagnostic_checkpoint.execute(
-    { phase: "verified", evidence: "Browser registration opened /#/dashboard with authenticated controls." },
-    context,
-  );
-  assert.match(recorded, /Browser verification checkpoint recorded/);
-
   const system = { system: [] };
   await plugin["experimental.chat.system.transform"]({ sessionID }, system);
   assert.doesNotMatch(system.system.join(" "), /POST-FIX BROWSER VERIFICATION/);
 });
 
-test("compaction blocks mutations and final responses until recovery", async () => {
+test("automatic browser verification requires active audio evidence for sound fixes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-audio-fix-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_audio_fix_${Date.now()}`;
+  const context = { sessionID, directory, worktree: directory };
+
+  await plugin["chat.message"](
+    { sessionID },
+    {
+      message: { role: "user" },
+      parts: [{ type: "text", text: "la musica non si sente, sistemala" }],
+    },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "audio_before", args: { action: "click", kind: "role", role: "button", target: "Play" } },
+    { output: '{"audio":{"contexts":[{"state":"suspended"}],"active":false}}' },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "edit", sessionID, callID: "audio_edit", args: { filePath: "src/music/MusicEngine.ts" } },
+    { output: "Edit applied successfully." },
+  );
+  const pendingRecap = { text: "Fatto." };
+  await plugin["experimental.text.complete"]({ sessionID }, pendingRecap);
+  assert.match(pendingRecap.text, /modifiche.*audio attivo.*non dichiaro il problema risolto/is);
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "audio_still_suspended", args: { action: "click", kind: "role", role: "button", target: "Play" } },
+    { output: '{"audio":{"contexts":[{"state":"suspended"}],"active":false}}' },
+  );
+  assert.match(await plugin.tool.trustable_completion_check.execute({}, context), /browser verification: FAIL/);
+
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "audio_running", args: { action: "click", kind: "role", role: "button", target: "Play" } },
+    { output: { audio: { contexts: [{ state: "running" }], active: true } } },
+  );
+  const afterEvidence = await plugin.tool.trustable_completion_check.execute({}, context);
+  assert.doesNotMatch(afterEvidence, /browser verification: FAIL/);
+});
+
+test("compaction automatically restores the active request before mutations", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-app-"));
   const plugin = await guardrails.default({ directory });
   const sessionID = `ses_compact_${Date.now()}`;
 
+  await plugin["chat.message"](
+    { sessionID },
+    { message: { role: "user" }, parts: [{ type: "text", text: "Sistema il recupero del profilo e verifica il reload." }] },
+  );
   await plugin.event({ event: { type: "session.compacted", properties: { sessionID } } });
   await assert.rejects(
     plugin["tool.execute.before"](
@@ -435,16 +544,20 @@ test("compaction blocks mutations and final responses until recovery", async () 
     /trustable_context_recover/,
   );
 
-  await plugin["tool.execute.after"](
-    { tool: "edit", sessionID, callID: "call_4", args: { filePath: "src/App.tsx" } },
-    { output: "Edit applied successfully." },
+  const system = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
+  assert.match(system.system.join("\n"), /TRUSTABLE AUTOMATIC CONTEXT RECOVERY/);
+  assert.match(system.system.join("\n"), /Sistema il recupero del profilo e verifica il reload/);
+  await plugin["tool.execute.before"](
+    { tool: "write", sessionID, callID: "call_4" },
+    { args: { filePath: "src/App.tsx" } },
   );
-  const text = { text: "Fixed, prova ora." };
-  await plugin["experimental.text.complete"](
-    { sessionID, messageID: "msg", partID: "part" },
-    text,
+  const fallback = await plugin.tool.trustable_context_recover.execute(
+    {},
+    { sessionID, directory, worktree: directory },
   );
-  assert.match(text.text, /context recovery gate.*trustable_context_recover/i);
+  assert.match(fallback, /already complete/);
+  assert.doesNotMatch(fallback, /AGENTS\.md/);
 });
 
 test("guardrail state migrates from cache into durable OpenCode data and survives reload", async () => {
@@ -552,7 +665,7 @@ test("dirty sessions cannot stop with neutral final wording", async () => {
     { sessionID, messageID: "msg", partID: "part" },
     text,
   );
-  assert.match(text.text, /completion gate.*not verified/i);
+  assert.match(text.text, /completion gate.*non le ha ancora verificate/i);
 });
 
 test("application test discovery does not impose a framework on apps without tests", async () => {
