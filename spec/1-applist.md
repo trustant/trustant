@@ -16,9 +16,10 @@ After the provider guard passes, fetch `GET /api/status` and apply the same per-
 
 # App List Page
 
-The page shows centered the Trustable logo (`trustable-logo.svg`) and the text returned by the version api in large font.
+The page shows the Trustable logo (`trustable-logo.svg`), product name, and the
+version returned by the version API as a compact release tag.
 
-Beside the version, show a compact release tag with `<version> · <stream>`.
+The release tag shows `<version> · <stream>`.
 The tag tooltip reports the source branch and exact build label. This lets local,
 development, feature-stream, and release images remain distinguishable without
 hardcoding labels in the page.

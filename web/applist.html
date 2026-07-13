@@ -17,8 +17,7 @@
                     <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
                     <h1 class="text-3xl md:text-4xl font-light text-[color:var(--nu-ink)]">Trustable</h1>
                     <div class="flex flex-wrap items-center gap-2 mt-1">
-                        <p id="versionText" class="text-xs text-[color:var(--nu-muted)]">Version loading...</p>
-                        <span id="releaseTag" class="nu-status-pill hidden px-2 py-1" title="Build information"></span>
+                        <span id="releaseTag" class="nu-status-pill px-2 py-1" title="Build information">Version loading...</span>
                     </div>
                 </div>
             </div>
@@ -1502,9 +1501,6 @@
                     document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please Update. For info email: info@nuvolaris.io</p></div>';
                     return;
                 }
-                if (data.version) {
-                    document.getElementById('versionText').textContent = String(data.version).replace(/^Trustable\s+Trustable\s+/, 'Trustable ');
-                }
                 const releaseTag = document.getElementById('releaseTag');
                 const shortVersion = String(data.version || '').replace(/^Trustable\s+/, '');
                 const stream = data.stream || data.branch || '';
@@ -1514,7 +1510,6 @@
                         data.branch ? 'Branch: ' + data.branch : '',
                         data.build ? 'Build: ' + data.build : ''
                     ].filter(Boolean).join(' | ') || 'Build information';
-                    releaseTag.classList.remove('hidden');
                 }
                 if (data.build) {
                     document.getElementById('buildText').textContent = 'Build: ' + data.build;
