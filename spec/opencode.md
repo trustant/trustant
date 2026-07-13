@@ -849,3 +849,7 @@ While a turn is busy, the Trustable Code UI derives visible progress from real
 tool events and displays planning, exploration, editing, verification, or
 context-preparation activity with elapsed time. It must not show private
 reasoning or control-plane gate text as progress.
+
+Starting a new user turn clears the previous turn's todo dock immediately. The
+dock remains hidden until the current turn writes its own plan, preventing stale
+tasks from being presented as current work.
