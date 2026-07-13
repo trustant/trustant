@@ -12,7 +12,7 @@
     "test:guardrails": "node --test tests/opencode-guardrails.test.mjs"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.17.13",
+    "@opencode-ai/plugin": "^1.17.18",
     "@playwright/test": "1.56.1"
   }
 }

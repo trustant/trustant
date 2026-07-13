@@ -200,10 +200,32 @@ unconditionally, independent of `~/.ops/config.json`:
 }
 ```
 
-The runtime image pins OpenCode with `OPENCODE_VERSION` in `image/Dockerfile`.
+The runtime image pins Trustable Code through the `trustable-code` Git subrepo
+and verifies its reported version against `OPENCODE_VERSION` in
+`image/Dockerfile`. The base-image hash includes the exact subrepo commit, so a
+pointer change always rebuilds the agent binary. The image must compile that
+pinned source and must not download a separate OpenCode binary from
+`opencode.ai`.
+
 Whenever that pin changes, the image build must install
 `@opencode-ai/plugin` at the exact version returned by
 `/usr/local/bin/opencode --version`; a mismatch is a build/runtime regression.
+
+After generating the app-local `opencode.json`, Trustable writes a protected
+runtime manifest to `~/.config/trustable/opencode-runtime.json` with mode
+`0600`. It contains the current app, canonical workbench path, managed local
+development URL (`http://localhost:5173`), and the names of MCP servers enabled
+in the generated config. It contains no credentials. Trustable passes its path
+to the child process through `TRUSTABLE_RUNTIME_CONFIG`; this is process
+configuration and must never be copied into the app `.env` or
+`.env.production`.
+
+`trustable-app` consumes `trustable-ai/trustable-code` as a pinned Git subrepo.
+The pointer advances only after Trustable Code core tests and Trustable E2E
+tests pass for the candidate commit.
+
+See [trustable-code-integration.svg](trustable-code-integration.svg) for the
+source, build, launch, and runtime-contract flow.
 
 The runtime image installs `openserverless-mcp` from the local `mcp` submodule,
 not from a direct `github:apache/openserverless-mcp` npm reference. The image

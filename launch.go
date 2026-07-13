@@ -269,6 +269,96 @@ func appServiceRuntimeEnv(base []string) []string {
 	return base
 }
 
+var trustableRuntimeManifestPathOverride string
+
+type trustableRuntimeWorkbench struct {
+	App                string   `json:"app"`
+	Workspace          string   `json:"workspace"`
+	DevelopmentURL     string   `json:"developmentUrl"`
+	RequiredMCPServers []string `json:"requiredMcpServers"`
+}
+
+type trustableRuntimeManifest struct {
+	Version     int                         `json:"version"`
+	Workbenches []trustableRuntimeWorkbench `json:"workbenches"`
+}
+
+func trustableRuntimeManifestPath() (string, error) {
+	if trustableRuntimeManifestPathOverride != "" {
+		return trustableRuntimeManifestPathOverride, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home for Trustable runtime manifest: %w", err)
+	}
+	return filepath.Join(home, ".config", "trustable", "opencode-runtime.json"), nil
+}
+
+func writeTrustableRuntimeManifest(app, projectDir string) (string, error) {
+	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve Trustable workbench %s: %w", projectDir, err)
+	}
+	canonicalProjectDir, err = filepath.Abs(canonicalProjectDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to make Trustable workbench absolute: %w", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(canonicalProjectDir, "opencode.json"))
+	if err != nil {
+		return "", fmt.Errorf("failed to read generated opencode config: %w", err)
+	}
+	var config struct {
+		MCP map[string]json.RawMessage `json:"mcp"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("failed to parse generated opencode config: %w", err)
+	}
+	servers := make([]string, 0, len(config.MCP))
+	for name, raw := range config.MCP {
+		var server struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := json.Unmarshal(raw, &server); err != nil {
+			return "", fmt.Errorf("failed to parse MCP server %s: %w", name, err)
+		}
+		if server.Enabled == nil || *server.Enabled {
+			servers = append(servers, name)
+		}
+	}
+	sort.Strings(servers)
+
+	manifest := trustableRuntimeManifest{
+		Version: 1,
+		Workbenches: []trustableRuntimeWorkbench{{
+			App:                app,
+			Workspace:          canonicalProjectDir,
+			DevelopmentURL:     "http://localhost:5173",
+			RequiredMCPServers: servers,
+		}},
+	}
+	encoded, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to encode Trustable runtime manifest: %w", err)
+	}
+	manifestPath, err := trustableRuntimeManifestPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
+		return "", fmt.Errorf("failed to create Trustable runtime config directory: %w", err)
+	}
+	temporaryPath := manifestPath + ".tmp"
+	defer os.Remove(temporaryPath)
+	if err := os.WriteFile(temporaryPath, encoded, 0600); err != nil {
+		return "", fmt.Errorf("failed to write Trustable runtime manifest: %w", err)
+	}
+	if err := os.Rename(temporaryPath, manifestPath); err != nil {
+		return "", fmt.Errorf("failed to publish Trustable runtime manifest: %w", err)
+	}
+	return manifestPath, nil
+}
+
 // mongodbConnectionString returns a MongoDB URI only from the official
 // post-login config surface. Arbitrary workbench env vars do not enable MongoDB.
 func mongodbConnectionString(cfg *opsConfig) string {
@@ -1364,6 +1454,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// MCP servers generated above from ~/.ops/config.json.
 	setupServiceTooling()
 	sanitizeOpenCodeAgentMetadata(workbenchPath)
+	runtimeManifestPath, err := writeTrustableRuntimeManifest(app, workbenchPath)
+	if err != nil {
+		log.Printf("Trustable runtime manifest generation failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to generate Trustable runtime manifest: %s", err)})
+		return
+	}
 
 	// Start opencode
 	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
@@ -1371,7 +1467,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	opencodeCmd.Dir = workbenchPath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr
-	opencodeCmd.Env = appServiceRuntimeEnv(os.Environ())
+	opencodeCmd.Env = append(appServiceRuntimeEnv(os.Environ()), "TRUSTABLE_RUNTIME_CONFIG="+runtimeManifestPath)
 	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
 	for key, value := range appEnv {
 		if isServiceRuntimeEnvKey(key) {

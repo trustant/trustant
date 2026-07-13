@@ -9,10 +9,11 @@ DOCKERFILE="Dockerfile"
 SEPARATOR='###---###'
 MCP_CONTEXT_DIR="openserverless-mcp"
 BROWSER_CONTEXT_DIR="trustable-browser-mcp"
+TRUSTABLE_CODE_CONTEXT_DIR="trustable-code"
 
 cleanup() {
     rm -f Dockerfile.base Dockerfile.current
-    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR"
+    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$TRUSTABLE_CODE_CONTEXT_DIR"
 }
 trap cleanup EXIT
 
@@ -60,7 +61,7 @@ detect_platforms() {
 
 PLATFORMS=$(detect_platforms)
 echo "Building for platforms: $PLATFORMS"
-git submodule update --init ../mcp
+git submodule update --init ../mcp ../trustable-code
 
 if [ ! -f ../mcp/package.json ]; then
     echo "Error: ../mcp is not initialized. Run: git submodule update --init mcp" >&2
@@ -72,6 +73,16 @@ echo "Using openserverless-mcp submodule: $MCP_REF"
 rm -rf "$MCP_CONTEXT_DIR"
 mkdir -p "$MCP_CONTEXT_DIR"
 git -C ../mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
+
+if [ ! -f ../trustable-code/packages/opencode/package.json ]; then
+    echo "Error: ../trustable-code is not initialized. Run: git submodule update --init trustable-code" >&2
+    exit 1
+fi
+TRUSTABLE_CODE_REF="$(git -C ../trustable-code rev-parse HEAD)"
+echo "Using trustable-code submodule: $TRUSTABLE_CODE_REF"
+rm -rf "$TRUSTABLE_CODE_CONTEXT_DIR"
+mkdir -p "$TRUSTABLE_CODE_CONTEXT_DIR"
+git -C ../trustable-code archive HEAD | tar -x -C "$TRUSTABLE_CODE_CONTEXT_DIR"
 
 if [ ! -f ../browser-mcp/package.json ]; then
     echo "Error: ../browser-mcp/package.json is missing." >&2
@@ -99,6 +110,7 @@ BASE_HASH=$({
     sha256sum Dockerfile.base
     printf 'openserverless-mcp=%s\n' "$MCP_REF"
     printf 'trustable-browser-mcp=%s\n' "$BROWSER_HASH"
+    printf 'trustable-code=%s\n' "$TRUSTABLE_CODE_REF"
 } | sha256sum | cut -c1-12)
 BASE_TAG="base-${BASE_HASH}"
 echo "Base image hash: $BASE_TAG"

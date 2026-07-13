@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="620" viewBox="0 0 1180 620" role="img" aria-labelledby="title desc">
+  <title id="title">Trustable Code integration</title>
+  <desc id="desc">A pinned Trustable Code subrepo is compiled into the Trustable image. At launch Trustable generates a protected runtime manifest and starts the integrated agent for the selected workbench.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#28718c"/>
+    </marker>
+    <style>
+      .heading { font: 700 25px system-ui, sans-serif; fill: #17242c; }
+      .label { font: 700 17px system-ui, sans-serif; fill: #17242c; }
+      .text { font: 14px system-ui, sans-serif; fill: #36505e; }
+      .box { stroke: #8db5c6; stroke-width: 2; rx: 6; }
+      .flow { stroke: #28718c; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1180" height="620" fill="#f7fafb"/>
+  <text x="50" y="48" class="heading">Trustable Code: pinned source to managed runtime</text>
+
+  <rect x="50" y="100" width="260" height="145" class="box" fill="#e7f2f6"/>
+  <text x="75" y="138" class="label">trustable-code subrepo</text>
+  <text x="75" y="172" class="text">Pinned tested commit</text>
+  <text x="75" y="198" class="text">OpenCode 1.17.18 baseline</text>
+  <text x="75" y="224" class="text">Trustable core policies</text>
+
+  <rect x="460" y="100" width="260" height="145" class="box" fill="#fff8df"/>
+  <text x="485" y="138" class="label">Container build</text>
+  <text x="485" y="172" class="text">Bun compiles pinned source</text>
+  <text x="485" y="198" class="text">Version is verified</text>
+  <text x="485" y="224" class="text">Binary copied into image</text>
+
+  <rect x="870" y="100" width="260" height="145" class="box" fill="#e9f5ec"/>
+  <text x="895" y="138" class="label">Trustable pod</text>
+  <text x="895" y="172" class="text">One managed agent binary</text>
+  <text x="895" y="198" class="text">Dynamic app selection</text>
+  <text x="895" y="224" class="text">No downloaded replacement</text>
+
+  <path d="M310 172 H445" class="flow"/>
+  <path d="M720 172 H855" class="flow"/>
+
+  <rect x="160" y="365" width="320" height="155" class="box" fill="#ffffff"/>
+  <text x="185" y="403" class="label">Launch selected app</text>
+  <text x="185" y="437" class="text">Generate opencode.json and MCPs</text>
+  <text x="185" y="463" class="text">Write protected runtime manifest</text>
+  <text x="185" y="489" class="text">Pass process-only config path</text>
+
+  <rect x="700" y="365" width="320" height="155" class="box" fill="#e7f2f6"/>
+  <text x="725" y="403" class="label">Trustable Code session</text>
+  <text x="725" y="437" class="text">Select canonical workbench</text>
+  <text x="725" y="463" class="text">Load active MCP contract</text>
+  <text x="725" y="489" class="text">Enforce write and shell policy</text>
+
+  <path d="M1000 245 V315 H320 V350" class="flow"/>
+  <path d="M480 442 H685" class="flow"/>
+</svg>

@@ -1,7 +1,22 @@
 ARG OLLAMA_VERSION=0.30.6
-ARG OPENCODE_VERSION=1.17.13
+ARG OPENCODE_VERSION=1.17.18
 ARG OPS_BRANCH=bestia
 ARG OPS_REPO=https://github.com/nuvolaris/bestia
+
+########################################################## trustable-code
+FROM oven/bun:1.3.14 AS opencode-builder
+ARG OPENCODE_VERSION
+WORKDIR /src
+COPY trustable-code /src
+RUN HUSKY=0 bun install --frozen-lockfile
+RUN \
+    cd packages/opencode ;\
+    bun run script/build.ts --single --skip-install ;\
+    mkdir -p /out ;\
+    binary="$(find dist -type f -path '*/bin/opencode' -print -quit)" ;\
+    test -n "$binary" ;\
+    cp "$binary" /out/opencode ;\
+    test "$(/out/opencode --version)" = "$OPENCODE_VERSION"
 
 ########################################################## loader
 FROM ubuntu:24.04 AS loader
@@ -11,16 +26,13 @@ ARG OPENCODE_VERSION
 ARG OPS_BRANCH
 ARG OPS_REPO
 
-# install ollama and opencode
+# install ollama
 USER root
 
 RUN apt-get update && apt-get install -y curl zstd
 
 RUN curl -fsSL https://ollama.com/install.sh >ollama.sh
 RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
-
-RUN curl -fsSL https://opencode.ai/install >opencode.sh
-RUN bash opencode.sh --version ${OPENCODE_VERSION}
 
 RUN \
     echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
@@ -37,7 +49,7 @@ USER root
 COPY --from=loader /etc/environment /etc/environment
 COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
 COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
-COPY --from=loader /root/.opencode/bin/opencode /usr/local/bin/opencode
+COPY --from=opencode-builder /out/opencode /usr/local/bin/opencode
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
