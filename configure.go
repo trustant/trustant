@@ -1062,6 +1062,7 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 const (
 	trustableAgentsBegin = "<!-- TRUSTABLE-MANAGED-AGENTS-BEGIN -->"
 	trustableAgentsEnd   = "<!-- TRUSTABLE-MANAGED-AGENTS-END -->"
+	trustableAgentSteps  = 64
 )
 
 func managedAppAgentsContent() string {
@@ -1143,7 +1144,11 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	}
 
 	config := map[string]interface{}{
-		"$schema":            "https://opencode.ai/config.json",
+		"$schema": "https://opencode.ai/config.json",
+		"agent": map[string]interface{}{
+			"build": map[string]interface{}{"steps": trustableAgentSteps},
+			"plan":  map[string]interface{}{"steps": trustableAgentSteps},
+		},
 		"disabled_providers": defaultDisabledOpenCodeProviders(),
 		"instructions":       []string{contractPath, mdPath},
 		"provider":           providers,

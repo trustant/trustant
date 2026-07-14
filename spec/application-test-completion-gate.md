@@ -90,7 +90,9 @@ Application tests run after git validation, Trustable contract checks, required
 action deploy/setup, and any frontend build. Completion remains blocked until
 all touched endpoints have focused tests and all executable discovered suites
 pass. The normal repeated-failure circuit breaker applies to stable test
-failures.
+failures. Once open, it must refuse to rerun the completion suite until a
+`phase=reproduced` diagnostic checkpoint records concrete evidence; a
+`phase=verified` checkpoint cannot bypass an unresolved repeated failure.
 
 When session state is dirty or diagnostic reproduction is still required, the
 plugin replaces any final assistant response with the relevant gate message.

@@ -121,7 +121,8 @@ project directory `<workbenchdir>/<app>/opencode.json`. There is **no** global
 `~/.config/opencode/opencode.json` — it is not generated and not referenced.
 The project file holds the entire config: provider, model defaults
 (`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`,
-`permission`, and the `mcp` servers built from `~/.ops/config.json`. The
+`permission`, a 64-step limit for the primary `build` and `plan` agents, and
+the `mcp` servers built from `~/.ops/config.json`. The
 provider block, model
 defaults, and the full-regeneration rules (no merge — the file is overwritten
 every launch) are exactly those in

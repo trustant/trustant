@@ -420,6 +420,39 @@ test("integrated Trustable Code owns diagnostic transitions instead of the plugi
     await plugin["experimental.text.complete"]({ sessionID }, completion);
     assert.equal(completion.synthetic, undefined);
     assert.equal(completion.continue, undefined);
+
+    const context = { sessionID, directory, worktree: directory };
+    await plugin.tool.trustable_completion_check.execute({}, context);
+    assert.match(await plugin.tool.trustable_completion_check.execute({}, context), /Circuit breaker OPEN/);
+    await plugin["chat.message"](
+      { sessionID },
+      {
+        message: { role: "user" },
+        parts: [{ type: "text", text: "Internal Trustable gate: retry verification.", synthetic: true }],
+      },
+    );
+    assert.match(
+      await plugin.tool.trustable_completion_check.execute({}, context),
+      /completion check blocked/i,
+    );
+    await assert.rejects(
+      plugin.tool.trustable_diagnostic_checkpoint.execute(
+        { phase: "verified", evidence: "The integrated runtime reports the failure fixed." },
+        context,
+      ),
+      /phase=verified cannot clear/,
+    );
+    assert.match(
+      await plugin.tool.trustable_diagnostic_checkpoint.execute(
+        { phase: "reproduced", evidence: "The integrated runtime reproduced the same checker failure." },
+        context,
+      ),
+      /accepted by Trustable core/,
+    );
+    assert.doesNotMatch(
+      await plugin.tool.trustable_completion_check.execute({}, context),
+      /completion check blocked/i,
+    );
   } finally {
     delete process.env.TRUSTABLE_RUNTIME_CONFIG;
   }
@@ -687,6 +720,27 @@ test("normalized repeated completion failures open the circuit breaker", async (
 
   assert.doesNotMatch(first, /Circuit breaker OPEN/);
   assert.match(second, /Circuit breaker OPEN/);
+  const blocked = await plugin.tool.trustable_completion_check.execute({}, context);
+  assert.match(blocked, /completion check blocked.*automatic checks were not rerun/i);
+  assert.doesNotMatch(blocked, /FAIL auth contract/);
+
+  await assert.rejects(
+    plugin.tool.trustable_diagnostic_checkpoint.execute(
+      { phase: "verified", evidence: "The repeated authentication failure is now fixed." },
+      context,
+    ),
+    /phase=verified cannot clear.*phase=reproduced/s,
+  );
+  assert.match(
+    await plugin.tool.trustable_diagnostic_checkpoint.execute(
+      { phase: "reproduced", evidence: "node volatile.test.js still reports anonymous authentication." },
+      context,
+    ),
+    /checkpoint recorded/i,
+  );
+  const retried = await plugin.tool.trustable_completion_check.execute({}, context);
+  assert.doesNotMatch(retried, /completion check blocked/i);
+  assert.doesNotMatch(retried, /Circuit breaker OPEN/);
 });
 
 test("dirty sessions cannot stop with neutral final wording", async () => {

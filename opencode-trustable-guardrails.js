@@ -851,7 +851,17 @@ export default async function TrustableGuardrails(context = {}) {
         },
         async execute(args, context) {
           const current = stateFor(context.sessionID);
+          if (current.circuitOpen && args.phase === "verified") {
+            throw new Error("Trustable diagnostic circuit breaker: phase=verified cannot clear a repeated completion failure. Reproduce the exact remaining failure and call this tool with phase=reproduced, or use phase=blocked when reproduction is impossible.");
+          }
           if (coreManaged && args.phase === "reproduced") {
+            current.diagnosticRequired = false;
+            current.reproduced = true;
+            current.circuitOpen = false;
+            current.repeatedFailures = 0;
+            current.failureSignature = "";
+            current.completionRecoveryAttempts = 0;
+            saveState(context.sessionID, current);
             return "Diagnostic checkpoint accepted by Trustable core.";
           }
           let browserEvidence = args.evidence_id ? browserEvidenceFor(current, args.evidence_id) : undefined;
@@ -894,6 +904,7 @@ export default async function TrustableGuardrails(context = {}) {
             current.circuitOpen = false;
             current.repeatedFailures = 0;
             current.failureSignature = "";
+            current.completionRecoveryAttempts = 0;
           }
           saveState(context.sessionID, current);
           return args.phase === "reproduced"
@@ -907,6 +918,11 @@ export default async function TrustableGuardrails(context = {}) {
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);
+          if (current.circuitOpen && !current.reproduced) {
+            current.completionRecoveryAttempts = Math.max(1, current.completionRecoveryAttempts);
+            saveState(context.sessionID, current);
+            return "Trustable completion check blocked: the diagnostic circuit breaker is open, so automatic checks were not rerun. Reproduce the exact remaining failure and call trustable_diagnostic_checkpoint with phase=reproduced and concrete evidence, or use phase=blocked when reproduction is impossible.";
+          }
           const result = current.browserVerificationRequired
             ? {
                 passed: false,
@@ -985,13 +1001,14 @@ export default async function TrustableGuardrails(context = {}) {
       const text = (output.parts || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
       const synthetic = (output.parts || []).some((part) => part.synthetic === true) || isSyntheticContinuation(text);
       current.statusRequest = isStatusRequest(text);
-      if (text.trim() && !current.statusRequest && !synthetic) {
+      const realTask = text.trim() && !current.statusRequest && !synthetic;
+      if (realTask) {
         current.activeTask = text.trim().slice(0, MAX_ACTIVE_TASK_CHARS);
         current.activeTaskFingerprint = fingerprint(current.activeTask);
         current.completionRecoveryAttempts = 0;
         current.lastCompletionFailure = "";
       }
-      if (coreManaged) {
+      if (coreManaged && realTask) {
         current.diagnosticRequired = false;
         current.reproduced = false;
         current.circuitOpen = false;

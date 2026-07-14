@@ -399,6 +399,10 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	durableWorkbench := t.TempDir()
+	canonicalDurableWorkbench, err := filepath.EvalSymlinks(durableWorkbench)
+	if err != nil {
+		t.Fatalf("resolve durable workbench: %v", err)
+	}
 	workbenchAliasParent := t.TempDir()
 	WorkbenchDir = filepath.Join(workbenchAliasParent, "workbench")
 	if err := os.Symlink(durableWorkbench, WorkbenchDir); err != nil {
@@ -467,6 +471,16 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if _, present := providers["custom-provider"]; present {
 		t.Fatalf("custom provider should be discarded by full regeneration: %#v", providers)
 	}
+	agentLimits, ok := got["agent"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("generated agent limits missing: %#v", got["agent"])
+	}
+	for _, name := range []string{"build", "plan"} {
+		agent, ok := agentLimits[name].(map[string]interface{})
+		if !ok || agent["steps"] != float64(trustableAgentSteps) {
+			t.Fatalf("generated %s step limit missing: %#v", name, agentLimits[name])
+		}
+	}
 	lsp, ok := got["lsp"].(map[string]interface{})
 	if !ok || lsp["typescript"] == nil || lsp["python"] == nil {
 		t.Fatalf("generated lsp missing: %#v", got["lsp"])
@@ -490,8 +504,8 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	// instructions must point first at the project's own OpenServerless
 	// contract, then at opencode.md.
 	instr, ok := got["instructions"].([]interface{})
-	wantContract := filepath.Join(durableWorkbench, app, ".openserverless-contract.md")
-	wantMd := filepath.Join(durableWorkbench, app, "opencode.md")
+	wantContract := filepath.Join(canonicalDurableWorkbench, app, ".openserverless-contract.md")
+	wantMd := filepath.Join(canonicalDurableWorkbench, app, "opencode.md")
 	if !ok || len(instr) != 2 || instr[0] != wantContract || instr[1] != wantMd {
 		t.Fatalf("instructions should reference %s then %s, got %#v", wantContract, wantMd, got["instructions"])
 	}
