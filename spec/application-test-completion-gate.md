@@ -97,6 +97,9 @@ failure, never add placeholder tests merely to satisfy or reset the gate.
 Legacy non-integrated OpenCode may still replace an unverified final response
 with one bounded recovery turn. Integrated Trustable Code leaves the model's
 final response visible and relies on the bounded end-of-implementation check.
+Fallback status text emitted directly by the plugin is English, consistent
+with the rest of its control-plane messages; model-authored responses may still
+use the user's language.
 
 ## Raw action shell commands
 

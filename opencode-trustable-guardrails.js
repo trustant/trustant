@@ -1222,7 +1222,7 @@ export default async function TrustableGuardrails(context = {}) {
       }
       if (!coreManaged && current.dirty && !current.verified) {
         if (current.completionRecoveryAttempts >= 1) {
-          output.text = "Ho salvato il lavoro svolto, ma non sono riuscito a completare l'ultimo passaggio in questa sessione.";
+          output.text = "I saved the work, but I could not complete the final step in this session.";
           output.synthetic = false;
           output.continue = false;
           saveState(input.sessionID, current);

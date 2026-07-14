@@ -749,7 +749,7 @@ test("dirty sessions cannot stop with neutral final wording", async () => {
     { sessionID, messageID: "msg-2", partID: "part-2" },
     stopped,
   );
-  assert.match(stopped.text, /salvato il lavoro svolto/i);
+  assert.match(stopped.text, /saved the work.*could not complete the final step/i);
   assert.equal(stopped.synthetic, false);
   assert.equal(stopped.continue, false);
 });
