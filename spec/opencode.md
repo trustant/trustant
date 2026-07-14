@@ -149,6 +149,13 @@ It must say:
   expose active audio state; suspended audio is not valid verification
   evidence. The manual checkpoint remains a fallback and must bind the latest
   valid evidence deterministically when its internal ID is omitted;
+- every frontend source mutation must require fresh Browser MCP evidence before
+  completion, including feature work that did not begin as a reported bug.
+  After a successful build or deploy, the embedded workflow must direct the
+  assistant to inspect the exact changed route and runtime diagnostics
+  immediately, then exercise the visible flow before speculative source edits.
+  A browser open without a subsequent evidence-bearing interaction is not
+  sufficient;
 - subagent work must be bounded to one question, at most eight relevant files,
   concise paths/line references, and capped tool output. Full-file or whole
   codebase delegation must be rejected before it consumes session context;
@@ -162,8 +169,11 @@ It must say:
 - the frontend checker must reject localStorage user/profile data used as
   authoritative authentication without a backend `me`/session validation;
 - after source changes, `trustable_completion_check` must pass the action and
-  frontend checkers, `git diff --check`, and the available frontend build before
-  the assistant claims completion.
+  frontend checkers, `git diff --check`, the project typecheck, and the
+  available frontend build before the assistant claims completion. When no
+  `typecheck` script exists but a local TypeScript compiler and `tsconfig.json`
+  do, the gate runs `tsc -b --noEmit --incremental false` so Vite-only builds
+  cannot hide undefined JSX symbols or leave `.tsbuildinfo` artifacts.
 
 ## Non-Negotiable Rules
 
@@ -299,7 +309,8 @@ instructions should name the Trustable concepts and tell the assistant to use
 the matching exposed tool:
 
 - `action-new` / `action_new`: create public or private actions and generated
-  wrappers.
+  wrappers. Repeated creation of a compatible existing action is a successful
+  check/no-op; continue without retrying it.
 - `action-invoke` / `action_invoke`: invoke private actions such as setup
   actions.
 - `action-requirements` / `action_requirements`: add Python libraries.
@@ -459,6 +470,17 @@ The embedded guidance must tell assistants to use exact PostgreSQL MCP tool
 names when inspecting PostgreSQL. For schemas, use `postgres_list_schemas`. For
 tables/views in a schema, use `postgres_list_objects`. It must explicitly forbid
 generic invented names such as `list_schemas`.
+
+The embedded guidance must document `secret_status`, `secret_ensure`,
+`secret_bind`, and `auth_setup`. For token authentication, assistants must use
+`auth_setup` with every token-issuing endpoint and every token-validating
+endpoint, including `me`/session and protected resources, and rerun it when a
+protected endpoint is added. Missing secrets and invalid endpoint sets are MCP
+errors and must not be treated as completed warnings. Assistants must not read
+or edit generated `.env` files, or edit action wrappers to bypass those errors. Editable
+action modules must use the shared `ctx.<SECRET>` value, fail closed when it is
+absent, and never use an `os.getenv()` default, app-name-derived key, or other
+hardcoded fallback for signing or verification.
 
 The embedded guidance must say that S3 app verification should use the
 OpenServerless action path created with `action-add-s3`, generated action
@@ -684,6 +706,10 @@ When an app has login or registration, the embedded guidance must say:
 - after login, the frontend should store only the returned session/token/user
   data it needs and derive authenticated UI state from that data or from a
   bounded `me` check;
+- successful login and registration must update the live authentication
+  provider/store before protected-route navigation; writing token/user data
+  only to browser storage is insufficient because the current render remains
+  unauthenticated and may redirect back to login;
 - successful registration must establish the same authenticated state as
   login, either from returned session/token/user data or an immediate login;
   the user must not be sent through a second manual login before reaching the
@@ -805,7 +831,8 @@ The embedded guidance must end backend-related changes with local proof:
   assistant fixes the failure;
 - for frontend auth flows, validate route shape and behavior for the root path,
   login path, register path, direct protected route while logged out, and
-  protected navigation after login;
+  protected navigation after login; submitting valid credentials must visibly
+  render the protected page without a manual reload;
 - never leave the user with only "try it now" unless validation was impossible
   and the blocker is stated.
 
@@ -886,7 +913,10 @@ ordinary tool failures remain visible.
 Trustable Code sanitizes final assistant text before persistence and the app
 sanitizes it again while rendering. Internal completion checks, gates,
 guardrails, circuit breakers, checkpoints, and continuation state must never be
-shown to the user; useful result and limitation text remains visible.
+shown to the user; useful result and limitation text remains visible. When a
+provider text block contains only control-plane narration, it is suppressed
+instead of being replaced with a misleading failure message while the turn is
+still running.
 
 Scheduled application activities are not yet part of the implemented Trustable
 Code contract. Their approved requirements are tracked in `spec/backlog.md`.

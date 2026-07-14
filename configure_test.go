@@ -315,7 +315,7 @@ func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
 	}
 }
 
-func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
+func TestGeneratedAppEnvIncludesPersistentSecretsWithoutOverridingManagedValues(t *testing.T) {
 	origWorkspace := WorkspaceDir
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() {
@@ -363,6 +363,13 @@ func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(WorkbenchDir, "truapp"), 0755); err != nil {
 		t.Fatalf("mkdir workbench: %s", err)
 	}
+	secretPath := appSecretStorePath("truapp")
+	if err := os.MkdirAll(filepath.Dir(secretPath), 0700); err != nil {
+		t.Fatalf("mkdir app secret store: %s", err)
+	}
+	if err := os.WriteFile(secretPath, []byte("JWT_SECRET=persistent-test-value\nOPS_PASSWORD=must-not-win\nMONGODB_URI=must-not-leak\n"), 0600); err != nil {
+		t.Fatalf("write app secret store: %s", err)
+	}
 
 	if err := generateAppEnvFiles("truapp"); err != nil {
 		t.Fatalf("generate env: %s", err)
@@ -374,6 +381,12 @@ func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 	}
 	if got := env["CUSTOM"]; got != "dev" {
 		t.Fatalf("expected ordinary development env to remain, got %q", got)
+	}
+	if got := env["JWT_SECRET"]; got != "persistent-test-value" {
+		t.Fatalf("expected persistent app secret in generated env, got %q", got)
+	}
+	if got := env["OPS_PASSWORD"]; got != "secret" {
+		t.Fatalf("persistent secrets must not override managed OPS_PASSWORD, got %q", got)
 	}
 
 	runtimeEnv := appServiceRuntimeEnv([]string{"BASE=1"})
@@ -492,6 +505,10 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if !ok {
 		t.Fatalf("generated permission config missing: %#v", got["permission"])
 	}
+	readPerm, ok := permission["read"].(map[string]interface{})
+	if !ok || readPerm["*.env"] != "deny" || readPerm["*.env.*"] != "deny" {
+		t.Fatalf("generated env read guardrails missing: %#v", permission["read"])
+	}
 	editPerm, ok := permission["edit"].(map[string]interface{})
 	if !ok || editPerm["packages/**/__main__.py"] != "deny" || editPerm["packages/**/*.zip"] != "deny" {
 		t.Fatalf("generated edit guardrails missing: %#v", permission["edit"])
@@ -569,6 +586,10 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if cmd, ok := oss["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "openserverless-mcp" {
 		t.Fatalf("unexpected openserverless command: %#v", oss["command"])
 	}
+	ossEnv, ok := oss["environment"].(map[string]interface{})
+	if !ok || ossEnv["OPENSERVERLESS_SECRETS_FILE"] != appSecretStorePath(app) {
+		t.Fatalf("openserverless persistent secret store missing: %#v", oss["environment"])
+	}
 	browser, ok := mcp["browser"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("browser MCP server missing: %#v", mcp)
@@ -603,6 +624,10 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	}
 	if cOss["type"] != "stdio" || cOss["command"] != "openserverless-mcp" {
 		t.Fatalf("unexpected .mcp.json openserverless entry: %#v", cOss)
+	}
+	cOssEnv, ok := cOss["env"].(map[string]interface{})
+	if !ok || cOssEnv["OPENSERVERLESS_SECRETS_FILE"] != appSecretStorePath(app) {
+		t.Fatalf(".mcp.json persistent secret store missing: %#v", cOss)
 	}
 	cBrowser, ok := claude.MCPServers["browser"]
 	if !ok || cBrowser["type"] != "stdio" || cBrowser["command"] != "trustable-browser-mcp" {

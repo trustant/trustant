@@ -73,6 +73,13 @@ test("mutation detection keeps read-only diagnostics available", () => {
     command: "sed -i 's/old/new/' database.py",
   }), true);
   assert.equal(guardrails.isSetupActionMutation("edit", { filePath: "/tmp/app/packages/v1/stack/stack.py" }), false);
+  assert.equal(guardrails.isFrontendMutation("edit", { filePath: "/tmp/app/src/App.tsx" }), true);
+  assert.equal(guardrails.isFrontendMutation("apply_patch", { patch: "*** Update File: src/pages/Home.tsx" }), true);
+  assert.equal(guardrails.isFrontendMutation("bash", {
+    command: "mv /tmp/app/src/hooks/useAuth.ts /tmp/app/src/hooks/useAuth.tsx",
+  }), true);
+  assert.equal(guardrails.isFrontendMutation("bash", { command: "rm -rf node_modules/.vite" }), false);
+  assert.equal(guardrails.isFrontendMutation("edit", { filePath: "/tmp/app/packages/v1/home/home.py" }), false);
 });
 
 test("action endpoint tracking is precise and ignores generated entrypoints", () => {
@@ -541,6 +548,44 @@ test("browser-reproduced fixes require fresh post-mutation verification evidence
   assert.doesNotMatch(system.system.join(" "), /POST-FIX BROWSER VERIFICATION/);
 });
 
+test("frontend feature changes require fresh browser interaction before completion", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-frontend-feature-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_frontend_feature_${Date.now()}`;
+
+  await plugin["chat.message"](
+    { sessionID },
+    {
+      message: { role: "user" },
+      parts: [{ type: "text", text: "Crea una nuova home per il laboratorio" }],
+    },
+  );
+  await plugin["tool.execute.after"](
+    { tool: "edit", sessionID, callID: "feature_edit", args: { filePath: "src/pages/Home.tsx" } },
+    { output: "Edit applied successfully." },
+  );
+
+  const pending = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, pending);
+  assert.match(pending.system.join(" "), /FRONTEND BROWSER VERIFICATION IS REQUIRED/);
+
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_open", sessionID, callID: "feature_open", args: { path: "/", mode: "development" } },
+    { output: "Home route opened." },
+  );
+  const openOnly = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, openOnly);
+  assert.match(openOnly.system.join(" "), /FRONTEND BROWSER VERIFICATION IS REQUIRED/);
+
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_interact", sessionID, callID: "feature_reload", args: { action: "reload" } },
+    { output: "Updated home rendered without runtime errors." },
+  );
+  const verified = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID }, verified);
+  assert.doesNotMatch(verified.system.join(" "), /FRONTEND BROWSER VERIFICATION IS REQUIRED/);
+});
+
 test("automatic browser verification requires active audio evidence for sound fixes", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-guardrails-audio-fix-"));
   const plugin = await guardrails.default({ directory });
@@ -766,6 +811,37 @@ test("application test discovery does not impose a framework on apps without tes
   assert.equal(result.passed, true);
   assert.match(result.output, /SKIP/);
   assert.match(result.output, /no framework is imposed/i);
+});
+
+test("completion catches TypeScript errors hidden by a successful Vite build", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-frontend-typecheck-"));
+  execFileSync("git", ["init", "--quiet"], { cwd: directory });
+  const fakeBin = join(directory, "bin");
+  mkdirSync(fakeBin);
+  const checker = join(fakeBin, "check_trustable_app.sh");
+  writeFileSync(checker, "#!/usr/bin/env bash\necho contracts-pass\nexit 0\n");
+  chmodSync(checker, 0o755);
+  writeFileSync(join(directory, "package.json"), JSON.stringify({
+    scripts: {
+      typecheck: "node -e \"console.error('src/AuthForm.tsx: error TS2304: Cannot find name Tabs'); process.exit(1)\"",
+      build: "node -e \"console.log('vite build passed')\"",
+    },
+  }));
+
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${fakeBin}:${oldPath}`;
+  t.after(() => { process.env.PATH = oldPath; });
+
+  const plugin = await guardrails.default({ directory });
+  const result = await plugin.tool.trustable_completion_check.execute(
+    {},
+    { sessionID: `ses_frontend_typecheck_${Date.now()}`, directory, worktree: directory },
+  );
+  assert.match(result, /Trustable completion gate failed/);
+  assert.match(result, /frontend typecheck: FAIL/);
+  assert.match(result, /TS2304: Cannot find name Tabs/);
+  assert.match(result, /frontend build: PASS/);
+  assert.match(result, /vite build passed/);
 });
 
 test("application test gate executes existing Go, Python, and JavaScript suites", async () => {

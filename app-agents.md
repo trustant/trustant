@@ -45,6 +45,13 @@ evidence automatically. After source changes, run the fixed flow again with
 show active audio state. Use `trustable_diagnostic_checkpoint` for explicit or
 non-browser evidence.
 
+For any frontend change, run the project typecheck before the build. After a
+successful build or deploy, immediately open the exact changed route with the
+Browser MCP, inspect page diagnostics, and exercise the visible flow. Repeat
+that browser verification after later frontend mutations. Do not clear caches
+or reinstall dependencies unless the failure specifically indicates stale or
+missing dependencies.
+
 After any OpenServerless action tool call or change under `packages/`, run
 `timeout 120 ops ide deploy` before setup, runtime verification, or completion.
 If a setup action changed, run `timeout 120 ops ide setup` only after deploy
@@ -76,6 +83,20 @@ reports a running AudioContext or active unmuted media.
 Successful registration establishes an authenticated session immediately,
 using the same token/session/user contract as login. Do not require the user to
 log in again before entering the protected area.
+
+Login and registration must update the live authentication provider/store
+before navigating. Do not write only to `localStorage`: the protected-route
+guard must observe the authenticated state in the same render cycle, without a
+manual reload.
+
+For token authentication, call `auth_setup` with every token-issuing endpoint
+and every endpoint that validates the token. Use `secret_status`,
+`secret_ensure`, or `secret_bind` for focused secret work; never read or edit
+`.env`, and never edit generated wrappers directly. Secret tool failures are
+real failures: do not continue with a partially bound endpoint set. Action
+modules must use only the shared `ctx.<SECRET>` value and must never fall back
+to `os.getenv()` defaults or hardcoded keys. Rerun `auth_setup` after adding a
+protected action.
 
 Persist only an opaque app session token as authoritative browser state. On a
 full reload, keep an explicit auth loading state and validate that token through

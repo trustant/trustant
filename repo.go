@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,6 +116,23 @@ type Application struct {
 	ApiHost string `json:"apihost,omitempty"`
 	OpsUser string `json:"opsuser,omitempty"`
 	OpsRepo string `json:"opsrepo,omitempty"`
+}
+
+func developmentApplicationURL(appName string) string {
+	base, err := url.Parse(developmentAPIHost())
+	if err != nil || base.Scheme == "" || base.Hostname() == "" {
+		return ""
+	}
+	host := appName + "." + base.Hostname()
+	if port := base.Port(); port != "" {
+		host = net.JoinHostPort(host, port)
+	}
+	base.Host = host
+	base.Path = "/"
+	base.RawPath = ""
+	base.RawQuery = ""
+	base.Fragment = ""
+	return base.String()
 }
 
 // Validation patterns

@@ -87,7 +87,12 @@ framework requirement.
 ## Completion behavior
 
 Application tests run after git validation, Trustable contract checks, required
-action deploy/setup, and any frontend build. Completion remains blocked until
+action deploy/setup, and any frontend typecheck and build. The gate uses the
+project `typecheck` script when present; otherwise it runs the installed local
+TypeScript compiler with `tsc -b --noEmit --incremental false` when
+`tsconfig.json` exists. This catches undefined JSX symbols that a transpile-only
+Vite build accepts without leaving `.tsbuildinfo` artifacts in the workbench.
+Completion remains blocked until
 all touched endpoints have focused tests and all executable discovered suites
 pass. The gate runs at most once for the current source revision and at most
 three times for one real user request. A repeated call does not rerun the suite;
@@ -100,6 +105,13 @@ final response visible and relies on the bounded end-of-implementation check.
 Fallback status text emitted directly by the plugin is English, consistent
 with the rest of its control-plane messages; model-authored responses may still
 use the user's language.
+
+Every successful frontend source mutation creates browser-verification debt,
+even for feature work that did not begin as a bug report. The assistant should
+run typecheck then build, immediately inspect the exact changed route and
+runtime diagnostics through the Browser MCP, and exercise the visible flow.
+Only fresh evidence-bearing `browser_interact` output after the latest mutation
+clears that debt; `browser_open` alone is orientation, not verification.
 
 ## Raw action shell commands
 

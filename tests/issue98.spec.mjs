@@ -12,6 +12,7 @@ const trustableURL = env.TRUSTABLE_E2E_TRUSTABLE_URL || `http://trustable.${doma
 const opencodeURL = env.TRUSTABLE_E2E_OPENCODE_URL || `http://opencode.${domain}`;
 const viteURL = env.TRUSTABLE_E2E_VITE_URL || `http://vite.${domain}`;
 const authURL = env.TRUSTABLE_E2E_AUTH_URL || viteURL;
+const localRuntime = env.TRUSTABLE_E2E_LOCAL === "1";
 const defaultPrompt = [
   "Issue98 E2E check: do not modify files.",
   "You must use the bash tool now. Do not answer from memory or from previous session results.",
@@ -29,6 +30,13 @@ function kubectl(args, options = {}) {
 }
 
 function podShell(command, options = {}) {
+  if (localRuntime) {
+    return execFileSync("bash", ["-lc", command], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: options.timeout || 120_000,
+    }).trim();
+  }
   return kubectl([
     "exec",
     pod,
@@ -161,30 +169,32 @@ async function sessionStatus(request) {
   return response.json();
 }
 
-async function pendingSessionPermissions(request, sessionID) {
-  const response = await request.get(`${opencodeURL}/api/session/${sessionID}/permission`, {
+async function pendingSessionPermissions(request, sessionID, workbenchDir) {
+  const response = await request.get(`${opencodeURL}/permission?directory=${encodeURIComponent(workbenchDir)}`, {
     timeout: 30_000,
   });
   if (!response.ok()) {
     return [];
   }
   const body = await response.json();
-  return body.data || [];
+  const pending = Array.isArray(body) ? body : body.data || [];
+  return pending.filter((item) => item.sessionID === sessionID);
 }
 
-async function pendingSessionQuestions(request, sessionID) {
-  const response = await request.get(`${opencodeURL}/api/session/${sessionID}/question`, {
+async function pendingSessionQuestions(request, sessionID, workbenchDir) {
+  const response = await request.get(`${opencodeURL}/question?directory=${encodeURIComponent(workbenchDir)}`, {
     timeout: 30_000,
   });
   if (!response.ok()) {
     return [];
   }
   const body = await response.json();
-  return body.data || [];
+  const pending = Array.isArray(body) ? body : body.data || [];
+  return pending.filter((item) => item.sessionID === sessionID);
 }
 
-async function replyToPermission(request, sessionID, requestID, reply) {
-  const response = await request.post(`${opencodeURL}/api/session/${sessionID}/permission/${requestID}/reply`, {
+async function replyToPermission(request, workbenchDir, requestID, reply) {
+  const response = await request.post(`${opencodeURL}/permission/${requestID}/reply?directory=${encodeURIComponent(workbenchDir)}`, {
     data: { reply },
     timeout: 30_000,
   });
@@ -198,18 +208,18 @@ async function waitForPromptIdle(request, sessionID, workbenchDir, baselineMessa
   let lastMessages = [];
 
   while (Date.now() < deadline) {
-    const permissions = await pendingSessionPermissions(request, sessionID);
+    const permissions = await pendingSessionPermissions(request, sessionID, workbenchDir);
     if (permissions.length > 0) {
       if (env.TRUSTABLE_E2E_AUTO_APPROVE === "1") {
         for (const permission of permissions) {
-          await replyToPermission(request, sessionID, permission.id, "once");
+          await replyToPermission(request, workbenchDir, permission.id, "once");
         }
       } else {
         throw new Error(`OpenCode is waiting for permission: ${JSON.stringify(permissions)}`);
       }
     }
 
-    const questions = await pendingSessionQuestions(request, sessionID);
+    const questions = await pendingSessionQuestions(request, sessionID, workbenchDir);
     if (questions.length > 0) {
       throw new Error(`OpenCode asked a question during E2E: ${JSON.stringify(questions)}`);
     }

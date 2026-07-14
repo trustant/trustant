@@ -22,6 +22,7 @@ var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 // reverse proxy instances for opencode and vite
 var opencodeProxy = newSilentProxy("127.0.0.1:4096")
 var viteProxy = newSilentProxy("127.0.0.1:5173")
+var developmentProxyTransport http.RoundTripper = http.DefaultTransport
 
 // newSilentProxy creates a reverse proxy that silently returns 502 when the backend is unavailable
 func newSilentProxy(host string) *httputil.ReverseProxy {
@@ -30,6 +31,34 @@ func newSilentProxy(host string) *httputil.ReverseProxy {
 		w.WriteHeader(http.StatusBadGateway)
 	}
 	return proxy
+}
+
+func proxyDevelopmentApplication(w http.ResponseWriter, r *http.Request, appName string) bool {
+	if !namePattern.MatchString(appName) || getAppRepo(appName) == "" {
+		return false
+	}
+	targetValue := developmentApplicationURL(appName)
+	target, err := url.Parse(targetValue)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		log.Printf("development proxy: invalid target for %s: %q", appName, targetValue)
+		return false
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		originalHost := request.Host
+		director(request)
+		request.Host = target.Host
+		request.Header.Set("X-Forwarded-Host", originalHost)
+	}
+	proxy.Transport = developmentProxyTransport
+	proxy.ErrorHandler = func(response http.ResponseWriter, request *http.Request, proxyErr error) {
+		log.Printf("development proxy: %s -> %s failed: %s", appName, target.Host, proxyErr)
+		response.WriteHeader(http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, r)
+	return true
 }
 
 // parseHostname extracts hostname, port, and protocol from a request
@@ -292,6 +321,9 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			// Proxy pass to port 5173
 			viteProxy.ServeHTTP(w, r)
 		default:
+			if proxyDevelopmentApplication(w, r, hostPart) {
+				return
+			}
 			// Unknown host prefix - show error
 			domain := hostname[dotIdx+1:]
 			var suggestedURL string

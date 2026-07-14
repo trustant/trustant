@@ -1,10 +1,13 @@
 import assert from "node:assert/strict"
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
-import { TrustableBrowser, resolveBrowserTarget } from "./browser.ts"
+import { TrustableBrowser, resolveBrowserTarget, resolveManagedDevelopmentOrigin } from "./browser.ts"
 
 test("target resolution keeps development on localhost and deployed on configured Vite", () => {
   assert.equal(resolveBrowserTarget("development", "/#/login"), "http://localhost:5173/#/login")
@@ -14,6 +17,30 @@ test("target resolution keeps development on localhost and deployed on configure
   )
   assert.throws(() => resolveBrowserTarget("deployed", "/", "http://example.com"), /vite/)
   assert.throws(() => resolveBrowserTarget("development", "https://example.com"), /app-local path/)
+})
+
+test("managed development target is bound to the current runtime workbench", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "trustable-browser-runtime-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const current = join(root, "workbench", "trutest1")
+  const other = join(root, "workbench", "otherapp")
+  await mkdir(current, { recursive: true })
+  await mkdir(other, { recursive: true })
+  const runtimeConfig = join(root, "opencode-runtime.json")
+  await writeFile(runtimeConfig, JSON.stringify({
+    version: 1,
+    workbenches: [{
+      app: "trutest1",
+      workspace: current,
+      developmentUrl: "http://localhost:5173",
+    }],
+  }))
+
+  assert.equal(await resolveManagedDevelopmentOrigin(runtimeConfig, current), "http://localhost:5173/")
+  await assert.rejects(
+    resolveManagedDevelopmentOrigin(runtimeConfig, other),
+    /runtime manifest belongs to a different application.*do not use another app page as verification evidence/i,
+  )
 })
 
 test("browser observes navigation, console, and failed requests", async (t) => {

@@ -102,12 +102,22 @@ Application action buttons use restrained, light styling and fixed inline labels
 Edit, Env, Git Pull, Git Push, Publish, and Delete must not wrap inside the list view.
 Delete keeps a distinct pale red treatment.
 
-The Local link points to `<protocol>://<name>.<domain>` by replacing the first
-label of the current Trustable host. For example, from
-`http://trustable.<node-ip>.nip.io` it points to
-`http://<name>.<node-ip>.nip.io`, and from
+The Development link points to `<protocol>://<name>.<domain>` by replacing the
+first label of the current Trustable host. For example, from
+`http://trustable.<node-ip>.nip.io:8910` it points to
+`http://<name>.<node-ip>.nip.io:8910`, and from
 `https://trustable.<base-domain>` it points to
 `https://<name>.<base-domain>`.
+
+In the `run.sh` Lima development environment the app-specific nip.io request
+reaches the Trustable server on port 8910, not the k3s ingress directly. For a
+host prefix that matches an existing application, the hostname middleware must
+reverse-proxy the request to `<name>.<development OPS_APIHOST>` inside the VM
+(for example `trutest1.miniops.me`) and rewrite the upstream `Host` header so
+the k3s ingress selects that application's routes. Unknown prefixes must still
+return the Invalid Hostname page. In the packaged k3s deployment, the external
+ingress normally routes `<name>.<base-domain>` before the request reaches this
+fallback.
 The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined in `.env.production`. It points to `<protocol>://<opsuser>.<domain>` where `<protocol>://<domain>` comes from OPS_APIHOST and `<opsuser>` comes from OPS_USER.
 The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 

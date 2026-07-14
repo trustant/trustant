@@ -222,7 +222,15 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 
 3. Per-app `development` overrides
 
-4. Service runtime bindings from official OpenServerless config are not written
+4. Application secrets created through the OpenServerless MCP are stored
+   outside the git checkout at
+   `<WorkspaceDir>/.trustable/secrets/<app>.env`. The generated development
+   `.env` merges valid uppercase names from that file, but the secret store
+   cannot override `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
+   `OPS_SKILLS`, or service-only runtime credentials. Values are never written
+   to `opencode.json`, `.mcp.json`, assistant output, or `.env.production`.
+
+5. Service runtime bindings from official OpenServerless config are not written
    to `.env`. When `~/.ops/config.json` exposes an official MongoDB capability,
    Trustable may pass the resolved URI as `MONGODB_URI` only in the process
    environment of OpenCode/`ops ide deploy`/`ops ide devel`, so

@@ -12,6 +12,11 @@ version `0.3.0`.
 - `development` resolves only to `http://localhost:5173` inside the Trustable
   pod. Trustable owns the `ops ide devel` process; OpenCode must not start a
   second foreground Vite or development server.
+  Before navigation, the MCP rereads `TRUSTABLE_RUNTIME_CONFIG` and requires
+  its canonical working directory to belong to the manifest's single current
+  workbench. If another application launch has replaced the runtime manifest,
+  it rejects the page instead of treating that application's shared port 5173
+  as verification evidence.
 - `deployed` resolves only to `<protocol>://vite.<configured-apihost>`. OpenCode
   may use it only after `ops ide deploy`, when browser/ingress verification is
   relevant.
@@ -73,6 +78,8 @@ audio test must create and resume an `AudioContext` after a real click and prove
 that the next snapshot reports it as running and active.
 The generated OpenCode and Claude MCP configs must both include the browser
 server. A live pod test must confirm `browser_open` can inspect
-`http://localhost:5173` for the currently launched app.
+`http://localhost:5173` for the currently launched app. Unit tests must also
+prove that a runtime manifest for another workbench blocks development
+navigation before the shared Vite target is used.
 
 See [opencode-browser-flow.svg](opencode-browser-flow.svg).

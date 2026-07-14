@@ -40,11 +40,13 @@ detect_domain() {
   echo "miniops.me"
 }
 
-need kubectl
 need npm
 need node
 
-kubectl -n "$NAMESPACE" get pod "$POD" >/dev/null
+if [ "${TRUSTABLE_E2E_LOCAL:-0}" != "1" ]; then
+  need kubectl
+  kubectl -n "$NAMESPACE" get pod "$POD" >/dev/null
+fi
 
 export TRUSTABLE_E2E_NAMESPACE="$NAMESPACE"
 export TRUSTABLE_E2E_POD="$POD"
@@ -52,6 +54,7 @@ export TRUSTABLE_E2E_CONTAINER="$CONTAINER"
 export TRUSTABLE_E2E_DOMAIN="$(detect_domain)"
 
 echo "Trustable issue98 E2E"
+echo "  runtime:    $([ "${TRUSTABLE_E2E_LOCAL:-0}" = "1" ] && echo local || echo kubernetes)"
 echo "  domain:     $TRUSTABLE_E2E_DOMAIN"
 echo "  namespace:  $TRUSTABLE_E2E_NAMESPACE"
 echo "  pod:        $TRUSTABLE_E2E_POD"

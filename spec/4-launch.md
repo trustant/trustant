@@ -197,9 +197,23 @@ unconditionally, independent of `~/.ops/config.json`:
 "openserverless": {
   "type": "local",
   "command": ["openserverless-mcp"],
+  "environment": {
+    "OPENSERVERLESS_SECRETS_FILE": "<WorkspaceDir>/.trustable/secrets/<app>.env"
+  },
   "enabled": true
 }
 ```
+
+The MCP exposes `secret_status`, `secret_ensure`, `secret_bind`, and
+`auth_setup`. `secret_ensure` and `auth_setup` synchronize requested app
+secrets with `OPENSERVERLESS_SECRETS_FILE` without returning their values.
+`secret_bind` validates all endpoints before applying the same secret, and
+missing required secrets or invalid endpoint sets return MCP `isError: true`
+instead of successful warning text.
+
+`action_new` is idempotent. Repeating it for an existing endpoint with matching
+visibility returns a successful check/no-op and must not overwrite application
+code. Incomplete endpoint paths and visibility conflicts remain MCP errors.
 
 The runtime image pins Trustable Code through the `trustable-code` Git subrepo
 and verifies its reported version against `OPENCODE_VERSION` in

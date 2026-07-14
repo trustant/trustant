@@ -12,8 +12,9 @@ const DIAGNOSTIC_REQUEST = /(does(?:n't| not) work|not working|still (?:fails|br
 const BROWSER_DIAGNOSTIC_REQUEST = /(browser|pagina|form|login|log in|register|registration|registr|auth|session|reload|refresh|routing|route|redirect|music|audio|sound|suono|musica|schermata|pulsante|button|link)/i;
 const SYNTHETIC_CONTINUATION = /^(?:continue if you have next steps.*|continue with the next steps.*|what did we do so far\??|prosegui se hai altri passaggi.*)$/i;
 const UNBOUNDED_TASK_REQUEST = /(return|read|include|show|dump)\s+(?:the\s+)?full\s+(?:content|contents|text)|read\s+(?:all|every)\s+(?:files?|source)|explore\s+the\s+codebase\s+thoroughly/i;
-const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm\s|mv\s|cp\s|install\s|mkdir\s|touch\s|truncate\s|tee\s|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
+const MUTATING_BASH = /(^|[;&|]\s*)(sed\s+-i|perl\s+-pi|rm|mv|cp|install|mkdir|touch|truncate|tee|git\s+(add|commit|merge|rebase|reset|checkout|switch|restore|clean)|npm\s+(install|uninstall|update)|ops\s+ide\s+(deploy|setup|redeploy)|python(?:3)?\s+-c\s+.*(?:write|unlink|remove|rename))\b|(^|[^>])>{1,2}[^&]/i;
 const ACTION_TOOL = /^(?:action[-_](?!(?:invoke|list|get|inspect|status)(?:$|[-_]))|openserverless_action_(?!(?:invoke|list|get|inspect|status)(?:$|_)))/;
+const FRONTEND_SOURCE_PATH = /(?:^|[\/\s'"`])(?:src|web|public)\/[^\s'"`]+\.(?:[cm]?[jt]sx?|css|scss|sass|less|html?)\b|(?:^|[\/\s'"`])(?:index\.html|vite\.config\.[cm]?[jt]s|tailwind\.config\.[cm]?[jt]s)\b/i;
 const OPS_IDE_DEPLOY = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+deploy(?:\s|$)/i;
 const OPS_IDE_SETUP = /(^|[;&|]\s*)(?:timeout\s+\d+\s+)?ops\s+ide\s+setup(?:\s|$)/i;
 const TEST_DISCOVERY_MAX_DEPTH = 8;
@@ -53,6 +54,7 @@ const CRITICAL_SYSTEM = [
   "Browser work is bounded: after repeated interactions, take a fresh browser snapshot or diagnostics and reason from that evidence instead of continuing blind clicks or fills.",
   "Delegate only bounded questions. Never ask a subagent to read or return full files or the whole codebase; request concise findings with paths and line references.",
   "When a browser-reproduced bug is changed, verify the fixed flow with browser_interact before the completion gate. Trustable binds successful post-change browser evidence automatically; audio work requires observable active audio state.",
+  "For frontend changes, run the project typecheck before the build. After a successful frontend build or deploy, immediately open the exact changed route with the browser tools, inspect the rendered page and diagnostics, and exercise the visible flow before more speculative edits. Do not clear caches or reinstall dependencies unless the observed failure points to dependency state.",
   "Completion checks run once per source revision and at most three times per real request; do not create placeholder changes to rerun them.",
 ].join(" ");
 
@@ -61,6 +63,7 @@ const CORE_SYSTEM = [
   "Inspect only the files needed to implement the request; use a short plan only when it helps.",
   "Do not restart the managed development server.",
   "For OpenServerless action source changes, deploy and run setup when required near the end of implementation.",
+  "For frontend changes, run the project typecheck before the build. After a successful frontend build or deploy, immediately inspect the exact changed route and runtime diagnostics with the browser tools; exercise the visible flow before more speculative edits. Do not clear caches or reinstall dependencies without concrete dependency evidence.",
   "Run trustable_completion_check once after substantial implementation. Do not create placeholder tests or loop on validation; fix concrete failures and otherwise report them clearly.",
 ].join(" ");
 
@@ -96,6 +99,20 @@ export function isMutatingTool(toolID, args = {}) {
   if (toolID !== "bash") return false;
   if (isOpsIdeDeployCommand(args) || isOpsIdeSetupCommand(args)) return true;
   return MUTATING_BASH.test(String(args.command || ""));
+}
+
+export function isFrontendMutation(toolID, args = {}) {
+  if (!isMutatingTool(toolID, args)) return false;
+  if (["edit", "write", "patch"].includes(toolID)) {
+    return FRONTEND_SOURCE_PATH.test(String(args.filePath || args.path || "").replaceAll("\\", "/"));
+  }
+  if (toolID === "apply_patch") {
+    return FRONTEND_SOURCE_PATH.test(String(args.patch || args.input || "").replaceAll("\\", "/"));
+  }
+  if (toolID === "bash") {
+    return FRONTEND_SOURCE_PATH.test(`${normalizedWorkingDirectory(args)}/${String(args.command || "")}`.replaceAll("\\", "/"));
+  }
+  return false;
 }
 
 export function isOpsIdeDeployCommand(args = {}) {
@@ -263,6 +280,7 @@ function defaultState() {
     diagnosticReadCount: 0,
     browserDiagnosisObserved: false,
     browserVerificationRequired: false,
+    frontendBrowserVerificationRequired: false,
     browserEvidenceAfterMutation: false,
     browserDiagnosticRequired: false,
     browserSuccessfulInteractions: 0,
@@ -462,13 +480,15 @@ function applyAutomaticBrowserCheckpoint(current, input, output, evidence) {
     current.diagnosticReadCount = 0;
     return;
   }
-  if (!current.browserVerificationRequired || !current.dirty) return;
+  if ((!current.browserVerificationRequired && !current.frontendBrowserVerificationRequired) || !current.dirty) return;
   if (taskRequiresActiveAudio(current) && !browserOutputShowsActiveAudio(output)) return;
   current.evidence = `Automatic post-change browser verification from ${input.args?.action || "interaction"}.`;
   current.evidenceID = evidence.id;
   current.browserVerificationRequired = false;
+  current.frontendBrowserVerificationRequired = false;
   current.browserEvidenceAfterMutation = false;
   current.diagnosticReadCount = 0;
+  current.lastCompletionRevision = -1;
 }
 
 function browserEvidenceFor(current, evidenceID) {
@@ -792,6 +812,11 @@ async function completionChecks(directory, requiredActionEndpoints = []) {
   if (existsSync(packagePath)) {
     try {
       const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
+      if (pkg.scripts?.typecheck) {
+        checks.push(["frontend typecheck", await run("timeout 180 npm run typecheck", directory, 200_000)]);
+      } else if (existsSync(join(directory, "tsconfig.json")) && existsSync(join(directory, "node_modules", ".bin", "tsc"))) {
+        checks.push(["frontend typecheck", await run("timeout 180 ./node_modules/.bin/tsc -b --noEmit --pretty false --incremental false", directory, 200_000)]);
+      }
       if (pkg.scripts?.build) {
         checks.push(["frontend build", await run("timeout 180 npm run build", directory, 200_000)]);
       }
@@ -925,7 +950,7 @@ export default async function TrustableGuardrails(context = {}) {
       }),
 
       trustable_completion_check: tool({
-        description: "Run the deterministic Trustable completion gate after source changes: git diff validation, contract checkers, frontend build, and bounded existing Go/Python/JavaScript application tests.",
+        description: "Run the deterministic Trustable completion gate after source changes: git diff validation, contract checkers, frontend typecheck and build, browser evidence when frontend changed, and bounded existing Go/Python/JavaScript application tests.",
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);
@@ -940,10 +965,10 @@ export default async function TrustableGuardrails(context = {}) {
           current.lastCompletionRevision = current.mutationRevision;
           current.completionChecksThisTask += 1;
           saveState(context.sessionID, current);
-          const result = current.browserVerificationRequired
+          let result = current.browserVerificationRequired
             ? {
                 passed: false,
-                output: "===== browser verification: FAIL =====\nA browser-reproduced flow changed after the last evidence. Exercise the fixed user flow with browser_interact; Trustable binds successful post-fix evidence automatically. Audio fixes must report active audio state.",
+                output: "===== browser verification: FAIL =====\nA browser-visible flow changed after the last evidence. Exercise the exact route and visible user flow with browser_interact; Trustable binds successful post-change evidence automatically. Audio fixes must report active audio state.",
               }
             : current.actionDeployRequired
             ? {
@@ -956,6 +981,12 @@ export default async function TrustableGuardrails(context = {}) {
                   output: "===== action setup: FAIL =====\nA setup action changed and was deployed but setup has not run yet. Run timeout 120 ops ide setup before completion.",
                 }
             : await completionChecks(context.directory, current.touchedActionEndpoints);
+          if (result.passed && current.frontendBrowserVerificationRequired) {
+            result = {
+              passed: false,
+              output: "===== browser verification: FAIL =====\nFrontend source changed after the last browser evidence. Open the exact route, inspect the rendered page and diagnostics, then exercise the visible flow with browser_interact.",
+            };
+          }
           if (result.passed) {
             current.dirty = false;
             current.verified = true;
@@ -965,6 +996,7 @@ export default async function TrustableGuardrails(context = {}) {
             current.actionDeployRequired = false;
             current.actionSetupRequired = false;
             current.browserVerificationRequired = false;
+            current.frontendBrowserVerificationRequired = false;
             current.browserEvidenceAfterMutation = false;
             current.browserDiagnosisObserved = false;
             current.diagnosticReadCount = 0;
@@ -1056,7 +1088,7 @@ export default async function TrustableGuardrails(context = {}) {
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
       if (current.touchedActionEndpoints?.length) status += ` FOCUSED TESTS ARE REQUIRED FOR ACTION ENDPOINTS: ${current.touchedActionEndpoints.join(", ")}.`;
-      if (current.browserVerificationRequired) status += " POST-FIX BROWSER VERIFICATION IS REQUIRED BEFORE COMPLETION; SUCCESSFUL browser_interact EVIDENCE IS BOUND AUTOMATICALLY.";
+      if (current.browserVerificationRequired || current.frontendBrowserVerificationRequired) status += " FRONTEND BROWSER VERIFICATION IS REQUIRED BEFORE COMPLETION; OPEN THE EXACT ROUTE, INSPECT THE PAGE AND DIAGNOSTICS, THEN USE browser_interact ON THE VISIBLE FLOW. SUCCESSFUL EVIDENCE IS BOUND AUTOMATICALLY.";
       output.system.push(status);
     },
 
@@ -1129,7 +1161,7 @@ export default async function TrustableGuardrails(context = {}) {
         current.browserInteractionsSinceEvidence = 0;
         recordBrowserEvidence(current, input, output);
         if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
-        if (current.browserVerificationRequired && current.dirty) current.browserEvidenceAfterMutation = true;
+        if ((current.browserVerificationRequired || current.frontendBrowserVerificationRequired) && current.dirty) current.browserEvidenceAfterMutation = true;
         saveState(input.sessionID, current);
         return;
       }
@@ -1137,7 +1169,7 @@ export default async function TrustableGuardrails(context = {}) {
         current.browserInteractionsSinceEvidence += 1;
         const evidence = recordBrowserEvidence(current, input, output);
         if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
-        if (current.browserVerificationRequired && current.dirty) current.browserEvidenceAfterMutation = true;
+        if ((current.browserVerificationRequired || current.frontendBrowserVerificationRequired) && current.dirty) current.browserEvidenceAfterMutation = true;
         applyAutomaticBrowserCheckpoint(current, input, output, evidence);
         saveState(input.sessionID, current);
         return;
@@ -1164,6 +1196,10 @@ export default async function TrustableGuardrails(context = {}) {
       current.dirty = true;
       current.verified = false;
       current.mutationRevision += 1;
+      if (isFrontendMutation(input.tool, input.args)) {
+        current.frontendBrowserVerificationRequired = true;
+        current.browserEvidenceAfterMutation = false;
+      }
       if (current.reproduced && current.browserDiagnosisObserved) {
         current.browserVerificationRequired = true;
         current.browserEvidenceAfterMutation = false;
@@ -1193,7 +1229,7 @@ export default async function TrustableGuardrails(context = {}) {
       if (current.statusRequest) {
         const pending = current.needsRecovery
           ? "Context recovery is still required."
-          : current.browserVerificationRequired
+          : current.browserVerificationRequired || current.frontendBrowserVerificationRequired
             ? "Post-fix browser verification is still pending."
             : current.diagnosticRequired && !current.reproduced
               ? "Diagnostic reproduction is still pending."

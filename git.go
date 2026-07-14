@@ -32,6 +32,21 @@ var gitPullGeneratedFiles = map[string]bool{
 	"opencode.json":               true,
 }
 
+var gitSaveGeneratedPathspecs = []string{
+	":(exclude).mcp.json",
+	":(exclude).openserverless-contract.md",
+	":(exclude)opencode.md",
+	":(exclude)opencode.json",
+}
+
+func gitSaveAddArgs(workbenchPath string) []string {
+	args := append([]string{"add", "-A", "--", "."}, gitSaveGeneratedPathspecs...)
+	if agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
+		args = append(args, ":(exclude)AGENTS.md")
+	}
+	return args
+}
+
 // handleGitStatus handles GET /api/git/status/<name>
 func handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -502,8 +517,9 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// git add -A
-	addCmd := exec.Command("git", "add", "-A")
+	// Stage app-owned files while keeping launch-generated configuration out of
+	// commits. In particular, .mcp.json can contain runtime service credentials.
+	addCmd := exec.Command("git", gitSaveAddArgs(workbenchPath)...)
 	addCmd.Dir = workbenchPath
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -511,13 +527,14 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// git status --porcelain to check if there are changes
-	statusCmd := exec.Command("git", "status", "--porcelain")
+	// Check the index rather than the complete worktree: excluded generated
+	// files remain available locally but are intentionally not commit inputs.
+	statusCmd := exec.Command("git", "diff", "--cached", "--name-only")
 	statusCmd.Dir = workbenchPath
 	statusOutput, err := statusCmd.Output()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "git status failed: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "git staged status failed: " + err.Error()})
 		return
 	}
 	if strings.TrimSpace(string(statusOutput)) == "" {

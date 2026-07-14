@@ -87,7 +87,16 @@ state; do not redirect merely because the initial user/profile value is null.
 After source changes, call `trustable_completion_check` before claiming the
 work is fixed or asking the user to try it. The completion tool runs the
 OpenServerless checker, frontend checker, git diff validation, and the frontend
-build when available.
+typecheck and build when available.
+
+For frontend work, run the project typecheck before the build after each
+coherent edit batch. A successful Vite build does not prove that every JSX
+symbol is defined. After the first successful build or deploy, immediately open
+the exact changed route with the Browser MCP, inspect the rendered page and
+diagnostics, and exercise the visible flow before more speculative edits. Do
+not clear caches or reinstall dependencies unless the observed failure points
+to dependency state. Repeat the browser verification after later frontend
+source changes.
 
 ## Non-Negotiable Rules
 
@@ -226,7 +235,8 @@ platform scaffolding. Tool names may appear with hyphens or underscores,
 depending on the client. Use the matching exposed tool:
 
 - `action-new` / `action_new`: create public or private actions and generated
-  wrappers.
+  wrappers. Repeated creation of a compatible existing action is a successful
+  check/no-op; continue without retrying it.
 - `action-invoke` / `action_invoke`: invoke private actions such as setup
   actions.
 - `action-requirements` / `action_requirements`: add Python libraries.
@@ -364,6 +374,29 @@ rows are fine as supporting evidence after the app path succeeds.
 When inspecting PostgreSQL through MCP, use the exact exposed tool names. For
 schemas use `postgres_list_schemas`. For tables/views in a schema use
 `postgres_list_objects`. Do not call generic names such as `list_schemas`.
+
+## Application Secrets And Authentication Setup
+
+For token-based authentication, use the OpenServerless secret tools instead of
+reading or editing `.env` or generated wrappers. Secret values are not model
+context; use status/binding tools only:
+
+- `secret_status` checks whether a named secret exists and which endpoints are
+  bound, without reading its value.
+- `secret_ensure` securely generates a missing authorized secret and persists
+  it through Trustable without returning the value.
+- `secret_bind` atomically binds the same existing secret to several actions.
+- `auth_setup` is the preferred authentication workflow. Pass every endpoint
+  that creates tokens and every endpoint that validates tokens, including the
+  `me`/session action and protected resource actions. Rerun it when another
+  protected action is added; it is idempotent.
+
+If any secret/auth tool returns an MCP error, stop that sequence and correct the
+tool inputs. Do not continue with only some endpoints configured. In editable
+action modules, read the value only from `ctx.<SECRET>` and fail closed when it
+is absent. Never use `os.getenv()` with a default, an app-name-derived key, or
+another hardcoded fallback. Token creation and token validation must always use
+the same context secret.
 
 When using Redis in an action, first add Redis wiring with
 `action-add-redis` / `action_add_redis`. The generated wrapper exposes
@@ -655,6 +688,10 @@ When an app has login or registration:
 - After login, persist only the opaque session token needed by the frontend.
   A cached user/profile may improve rendering but is never authoritative proof
   of authentication.
+- A successful login or registration must update the live authentication
+  provider/store before navigating to a protected route. Writing token/user
+  data only to `localStorage` leaves the current React render unauthenticated
+  and commonly causes an immediate redirect back to login.
 - On every full-page load, keep an explicit authentication loading state and
   validate the persisted token through a bounded backend `me`/session endpoint
   before rendering protected routes. The backend validates expiry and derives
@@ -786,6 +823,7 @@ End backend-related work with proof:
   failure.
 - For frontend auth flows, validate both route shape and route behavior: root
   path, login path, register path, direct protected route while logged out, and
-  protected navigation after login.
+  protected navigation after login. After submitting valid credentials, assert
+  that the protected page is visibly rendered without requiring a reload.
 - If validation is impossible, state the blocker instead of asking the user to
   "try it now" with no local proof.

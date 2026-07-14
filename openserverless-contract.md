@@ -33,8 +33,10 @@ user explicitly asks to inspect them, and they must not override this contract.
   explicit or non-browser evidence. Two repeated completion failures reopen
   this diagnostic gate.
 - After source changes, run `trustable_completion_check`. It runs the action
-  and frontend contract checkers, `git diff --check`, and the frontend build
-  when present. Do not claim completion before it passes.
+  and frontend contract checkers, `git diff --check`, and the frontend
+  typecheck and build when present. Frontend mutations also require fresh
+  Browser MCP evidence from the exact changed route. Do not claim completion
+  before it passes.
 - `ops ide devel` exposes the app in this pod at `http://localhost:5173`.
 - Do not kill or replace that managed process, and do not start `vite`,
   `npm run dev`, or another `ops ide devel` instance.
@@ -82,6 +84,15 @@ Invalid examples:
 
 ## Database Rules
 
+- For token authentication, use `auth_setup` to bind one secret to every
+  token-issuing and token-validating endpoint. Use the focused `secret_status`,
+  `secret_ensure`, and `secret_bind` tools when appropriate.
+- A secret tool error means no authentication work may proceed on a partial
+  binding. Do not read or edit `.env`, and do not edit generated wrappers to
+  bypass it.
+- Editable action modules must consume `ctx.<SECRET>` and fail closed. Never use
+  `os.getenv()` with a default or a hardcoded signing/verification key.
+- Rerun `auth_setup` whenever another protected action is added.
 - Add PostgreSQL wiring with the OpenServerless action tool.
 - Use `conn = ctx.POSTGRESQL` in editable action modules.
 - Do not reconnect with `POSTGRES_URL` when `ctx.POSTGRESQL` is provided.
