@@ -130,22 +130,19 @@ It must say:
 - reported bugs must be reproduced before source changes. A successful,
   evidence-bearing `browser_interact` records browser reproduction
   automatically; `trustable_diagnostic_checkpoint` remains available for
-  explicit or non-browser evidence. Two repeated completion failures must open
-  a circuit breaker that requires new reproduction evidence. While open, the
-  completion tool must not rerun the same checks, and `phase=verified` must not
-  clear the failure; only `phase=reproduced` with concrete evidence unlocks a
-  new attempt, while `phase=blocked` records a genuine external blocker. The
-  failure signature must normalize volatile timestamps, durations,
-  process/request IDs, and temporary paths while preserving the semantic
-  failure text;
+  explicit or non-browser evidence. The completion tool runs at most once for
+  each source revision and at most three times for one real user request. A
+  repeated call must return concise guidance without rerunning checks; changing
+  placeholder tests solely to reset the revision is forbidden;
 - with the integrated Trustable Code runtime, task classification and
   diagnostic transitions belong to the core agent state machine rather than
   the plugin. Feature requests containing labels such as `Problems` or
   `Errors` must not activate diagnostic mode. Pending diagnostics remove
-  mutation tools from the model catalog, allow one bounded hidden recovery
-  turn, and then stop with visible output instead of retrying or leaving an
-  empty assistant message. The plugin keeps this behavior only for legacy
-  non-integrated OpenCode runtimes;
+  no longer hide or reject mutation tools. The integrated runtime must not
+  replace a normal final answer with an automatic completion-recovery turn. If
+  the provider stops without text, Trustable renders a concise visible status
+  instead of leaving an empty assistant message. The stricter hidden recovery
+  behavior remains limited to legacy non-integrated OpenCode runtimes;
 - when the reproduction used the browser, every subsequent source change must
   require fresh post-change `browser_interact` evidence bound automatically to
   the current task and mutation revision before completion. Audio fixes must
@@ -830,24 +827,18 @@ runtime generation details live in:
 
 When `TRUSTABLE_RUNTIME_CONFIG` is active, Trustable Code owns the execution
 workflow independently of generated prompt files. Every real user message
-updates the persisted active task and marks the previous execution plan stale.
-Before source or deployment mutations, the agent must register a sufficiently
-detailed `todowrite` plan for that exact task, keep one step in progress, and
-update the plan after each significant implementation or user iteration.
-Mutation tools must remain present in the provider tool schema while the plan
-is stale; the deterministic execution boundary rejects their execution with an
-actionable `todowrite` recovery instruction. Hiding `write`, `edit`, or related
-tools is forbidden because a failed planning call can otherwise make the model
-repeat an unknown tool forever. A failed, interrupted, empty, or malformed
-`todowrite` call must be persisted as planning-recovery state and the next
-provider turn must explicitly retry it with a non-empty `todos` array.
+updates the persisted active task. Source and deployment mutation tools remain
+available immediately: no `todowrite` call is a prerequisite for writing code.
+For genuinely multi-step work the agent may keep an optional plan of three to
+seven meaningful milestones, but a failed, interrupted, empty, malformed, or
+stale plan never blocks implementation.
 
-The workflow must inspect project governance, preserve requested application
-behavior in `spec.md`, and update `AGENTS.md`, `rules.md`, `skill.md`, README,
-implementation plan, and architecture documentation only when the iteration
-carries a relevant decision. Genuinely missing functional input is requested
-with OpenCode's structured `question` tool and incorporated into the plan; the
-agent must never delegate shell commands to the user.
+The workflow prioritizes executable application code over planning,
+documentation, speculative architecture, or placeholder tests. Project
+governance and specifications are still honored, but documentation is updated
+only when implementation introduces a real behavior or design decision.
+Genuinely missing functional input is requested with OpenCode's structured
+`question` tool; the agent must never delegate shell commands to the user.
 
 Integrated compaction is deterministic. It creates a bounded checkpoint from
 the persisted task and plan, successful file mutations, recent actual tool
@@ -865,11 +856,12 @@ Starting a new user turn clears the previous turn's todo dock immediately. The
 dock remains hidden until the current turn writes its own plan, preventing stale
 tasks from being presented as current work.
 
-An unverified final answer receives at most one hidden recovery turn per
-completion-check result. If that turn makes no verification progress, Trustable
-must finish visibly and leave the session idle instead of repeating the same
-guard failure. Read-only inspection of a checker path is distinct from executing
-and masking that checker's exit status.
+The integrated runtime never injects a hidden completion-recovery turn after a
+normal final answer. `trustable_completion_check` is used near the end of
+substantial implementation, once per source revision and no more than three
+times per real request. Failures are reported concretely and must not cause
+placeholder-test churn. Read-only inspection of a checker path is distinct from
+executing and masking that checker's exit status.
 
 Generated Trustable configurations cap the primary `build` and `plan` agents
 at 64 provider steps per user turn. On the last step Trustable Code must remove

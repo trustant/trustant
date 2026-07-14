@@ -27,6 +27,7 @@ const RECOVERY_GUIDANCE_BYTES = 6 * 1024;
 const MAX_ACTIVE_TASK_CHARS = 4_000;
 const MAX_READ_OUTPUT_CHARS = 32_000;
 const MAX_TASK_OUTPUT_CHARS = 12_000;
+const COMPLETION_CHECK_BUDGET = 3;
 const TEST_IGNORED_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".cache", ".pytest_cache", ".mypy_cache",
   "__pycache__", "node_modules", "vendor", "coverage", "dist", "build",
@@ -52,7 +53,15 @@ const CRITICAL_SYSTEM = [
   "Browser work is bounded: after repeated interactions, take a fresh browser snapshot or diagnostics and reason from that evidence instead of continuing blind clicks or fills.",
   "Delegate only bounded questions. Never ask a subagent to read or return full files or the whole codebase; request concise findings with paths and line references.",
   "When a browser-reproduced bug is changed, verify the fixed flow with browser_interact before the completion gate. Trustable binds successful post-change browser evidence automatically; audio work requires observable active audio state.",
-  "Two repeated completion failures open a circuit breaker and require fresh reproduction evidence before more changes.",
+  "Completion checks run once per source revision and at most three times per real request; do not create placeholder changes to rerun them.",
+].join(" ");
+
+const CORE_SYSTEM = [
+  "Trustable is active. Work directly on the requested application and prioritize executable code over planning or documentation.",
+  "Inspect only the files needed to implement the request; use a short plan only when it helps.",
+  "Do not restart the managed development server.",
+  "For OpenServerless action source changes, deploy and run setup when required near the end of implementation.",
+  "Run trustable_completion_check once after substantial implementation. Do not create placeholder tests or loop on validation; fix concrete failures and otherwise report them clearly.",
 ].join(" ");
 
 export function isDiagnosticRequest(text) {
@@ -271,6 +280,8 @@ function defaultState() {
     statusRequest: false,
     completionRecoveryAttempts: 0,
     lastCompletionFailure: "",
+    lastCompletionRevision: -1,
+    completionChecksThisTask: 0,
   };
 }
 
@@ -918,11 +929,17 @@ export default async function TrustableGuardrails(context = {}) {
         args: {},
         async execute(_args, context) {
           const current = stateFor(context.sessionID);
-          if (current.circuitOpen && !current.reproduced) {
-            current.completionRecoveryAttempts = Math.max(1, current.completionRecoveryAttempts);
+          if (current.lastCompletionRevision === current.mutationRevision) {
             saveState(context.sessionID, current);
-            return "Trustable completion check blocked: the diagnostic circuit breaker is open, so automatic checks were not rerun. Reproduce the exact remaining failure and call trustable_diagnostic_checkpoint with phase=reproduced and concrete evidence, or use phase=blocked when reproduction is impossible.";
+            return "Trustable completion check already ran for the current source revision. Do not call it again without a real implementation change; continue coding or report the previous concrete result.";
           }
+          if (current.completionChecksThisTask >= COMPLETION_CHECK_BUDGET) {
+            saveState(context.sessionID, current);
+            return `Trustable completion budget reached (${COMPLETION_CHECK_BUDGET} checks for this request). Stop calling this tool. Do not create placeholder tests; finish the requested code and report any remaining validation failure.`;
+          }
+          current.lastCompletionRevision = current.mutationRevision;
+          current.completionChecksThisTask += 1;
+          saveState(context.sessionID, current);
           const result = current.browserVerificationRequired
             ? {
                 passed: false,
@@ -967,19 +984,10 @@ export default async function TrustableGuardrails(context = {}) {
             || "one or more automatic checks are still failing";
           current.verified = false;
           current.dirty = true;
-          if (current.repeatedFailures >= 2) {
-            current.circuitOpen = true;
-            current.diagnosticRequired = true;
-            current.reproduced = false;
-            current.completionRecoveryAttempts = 1;
-          } else {
-            current.completionRecoveryAttempts = 0;
-          }
+          current.circuitOpen = false;
+          current.completionRecoveryAttempts = 0;
           saveState(context.sessionID, current);
-          const breaker = current.circuitOpen
-            ? "\n\nCircuit breaker OPEN: the same completion failure occurred twice. Reproduce the remaining symptom and call trustable_diagnostic_checkpoint before another source change."
-            : "\n\nFix the reported failure, then rerun trustable_completion_check.";
-          return `Trustable completion gate failed.\n\n${result.output}${breaker}`;
+          return `Trustable completion gate failed.\n\n${result.output}\n\nFix only concrete failures related to the requested implementation. Do not create placeholder tests and do not rerun this check until source code has genuinely changed.`;
         },
       }),
     },
@@ -1007,6 +1015,8 @@ export default async function TrustableGuardrails(context = {}) {
         current.activeTaskFingerprint = fingerprint(current.activeTask);
         current.completionRecoveryAttempts = 0;
         current.lastCompletionFailure = "";
+        current.lastCompletionRevision = -1;
+        current.completionChecksThisTask = 0;
       }
       if (coreManaged && realTask) {
         current.diagnosticRequired = false;
@@ -1040,7 +1050,7 @@ export default async function TrustableGuardrails(context = {}) {
         saveState(input.sessionID, current);
         output.system.push(packet);
       }
-      let status = CRITICAL_SYSTEM;
+      let status = coreManaged ? CORE_SYSTEM : CRITICAL_SYSTEM;
       if (!coreManaged && current.diagnosticRequired && !current.reproduced) status += " DIAGNOSTIC REPRODUCTION IS REQUIRED BEFORE SOURCE CHANGES.";
       if (current.dirty && !current.verified) status += " THE CURRENT CHANGES HAVE NOT PASSED THE COMPLETION GATE.";
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
@@ -1052,7 +1062,7 @@ export default async function TrustableGuardrails(context = {}) {
 
     "experimental.session.compacting": async (input, output) => {
       const current = input.sessionID ? stateFor(input.sessionID) : defaultState();
-      output.context.push(CRITICAL_SYSTEM);
+      output.context.push(coreManaged ? CORE_SYSTEM : CRITICAL_SYSTEM);
       output.context.push(`ACTIVE USER REQUEST TO RESUME AFTER COMPACTION (${current.activeTaskFingerprint || "unknown"}):\n${current.activeTask || "Re-read the latest real user request."}`);
       output.context.push("Trustable injects a bounded recovery packet automatically on the continued turn. Resume the active request; do not summarize and do not treat OpenCode's generic continuation text as a new user request.");
     },
@@ -1210,7 +1220,7 @@ export default async function TrustableGuardrails(context = {}) {
           : "Internal Trustable gate: post-change browser verification is pending. Exercise the exact fixed user flow with browser tools, collect concrete evidence, then run the completion check. Do not answer the user yet.");
         return;
       }
-      if (current.dirty && !current.verified) {
+      if (!coreManaged && current.dirty && !current.verified) {
         if (current.completionRecoveryAttempts >= 1) {
           output.text = "Ho salvato il lavoro svolto, ma non sono riuscito a completare l'ultimo passaggio in questa sessione.";
           output.synthetic = false;

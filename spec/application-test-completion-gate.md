@@ -71,12 +71,12 @@ After coverage is established, the bounded runner executes the suite and its
 failure remains blocking. A successful completion clears the persisted endpoint
 list; a failed completion retains it.
 
-Trustable may force one internal recovery turn after an unverified final answer.
-If that turn ends without a new completion check or other progress, the session
-must stop with a concise visible status instead of injecting another hidden
-continuation. Inspecting a checker file with a read-only `cat ... | head` command
-is not classified as masked checker execution; executing the checker and piping
-its result to `head` or `tail` remains forbidden.
+Integrated Trustable Code does not force an internal completion-recovery turn
+after a final answer. If the provider stops without text, the session shows a
+concise visible status. Inspecting a checker file with a read-only
+`cat ... | head` command is not classified as masked checker execution;
+executing the checker and piping its result to `head` or `tail` remains
+forbidden.
 
 Security-sensitive frontend components such as authentication, authorization,
 upload, payment, and persistence receive no framework-specific mandate when no
@@ -89,15 +89,14 @@ framework requirement.
 Application tests run after git validation, Trustable contract checks, required
 action deploy/setup, and any frontend build. Completion remains blocked until
 all touched endpoints have focused tests and all executable discovered suites
-pass. The normal repeated-failure circuit breaker applies to stable test
-failures. Once open, it must refuse to rerun the completion suite until a
-`phase=reproduced` diagnostic checkpoint records concrete evidence; a
-`phase=verified` checkpoint cannot bypass an unresolved repeated failure.
+pass. The gate runs at most once for the current source revision and at most
+three times for one real user request. A repeated call does not rerun the suite;
+the agent must continue the requested implementation or report the concrete
+failure, never add placeholder tests merely to satisfy or reset the gate.
 
-When session state is dirty or diagnostic reproduction is still required, the
-plugin replaces any final assistant response with the relevant gate message.
-This does not depend on completion keywords: neutral wording such as "ho
-aggiornato la pagina" cannot bypass verification.
+Legacy non-integrated OpenCode may still replace an unverified final response
+with one bounded recovery turn. Integrated Trustable Code leaves the model's
+final response visible and relies on the bounded end-of-implementation check.
 
 ## Raw action shell commands
 

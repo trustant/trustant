@@ -399,7 +399,7 @@ test("reported bugs require reproduction before edits", async () => {
   );
 });
 
-test("integrated Trustable Code owns diagnostic transitions instead of the plugin", async () => {
+test("integrated Trustable Code does not force hidden completion recovery", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-core-owned-diagnostic-"));
   process.env.TRUSTABLE_RUNTIME_CONFIG = join(directory, "runtime.json");
   try {
@@ -416,42 +416,30 @@ test("integrated Trustable Code owns diagnostic transitions instead of the plugi
       { tool: "write", sessionID, callID: "core_owned" },
       { args: { filePath: "src/App.tsx", content: "core decides" } },
     );
+    await plugin["tool.execute.after"](
+      { tool: "write", sessionID, callID: "core_owned", args: { filePath: "src/App.tsx", content: "core decides" } },
+      { output: "updated" },
+    );
     const completion = { text: "done" };
     await plugin["experimental.text.complete"]({ sessionID }, completion);
+    assert.equal(completion.text, "done");
     assert.equal(completion.synthetic, undefined);
     assert.equal(completion.continue, undefined);
 
     const context = { sessionID, directory, worktree: directory };
-    await plugin.tool.trustable_completion_check.execute({}, context);
-    assert.match(await plugin.tool.trustable_completion_check.execute({}, context), /Circuit breaker OPEN/);
-    await plugin["chat.message"](
-      { sessionID },
-      {
-        message: { role: "user" },
-        parts: [{ type: "text", text: "Internal Trustable gate: retry verification.", synthetic: true }],
-      },
-    );
+    const first = await plugin.tool.trustable_completion_check.execute({}, context);
+    assert.match(first, /completion gate failed/i);
     assert.match(
       await plugin.tool.trustable_completion_check.execute({}, context),
-      /completion check blocked/i,
+      /already ran for the current source revision/i,
     );
-    await assert.rejects(
-      plugin.tool.trustable_diagnostic_checkpoint.execute(
-        { phase: "verified", evidence: "The integrated runtime reports the failure fixed." },
-        context,
-      ),
-      /phase=verified cannot clear/,
-    );
-    assert.match(
-      await plugin.tool.trustable_diagnostic_checkpoint.execute(
-        { phase: "reproduced", evidence: "The integrated runtime reproduced the same checker failure." },
-        context,
-      ),
-      /accepted by Trustable core/,
+    await plugin["tool.execute.after"](
+      { tool: "edit", sessionID, callID: "real_fix", args: { filePath: "src/App.tsx" } },
+      { output: "updated implementation" },
     );
     assert.doesNotMatch(
       await plugin.tool.trustable_completion_check.execute({}, context),
-      /completion check blocked/i,
+      /already ran for the current source revision/i,
     );
   } finally {
     delete process.env.TRUSTABLE_RUNTIME_CONFIG;
@@ -691,7 +679,7 @@ test("completion failure signatures ignore volatile timestamps, durations, ids, 
   assert.notEqual(guardrails.completionFailureSignature(first), guardrails.completionFailureSignature(differentFailure));
 });
 
-test("normalized repeated completion failures open the circuit breaker", async (t) => {
+test("completion checks run once per source revision and have a bounded request budget", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-normalized-breaker-"));
   execFileSync("git", ["init", "--quiet"], { cwd: directory });
   const fakeBin = join(directory, "bin");
@@ -714,33 +702,28 @@ test("normalized repeated completion failures open the circuit breaker", async (
   t.after(() => { process.env.PATH = oldPath; });
 
   const plugin = await guardrails.default({ directory });
-  const context = { sessionID: `ses_normalized_breaker_${Date.now()}`, directory, worktree: directory };
+  const sessionID = `ses_normalized_breaker_${Date.now()}`;
+  const context = { sessionID, directory, worktree: directory };
   const first = await plugin.tool.trustable_completion_check.execute({}, context);
-  const second = await plugin.tool.trustable_completion_check.execute({}, context);
-
-  assert.doesNotMatch(first, /Circuit breaker OPEN/);
-  assert.match(second, /Circuit breaker OPEN/);
-  const blocked = await plugin.tool.trustable_completion_check.execute({}, context);
-  assert.match(blocked, /completion check blocked.*automatic checks were not rerun/i);
-  assert.doesNotMatch(blocked, /FAIL auth contract/);
-
-  await assert.rejects(
-    plugin.tool.trustable_diagnostic_checkpoint.execute(
-      { phase: "verified", evidence: "The repeated authentication failure is now fixed." },
-      context,
-    ),
-    /phase=verified cannot clear.*phase=reproduced/s,
-  );
+  assert.match(first, /FAIL auth contract/);
   assert.match(
-    await plugin.tool.trustable_diagnostic_checkpoint.execute(
-      { phase: "reproduced", evidence: "node volatile.test.js still reports anonymous authentication." },
-      context,
-    ),
-    /checkpoint recorded/i,
+    await plugin.tool.trustable_completion_check.execute({}, context),
+    /already ran for the current source revision/i,
   );
-  const retried = await plugin.tool.trustable_completion_check.execute({}, context);
-  assert.doesNotMatch(retried, /completion check blocked/i);
-  assert.doesNotMatch(retried, /Circuit breaker OPEN/);
+
+  for (let revision = 1; revision <= 2; revision += 1) {
+    await plugin["tool.execute.after"](
+      { tool: "edit", sessionID, callID: `edit_${revision}`, args: { filePath: `src/revision-${revision}.ts` } },
+      { output: "updated implementation" },
+    );
+    assert.match(await plugin.tool.trustable_completion_check.execute({}, context), /FAIL auth contract/);
+  }
+
+  await plugin["tool.execute.after"](
+    { tool: "edit", sessionID, callID: "edit_3", args: { filePath: "src/revision-3.ts" } },
+    { output: "updated implementation" },
+  );
+  assert.match(await plugin.tool.trustable_completion_check.execute({}, context), /completion budget reached \(3 checks/i);
 });
 
 test("dirty sessions cannot stop with neutral final wording", async () => {

@@ -580,13 +580,16 @@ sanitized config, git status, and a bounded file map before tools run. The
 manual recovery tool is a fallback only if that gate explicitly remains
 active. It blocks mutations while recovery is pending, blocks
 speculative edits for a reported bug until reproduction evidence is recorded,
-opens a circuit breaker after two equal completion failures, and prevents
-unverified completion claims. Any action MCP call or source mutation under
+limits completion checks to once per source revision and three times per real
+request, and does not inject completion-recovery turns in the integrated
+Trustable Code runtime. Any action MCP call or source mutation under
 `packages/` marks action deployment as required. Until a successful
 `ops ide deploy` is followed by a passing action checker, the plugin blocks
 `ops ide setup` and the completion gate. A setup-action mutation additionally
 marks setup as required; deploy does not clear that state, and completion stays
 blocked until a successful `ops ide setup` runs after deploy.
+The local Air development loop watches both Go and JavaScript sources so edits
+to the embedded guardrail plugin rebuild the running Trustable server.
 For shell tools, action detection must inspect both the command text and the
 normalized `cwd`/`workdir`/`directory` argument. A mutating command such as
 `sed -i module.py` executed from `packages/v1/action` still requires deploy;
