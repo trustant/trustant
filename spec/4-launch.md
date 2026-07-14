@@ -708,13 +708,17 @@ then return:
 Base64-Url-Safe encode is as follows:
 btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
 
-# GET /api/opencode/sessions/<app>
+# GET, POST /api/opencode/sessions/<app>
 
 Validate `<app>`, resolve its canonical existing workbench directory, and list
 up to 20 persistent root sessions from the pod-local OpenCode server using the
 same directory scope and `X-Opencode-Directory` header as launch. Return the
-OpenCode session array as JSON. This endpoint powers the session picker in
-`app.html`; it does not create, delete, or replace sessions.
+OpenCode session array as JSON for `GET`.
+
+For `POST`, create a new OpenCode session with the same canonical directory
+scope and return HTTP 201 with `{ "id": <session-id> }`. The endpoint powers
+the session picker in `app.html`; it never starts a second OpenCode process,
+deletes history, or replaces the application workbench.
 
 
 # DELETE /api/launch

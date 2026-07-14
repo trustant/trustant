@@ -1003,7 +1003,10 @@ type opencodeSession struct {
 	} `json:"tokens"`
 }
 
-var listOpenCodeSessionsForUI = listOpencodeSessions
+var (
+	listOpenCodeSessionsForUI  = listOpencodeSessions
+	createOpenCodeSessionForUI = createOpencodeSession
+)
 
 // handleOpenCodeSessions exposes the persistent root sessions for one
 // Trustable workbench. OpenCode remains the source of truth; this endpoint
@@ -1011,7 +1014,7 @@ var listOpenCodeSessionsForUI = listOpencodeSessions
 // embedded OpenCode sidebar state.
 func handleOpenCodeSessions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
@@ -1029,6 +1032,17 @@ func handleOpenCodeSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
 		http.Error(w, `{"error":"workbench not found"}`, http.StatusNotFound)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		sessionID := createOpenCodeSessionForUI(localLoopbackHost, opencodePort, directory)
+		if sessionID == "" {
+			http.Error(w, `{"error":"unable to create OpenCode session"}`, http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"id": sessionID})
 		return
 	}
 
@@ -1143,6 +1157,9 @@ func createOpencodeSession(domain string, port int, directory string) string {
 	body, _ := io.ReadAll(resp.Body)
 	trimmedBody := strings.TrimSpace(string(body))
 	log.Printf("opencode session POST %s -> %d: %s", url, resp.StatusCode, trimmedBody)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ""
+	}
 	var session struct {
 		ID string `json:"id"`
 	}

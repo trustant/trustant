@@ -82,13 +82,17 @@ func TestHandleOpenCodeSessionsReturnsPersistentHistory(t *testing.T) {
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("create app workbench: %s", err)
 	}
+	canonicalAppDir, err := filepath.EvalSymlinks(appDir)
+	if err != nil {
+		t.Fatalf("resolve app workbench: %s", err)
+	}
 
 	listOpenCodeSessionsForUI = func(host string, port int, directory string) []opencodeSession {
 		if host != localLoopbackHost || port != opencodePort {
 			t.Fatalf("unexpected OpenCode target %s:%d", host, port)
 		}
-		if directory != appDir {
-			t.Fatalf("session directory = %q, want %q", directory, appDir)
+		if directory != canonicalAppDir {
+			t.Fatalf("session directory = %q, want %q", directory, canonicalAppDir)
 		}
 		oldSession := opencodeSession{ID: "ses_old", Title: "Older session"}
 		oldSession.Time.Updated = 100
@@ -128,6 +132,73 @@ func TestHandleOpenCodeSessionsReportsUnavailableHistory(t *testing.T) {
 	listOpenCodeSessionsForUI = func(string, int, string) []opencodeSession { return nil }
 
 	req := httptest.NewRequest(http.MethodGet, "/api/opencode/sessions/"+app, nil)
+	rec := httptest.NewRecorder()
+	handleOpenCodeSessions(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleOpenCodeSessionsCreatesSession(t *testing.T) {
+	origWorkbench := WorkbenchDir
+	origCreator := createOpenCodeSessionForUI
+	t.Cleanup(func() {
+		WorkbenchDir = origWorkbench
+		createOpenCodeSessionForUI = origCreator
+	})
+
+	WorkbenchDir = t.TempDir()
+	app := "truapp"
+	appDir := filepath.Join(WorkbenchDir, app)
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatalf("create app workbench: %s", err)
+	}
+	canonicalAppDir, err := filepath.EvalSymlinks(appDir)
+	if err != nil {
+		t.Fatalf("resolve app workbench: %s", err)
+	}
+
+	createOpenCodeSessionForUI = func(host string, port int, directory string) string {
+		if host != localLoopbackHost || port != opencodePort {
+			t.Fatalf("unexpected OpenCode target %s:%d", host, port)
+		}
+		if directory != canonicalAppDir {
+			t.Fatalf("session directory = %q, want %q", directory, canonicalAppDir)
+		}
+		return "ses_created"
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/opencode/sessions/"+app, nil)
+	rec := httptest.NewRecorder()
+	handleOpenCodeSessions(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var response map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %s", err)
+	}
+	if response["id"] != "ses_created" {
+		t.Fatalf("session id = %q, want ses_created", response["id"])
+	}
+}
+
+func TestHandleOpenCodeSessionsReportsCreateFailure(t *testing.T) {
+	origWorkbench := WorkbenchDir
+	origCreator := createOpenCodeSessionForUI
+	t.Cleanup(func() {
+		WorkbenchDir = origWorkbench
+		createOpenCodeSessionForUI = origCreator
+	})
+
+	WorkbenchDir = t.TempDir()
+	app := "truapp"
+	if err := os.MkdirAll(filepath.Join(WorkbenchDir, app), 0755); err != nil {
+		t.Fatalf("create app workbench: %s", err)
+	}
+	createOpenCodeSessionForUI = func(string, int, string) string { return "" }
+
+	req := httptest.NewRequest(http.MethodPost, "/api/opencode/sessions/"+app, nil)
 	rec := httptest.NewRecorder()
 	handleOpenCodeSessions(rec, req)
 	if rec.Code != http.StatusBadGateway {
