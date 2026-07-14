@@ -55,6 +55,12 @@ browser runs headless and without the Chromium sandbox inside the container.
 The image base hash includes the browser MCP source so local and CI builds do
 not reuse a stale base image.
 
+The Lima `setup.sh` path must mirror this installation for the guest user:
+package `browser-mcp/`, install `trustable-browser-mcp` and `tsx` under
+`~/.local`, and install the pinned Chromium runtime under the user's Playwright
+cache. App launch must never advertise the browser MCP when its executable is
+absent from the development PATH.
+
 ## Verification
 
 `browser-mcp` unit/integration tests must verify URL restrictions, navigation,

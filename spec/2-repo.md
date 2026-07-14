@@ -12,6 +12,11 @@ Parse the values `Version:`, `Build:`, `Branch:`, `Stream:`, and `Expiry:` from 
 The build scripts detect `Branch` from Git and default `Stream` to the branch.
 Release automation may override them with `TRUSTABLE_BUILD_BRANCH` and
 `TRUSTABLE_BUILD_STREAM`.
+When an Air development build embeds older metadata without `Branch` or
+`Stream`, resolve the current Git branch from the mounted repository and use it
+for both fields. Explicit release metadata always takes precedence. This lets
+the app-list badge identify the source branch without rewriting the tracked
+`_build.txt` during every local run.
 
 Check if the current date is past the expiration date
 If the expiration date is overdue,

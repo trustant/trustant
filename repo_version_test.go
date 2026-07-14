@@ -10,9 +10,11 @@ import (
 func TestVersionMetadata(t *testing.T) {
 	oldVersion, oldBuild := appVersion, appBuild
 	oldBranch, oldStream, oldExpiry := appBranch, appStream, expiryDate
+	oldGitBranch := gitBranch
 	t.Cleanup(func() {
 		appVersion, appBuild = oldVersion, oldBuild
 		appBranch, appStream, expiryDate = oldBranch, oldStream, oldExpiry
+		gitBranch = oldGitBranch
 	})
 
 	parseVersion("Version: v0.3.11\nBuild: local-42\nBranch: feature/runtime\nStream: trustable-code\nExpiry: 2099/08/31\n")
@@ -38,5 +40,20 @@ func TestVersionMetadata(t *testing.T) {
 	}
 	if expiryDate != time.Date(2099, time.August, 31, 0, 0, 0, 0, time.UTC) {
 		t.Fatalf("expiryDate = %v", expiryDate)
+	}
+}
+
+func TestVersionMetadataFallsBackToDevelopmentBranch(t *testing.T) {
+	oldGitBranch := gitBranch
+	gitBranch = func() string { return "trustable-code" }
+	t.Cleanup(func() { gitBranch = oldGitBranch })
+
+	parseVersion("Version: v0.3.11\nBuild: local\nExpiry: 2099/08/31\n")
+
+	if appBranch != "trustable-code" {
+		t.Fatalf("branch = %q, want trustable-code", appBranch)
+	}
+	if appStream != "trustable-code" {
+		t.Fatalf("stream = %q, want trustable-code", appStream)
 	}
 }

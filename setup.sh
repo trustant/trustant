@@ -159,6 +159,11 @@ ok "uv is available"
 # --- 4. Check Go (install via g if missing), activate version from go.mod, air ---
 echo "--- Checking Go ---"
 GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+if [ -s "$HOME/.g/env" ]; then
+  set +u
+  source "$HOME/.g/env"
+  set -u
+fi
 
 if ! command -v go &>/dev/null; then
   warn "go not found, installing g (Go version manager)..."
@@ -247,6 +252,31 @@ else
   ok "kubeconfig written to $KUBECONFIG_FILE"
 fi
 
+# Host-side development processes use service names from ~/.ops/config.json,
+# including *.svc.cluster.local. Route that DNS suffix through the local k3s
+# CoreDNS service; ClusterIP routing is already available on the VM host.
+echo "--- Configuring k3s service DNS ---"
+CLUSTER_DNS_IP=$(KUBECONFIG="$KUBECONFIG_FILE" kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+[[ -n "$CLUSTER_DNS_IP" && "$CLUSTER_DNS_IP" != "None" ]] || fail "cannot determine kube-system/kube-dns ClusterIP"
+RESOLVED_DIR=/etc/systemd/resolved.conf.d
+RESOLVED_FILE="$RESOLVED_DIR/trustable-k3s.conf"
+RESOLVED_CONTENT=$(printf '[Resolve]\nDNS=%s\nDomains=~cluster.local\n' "$CLUSTER_DNS_IP")
+if [[ "$(sudo cat "$RESOLVED_FILE" 2>/dev/null || true)" != "$RESOLVED_CONTENT" ]]; then
+  RESOLVED_TMP=$(mktemp)
+  printf '%s\n' "$RESOLVED_CONTENT" > "$RESOLVED_TMP"
+  sudo mkdir -p "$RESOLVED_DIR"
+  sudo install -m 0644 "$RESOLVED_TMP" "$RESOLVED_FILE"
+  rm -f "$RESOLVED_TMP"
+  sudo systemctl restart systemd-resolved || fail "failed to restart systemd-resolved"
+fi
+for _ in $(seq 1 15); do
+  getent hosts kubernetes.default.svc.cluster.local &>/dev/null && break
+  sleep 1
+done
+getent hosts kubernetes.default.svc.cluster.local &>/dev/null \
+  || fail "cluster.local DNS is not resolving through CoreDNS ${CLUSTER_DNS_IP}"
+ok "cluster.local DNS resolves through CoreDNS ${CLUSTER_DNS_IP}"
+
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
 ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
@@ -272,26 +302,82 @@ if ! command -v milvus_cli &>/dev/null && ! command -v milvus-cli &>/dev/null; t
 fi
 ok "milvus-cli available"
 
-# --- 11. Check opencode version matches OPENCODE_VERSION, install if needed ---
-echo "--- Checking opencode ---"
-install_opencode() {
-  curl -fsSL https://opencode.ai/install >opencode.sh
-  bash opencode.sh --version "${OPENCODE_VERSION}" || fail "opencode install failed"
-  mv "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/" || fail "moving opencode to ~/.local/bin failed"
-}
+# --- 11. Build the pinned Trustable Code runtime used by the image ---
+echo "--- Checking Trustable Code ---"
+[[ -f trustable-code/packages/opencode/package.json ]] \
+  || fail "trustable-code submodule is not initialized (run: git submodule update --init trustable-code)"
 
-if ! command -v opencode &>/dev/null; then
-  warn "opencode not found, installing ${OPENCODE_VERSION}..."
-  install_opencode
-else
-  OPENCODE_ACTUAL=$(opencode -v 2>/dev/null | tr -d ' ' || true)
-  if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" ]]; then
-    warn "opencode version is '${OPENCODE_ACTUAL}', expected '${OPENCODE_VERSION}', reinstalling..."
-    install_opencode
-  fi
+BUN_VERSION=$(sed -n 's/^FROM oven\/bun:\([^ ]*\).*/\1/p' image/Dockerfile | head -1)
+[[ -n "$BUN_VERSION" ]] || fail "Bun version not found in image/Dockerfile"
+add_to_path "$HOME/.bun/bin"
+
+if ! command -v unzip &>/dev/null; then
+  warn "installing unzip for the pinned Bun toolchain..."
+  sudo apt-get update -qq || fail "apt-get update failed"
+  sudo apt-get install -y unzip || fail "unzip install failed"
 fi
-command -v opencode &>/dev/null || fail "opencode installation failed"
-ok "opencode ${OPENCODE_VERSION} is available"
+
+if ! command -v bun &>/dev/null || [[ "$(bun --version 2>/dev/null || true)" != "$BUN_VERSION" ]]; then
+  warn "installing Bun ${BUN_VERSION} for the Trustable Code build..."
+  curl -fsSL https://bun.sh/install \
+    | env BUN_INSTALL="$HOME/.bun" bash -s "bun-v${BUN_VERSION}" \
+    || fail "Bun ${BUN_VERSION} install failed"
+fi
+command -v bun &>/dev/null || fail "bun is required to build Trustable Code"
+[[ "$(bun --version)" == "$BUN_VERSION" ]] || fail "Bun version does not match image/Dockerfile"
+
+BUILD_MISSING=()
+command -v python3 &>/dev/null || BUILD_MISSING+=(python3)
+command -v make    &>/dev/null || BUILD_MISSING+=(make)
+command -v g++     &>/dev/null || BUILD_MISSING+=(g++)
+if [[ ${#BUILD_MISSING[@]} -gt 0 ]]; then
+  warn "installing Trustable Code build dependencies: ${BUILD_MISSING[*]}"
+  sudo apt-get update -qq || fail "apt-get update failed"
+  sudo apt-get install -y "${BUILD_MISSING[@]}" || fail "Trustable Code build dependency install failed"
+fi
+
+TRUSTABLE_CODE_REF=$(git -C trustable-code rev-parse HEAD) \
+  || fail "cannot read trustable-code submodule revision"
+TRUSTABLE_CODE_STATE_DIR="$HOME/.local/share/trustable-code"
+TRUSTABLE_CODE_REF_FILE="$TRUSTABLE_CODE_STATE_DIR/ref"
+INSTALLED_TRUSTABLE_CODE_REF=$(cat "$TRUSTABLE_CODE_REF_FILE" 2>/dev/null || true)
+OPENCODE_ACTUAL=$(opencode --version 2>/dev/null | tr -d ' ' || true)
+OPENCODE_BIN=$(command -v opencode 2>/dev/null || true)
+TRUSTABLE_RUNTIME_PRESENT=false
+if [[ -n "$OPENCODE_BIN" ]] && grep -aFq 'TRUSTABLE_RUNTIME_CONFIG' "$OPENCODE_BIN"; then
+  TRUSTABLE_RUNTIME_PRESENT=true
+fi
+
+if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" \
+   || "$INSTALLED_TRUSTABLE_CODE_REF" != "$TRUSTABLE_CODE_REF" \
+   || "$TRUSTABLE_RUNTIME_PRESENT" != true ]]; then
+  warn "building Trustable Code ${TRUSTABLE_CODE_REF:0:10} (OpenCode ${OPENCODE_VERSION})..."
+  (
+    cd trustable-code
+    HUSKY=0 bun install --frozen-lockfile
+    cd packages/opencode
+    bun run script/build.ts --single --skip-install
+    binary=$(find dist -type f -path '*/bin/opencode' -print -quit)
+    [[ -n "$binary" ]] || fail "Trustable Code build did not produce an opencode binary"
+    [[ "$($binary --version)" == "$OPENCODE_VERSION" ]] \
+      || fail "Trustable Code binary version does not match ${OPENCODE_VERSION}"
+    grep -aFq 'TRUSTABLE_RUNTIME_CONFIG' "$binary" \
+      || fail "built binary does not contain the Trustable runtime contract"
+    install -m 0755 "$binary" "$HOME/.local/bin/opencode.new"
+    mv "$HOME/.local/bin/opencode.new" "$HOME/.local/bin/opencode"
+  ) || fail "Trustable Code build failed"
+  mkdir -p "$TRUSTABLE_CODE_STATE_DIR"
+  printf '%s\n' "$TRUSTABLE_CODE_REF" > "$TRUSTABLE_CODE_REF_FILE"
+  hash -r
+fi
+
+OPENCODE_BIN=$(command -v opencode 2>/dev/null || true)
+[[ -n "$OPENCODE_BIN" ]] || fail "Trustable Code installation failed"
+[[ "$(opencode --version 2>/dev/null | tr -d ' ')" == "$OPENCODE_VERSION" ]] \
+  || fail "installed Trustable Code version does not match ${OPENCODE_VERSION}"
+grep -aFq 'TRUSTABLE_RUNTIME_CONFIG' "$OPENCODE_BIN" \
+  || fail "installed opencode does not contain the Trustable runtime contract"
+ok "Trustable Code ${TRUSTABLE_CODE_REF:0:10} (OpenCode ${OPENCODE_VERSION}) is available"
 
 # --- 12. Install MCP servers (openserverless, redis, milvus, postgres, mongodb, s3) ---
 # Mirrors image/Dockerfile but for the local user (~/.local/bin, no /opt/uv/*).
@@ -313,7 +399,8 @@ do
     uv tool install "$tool" || fail "uv tool install $tool failed"
 done
 
-# openserverless + mongodb MCP servers via npm (global, for the local user).
+# openserverless, mongodb, and the local browser MCP server via npm (global,
+# for the local user).
 # Run from $HOME so npm's git fetch does not stumble into this repo's broken
 # submodule worktree (.git/modules/...), and force the https transport so it
 # never falls back to ssh://git@github.com (which needs SSH keys).
@@ -325,6 +412,19 @@ command -v npm &>/dev/null || fail "npm is required to install the npm MCP serve
     GIT_CONFIG_VALUE_0=ssh://git@github.com/ \
     npm install -g --prefix "$HOME/.local" git+https://github.com/apache/openserverless-mcp.git mongodb-mcp-server@1.13.0 ) \
   || fail "npm install of openserverless-mcp/mongodb-mcp-server failed"
+
+BROWSER_MCP_PACK_DIR=$(mktemp -d)
+( cd browser-mcp && npm pack --pack-destination "$BROWSER_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing trustable-browser-mcp failed"
+BROWSER_MCP_PACKAGE=$(find "$BROWSER_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-browser-mcp-*.tgz' -print -quit)
+[[ -n "$BROWSER_MCP_PACKAGE" ]] || fail "trustable-browser-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$BROWSER_MCP_PACKAGE" ) \
+  || fail "installing trustable-browser-mcp failed"
+rm -rf "$BROWSER_MCP_PACK_DIR"
+command -v trustable-browser-mcp &>/dev/null || fail "trustable-browser-mcp is not in PATH"
+env PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
+  npx --yes playwright@1.56.1 install --with-deps chromium \
+  || fail "installing Playwright Chromium failed"
 
 # s3 MCP: the txn2/mcp-s3 release binary behind the repo's Python wrapper (as the
 # Dockerfile does): release -> mcp-s3-real, wrapper (image/mcp-s3) -> mcp-s3. The
@@ -338,7 +438,7 @@ if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
 fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
 
-ok "MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
+ok "MCP servers (browser, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
 
 # --- 13. Recreate the opencode plugin and PATH (image stage2-user) ---
 echo "--- Setting up opencode plugin ---"

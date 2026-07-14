@@ -25,10 +25,56 @@ import (
 )
 
 const (
-	opencodePort      = 4096
-	opsdevelPort      = 5173
-	localLoopbackHost = "127.0.0.1"
+	opencodePort               = 4096
+	opsdevelPort               = 5173
+	localLoopbackHost          = "127.0.0.1"
+	trustableCodeRuntimeMarker = "TRUSTABLE_RUNTIME_CONFIG"
 )
+
+func fileContainsMarker(path, marker string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	needle := []byte(marker)
+	if len(needle) == 0 {
+		return true, nil
+	}
+	buffer := make([]byte, 64*1024+len(needle)-1)
+	carry := 0
+	for {
+		n, readErr := file.Read(buffer[carry:])
+		total := carry + n
+		if bytes.Contains(buffer[:total], needle) {
+			return true, nil
+		}
+		if readErr == io.EOF {
+			return false, nil
+		}
+		if readErr != nil {
+			return false, readErr
+		}
+		carry = min(len(needle)-1, total)
+		copy(buffer[:carry], buffer[total-carry:total])
+	}
+}
+
+func resolveTrustableCodeBinary() (string, error) {
+	path, err := exec.LookPath("opencode")
+	if err != nil {
+		return "", fmt.Errorf("Trustable Code binary not found: %w", err)
+	}
+	present, err := fileContainsMarker(path, trustableCodeRuntimeMarker)
+	if err != nil {
+		return "", fmt.Errorf("cannot verify Trustable Code binary %s: %w", path, err)
+	}
+	if !present {
+		return "", fmt.Errorf("%s is upstream OpenCode without the Trustable runtime; rerun ./setup.sh inside trudev", path)
+	}
+	return path, nil
+}
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
@@ -1268,6 +1314,12 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
+	opencodeBinary, err := resolveTrustableCodeBinary()
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
 	// Terminate leftover processes
 	terminateLeftoverProcesses()
 
@@ -1463,7 +1515,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	// Start opencode
 	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
-	opencodeCmd := exec.Command("opencode", "serve", "--port", strconv.Itoa(leftPort), "--hostname", "0.0.0.0", "--log-level", "DEBUG", "--print-logs")
+	opencodeCmd := exec.Command(opencodeBinary, "serve", "--port", strconv.Itoa(leftPort), "--hostname", "0.0.0.0", "--log-level", "DEBUG", "--print-logs")
 	opencodeCmd.Dir = workbenchPath
 	opencodeCmd.Stdout = os.Stdout
 	opencodeCmd.Stderr = os.Stderr

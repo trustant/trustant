@@ -79,3 +79,35 @@ func TestWriteTrustableRuntimeManifestRequiresGeneratedConfig(t *testing.T) {
 		t.Fatal("expected missing opencode.json to fail")
 	}
 }
+
+func TestFileContainsTrustableRuntimeMarkerAcrossReadBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode")
+	prefix := make([]byte, 64*1024-5)
+	data := append(prefix, []byte(trustableCodeRuntimeMarker)...)
+	if err := os.WriteFile(path, data, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	present, err := fileContainsMarker(path, trustableCodeRuntimeMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present {
+		t.Fatal("expected Trustable runtime marker")
+	}
+}
+
+func TestFileContainsTrustableRuntimeMarkerRejectsUpstreamBinary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode")
+	if err := os.WriteFile(path, []byte("upstream opencode"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	present, err := fileContainsMarker(path, trustableCodeRuntimeMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if present {
+		t.Fatal("upstream binary unexpectedly matched Trustable runtime marker")
+	}
+}

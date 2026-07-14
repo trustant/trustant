@@ -21,10 +21,24 @@ var (
 	appBranch  string
 	appStream  string
 	expiryDate time.Time
+	gitBranch  = currentGitBranch
 )
+
+func currentGitBranch() string {
+	output, err := exec.Command("git", "branch", "--show-current").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
 
 // parseVersion parses the embedded _build.txt content
 func parseVersion(content string) {
+	appVersion = ""
+	appBuild = ""
+	appBranch = ""
+	appStream = ""
+	expiryDate = time.Time{}
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -45,6 +59,16 @@ func parseVersion(content string) {
 				expiryDate = t
 			}
 		}
+	}
+	// Development builds produced by air embed the last release metadata. When
+	// Branch/Stream are absent, show the mounted repository's active branch so
+	// the UI identifies the source tree actually being served. Release builds
+	// always carry explicit values and never need this fallback.
+	if appBranch == "" {
+		appBranch = gitBranch()
+	}
+	if appStream == "" {
+		appStream = appBranch
 	}
 	log.Printf("Version: %s, Build: %s, Branch: %s, Stream: %s, Expiry: %s", appVersion, appBuild, appBranch, appStream, expiryDate.Format("2006/01/02"))
 }

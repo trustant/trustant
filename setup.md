@@ -80,7 +80,9 @@ curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bi
 
 curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash
 
-then activate the go version in go.mod
+Source `~/.g/env` first when it already exists, then activate the go version in
+go.mod. Repeated setup runs must not reinstall `g` merely because a
+non-interactive shell did not inherit its environment.
 
 add the Go install bin dir to the PATH (GOBIN if set, else `go env GOPATH`/bin),
 then install air (go install github.com/air-verse/air@latest)
@@ -118,6 +120,14 @@ chmod 600 ~/.ops/tmp/kubeconfig
 Only do this if ~/.ops/tmp/kubeconfig is missing or invalid (the package may
 already have wired ops). sudo is passwordless for the guest user.
 
+After kubeconfig is valid, read the `kube-system/kube-dns` ClusterIP and create
+`/etc/systemd/resolved.conf.d/trustable-k3s.conf` with that DNS server routed
+only for `~cluster.local`. Restart `systemd-resolved` only when the file changes
+and require `kubernetes.default.svc.cluster.local` to resolve. Host-side
+Trustable Code and MCP processes consume service names from
+`~/.ops/config.json`; ClusterIP routing alone is insufficient without this DNS
+route.
+
 9. check you have administrative power
 ensuring `ops admin listuser` does not return error
 
@@ -132,20 +142,29 @@ missing (apt via passwordless sudo, milvus-cli via uv into ~/.local/bin):
 (uv itself was ensured in step 3. There is no /opt/homebrew and no kubefwd in the
 VM — cluster services are local, so kubefwd is not used; see run.md.)
 
-11. Check if opencode is in the path and if it is check the version `opencode -v`
-matches with the $OPENCODE_VERSION.
+11. Build and verify the pinned Trustable Code runtime.
 
-if it does not match, install with
+- Read the Bun version from the `FROM oven/bun:<version>` builder in
+  `image/Dockerfile` and install that exact version for the guest user when it
+  is missing. Ensure `unzip` is installed before invoking the Bun installer.
+- Require the initialized `trustable-code` submodule and read its current Git
+  revision.
+- Rebuild when the installed revision differs, the reported OpenCode version
+  differs from `$OPENCODE_VERSION`, or the binary lacks the literal
+  `TRUSTABLE_RUNTIME_CONFIG` runtime contract.
+- Mirror the Docker build: run `HUSKY=0 bun install --frozen-lockfile`, then
+  `bun run script/build.ts --single --skip-install` in
+  `trustable-code/packages/opencode`.
+- Verify the built version and runtime marker, atomically install the binary as
+  `~/.local/bin/opencode`, and record the revision under
+  `~/.local/share/trustable-code/ref`.
 
-```
-curl -fsSL https://opencode.ai/install >opencode.sh
-bash opencode.sh --version ${OPENCODE_VERSION}
-mv ~/.opencode/bin/opencode ~/.local/bin
-```
+Do not use `https://opencode.ai/install`: upstream can report the same version
+without containing the Trustable runtime contract.
 
-12. install in ~/.local/bin the mcp servers for openserverless, redis, milvus,
-postgres, mongodb, s3 using the same procedure in image/Dockerfile (do not use
-/opt/uv/* vars and install everything for the local user).
+12. install in ~/.local/bin the mcp servers for browser, openserverless, redis,
+milvus, postgres, mongodb, and s3 using the same procedure in image/Dockerfile
+(do not use `/opt/uv/*` vars and install everything for the local user).
 
 The python-based mcp servers (postgres, redis, milvus) are installed with uv,
 pointing the tool bin dir to ~/.local/bin:
@@ -167,10 +186,16 @@ the local user):
 npm install -g github:apache/openserverless-mcp mongodb-mcp-server@1.13.0
 ```
 
-The s3 mcp is downloaded as a release binary and installed behind the repo's
+Pack `browser-mcp/` and install the resulting `trustable-browser-mcp` package
+plus `tsx` under `~/.local`. Install Playwright `1.56.1` Chromium and its system
+dependencies with `PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright`. Setup must
+verify that `trustable-browser-mcp` resolves on PATH before completing.
+
+The S3 MCP is downloaded as a release binary and installed behind the repo's
 Python wrapper (image/mcp-s3), exactly as the Dockerfile does: the release binary
 becomes mcp-s3-real, and the wrapper is installed as mcp-s3 (it blocks the
-list_buckets tools and normalizes empty bucket lists, delegating to mcp-s3-real):
+list_buckets tools and normalizes empty bucket lists, delegating to the adjacent
+mcp-s3-real in the local bin directory):
 
 ```
 export VER=1.3.0 ARCH="$(uname -m | sed -e s/x86_64/amd64/ -e s/aarch64/arm64/)" OS="$(uname -s | tr A-Z a-z)"

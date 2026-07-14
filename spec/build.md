@@ -19,12 +19,20 @@ binary for linux/amd64 and linux/arm64, builds the Docker image through
 
 `image/image.sh` builds the base image from the part of `image/Dockerfile`
 before the `###---###` separator. The base image installs
-`openserverless-mcp` from the repository `mcp` submodule, not from a direct
-GitHub npm reference. Before building, the script stages the submodule into the
-Docker build context as `image/openserverless-mcp`, and the base-image hash
-must include both the base Dockerfile and the current `mcp` submodule commit.
-This guarantees that updating the MCP submodule pointer rebuilds the base image
-used by Trustable.
+`openserverless-mcp` from the repository `mcp` submodule and compiles OpenCode
+from the pinned `trustable-code` submodule. Before building, the script stages
+both submodules into the Docker build context. The base-image hash includes the
+base Dockerfile, both submodule commits, and the browser MCP source hash. This
+guarantees that any runtime pointer or browser-tool change rebuilds the base
+image used by Trustable.
+
+The Lima `setup.sh` development path mirrors the image: it installs the pinned
+Bun toolchain, builds the same `trustable-code` commit, verifies the expected
+OpenCode version and Trustable runtime marker, and atomically installs the
+result in `~/.local/bin/opencode`. It also packages the local browser MCP,
+installs pinned Playwright Chromium, and routes `cluster.local` DNS to the local
+k3s CoreDNS service. It must not use the upstream OpenCode installer as a
+substitute.
 
 Server build environment:
 

@@ -209,6 +209,17 @@ pinned source and must not download a separate OpenCode binary from
 only to the disposable Trustable Code builder stage and must not be copied into
 the runtime image.
 
+The Lima development setup must follow the same rule: `setup.sh` builds the
+current pinned `trustable-code` submodule with the Bun version declared by the
+Dockerfile and installs it as the user's `~/.local/bin/opencode`. Matching only
+`OPENCODE_VERSION` is insufficient because upstream OpenCode can report the
+same version. Setup must also record the installed submodule revision and
+verify that the binary contains the `TRUSTABLE_RUNTIME_CONFIG` contract.
+
+`GET /api/launch/<name>` must fail before cloning, login, deploy, or process
+cleanup when the resolved `opencode` binary does not contain that Trustable
+runtime contract. Edit must never silently fall back to upstream OpenCode.
+
 Whenever that pin changes, the image build must install
 `@opencode-ai/plugin` at the exact version returned by
 `/usr/local/bin/opencode --version`; a mismatch is a build/runtime regression.
@@ -479,11 +490,19 @@ at runtime.
 The Trustable runtime image wraps the external `mcp-s3` binary. The real binary
 is kept as `/usr/local/bin/mcp-s3-real`, while `/usr/local/bin/mcp-s3` filters
 known-invalid bucket-listing tools and normalizes `buckets: null` to `[]`.
+When installed for Lima development under `~/.local/bin`, the wrapper must
+discover an adjacent `mcp-s3-real` before falling back to the image path.
 The wrapper must relay partial stdio reads immediately: MCP initialization
 messages are normally smaller than the relay buffer and must not wait for 8 KiB
 or end-of-file before reaching the real server.
 This prevents OpenCode sessions from failing on S3 MCP schema validation while
 keeping non-bucket-listing S3 diagnostics available.
+
+Lima setup must route the `cluster.local` DNS suffix to the live
+`kube-system/kube-dns` ClusterIP through `systemd-resolved`. OpenCode and its
+MCP subprocesses run on the VM host, while generated service URLs use
+`*.svc.cluster.local`; reachable ClusterIPs without service-name resolution do
+not constitute a working local environment.
 
 
 ## clean
