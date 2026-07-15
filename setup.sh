@@ -289,12 +289,14 @@ APT_MISSING=()
 command -v psql      &>/dev/null || APT_MISSING+=(postgresql-client-16)
 command -v redis-cli &>/dev/null || APT_MISSING+=(redis-tools)
 command -v rclone    &>/dev/null || APT_MISSING+=(rclone)
+python3 -c 'import pytest' &>/dev/null || APT_MISSING+=(python3-pytest)
+python3 -c 'import dotenv' &>/dev/null || APT_MISSING+=(python3-dotenv)
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
   sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
-ok "psql, redis-cli, rclone available"
+ok "psql, redis-cli, rclone, pytest, and python-dotenv available"
 
 if ! command -v milvus_cli &>/dev/null && ! command -v milvus-cli &>/dev/null; then
   warn "milvus-cli not found, installing via uv..."
@@ -338,6 +340,16 @@ fi
 
 TRUSTABLE_CODE_REF=$(git -C trustable-code rev-parse HEAD) \
   || fail "cannot read trustable-code submodule revision"
+TRUSTABLE_CODE_WORKTREE_HASH=$(
+  (
+    git -C trustable-code diff --binary HEAD --
+    while IFS= read -r file; do
+      printf 'untracked:%s\n' "$file"
+      sha256sum "trustable-code/$file"
+    done < <(git -C trustable-code ls-files --others --exclude-standard)
+  ) | sha256sum | awk '{print $1}'
+) || fail "cannot fingerprint trustable-code working tree"
+TRUSTABLE_CODE_BUILD_REF="${TRUSTABLE_CODE_REF}:${TRUSTABLE_CODE_WORKTREE_HASH}"
 TRUSTABLE_CODE_STATE_DIR="$HOME/.local/share/trustable-code"
 TRUSTABLE_CODE_REF_FILE="$TRUSTABLE_CODE_STATE_DIR/ref"
 INSTALLED_TRUSTABLE_CODE_REF=$(cat "$TRUSTABLE_CODE_REF_FILE" 2>/dev/null || true)
@@ -349,7 +361,7 @@ if [[ -n "$OPENCODE_BIN" ]] && grep -aFq 'TRUSTABLE_RUNTIME_CONFIG' "$OPENCODE_B
 fi
 
 if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" \
-   || "$INSTALLED_TRUSTABLE_CODE_REF" != "$TRUSTABLE_CODE_REF" \
+   || "$INSTALLED_TRUSTABLE_CODE_REF" != "$TRUSTABLE_CODE_BUILD_REF" \
    || "$TRUSTABLE_RUNTIME_PRESENT" != true ]]; then
   warn "building Trustable Code ${TRUSTABLE_CODE_REF:0:10} (OpenCode ${OPENCODE_VERSION})..."
   (
@@ -367,7 +379,7 @@ if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" \
     mv "$HOME/.local/bin/opencode.new" "$HOME/.local/bin/opencode"
   ) || fail "Trustable Code build failed"
   mkdir -p "$TRUSTABLE_CODE_STATE_DIR"
-  printf '%s\n' "$TRUSTABLE_CODE_REF" > "$TRUSTABLE_CODE_REF_FILE"
+  printf '%s\n' "$TRUSTABLE_CODE_BUILD_REF" > "$TRUSTABLE_CODE_REF_FILE"
   hash -r
 fi
 
@@ -400,18 +412,22 @@ do
 done
 
 # openserverless, mongodb, and the local browser MCP server via npm (global,
-# for the local user).
-# Run from $HOME so npm's git fetch does not stumble into this repo's broken
-# submodule worktree (.git/modules/...), and force the https transport so it
-# never falls back to ssh://git@github.com (which needs SSH keys).
+# for the local user). Package the checked-out OpenServerless MCP submodule so
+# development runs exactly the source that the image build consumes.
 command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"
 # --prefix "$HOME/.local" so binaries land in ~/.local/bin (already first in
 # PATH) and packages under ~/.local/lib — never the root-owned /usr/lib.
-( cd "$HOME" && GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf \
-    GIT_CONFIG_VALUE_0=ssh://git@github.com/ \
-    npm install -g --prefix "$HOME/.local" git+https://github.com/apache/openserverless-mcp.git mongodb-mcp-server@1.13.0 ) \
+[[ -f mcp/package.json ]] || fail "mcp submodule is not initialized (run: git submodule update --init mcp)"
+OPENSERVERLESS_MCP_PACK_DIR=$(mktemp -d)
+( cd mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing local openserverless-mcp failed"
+OPENSERVERLESS_MCP_PACKAGE=$(find "$OPENSERVERLESS_MCP_PACK_DIR" -maxdepth 1 -name 'openserverless-mcp-*.tgz' -print -quit)
+[[ -n "$OPENSERVERLESS_MCP_PACKAGE" ]] || fail "local openserverless-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$OPENSERVERLESS_MCP_PACKAGE" mongodb-mcp-server@1.9.0 ) \
   || fail "npm install of openserverless-mcp/mongodb-mcp-server failed"
+rm -rf "$OPENSERVERLESS_MCP_PACK_DIR"
+grep -qF 'secret-unbind' "$HOME/.local/lib/node_modules/openserverless-mcp/src/index.ts" \
+  || fail "installed openserverless-mcp does not match the local Trustable source"
 
 BROWSER_MCP_PACK_DIR=$(mktemp -d)
 ( cd browser-mcp && npm pack --pack-destination "$BROWSER_MCP_PACK_DIR" >/dev/null ) \

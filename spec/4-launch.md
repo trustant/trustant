@@ -230,6 +230,10 @@ Dockerfile and installs it as the user's `~/.local/bin/opencode`. Matching only
 `OPENCODE_VERSION` is insufficient because upstream OpenCode can report the
 same version. Setup must also record the installed submodule revision and
 verify that the binary contains the `TRUSTABLE_RUNTIME_CONFIG` contract.
+For development, the recorded build identifier also contains a content hash of
+tracked and untracked Trustable Code working-tree changes. A source edit at the
+same commit therefore triggers a rebuild rather than silently leaving the old
+binary installed.
 
 `GET /api/launch/<name>` must fail before cloning, login, deploy, or process
 cleanup when the resolved `opencode` binary does not contain that Trustable
@@ -255,11 +259,14 @@ tests pass for the candidate commit.
 See [trustable-code-integration.svg](trustable-code-integration.svg) for the
 source, build, launch, and runtime-contract flow.
 
-The runtime image installs `openserverless-mcp` from the local `mcp` submodule,
-not from a direct `github:apache/openserverless-mcp` npm reference. The image
-build stages that submodule into the Docker build context and includes the
-submodule commit in the base-image hash, so changing the MCP pointer forces the
-base image to rebuild.
+The runtime image and Lima `setup.sh` install `openserverless-mcp` from the
+local `mcp` submodule, not from a direct
+`github:apache/openserverless-mcp` npm reference. The image build stages that
+submodule into the Docker build context and includes the submodule commit in
+the base-image hash, so changing the MCP pointer forces the base image to
+rebuild. Lima setup packs the same checkout to a tarball before global npm
+installation and verifies a Trustable-only tool registration, preventing a
+restart from silently replacing the tested MCP with upstream Apache source.
 
 # if the app uses AgentiReact add the agentireact MCP server:
 
@@ -374,6 +381,13 @@ The `action-add-redis` / `action_add_redis` connector injects `ctx.REDIS` and
 must require editable action modules to build every Redis key from
 `ctx.REDIS_PREFIX` plus an app-local suffix. Naked Redis keys are invalid
 because Nuvolaris Redis ACLs only allow the configured user prefix.
+
+The `action-add-s3` / `action_add_s3` connector injects bucket-scoped
+`ctx.S3_CLIENT`, `ctx.S3_DATA`, `ctx.S3_WEB`, and `ctx.S3_PUBLIC` bindings.
+Generated app guidance and the checker must reject `list_buckets()` in action
+modules. A module that reports S3 read/write state must prove it with
+`put_object`, `get_object` plus content comparison, and `delete_object` against
+`ctx.S3_DATA`; `head_bucket` or listing alone is insufficient.
 
 # if config.milvus is defined and not empty add:
 
@@ -498,9 +512,15 @@ MongoDB binding.
 }
 ```
 
-The Trustable runtime image installs the official MongoDB MCP server at build
-time as `mongodb-mcp-server`, so launch must not use `npx` or download packages
-at runtime.
+The Trustable runtime image and Lima setup install the official MongoDB MCP
+server `mongodb-mcp-server@1.9.0`. This is the last upstream version whose Zod
+dependency satisfies the `@mongosh/arg-parser` peer range; do not upgrade to a
+Zod 4 release while that parser still declares Zod 3. Launch must not use `npx`
+or download packages at runtime.
+
+The image and Lima development setup include pytest and python-dotenv so
+generated Python action unit tests run in the same environment as completion
+verification without mutating the system Python installation mid-session.
 
 The Trustable runtime image wraps the external `mcp-s3` binary. The real binary
 is kept as `/usr/local/bin/mcp-s3-real`, while `/usr/local/bin/mcp-s3` filters
@@ -512,6 +532,12 @@ messages are normally smaller than the relay buffer and must not wait for 8 KiB
 or end-of-file before reaching the real server.
 This prevents OpenCode sessions from failing on S3 MCP schema validation while
 keeping non-bucket-listing S3 diagnostics available.
+
+The wrapper-side filter is only the assistant diagnostic boundary. Generated
+OpenServerless action code has direct boto3 access, so app-local instructions,
+the `action_add_s3` tool response, and the deterministic action checker must
+also forbid `list_buckets()` and require a real `put_object` →
+`get_object`/compare → `delete_object` read/write check.
 
 Lima setup must route the `cluster.local` DNS suffix to the live
 `kube-system/kube-dns` ClusterIP through `systemd-resolved`. OpenCode and its
@@ -602,8 +628,11 @@ Trustable Code runtime. Any action MCP call or source mutation under
 `ops ide setup` and the completion gate. A setup-action mutation additionally
 marks setup as required; deploy does not clear that state, and completion stays
 blocked until a successful `ops ide setup` runs after deploy.
-The local Air development loop watches both Go and JavaScript sources so edits
-to the embedded guardrail plugin rebuild the running Trustable server.
+The local Air development loop watches both root Go and JavaScript sources so
+edits to the embedded guardrail plugin rebuild the running Trustable server.
+It excludes the separately built `trustable-code` subrepo from checksum scans;
+ignored Bun `.bun-build` marker files can have mode `000` on the shared volume
+and are not development inputs for the Go server.
 For shell tools, action detection must inspect both the command text and the
 normalized `cwd`/`workdir`/`directory` argument. A mutating command such as
 `sed -i module.py` executed from `packages/v1/action` still requires deploy;

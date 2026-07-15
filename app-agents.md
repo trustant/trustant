@@ -30,6 +30,10 @@ action/runtime binding, show `non configurato`.
 If `action_add_redis` is available, use it to generate the wrapper and always
 build Redis keys from `ctx.REDIS_PREFIX`; never call `ctx.REDIS` with naked app
 keys.
+If `action_add_s3` is available, use its bucket-scoped `ctx.S3_CLIENT` wiring
+and never call `list_buckets()`. A real S3 read/write check uses `ctx.S3_DATA`
+with `put_object`, `get_object` plus byte comparison, and `delete_object` in a
+`finally` block; `head_bucket` or listing cannot justify `read_write: OK`.
 
 OpenCode has shell access in the Trustable pod. Run bounded checks yourself
 instead of asking the user to run shell commands.
@@ -97,6 +101,14 @@ real failures: do not continue with a partially bound endpoint set. Action
 modules must use only the shared `ctx.<SECRET>` value and must never fall back
 to `os.getenv()` defaults or hardcoded keys. Rerun `auth_setup` after adding a
 protected action.
+
+`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
+Trustable-managed orchestration variables, not application secrets or action
+parameters. Never bind them into a generated wrapper. In particular, an action
+must not contain `#--param OPS_APIHOST "$OPS_APIHOST"`, use
+`ctx.OPS_APIHOST`, or call sibling actions through an API host. Frontend code
+uses relative `/api/my/...` URLs; server-side action logic uses generated
+service bindings directly.
 
 Persist only an opaque app session token as authoritative browser state. On a
 full reload, keep an explicit auth loading state and validate that token through

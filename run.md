@@ -25,7 +25,10 @@ the MCP servers it spawns reach cluster services directly.
 2c. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT);
 start.sh installs it in the VM, so only start one if nothing is listening.
 
-3. launch air in background (hot-reloads the Go binary on :8910)
+3. launch air in background (hot-reloads the Go binary on :8910). Air watches
+the root Go and JavaScript sources, but excludes the `trustable-code` subrepo:
+that subrepo is built by setup and can contain ignored Bun `.bun-build` marker
+files with mode `000`, which must not enter Air's checksum scan.
 
 4. print the browser URL as http://trustable.<ip>.nip.io:8910/ where <ip> is the
 host-reachable lima0 address (fall back to 127.0.0.1 if there is no lima0);

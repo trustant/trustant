@@ -220,6 +220,12 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 - on Windows by the content of %APPDATA%/Trustable/apihost  if it is present
 - defaults to http://miniops.me
 
+`OPS_APIHOST` configures Trustable and `ops ide` orchestration. It is not an
+application secret and must never be propagated into an action wrapper as
+`#--param OPS_APIHOST "$OPS_APIHOST"` or exposed as `ctx.OPS_APIHOST`.
+Browser application code uses relative `/api/my/...` URLs, while action modules
+use generated service bindings directly.
+
 3. Per-app `development` overrides
 
 4. Application secrets created through the OpenServerless MCP are stored

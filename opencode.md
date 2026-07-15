@@ -247,6 +247,13 @@ depending on the client. Use the matching exposed tool:
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
 - `action-add-mongodb` / `action_add_mongodb`: add MongoDB service wiring.
+- `secret-unbind` / `secret_unbind`: remove an obsolete generated secret
+  binding atomically without reading or deleting its value. Use it to repair a
+  legacy invalid managed-variable binding; never edit `__main__.py` manually.
+  After a removal, recreate each changed endpoint with
+  `ops ide undeploy <endpoint>` followed by `ops ide deploy <endpoint>`: an
+  action update alone preserves previously deployed parameters, while
+  `ops ide clean` removes only local build artifacts.
 
 If a tool call returns "Invalid Tool", stop and use one of the exposed tool
 names. Do not retry with guessed aliases. If a shell command reports
@@ -400,8 +407,9 @@ the same context secret.
 
 When using Redis in an action, first add Redis wiring with
 `action-add-redis` / `action_add_redis`. The generated wrapper exposes
-`ctx.REDIS` and `ctx.REDIS_PREFIX`. Always construct keys from the prefix and an
-app-local suffix:
+`ctx.REDIS` and `ctx.REDIS_PREFIX` and adds the required Python Redis client to
+the action package. Always construct keys from the prefix and an app-local
+suffix:
 
 ```python
 def redis_key(ctx, name):
@@ -414,12 +422,16 @@ Use `ctx.REDIS.get(redis_key(ctx, "cache:item"))`,
 not use naked Redis keys such as `"stack-e2e-..."` directly with `ctx.REDIS`;
 Nuvolaris Redis ACLs only allow the configured user prefix.
 
-For S3 app verification, prefer the OpenServerless action path created with
-`action-add-s3` and the generated `ctx.S3_CLIENT` wiring. Do not use S3 MCP
-bucket listing as the proof that an app feature works; some S3 MCP servers
-cannot list buckets or can return schema-invalid bucket lists. If an S3 MCP
+For S3 app verification, use the OpenServerless action path created with
+`action-add-s3` and the generated `ctx.S3_CLIENT` wiring. The credentials are
+scoped to `ctx.S3_DATA` and `ctx.S3_WEB`: never call
+`ctx.S3_CLIENT.list_buckets()`. Neither `head_bucket` nor bucket/object listing
+proves read/write access. A read/write check must create a unique temporary key
+in `ctx.S3_DATA` with `put_object`, retrieve it with `get_object`, compare the
+returned body bytes, and remove it with `delete_object` in a `finally` block.
+Report `read_write: OK` only after the byte comparison succeeds. If an S3 MCP
 listing tool fails, treat it as a diagnostic tool failure and continue through
-the app action path, the configured user buckets, or `rclone` when available.
+the configured app bucket/action path or `rclone` when available.
 
 ## Runtime Host Rules
 
@@ -433,7 +445,17 @@ OpenCode runs inside the Trustable pod. Classify hosts before using them:
   proxy/ingress. Use it only after `ops ide deploy` succeeds and only when
   external browser or ingress routing is in scope.
 - `opencode.<domain>` is the browser-visible OpenCode host.
-- `OPS_APIHOST` is the configured OpenServerless API host.
+- `OPS_APIHOST` is the configured OpenServerless API host for Trustable and
+  `ops ide` orchestration. It must never be bound into an action, exposed as
+  `ctx.OPS_APIHOST`, read by an action module, or emitted as
+  `#--param OPS_APIHOST "$OPS_APIHOST"`.
+
+Frontend code calls actions with relative `/api/my/<package>/<action>` URLs so
+the browser keeps its current origin. Action modules must not call sibling
+actions through `OPS_APIHOST`, browser-visible hosts, or ingress URLs. For
+multiple independent checks, let the frontend call the relative endpoints; for
+server-side aggregation, add every required generated service binding to one
+action and use its `ctx` clients directly.
 
 Do not invent pod IPs, raw service names, public domains, or replacement
 localhost URLs for app verification. For app endpoints from this shell, prefer:
@@ -765,6 +787,10 @@ Examples of idempotent setup:
 - Add PostgreSQL, Redis, S3, Milvus, MongoDB, and secrets with the corresponding
   action/service tool. Do not hardcode credentials and do not manually edit
   generated wrapper code.
+- `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
+  Trustable-managed orchestration variables, not application secrets. Never
+  pass them to `action-add-secret`, `secret-bind`, `secret-ensure`, or
+  `auth-setup`; a secret tool must reject them.
 
 ## Data And Service Restrictions
 

@@ -743,6 +743,70 @@ func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
 	}
 }
 
+func TestOpenServerlessCheckerRejectsManagedRuntimeParameters(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack-status")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+#--param OPS_APIHOST "$OPS_APIHOST"
+import stack_status
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "stack_status.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject Trustable-managed action parameters, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Trustable-managed runtime variables must not be bound into actions") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerIgnoresVendoredPythonDependencies(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "cache")
+	if err := os.MkdirAll(filepath.Join(actionDir, "virtualenv", "lib", "python3.12", "site-packages", "redis"), 0755); err != nil {
+		t.Fatalf("mkdir action dependencies: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from cache import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := "def main(args, ctx=None):\n    return {'ok': True}\n"
+	if err := os.WriteFile(filepath.Join(actionDir, "cache.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	vendored := "def get(key):\n    return REDIS.get(key)\n"
+	if err := os.WriteFile(filepath.Join(actionDir, "virtualenv", "lib", "python3.12", "site-packages", "redis", "client.py"), []byte(vendored), 0644); err != nil {
+		t.Fatalf("write vendored module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should ignore vendored dependencies, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
 func TestOpenServerlessCheckerRejectsMongoMilvusSubstitution(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
@@ -910,6 +974,121 @@ def main(args, ctx=None):
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("checker should allow prefixed Redis keys, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsS3ListBuckets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_s3(args, ctx):
+    ctx.S3_CLIENT = object()
+    ctx.S3_DATA = "app-data"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    return {"buckets": ctx.S3_CLIENT.list_buckets()}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject S3 list_buckets, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "S3 action code must never call list_buckets()") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsS3ReadWriteClaimWithoutRealOperations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_s3(args, ctx):
+    ctx.S3_CLIENT = object()
+    ctx.S3_DATA = "app-data"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    ctx.S3_CLIENT.head_bucket(Bucket=ctx.S3_DATA)
+    return {"connected": True, "read_write": "OK"}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject an unproved S3 read/write claim, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "S3 read/write status requires a real ctx.S3_DATA check") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerAllowsRealS3ReadWriteVerification(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_s3(args, ctx):
+    ctx.S3_CLIENT = object()
+    ctx.S3_DATA = "app-data"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    expected = b"trustable-s3-ok"
+    key = "trustable-check/unique.txt"
+    try:
+        ctx.S3_CLIENT.put_object(Bucket=ctx.S3_DATA, Key=key, Body=expected)
+        actual = ctx.S3_CLIENT.get_object(Bucket=ctx.S3_DATA, Key=key)["Body"].read()
+        if actual != expected:
+            raise RuntimeError("S3 read-back mismatch")
+        return {"connected": True, "read_write": "OK"}
+    finally:
+        ctx.S3_CLIENT.delete_object(Bucket=ctx.S3_DATA, Key=key)
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should allow a real S3 read/write check, err=%s output=%s", err, strings.TrimSpace(string(out)))
 	}
 }
 

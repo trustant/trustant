@@ -29,10 +29,15 @@ image used by Trustable.
 The Lima `setup.sh` development path mirrors the image: it installs the pinned
 Bun toolchain, builds the same `trustable-code` commit, verifies the expected
 OpenCode version and Trustable runtime marker, and atomically installs the
-result in `~/.local/bin/opencode`. It also packages the local browser MCP,
-installs pinned Playwright Chromium, and routes `cluster.local` DNS to the local
-k3s CoreDNS service. It must not use the upstream OpenCode installer as a
-substitute.
+result in `~/.local/bin/opencode`. It packages both the local OpenServerless MCP
+submodule and the local browser MCP, installs pinned Playwright Chromium, and
+routes `cluster.local` DNS to the local k3s CoreDNS service. It must not use the
+upstream OpenCode installer or a direct Apache OpenServerless MCP Git install
+as a substitute for either checked-out source tree.
+The Lima build-state identifier includes both the pinned Trustable Code commit
+and a working-tree content fingerprint. This keeps release/image builds pinned
+to commits while allowing an uncommitted local Trustable Code change to be
+compiled and validated during development.
 
 Server build environment:
 

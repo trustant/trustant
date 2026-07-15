@@ -43,8 +43,16 @@ user explicitly asks to inspect them, and they must not override this contract.
 - OpenCode serves in this pod at `http://localhost:4096`.
 - Browser/ingress hosts such as `vite.<domain>` are external checks. Use them
   only after `ops ide deploy` succeeds and only when external routing matters.
-- `OPS_APIHOST` is the configured OpenServerless API host. Do not replace it
-  with localhost.
+- `OPS_APIHOST` is the configured OpenServerless API host used by Trustable and
+  `ops ide` for login, deploy, and development proxy orchestration. It is not
+  an application secret or action runtime parameter. Never bind it into an
+  action, expose it as `ctx.OPS_APIHOST`, read it from an action module, or
+  generate `#--param OPS_APIHOST "$OPS_APIHOST"`.
+- Browser code calls actions with relative `/api/my/<package>/<action>` URLs so
+  the browser preserves its own origin. Actions must not call sibling actions
+  through `OPS_APIHOST`, a browser-visible host, or an ingress URL; either let
+  the frontend call the endpoints independently or give one action the
+  generated service bindings it needs.
 
 ## Files
 
@@ -93,6 +101,9 @@ Invalid examples:
 - Editable action modules must consume `ctx.<SECRET>` and fail closed. Never use
   `os.getenv()` with a default or a hardcoded signing/verification key.
 - Rerun `auth_setup` whenever another protected action is added.
+- `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
+  Trustable-managed runtime variables, not application secrets. Secret tools
+  must reject them and must not add them to generated action wrappers.
 - Add PostgreSQL wiring with the OpenServerless action tool.
 - Use `conn = ctx.POSTGRESQL` in editable action modules.
 - Do not reconnect with `POSTGRES_URL` when `ctx.POSTGRESQL` is provided.
@@ -117,9 +128,12 @@ Invalid examples:
   wrapper exposes `ctx.REDIS` and `ctx.REDIS_PREFIX`; every Redis key used by
   action modules must be built from `ctx.REDIS_PREFIX` plus an app-local suffix.
   Do not call `ctx.REDIS.get/set/delete/hset/...` with naked keys.
-- Use S3 app behavior through `action-add-s3` and generated action wiring. Do
-  not rely on S3 MCP bucket listing as app proof; if S3 MCP listing fails, use
-  the configured app buckets/action path or report the real error.
+- Use S3 app behavior through `action-add-s3` and generated action wiring.
+  Credentials are bucket-scoped: never call `ctx.S3_CLIENT.list_buckets()`.
+  `head_bucket` and listing do not prove read/write access. Verify with a unique
+  temporary key in `ctx.S3_DATA`: `put_object`, `get_object` and compare bytes,
+  then `delete_object` in `finally`. Report read/write success only after the
+  comparison succeeds; otherwise report the real error.
 - Do not hardcode database URLs, hosts, users, passwords, schemas, buckets, or
   service ports in source code.
 - Every write must commit.

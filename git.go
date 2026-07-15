@@ -32,19 +32,58 @@ var gitPullGeneratedFiles = map[string]bool{
 	"opencode.json":               true,
 }
 
-var gitSaveGeneratedPathspecs = []string{
-	":(exclude).mcp.json",
-	":(exclude).openserverless-contract.md",
-	":(exclude)opencode.md",
-	":(exclude)opencode.json",
+var gitSaveGeneratedFiles = []string{
+	".mcp.json",
+	".openserverless-contract.md",
+	"opencode.md",
+	"opencode.json",
+}
+
+func gitSaveExcludedFiles(workbenchPath string) []string {
+	files := append([]string(nil), gitSaveGeneratedFiles...)
+	if agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
+		files = append(files, "AGENTS.md")
+	}
+	return files
+}
+
+func gitIgnoredAndUntracked(workbenchPath, path string) bool {
+	ignored := exec.Command("git", "check-ignore", "--quiet", "--no-index", "--", path)
+	ignored.Dir = workbenchPath
+	if ignored.Run() != nil {
+		return false
+	}
+	tracked := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	tracked.Dir = workbenchPath
+	return tracked.Run() != nil
 }
 
 func gitSaveAddArgs(workbenchPath string) []string {
-	args := append([]string{"add", "-A", "--", "."}, gitSaveGeneratedPathspecs...)
-	if agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
-		args = append(args, ":(exclude)AGENTS.md")
+	args := []string{"add", "-A", "--", "."}
+	for _, path := range gitSaveExcludedFiles(workbenchPath) {
+		// An ignored untracked file is already omitted by Git. Passing it back as
+		// an explicit negative pathspec still triggers advice.addIgnoredFile and
+		// makes git add fail after it has partially updated the index.
+		if gitIgnoredAndUntracked(workbenchPath, path) {
+			continue
+		}
+		args = append(args, ":(exclude)"+path)
 	}
 	return args
+}
+
+func gitSaveDryRunAddArgs(workbenchPath string) []string {
+	args := gitSaveAddArgs(workbenchPath)
+	return append([]string{"add", "--dry-run"}, args[1:]...)
+}
+
+func gitSaveResetGeneratedArgs(workbenchPath string) []string {
+	args := []string{"reset", "--quiet", "HEAD", "--"}
+	args = append(args, gitSaveExcludedFiles(workbenchPath)...)
+	// TypeScript incremental build metadata is a local compiler artifact, not
+	// application source. Resetting it also repairs an index partially staged by
+	// an older failed Commit attempt.
+	return append(args, "*.tsbuildinfo")
 }
 
 // handleGitStatus handles GET /api/git/status/<name>
@@ -517,6 +556,16 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preflight before touching the index. Git can otherwise stage valid paths
+	// before returning an ignored-file error for a later pathspec.
+	dryRunCmd := exec.Command("git", gitSaveDryRunAddArgs(workbenchPath)...)
+	dryRunCmd.Dir = workbenchPath
+	if output, err := dryRunCmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "git add preflight failed: " + string(output)})
+		return
+	}
+
 	// Stage app-owned files while keeping launch-generated configuration out of
 	// commits. In particular, .mcp.json can contain runtime service credentials.
 	addCmd := exec.Command("git", gitSaveAddArgs(workbenchPath)...)
@@ -524,6 +573,17 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"error": "git add failed: " + string(output)})
+		return
+	}
+
+	// Negative pathspecs do not unstage files left in the index by an earlier
+	// interrupted Commit. Restore every generated path to HEAD before checking
+	// what will be committed.
+	resetGeneratedCmd := exec.Command("git", gitSaveResetGeneratedArgs(workbenchPath)...)
+	resetGeneratedCmd.Dir = workbenchPath
+	if output, err := resetGeneratedCmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "git index cleanup failed: " + string(output)})
 		return
 	}
 

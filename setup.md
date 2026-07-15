@@ -148,16 +148,18 @@ VM — cluster services are local, so kubefwd is not used; see run.md.)
   `image/Dockerfile` and install that exact version for the guest user when it
   is missing. Ensure `unzip` is installed before invoking the Bun installer.
 - Require the initialized `trustable-code` submodule and read its current Git
-  revision.
-- Rebuild when the installed revision differs, the reported OpenCode version
-  differs from `$OPENCODE_VERSION`, or the binary lacks the literal
-  `TRUSTABLE_RUNTIME_CONFIG` runtime contract.
+  revision plus a content fingerprint of tracked and untracked working-tree
+  changes.
+- Rebuild when the installed revision/fingerprint differs, the reported
+  OpenCode version differs from `$OPENCODE_VERSION`, or the binary lacks the
+  literal `TRUSTABLE_RUNTIME_CONFIG` runtime contract.
 - Mirror the Docker build: run `HUSKY=0 bun install --frozen-lockfile`, then
   `bun run script/build.ts --single --skip-install` in
   `trustable-code/packages/opencode`.
 - Verify the built version and runtime marker, atomically install the binary as
-  `~/.local/bin/opencode`, and record the revision under
-  `~/.local/share/trustable-code/ref`.
+  `~/.local/bin/opencode`, and record the revision plus working-tree fingerprint
+  under `~/.local/share/trustable-code/ref`. This lets Lima validate an
+  uncommitted Trustable Code fix without reusing a stale binary.
 
 Do not use `https://opencode.ai/install`: upstream can report the same version
 without containing the Trustable runtime contract.
@@ -179,12 +181,28 @@ do
 done
 ```
 
-The openserverless and mongodb mcp servers are installed with npm (global, for
-the local user):
+Package the repository `mcp` submodule and install that tarball together with
+the mongodb server using npm (global, for the local user):
 
 ```
-npm install -g github:apache/openserverless-mcp mongodb-mcp-server@1.13.0
+pack_dir=$(mktemp -d)
+(cd mcp && npm pack --pack-destination "$pack_dir")
+npm install -g tsx "$pack_dir"/openserverless-mcp-*.tgz mongodb-mcp-server@1.9.0
 ```
+
+Do not install OpenServerless MCP directly from GitHub in development: that
+would overwrite Trustable's checked-out protocol-error, secret, and connector
+fixes whenever `run.sh` recreates the environment. Verify that the installed
+source contains the local `secret-unbind` registration.
+
+Pin MongoDB MCP to `1.9.0`: it is the last upstream release whose direct Zod
+dependency (`^3.25.76`) satisfies the `@mongosh/arg-parser` peer contract.
+Newer `1.10.0` through `1.13.0` releases require Zod 4 while the parser still
+declares Zod 3 and therefore produce an invalid npm peer tree.
+
+The VM development packages also include `python3-pytest` and
+`python3-dotenv`, matching generated application tests without requiring the
+assistant to modify the system Python environment during a session.
 
 Pack `browser-mcp/` and install the resulting `trustable-browser-mcp` package
 plus `tsx` under `~/.local`. Install Playwright `1.56.1` Chromium and its system

@@ -46,11 +46,19 @@ If the folder does not exist, return `{"error": "workbench not found"}`.
 
 Execute the following git commands in sequence:
 
-1. stage all app-owned changes with `git add -A`, excluding the launch-generated
+1. preflight the app-owned staging command with `git add --dry-run -A`, then
+   stage all app-owned changes with `git add -A`, excluding the launch-generated
    `.mcp.json`, `.openserverless-contract.md`, `opencode.md`, and
    `opencode.json` files, plus `AGENTS.md` when it contains only the
    Trustable-managed block. These files are regenerated on launch and must
    never be committed; `.mcp.json` can contain runtime service credentials.
+   An ignored untracked generated file must be left to the repository ignore
+   rules instead of being passed as an explicit negative pathspec: Git rejects
+   an explicitly mentioned ignored path and may partially update the index
+   before returning the error. After staging, restore every generated path and
+   `*.tsbuildinfo` compiler artifact in the index to `HEAD`; this also repairs
+   partial staging left by an older failed Commit without changing the working
+   files.
 2. inspect the staged index with `git diff --cached --name-only` to check if
    there are app-owned changes to commit. Excluded generated files may remain
    in the worktree and do not make this check dirty.

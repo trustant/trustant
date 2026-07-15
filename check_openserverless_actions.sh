@@ -6,6 +6,8 @@ ROOT="${1:-$(pwd)}"
 CONTRACT=".openserverless-contract.md"
 ERRORS=0
 WARNINGS=0
+package_python_sources=()
+package_action_modules=()
 
 cd "$ROOT" || {
   echo "ERROR cannot enter $ROOT"
@@ -38,17 +40,26 @@ if [ ! -f "$CONTRACT" ]; then
 fi
 
 if [ -d packages ]; then
+  while IFS= read -r python_source; do
+    package_python_sources+=("$python_source")
+    if [ "$(basename "$python_source")" != "__main__.py" ]; then
+      package_action_modules+=("$python_source")
+    fi
+  done < <(find packages \
+    \( -type d \( -name virtualenv -o -name .venv -o -name venv -o -name node_modules -o -name __pycache__ \) -prune \) -o \
+    \( -type f -name '*.py' -print \) 2>/dev/null | sort)
+
   while IFS= read -r archive; do
     error "$archive" "Action ZIP files must not be created or edited inside an action source directory. Remove it and run ops ide deploy; generated deploy archives live beside the action directory."
   done < <(find packages -mindepth 3 -maxdepth 3 -type f -name '*.zip' 2>/dev/null | sort)
 
   declare -A action_dirs_without_wrapper=()
-  while IFS= read -r module; do
+  for module in "${package_action_modules[@]}"; do
     action_dir="$(dirname "$module")"
     if [ ! -f "$action_dir/__main__.py" ]; then
       action_dirs_without_wrapper["$action_dir"]=1
     fi
-  done < <(find packages -mindepth 3 -maxdepth 3 -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+  done
   for action_dir in "${!action_dirs_without_wrapper[@]}"; do
     error "$action_dir" "Action module exists without generated __main__.py. Create or repair the action with the OpenServerless MCP action tool before editing module logic."
   done
@@ -74,9 +85,12 @@ if [ -d packages ]; then
     if grep -Eiq 'CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|CREATE[[:space:]]+(OR[[:space:]]+REPLACE[[:space:]]+)?VIEW|INSERT[[:space:]]+INTO|UPDATE[[:space:]]+[A-Za-z_]|DELETE[[:space:]]+FROM|import[[:space:]]+(flask|fastapi)|from[[:space:]]+(flask|fastapi)[[:space:]]+import' "$wrapper"; then
       error "$wrapper" "Generated wrapper appears to contain business logic or direct DB/server code. Move logic to the editable module."
     fi
+    if grep -Eq '^#--param[[:space:]]+(OPS_USER|OPS_PASSWORD|OPS_APIHOST|OPS_REPO|OPS_SKILLS)([[:space:]]|$)' "$wrapper"; then
+      error "$wrapper" "Trustable-managed runtime variables must not be bound into actions. OPS_APIHOST is for Trustable/ops ide orchestration; browser code uses relative /api/my URLs and actions use generated service bindings. Regenerate the wrapper with the OpenServerless MCP tools."
+    fi
   done < <(find packages -mindepth 3 -maxdepth 3 -type f -name __main__.py 2>/dev/null | sort)
 
-  while IFS= read -r module; do
+  for module in "${package_action_modules[@]}"; do
     if grep -Eq 'os\.getenv\(["'\'']POSTGRES_URL["'\'']\)|args\.get\(["'\'']POSTGRES_URL["'\'']\)|psycopg2?\.connect\(.*POSTGRES_URL|psycopg2?\.connect\(.*getenv' "$module"; then
       warn "$module" "Business module reads POSTGRES_URL. Prefer ctx.POSTGRESQL when wrapper wiring provides it."
     fi
@@ -97,34 +111,55 @@ if [ -d packages ]; then
       ! grep -Eq 'REDIS_PREFIX|redis_key' "$module"; then
       error "$module" "Redis action code uses Redis keys without the generated ctx.REDIS_PREFIX. Build keys as ctx.REDIS_PREFIX plus an app-local suffix; naked keys are outside the Nuvolaris Redis ACL."
     fi
-  done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+    if grep -Eq '\.list_buckets[[:space:]]*\(' "$module"; then
+      error "$module" "S3 action code must never call list_buckets(). The generated credentials are scoped to ctx.S3_DATA and ctx.S3_WEB; verify only the configured bucket."
+    fi
+    if grep -Eiq 'S3_CLIENT|S3_DATA|S3_WEB' "$module" &&
+      grep -Eiq 'read[_ -]?write|write[_ -]?read' "$module" &&
+      { ! grep -Eq '\.put_object[[:space:]]*\(' "$module" ||
+        ! grep -Eq '\.get_object[[:space:]]*\(' "$module" ||
+        ! grep -Eq '["'\'']Body["'\'']' "$module" ||
+        ! grep -Eq '\.read[[:space:]]*\(' "$module" ||
+        ! grep -Eq '\.delete_object[[:space:]]*\(' "$module" ||
+        ! grep -Eq 'finally[[:space:]]*:' "$module"; }; then
+      error "$module" "S3 read/write status requires a real ctx.S3_DATA check: put_object, get_object and Body.read comparison, then delete_object in finally. head_bucket or listing cannot justify read_write: OK."
+    fi
+    if grep -Eq 'OPS_APIHOST' "$module"; then
+      error "$module" "Action modules must not read or use OPS_APIHOST. Frontends call relative /api/my endpoints; action composition uses generated service bindings instead of browser-facing or orchestration hosts."
+    fi
+  done
 
-  while IFS= read -r seedfile; do
+  for seedfile in "${package_action_modules[@]}"; do
+    lower_seedfile="${seedfile,,}"
+    case "$lower_seedfile" in
+      */setup/*|*seed*|*mocks*|*refresh*|*database*) ;;
+      *) continue ;;
+    esac
     if grep -Eiq 'INSERT[[:space:]]+INTO' "$seedfile" &&
       ! grep -Eiq 'seed_state|seed_marker|demo_seed|applied_at|already_populated|SELECT[[:space:]]+COUNT[[:space:]]*\([[:space:]]*\*[[:space:]]*\)[[:space:]]+FROM' "$seedfile"; then
       warn "$seedfile" "Seed-like action inserts rows but no durable seed marker was detected."
     fi
-  done < <(find packages -type f -name '*.py' \( -path '*/setup/*' -o -iname '*seed*' -o -iname '*mocks*' -o -iname '*refresh*' -o -iname '*database*' \) 2>/dev/null | sort)
+  done
 
-  while IFS= read -r viewfile; do
+  for viewfile in "${package_python_sources[@]}"; do
     if grep -Eiq 'CREATE[[:space:]]+OR[[:space:]]+REPLACE[[:space:]]+VIEW|ALTER[[:space:]]+VIEW' "$viewfile" && ! grep -Eiq 'DROP[[:space:]]+VIEW[[:space:]]+IF[[:space:]]+EXISTS' "$viewfile"; then
       warn "$viewfile" "View shape may change without DROP VIEW IF EXISTS."
     fi
-  done < <(find packages -type f -name '*.py' 2>/dev/null | sort)
+  done
 
-  while IFS= read -r module; do
+  for module in "${package_action_modules[@]}"; do
     if grep -Eq '(__ow_method|request_method|method).*(PUT|PATCH|DELETE)|(PUT|PATCH|DELETE).*(request_method|__ow_method|method)' "$module" && grep -q '__ow_path' "$module"; then
       if ! grep -Eq 'extract_.*(id|path)|path_.*id|route_.*id|request_.*id' "$module"; then
         warn "$module" "CRUD action inspects __ow_path for item routes but no obvious route-id extraction helper was detected. Use the contract pattern and test PUT/DELETE /api/my/<resource>/<id> without relying only on body id."
       fi
     fi
-  done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+  done
 
-  while IFS= read -r module; do
+  for module in "${package_action_modules[@]}"; do
     if grep -Eq '<!DOCTYPE[[:space:]]+html|<html[[:space:]>]' "$module" && grep -Eq '["'\'']html["'\''][[:space:]]*:|return[[:space:]]+\{[^}]*html' "$module"; then
       warn "$module" "Module appears to generate full HTML but return it as application JSON. If a browser opens this endpoint directly, return text/html as the HTTP body or make the frontend fetch JSON and write/print the extracted HTML."
     fi
-  done < <(find packages -type f -name '*.py' ! -name __main__.py 2>/dev/null | sort)
+  done
 fi
 
 if [ -d src ]; then
@@ -135,14 +170,14 @@ if [ -d src ]; then
   done < <(find src -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \) 2>/dev/null | sort)
 fi
 
-py_files=()
-for py_dir in packages tests; do
-  if [ -d "$py_dir" ]; then
-    while IFS= read -r py_file; do
-      py_files+=("$py_file")
-    done < <(find "$py_dir" -type f -name '*.py' 2>/dev/null | sort)
-  fi
-done
+py_files=("${package_python_sources[@]}")
+if [ -d tests ]; then
+  while IFS= read -r py_file; do
+    py_files+=("$py_file")
+  done < <(find tests \
+    \( -type d \( -name virtualenv -o -name .venv -o -name venv -o -name node_modules -o -name __pycache__ \) -prune \) -o \
+    \( -type f -name '*.py' -print \) 2>/dev/null | sort)
+fi
 if [ "${#py_files[@]}" -gt 0 ]; then
   if ! python3 - "${py_files[@]}" <<'PY'
 import pathlib

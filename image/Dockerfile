@@ -61,7 +61,7 @@ RUN \
     apt install -y --no-install-recommends \
         locales ca-certificates git sudo curl jq less vim libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
-        python-is-python3  python3-pip \
+        python-is-python3 python3-pip python3-pytest python3-dotenv \
         postgresql-client-16 redis-tools rclone  && \
     curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
     apt update && apt -y install nodejs ;\
@@ -95,7 +95,7 @@ RUN \
 COPY openserverless-mcp /tmp/openserverless-mcp
 COPY trustable-browser-mcp /tmp/trustable-browser-mcp
 RUN \
-    npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.13.0 ;\
+    npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.9.0 ;\
     cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
     npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
     cd /tmp/trustable-browser-mcp && npm pack --pack-destination /tmp ;\

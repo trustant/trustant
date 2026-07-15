@@ -107,6 +107,9 @@ It must say:
 - Trustable installs `check_openserverless_actions.sh` once in the user PATH;
   assistants must run `timeout 60 check_openserverless_actions.sh .` after
   deploy and before completion when the checker is available;
+- the checker analyzes application action sources, but must prune generated or
+  vendored dependency trees such as `virtualenv`, `.venv`, `venv`,
+  `node_modules`, and `__pycache__`;
 - missing or stale archives require another `ops ide deploy`, never a manual
   ZIP repair; other hard failures require contract recovery, a source repair,
   another deploy, and another checker run;
@@ -320,6 +323,13 @@ the matching exposed tool:
   wiring.
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
+- `secret-unbind` / `secret_unbind`: atomically remove an obsolete generated
+  secret binding without reading or deleting the value. This is the supported
+  recovery path for a legacy invalid managed-variable binding. A successful
+  removal must be followed, for every changed endpoint, by
+  `ops ide undeploy <endpoint>` and `ops ide deploy <endpoint>`, because an
+  action update alone preserves parameters already present in OpenWhisk.
+  `ops ide clean` is not a replacement because it removes only local artifacts.
 
 The embedded guidance must tell assistants not to invent tool or `ops` command
 names. If a tool call returns "Invalid Tool", assistants must switch to one of
@@ -420,7 +430,8 @@ docs, or frontend configuration.
 
 The guidance must say that Redis runtime access comes from
 `action-add-redis` / `action_add_redis`, which exposes `ctx.REDIS` and
-`ctx.REDIS_PREFIX`. Assistants must build every Redis action key from
+`ctx.REDIS_PREFIX` and adds the required Python Redis client dependency to the
+action package. Assistants must build every Redis action key from
 `ctx.REDIS_PREFIX` plus an app-local suffix, using a helper such as
 `redis_key(ctx, name)`. The guidance must forbid naked Redis keys passed
 directly to `ctx.REDIS.get/set/delete/hset/hget/lpush/sadd/expire/...`, because
@@ -482,11 +493,16 @@ action modules must use the shared `ctx.<SECRET>` value, fail closed when it is
 absent, and never use an `os.getenv()` default, app-name-derived key, or other
 hardcoded fallback for signing or verification.
 
-The embedded guidance must say that S3 app verification should use the
-OpenServerless action path created with `action-add-s3`, generated action
-wiring, configured user buckets, or the companion `rclone` wrapper. Assistants
-must not rely on S3 MCP bucket listing as app proof; S3 MCP list-bucket schema
-failures are diagnostic tool failures, not sufficient reason to abandon the app
+The embedded guidance must say that S3 app verification uses the OpenServerless
+action path created with `action-add-s3`, generated action wiring, configured
+user buckets, or the companion `rclone` wrapper. S3 credentials are
+bucket-scoped, so assistants must never call `ctx.S3_CLIENT.list_buckets()`.
+Neither `head_bucket` nor bucket/object listing proves read/write access. A
+read/write check must use a unique temporary key in `ctx.S3_DATA`, execute
+`put_object`, execute `get_object` and compare the returned body bytes, and
+execute `delete_object` in a `finally` block. It may report `read_write: OK`
+only after the byte comparison succeeds. S3 MCP list-bucket schema failures are
+diagnostic tool failures, not sufficient reason to abandon the app
 implementation.
 
 ## Runtime Host Rules
@@ -502,7 +518,17 @@ view inside the Trustable pod:
   proxy/ingress and must be used only after `ops ide deploy` succeeds and only
   when external browser or ingress routing is in scope;
 - `opencode.<domain>` is the browser-visible OpenCode host;
-- `OPS_APIHOST` is the configured OpenServerless API host.
+- `OPS_APIHOST` is the configured OpenServerless API host used by Trustable and
+  `ops ide` for login, deploy, and development proxy orchestration. It is not
+  an application secret or action parameter. The guidance and checker must
+  forbid `#--param OPS_APIHOST "$OPS_APIHOST"`, `ctx.OPS_APIHOST`, and action
+  module reads of `OPS_APIHOST`.
+
+The guidance must tell frontend code to call actions through relative
+`/api/my/<package>/<action>` URLs so the browser preserves its current origin.
+Actions must not call sibling actions through `OPS_APIHOST`, browser-visible
+hosts, or ingress URLs. Independent endpoints should be called by the frontend;
+server-side aggregation must use generated service bindings in one action.
 
 The embedded guidance must tell assistants not to invent pod IPs, raw service
 names, public domains, or replacement localhost URLs for app verification.
@@ -776,6 +802,9 @@ The embedded guidance must say:
 - PostgreSQL, Redis, S3, Milvus, MongoDB, and secrets are added with the corresponding
   action/service tool, not by manually editing generated wrapper code or
   hardcoding credentials.
+- `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
+  Trustable-managed orchestration variables and must be rejected by generic
+  secret tools rather than bound into action wrappers.
 
 ## Data And Service Restrictions
 
@@ -900,6 +929,14 @@ same requested tool and normalized error must end the turn immediately with a
 concise visible explanation; any successful different tool or new user request
 resets that circuit.
 
+Verification repetition must also be compared semantically across provider
+steps. Equivalent requests to the same endpoint with different `curl` flags,
+or alternating an endpoint request with activation-log inspection, are not
+fresh progress. Three occurrences of the same target and failure class without
+a source mutation must stop the turn with the concrete target and failure. A
+successful matching verification, a source mutation, or a new user request
+resets this state.
+
 The generic MCP resource tools must advertise the exact connected servers that
 declare the MCP `resources` capability. Requests naming a connected tools-only
 server, such as S3, must be skipped before reaching that server and return a
@@ -907,8 +944,10 @@ successful explanatory result listing the resource-capable servers. Capability
 mismatches must not appear as MCP connection failures or start a retry loop.
 
 Errors generated by Trustable's internal guards are agent control-plane input
-and must not appear as tool-error rows in the user timeline. Application and
-ordinary tool failures remain visible.
+and must not appear as tool-error rows in the user timeline. Provider
+self-repair attempts such as unavailable tools, schema-invalid inputs, and
+rejected endpoint names are also hidden while remaining available in model
+history. Application and ordinary tool failures remain visible.
 
 Trustable Code sanitizes final assistant text before persistence and the app
 sanitizes it again while rendering. Internal completion checks, gates,
