@@ -630,6 +630,9 @@ marks setup as required; deploy does not clear that state, and completion stays
 blocked until a successful `ops ide setup` runs after deploy.
 The local Air development loop watches both root Go and JavaScript sources so
 edits to the embedded guardrail plugin rebuild the running Trustable server.
+Because the repository is mounted into Lima from macOS, Air must use its
+polling watcher rather than relying on filesystem notifications that may not
+cross the mount; the polling interval is one second.
 It excludes the separately built `trustable-code` subrepo from checksum scans;
 ignored Bun `.bun-build` marker files can have mode `000` on the shared volume
 and are not development inputs for the Go server.
