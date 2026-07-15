@@ -511,9 +511,12 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if !ok {
 		t.Fatalf("generated agent limits missing: %#v", got["agent"])
 	}
-	for _, name := range []string{"build", "plan"} {
+	for name, steps := range map[string]int{
+		"build": trustableBuildAgentSteps,
+		"plan":  trustablePlanAgentSteps,
+	} {
 		agent, ok := agentLimits[name].(map[string]interface{})
-		if !ok || agent["steps"] != float64(trustableAgentSteps) {
+		if !ok || agent["steps"] != float64(steps) {
 			t.Fatalf("generated %s step limit missing: %#v", name, agentLimits[name])
 		}
 	}
@@ -857,6 +860,50 @@ def main(args, ctx=None):
 		t.Fatalf("checker should reject MongoDB implemented with Milvus, output=%s", strings.TrimSpace(string(out)))
 	}
 	if !strings.Contains(string(out), "Do not use Milvus/vector tooling as a MongoDB substitute") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerAllowsIndependentMongoDBAndMilvusChecks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "monitor")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `from monitor import main
+
+def init_mongodb(args, ctx):
+    ctx.MONGODB_CLIENT = object()
+
+def init_milvus(args, ctx):
+    ctx.MILVUS = object()
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def check_mongodb(ctx):
+    return ctx.MONGODB_CLIENT.admin.command("ping")
+
+def check_milvus(ctx):
+    return ctx.MILVUS.list_collections()
+
+def main(args, ctx=None):
+    return {"mongodb": check_mongodb(ctx), "milvus": check_milvus(ctx)}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "monitor.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should allow independent MongoDB and Milvus checks, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
 		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
 	}
 }

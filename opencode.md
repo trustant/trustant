@@ -454,6 +454,9 @@ OpenCode runs inside the Trustable pod. Classify hosts before using them:
   `ops ide` orchestration. It must never be bound into an action, exposed as
   `ctx.OPS_APIHOST`, read by an action module, or emitted as
   `#--param OPS_APIHOST "$OPS_APIHOST"`.
+- Do not rewrite the generated Vite `/api/my` proxy target. Trustable starts the
+  managed dev server with the current app's `OPSDEV_HOST`; browser application
+  code must continue to use relative `/api/my/...` URLs.
 
 Frontend code calls actions with relative `/api/my/<package>/<action>` URLs so
 the browser keeps its current origin. Action modules must not call sibling
@@ -461,6 +464,11 @@ actions through `OPS_APIHOST`, browser-visible hosts, or ingress URLs. For
 multiple independent checks, let the frontend call the relative endpoints; for
 server-side aggregation, add every required generated service binding to one
 action and use its `ctx` clients directly.
+
+One action may use MongoDB and Milvus independently. Use
+`ctx.MONGODB_CLIENT` / `ctx.MONGODB` for document-database operations and
+`ctx.MILVUS` for vector operations; do not remove either legitimate check merely
+because both appear in the same business module.
 
 Do not invent pod IPs, raw service names, public domains, or replacement
 localhost URLs for app verification. For app endpoints from this shell, prefer:

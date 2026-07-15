@@ -924,11 +924,12 @@ times per real request. Failures are reported concretely and must not cause
 placeholder-test churn. Read-only inspection of a checker path is distinct from
 executing and masking that checker's exit status.
 
-Generated Trustable configurations cap the primary `build` and `plan` agents
-at 64 provider steps per user turn. On the last step Trustable Code must remove
-ordinary tools from the provider request and end the loop even if the provider
-still emits a tool call. A maximum-step instruction without enforcement is not
-a valid loop guard. Trustable Code must also count identical repaired `invalid`
+Generated Trustable configurations cap the primary `build` agent at 128
+provider steps and the `plan` agent at 64 provider steps per user turn. On the
+last step Trustable Code must remove ordinary tools from the provider request
+and end the loop even if the provider still emits a tool call. A maximum-step
+instruction without enforcement is not a valid loop guard. Trustable Code must
+also count identical repaired `invalid`
 tool calls across separate provider steps. Three consecutive calls with the
 same requested tool and normalized error must end the turn immediately with a
 concise visible explanation; any successful different tool or new user request
@@ -939,8 +940,9 @@ steps. Equivalent requests to the same endpoint with different `curl` flags,
 or alternating an endpoint request with activation-log inspection, are not
 fresh progress. Three occurrences of the same target and failure class without
 a source mutation must stop the turn with the concrete target and failure. A
-successful matching verification, a source mutation, or a new user request
-resets this state.
+deploy or another environment-only mutation is not a source mutation and must
+not reset the failure count. A successful matching verification, a source
+mutation, or a new user request resets this state.
 
 The generic MCP resource tools must advertise the exact connected servers that
 declare the MCP `resources` capability. Requests naming a connected tools-only

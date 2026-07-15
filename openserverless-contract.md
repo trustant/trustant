@@ -121,6 +121,10 @@ Invalid examples:
 - If `action-add-mongodb` / `action_add_mongodb` is exposed, use it to generate
   the MongoDB wrapper and use `ctx.MONGODB_CLIENT` or `ctx.MONGODB` in business
   modules.
+- One action may legitimately use MongoDB and Milvus as separate capabilities.
+  In that case use the official `ctx.MONGODB_CLIENT` / `ctx.MONGODB` binding for
+  MongoDB and `ctx.MILVUS` for vector operations; the presence of both services
+  is not, by itself, a MongoDB substitution error.
 - If MongoDB is absent, show `non configurato` or an error state and document
   that state. Do not ask the user for infrastructure details and do not use
   Milvus/vector search as a substitute for MongoDB.
