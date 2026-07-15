@@ -1039,13 +1039,18 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	if apiKey == "" {
 		apiKey = "dummy"
 	}
+	options := map[string]interface{}{
+		"baseURL": baseURL,
+		"apiKey":  apiKey,
+	}
+	if cfg.Provider == "trustable" {
+		options["headerTimeout"] = trustableProviderSilenceTimeoutMS
+		options["chunkTimeout"] = trustableProviderSilenceTimeoutMS
+	}
 
 	return map[string]interface{}{
-		"options": map[string]interface{}{
-			"baseURL": baseURL,
-			"apiKey":  apiKey,
-		},
-		"models": models,
+		"options": options,
+		"models":  models,
 	}
 }
 
@@ -1065,9 +1070,10 @@ func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
 }
 
 const (
-	trustableAgentsBegin = "<!-- TRUSTABLE-MANAGED-AGENTS-BEGIN -->"
-	trustableAgentsEnd   = "<!-- TRUSTABLE-MANAGED-AGENTS-END -->"
-	trustableAgentSteps  = 64
+	trustableAgentsBegin              = "<!-- TRUSTABLE-MANAGED-AGENTS-BEGIN -->"
+	trustableAgentsEnd                = "<!-- TRUSTABLE-MANAGED-AGENTS-END -->"
+	trustableAgentSteps               = 64
+	trustableProviderSilenceTimeoutMS = 60_000
 )
 
 func managedAppAgentsContent() string {

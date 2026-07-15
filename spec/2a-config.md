@@ -312,7 +312,12 @@ project's short OpenServerless contract and then at the project's full
   "disabled_providers": [<default OpenCode providers, minus "<provider>">],
   "provider": {
     "<provider>": {
-      "options": { "baseURL": "<base_url>", "apiKey": "<api_key>" },
+      "options": {
+        "baseURL": "<base_url>",
+        "apiKey": "<api_key>",
+        "headerTimeout": 60000,
+        "chunkTimeout": 60000
+      },
       "models": { <one entry per model in trustable.json "models" map> }
     }
   }
@@ -335,6 +340,13 @@ from the top-level `base_url` and `api_key` fields** of `trustable.json`:
 - BestIA → `baseURL = "http://bestia:11434/v1"` (fixed); `apiKey` is the
   proxy-signed key stored in `trustable.json`. The OpenCode provider key is its
   own dedicated `bestia` (parallel to `trustable`), not the `ollama` fallback.
+
+The generated `trustable` cloud provider also sets `headerTimeout` and
+`chunkTimeout` to 60 seconds. A provider request that produces neither response
+headers nor another streamed chunk therefore fails promptly and enters
+OpenCode's bounded retry path instead of leaving the session apparently busy
+for several minutes. These cloud transport timeouts are not forced on local
+Ollama or BestIA providers.
 
 Because `<provider>` is now a generated provider it must not appear in
 `disabled_providers`.

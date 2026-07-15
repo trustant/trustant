@@ -110,6 +110,29 @@ func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
 	}
 }
 
+func TestBuildModelProviderBoundsSilentTrustableStreams(t *testing.T) {
+	provider := buildModelProvider(&trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://proxy.example.test/v1",
+		APIKey:   "test-key",
+		Models:   map[string]*ModelLimits{"qwen": {MaxToken: 240000, MaxOutput: 120000}},
+	})
+	options, ok := provider["options"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("provider options missing: %#v", provider)
+	}
+	if options["headerTimeout"] != trustableProviderSilenceTimeoutMS ||
+		options["chunkTimeout"] != trustableProviderSilenceTimeoutMS {
+		t.Fatalf("silent stream timeouts missing: %#v", options)
+	}
+
+	ollama := buildModelProvider(&trustableConfig{Provider: "ollama"})
+	ollamaOptions := ollama["options"].(map[string]interface{})
+	if _, present := ollamaOptions["headerTimeout"]; present {
+		t.Fatalf("cloud timeout should not be forced on local providers: %#v", ollamaOptions)
+	}
+}
+
 func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *testing.T) {
 	t.Setenv("OPS_APIHOST", "https://cluster.example.test:8443")
 	origWorkspace := WorkspaceDir
