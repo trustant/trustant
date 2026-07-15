@@ -88,6 +88,11 @@ Successful registration establishes an authenticated session immediately,
 using the same token/session/user contract as login. Do not require the user to
 log in again before entering the protected area.
 
+Every OpenServerless action endpoint must be `action` or `package/action`.
+Each segment starts with a letter and contains only letters, numbers, and
+hyphens. Use flat names such as `v1/employees-photo`; underscores, spaces, and
+nested forms such as `v1/employees_photo` or `v1/employees/photo` are invalid.
+
 Login and registration must update the live authentication provider/store
 before navigating. Do not write only to `localStorage`: the protected-route
 guard must observe the authenticated state in the same render cycle, without a

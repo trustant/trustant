@@ -76,18 +76,24 @@ Valid action names are only:
 - `action`
 - `package/action`
 
+Each package and action segment must start with a letter and contain only
+letters, numbers, and hyphens. Use flat hyphenated names; underscores and
+spaces are invalid.
+
 Use package `v1` for browser APIs unless the user explicitly asks otherwise.
 
 Valid examples:
 
 - `v1/prospect`
 - `v1/issues`
+- `v1/employees-photo`
 - `setup/database`
 
 Invalid examples:
 
 - `v1/auth/register`
 - `v1/contacts/list`
+- `v1/employees_photo`
 - `packages/v1/auth/register`
 
 ## Database Rules

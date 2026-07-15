@@ -214,6 +214,11 @@ instead of successful warning text.
 `action_new` is idempotent. Repeating it for an existing endpoint with matching
 visibility returns a successful check/no-op and must not overwrite application
 code. Incomplete endpoint paths and visibility conflicts remain MCP errors.
+Every MCP action tool shares one endpoint schema: `action` or `package/action`,
+with each segment starting with a letter and containing only letters, numbers,
+and hyphens. Invalid underscore, whitespace, or nested names must fail schema
+validation before mutation and suggest the equivalent flat hyphenated name when
+one can be derived.
 
 The runtime image pins Trustable Code through the `trustable-code` Git subrepo
 and verifies its reported version against `OPENCODE_VERSION` in

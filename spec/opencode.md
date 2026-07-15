@@ -366,6 +366,11 @@ accepted by the Trustable action tools must be only:
 - `action`;
 - `package/action`.
 
+Every package and action segment must start with a letter and contain only
+letters, numbers, and hyphens. The guidance and MCP schema must recommend flat
+hyphenated names such as `v1/employees-photo`, and must reject underscores,
+spaces, and forms such as `v1/employees_photo` before any action mutation.
+
 For browser-facing APIs, the guidance must prefer package `v1`. It must include
 valid examples such as:
 
@@ -386,8 +391,8 @@ It must explicitly mark nested endpoint forms as invalid, including:
 The guidance must say that CRUD resources should normally use one public action
 per resource, such as `v1/contacts` or `v1/orders`, and branch inside the
 editable module using `__ow_method` plus request data. If separate actions are
-clearer, names must remain flat, such as `v1/contacts_list` or
-`v1/orders_create`.
+clearer, names must remain flat and hyphenated, such as `v1/contacts-list` or
+`v1/orders-create`.
 
 The guidance must explicitly forbid creating nested directories under
 `packages/<package>/<group>/<action>` to simulate routes, because they are not

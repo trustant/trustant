@@ -284,6 +284,11 @@ MCP action endpoint must therefore be only:
 - `action`
 - `package/action`
 
+Every package and action segment must start with a letter and contain only
+letters, numbers, and hyphens. Use flat hyphenated names such as
+`v1/employees-photo`; underscores and spaces are invalid. Never send
+`v1/employees_photo` to an action MCP tool.
+
 For browser-facing APIs, use package `v1`. Valid examples:
 
 - `v1/register`
@@ -303,7 +308,7 @@ Invalid examples:
 If an API needs CRUD behavior, prefer one public action per resource, such as
 `v1/contacts` or `v1/orders`, and branch inside the editable module using
 `__ow_method` plus request data. If separate actions are clearer, keep names
-flat, such as `v1/contacts_list` or `v1/orders_create`.
+flat and hyphenated, such as `v1/contacts-list` or `v1/orders-create`.
 
 Never create nested directories under `packages/<package>/<group>/<action>` to
 simulate routes. They are not valid Trustable/OpenServerless endpoints.
