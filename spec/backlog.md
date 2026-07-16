@@ -49,3 +49,55 @@ Completion requirements:
   but has neither a scheduled action nor a supported dispatcher;
 - add an E2E fixture covering fixed and runtime-configurable schedules.
 
+## Disable the unused OpenCode cloud GitHub integration
+
+Status: backlog
+
+Trustable does not use the upstream `opencode github install` or
+`opencode github run` automation, but the commands and their
+`https://api.opencode.ai` token-exchange and installation-check endpoints are
+still included in the Trustable Code source and compiled binary.
+
+Remove or explicitly disable this integration in the Trustable Code build so a
+normal Trustable installation cannot contact the OpenCode cloud endpoint. This
+must not remove Trustable's existing local repository operations such as
+commit, pull, and push.
+
+Completion requirements:
+
+- remove the unused GitHub command registration from the shipped Trustable Code
+  CLI, or protect it behind an explicit opt-in that is disabled by default;
+- ensure `api.opencode.ai` is absent from the shipped binary unless an approved,
+  configurable GitHub integration is deliberately enabled;
+- keep Edit, chat, application generation, commit, pull, and push working;
+- add a regression check proving that the default Trustable runtime makes no
+  request to `api.opencode.ai`.
+
+## Make the Trustable Code submodule revision portable across Lima and WSL
+
+Status: backlog
+
+`run.sh` and `setup.sh` can execute Git commands against the `trustable-code`
+submodule from inside the development VM. In a host-mounted checkout, the
+submodule `.git` file can reference an absolute host-only path such as
+`.git/modules/trustable-app/modules/trustable-code`. That path is not necessarily
+available with the same name inside Lima or WSL, so Git reports `not a git
+repository`, Trustable cannot read the submodule revision, and setup stops.
+
+The revision needed by the VM must be resolved in a portable way. Prefer
+resolving and validating it on the host before entering the VM, then pass it as
+explicit setup metadata. Code running inside the VM must not depend on the
+host's absolute Git metadata path.
+
+Completion requirements:
+
+- make both `run.sh` and `setup.sh` work from clean supported Lima and WSL
+  environments with a normally initialized or shallow parent checkout;
+- avoid running revision-discovery commands through a submodule `.git` file
+  whose target exists only on the host;
+- validate that the resolved revision matches the mounted `trustable-code`
+  contents before building or installing it;
+- fail with an actionable message when the submodule is absent or genuinely
+  uninitialized, distinguishing that case from an inaccessible host Git path;
+- add regression coverage for nested submodules mounted at a different path in
+  the VM than on the host.
