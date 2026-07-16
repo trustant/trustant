@@ -1,7 +1,8 @@
-Write a setup.sh script that recreates — INSIDE the Ubuntu VM created by
-`./start.sh` (the `trudev` Lima VM) — the same environment that `image/Dockerfile`
-builds, so that `./run.sh` can be run inside the VM with all MCP servers and
-references ready.
+Write a setup.sh script that recreates, inside a supported Ubuntu development
+target, the same environment that `image/Dockerfile` builds, so that `./run.sh`
+can be run with all MCP servers and references ready. Supported targets are the
+Ubuntu `trudev` Lima VM created by `./start.sh` and Ubuntu on WSL with local k3s,
+passwordless sudo, and systemd enabled.
 
 setup.sh runs INSIDE the VM, as the mirrored guest user (the macOS user that
 `start.sh` recreated in the VM with the same UID + passwordless sudo). `start.sh`
@@ -10,6 +11,12 @@ trudev ./setup.sh`), so the normal flow is just `./run.sh` on the host; you can
 also run it manually via `./ssh.sh ./setup.sh` or from a login shell in the VM
 (`limactl shell trudev`). It is idempotent — re-runs just verify. The repo is
 virtiofs-mounted at its host path and is writable by this user.
+
+On WSL, run `setup.sh` manually as the Linux development user. The repository
+should live in the WSL Linux filesystem, and `/etc/rancher/k3s/k3s.yaml` must
+describe the k3s running in that same WSL instance. WSL must have systemd and
+`systemd-resolved` enabled so `cluster.local` can be routed without rewriting
+the generated Windows resolver configuration.
 
 Everything is installed for the local user — into `~/.local/bin` and
 `~/.config/opencode`, no `/opt/uv/*`, no `sudo` except where a step needs a system
@@ -110,8 +117,15 @@ start.sh — that exists to serve the macOS host, not the VM.
 
 verify curl -sL <apihost>/api/info | jq .description returns OpenWhisk
 
-8. Extract the kubeconfig for ops from the LOCAL k3s (no ssh, no IP rewrite — the
-127.0.0.1 in k3s.yaml is already correct inside the VM):
+8. Select the Kubernetes client and extract the kubeconfig for ops from the
+LOCAL k3s (no ssh, no IP rewrite — `127.0.0.1` in k3s.yaml is already correct
+inside Lima or WSL).
+
+Prefer a standalone `kubectl` when present; otherwise use the client guaranteed
+by the Trustable package as `k3s kubectl`. Abort with a clear error if neither
+exists. All subsequent commands must use that selected client with
+`KUBECONFIG=~/.ops/tmp/kubeconfig`; do not invoke an assumed standalone
+`kubectl` directly.
 
 mkdir -p ~/.ops/tmp
 sudo cat /etc/rancher/k3s/k3s.yaml > ~/.ops/tmp/kubeconfig
@@ -120,13 +134,21 @@ chmod 600 ~/.ops/tmp/kubeconfig
 Only do this if ~/.ops/tmp/kubeconfig is missing or invalid (the package may
 already have wired ops). sudo is passwordless for the guest user.
 
-After kubeconfig is valid, read the `kube-system/kube-dns` ClusterIP and create
+After writing the file, wait for `/readyz` and show the real client/API error if
+the local cluster does not become ready. Do not hide a missing executable or
+connection error behind a generic CoreDNS message.
+
+After kubeconfig is valid, read the `kube-system/kube-dns` ClusterIP (falling
+back to the `k8s-app=kube-dns` Service label) and create
 `/etc/systemd/resolved.conf.d/trustable-k3s.conf` with that DNS server routed
 only for `~cluster.local`. Restart `systemd-resolved` only when the file changes
 and require `kubernetes.default.svc.cluster.local` to resolve. Host-side
 Trustable Code and MCP processes consume service names from
 `~/.ops/config.json`; ClusterIP routing alone is insufficient without this DNS
 route.
+
+On WSL, abort with instructions to enable systemd when `systemd-resolved` is not
+active; silently skipping this step would leave MCP service hosts unresolved.
 
 9. check you have administrative power
 ensuring `ops admin listuser` does not return error

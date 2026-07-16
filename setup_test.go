@@ -27,3 +27,25 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 		t.Fatal("setup.sh must rebuild Trustable Code when its development working tree changes")
 	}
 }
+
+func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+	for _, required := range []string{
+		`KUBECTL_CMD=(kubectl)`,
+		`KUBECTL_CMD=(k3s kubectl)`,
+		`KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"`,
+		`local k3s API did not become ready`,
+		`WSL requires systemd-resolved`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing portable Kubernetes setup fragment %q", required)
+		}
+	}
+	if strings.Contains(setup, `KUBECONFIG="$KUBECONFIG_FILE" kubectl`) {
+		t.Fatal("setup.sh must not assume a standalone kubectl binary")
+	}
+}

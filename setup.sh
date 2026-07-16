@@ -1,12 +1,14 @@
 #!/bin/bash
 #
-# setup.sh — recreate the image/Dockerfile environment INSIDE the trudev VM.
+# setup.sh — recreate the image/Dockerfile environment inside supported Ubuntu
+# development targets: the trudev Lima VM or Ubuntu on WSL with local k3s.
 #
-# Runs as the mirrored guest user inside the Ubuntu VM created by ./start.sh
-# (invoke via `./ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
+# In Lima it runs as the mirrored guest user created by ./start.sh (invoke via
+# `./ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`). In WSL,
+# run it as the development user with passwordless sudo and systemd enabled.
 # Everything is installed for the local user (~/.local/bin, ~/.config/opencode),
 # no /opt/uv/*, no sudo except for system packages (the guest has passwordless
-# sudo). See spec/setup.md — that is the source of truth for these steps.
+# sudo). See setup.md — that is the source of truth for these steps.
 #
 set -euo pipefail
 
@@ -26,7 +28,22 @@ ARCH=$(uname -m)
 case "$ARCH" in
   x86_64)        ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
+  *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
 esac
+
+[[ "$OS" == "linux" ]] || fail "setup.sh supports Ubuntu Linux in Lima or WSL, not ${OS}"
+[[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
+# shellcheck disable=SC1091
+source /etc/os-release
+case " ${ID:-} ${ID_LIKE:-} " in
+  *ubuntu*|*debian*) ;;
+  *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
+esac
+
+IS_WSL=false
+if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then
+  IS_WSL=true
+fi
 
 RC_FILES=("$HOME/.bashrc")
 
@@ -240,24 +257,75 @@ WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) 
 ok "OpenWhisk reachable at ${APIHOST}"
 
 # --- 8. Extract kubeconfig for ops from the LOCAL k3s (no ssh, no IP rewrite) ---
-# The 127.0.0.1 in k3s.yaml is already correct inside the VM.
+# The 127.0.0.1 in k3s.yaml is already correct inside Lima/WSL. The Trustable
+# package guarantees `k3s kubectl`; some environments additionally provide a
+# standalone `kubectl`, so select either without assuming one particular layout.
 echo "--- Ensuring ops kubeconfig ---"
 KUBECONFIG_FILE="$HOME/.ops/tmp/kubeconfig"
-if KUBECONFIG="$KUBECONFIG_FILE" kubectl --raw='/readyz' &>/dev/null; then
+
+if command -v kubectl &>/dev/null; then
+  KUBECTL_CMD=(kubectl)
+elif command -v k3s &>/dev/null; then
+  KUBECTL_CMD=(k3s kubectl)
+else
+  fail "no Kubernetes client found: install kubectl or the local k3s runtime"
+fi
+kube() {
+  KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"
+}
+ok "Kubernetes client: ${KUBECTL_CMD[*]}"
+
+if kube get --raw='/readyz' &>/dev/null; then
   ok "kubeconfig already valid at $KUBECONFIG_FILE"
 else
   mkdir -p "$HOME/.ops/tmp"
+  [[ -r /etc/rancher/k3s/k3s.yaml ]] || sudo test -r /etc/rancher/k3s/k3s.yaml \
+    || fail "local k3s kubeconfig is not readable at /etc/rancher/k3s/k3s.yaml"
   sudo cat /etc/rancher/k3s/k3s.yaml > "$KUBECONFIG_FILE" || fail "failed to read /etc/rancher/k3s/k3s.yaml"
   chmod 600 "$KUBECONFIG_FILE"
   ok "kubeconfig written to $KUBECONFIG_FILE"
 fi
 
+KUBE_READY=false
+for _ in $(seq 1 30); do
+  if kube get --raw='/readyz' &>/dev/null; then
+    KUBE_READY=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$KUBE_READY" != true ]]; then
+  warn "Kubernetes API diagnostic:"
+  kube get --raw='/readyz' || true
+  fail "local k3s API did not become ready using $KUBECONFIG_FILE"
+fi
+ok "local k3s API is ready"
+
 # Host-side development processes use service names from ~/.ops/config.json,
 # including *.svc.cluster.local. Route that DNS suffix through the local k3s
 # CoreDNS service; ClusterIP routing is already available on the VM host.
 echo "--- Configuring k3s service DNS ---"
-CLUSTER_DNS_IP=$(KUBECONFIG="$KUBECONFIG_FILE" kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-[[ -n "$CLUSTER_DNS_IP" && "$CLUSTER_DNS_IP" != "None" ]] || fail "cannot determine kube-system/kube-dns ClusterIP"
+CLUSTER_DNS_IP=""
+for _ in $(seq 1 30); do
+  CLUSTER_DNS_IP=$(kube -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+  if [[ -z "$CLUSTER_DNS_IP" || "$CLUSTER_DNS_IP" == "None" ]]; then
+    CLUSTER_DNS_IP=$(kube -n kube-system get svc -l k8s-app=kube-dns -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null || true)
+  fi
+  [[ -n "$CLUSTER_DNS_IP" && "$CLUSTER_DNS_IP" != "None" ]] && break
+  sleep 2
+done
+if [[ -z "$CLUSTER_DNS_IP" || "$CLUSTER_DNS_IP" == "None" ]]; then
+  warn "Kubernetes services visible in kube-system:"
+  kube -n kube-system get svc || true
+  fail "cannot determine the local CoreDNS Service ClusterIP"
+fi
+
+if ! command -v systemctl &>/dev/null || ! systemctl is-active --quiet systemd-resolved; then
+  if [[ "$IS_WSL" == true ]]; then
+    fail "WSL requires systemd-resolved: enable systemd in /etc/wsl.conf, run 'wsl.exe --shutdown' from Windows, then retry"
+  fi
+  fail "systemd-resolved is required to route cluster.local inside this Ubuntu VM"
+fi
 RESOLVED_DIR=/etc/systemd/resolved.conf.d
 RESOLVED_FILE="$RESOLVED_DIR/trustable-k3s.conf"
 RESOLVED_CONTENT=$(printf '[Resolve]\nDNS=%s\nDomains=~cluster.local\n' "$CLUSTER_DNS_IP")
