@@ -257,10 +257,18 @@ finish() {
   apply_reverse_proxy "$IP"
 
   # Provision the in-VM toolchain (ops/go/air/uv/node/opencode + MCP servers) by
-  # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir
-  # (Lima mounts it at the same path). Idempotent — re-runs just verify.
+  # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir.
+  # Virtiofs mounts only this checkout, so nested host Git metadata may not be
+  # visible in the guest. Resolve the submodule commit on the host and pass it as
+  # explicit setup metadata.
+  local trustable_code_ref
+  trustable_code_ref="$(git -C "$MOUNT_DIR/trustable-code" rev-parse --verify HEAD 2>/dev/null)" \
+    || fail "cannot read trustable-code submodule revision on the host"
+  [[ "$trustable_code_ref" =~ ^[0-9a-fA-F]{40,64}$ ]] \
+    || fail "invalid trustable-code submodule revision: $trustable_code_ref"
   echo "--- Running setup.sh in the VM as $HOST_USER ---"
-  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./setup.sh \
+  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" \
+    env TRUSTABLE_CODE_SOURCE_REF="$trustable_code_ref" ./setup.sh \
     || fail "setup.sh failed in the VM"
   ok "setup.sh completed"
 

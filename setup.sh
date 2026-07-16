@@ -40,6 +40,9 @@ case " ${ID:-} ${ID_LIKE:-} " in
   *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
 esac
 
+# shellcheck disable=SC1091
+source ./setup-trustable-code.sh
+
 IS_WSL=false
 if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then
   IS_WSL=true
@@ -406,17 +409,17 @@ if [[ ${#BUILD_MISSING[@]} -gt 0 ]]; then
   sudo apt-get install -y "${BUILD_MISSING[@]}" || fail "Trustable Code build dependency install failed"
 fi
 
-TRUSTABLE_CODE_REF=$(git -C trustable-code rev-parse HEAD) \
-  || fail "cannot read trustable-code submodule revision"
-TRUSTABLE_CODE_WORKTREE_HASH=$(
-  (
-    git -C trustable-code diff --binary HEAD --
-    while IFS= read -r file; do
-      printf 'untracked:%s\n' "$file"
-      sha256sum "trustable-code/$file"
-    done < <(git -C trustable-code ls-files --others --exclude-standard)
-  ) | sha256sum | awk '{print $1}'
-) || fail "cannot fingerprint trustable-code working tree"
+TRUSTABLE_CODE_IDENTITY=$(trustable_code_source_identity trustable-code) || {
+  case $? in
+    2) fail "trustable-code submodule is not initialized (run: git submodule update --init trustable-code)" ;;
+    3) fail "invalid TRUSTABLE_CODE_SOURCE_REF (expected a Git commit hash)" ;;
+    *) fail "cannot fingerprint trustable-code source tree" ;;
+  esac
+}
+IFS=$'\t' read -r TRUSTABLE_CODE_REF TRUSTABLE_CODE_WORKTREE_HASH <<< "$TRUSTABLE_CODE_IDENTITY"
+if [[ "$TRUSTABLE_CODE_REF" == source-* ]]; then
+  warn "trustable-code Git metadata is unavailable; using portable source fingerprint ${TRUSTABLE_CODE_REF#source-}"
+fi
 TRUSTABLE_CODE_BUILD_REF="${TRUSTABLE_CODE_REF}:${TRUSTABLE_CODE_WORKTREE_HASH}"
 TRUSTABLE_CODE_STATE_DIR="$HOME/.local/share/trustable-code"
 TRUSTABLE_CODE_REF_FILE="$TRUSTABLE_CODE_STATE_DIR/ref"

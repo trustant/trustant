@@ -39,6 +39,14 @@ and a working-tree content fingerprint. This keeps release/image builds pinned
 to commits while allowing an uncommitted local Trustable Code change to be
 compiled and validated during development.
 
+For the macOS Lima flow, `start.sh` resolves the Trustable Code commit on the
+host and passes it explicitly to `setup.sh`. The guest must not follow a nested
+submodule `.git` path into host-only Git metadata. `setup.sh` computes the
+working-tree fingerprint directly from the mounted source while excluding Git
+metadata, dependencies, build output, caches, and Bun build markers. A direct
+Ubuntu/WSL setup resolves the commit locally when Git metadata is available;
+otherwise it uses the source fingerprint as a stable fallback and continues.
+
 Server build environment:
 
 - `TRUSTABLE_IMAGE`: image repository, default
