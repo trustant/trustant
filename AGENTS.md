@@ -30,6 +30,26 @@ Use `./build-server.sh` on Linux servers. `./build.sh` is the compatibility entr
   config env maps, or env-generation code unless the user explicitly authorizes
   that exact variable in the current conversation.
 
+## Portability
+
+- Changes to `setup.sh`, `run.sh`, `start.sh`, build/deploy scripts, and other
+  system-facing components must be reproducible on a clean instance of their
+  declared target environment. They do not need to support unrelated systems:
+  for example, `setup.sh` and `run.sh` target the Ubuntu `trudev` Lima VM.
+- Within that declared environment, never rely on the current developer
+  machine's paths, cached tools, DNS state, credentials, unpublished Git
+  objects, or other implicit local state. Detect only the target properties
+  that are expected to vary, such as `amd64` versus `arm64`, and fail early with
+  a clear prerequisite message when the declared environment is not present.
+- Keep paths, hosts, ports, commands, dependency versions, and source refs
+  configurable or derived from checked-in configuration when they vary within
+  the target. Source commits needed by setup must be fetchable from the
+  configured remote, not only from a developer worktree.
+- Test system-facing changes in a clean instance of the declared environment.
+  Cover multiple architectures only when the target explicitly supports them
+  and the change is architecture-sensitive. Document the target environment in
+  the matching specification.
+
 ## Git
 
 The worktree may contain user changes or submodule pointer changes. Do not revert unrelated files. If a submodule changes, commit inside that submodule first, then commit the pointer update in this repo.
