@@ -181,7 +181,7 @@ test("browser interactions require fresh evidence after a bounded run", async ()
   const plugin = await guardrails.default({ directory });
   const sessionID = `ses_browser_budget_${Date.now()}`;
 
-  for (let index = 0; index < 12; index++) {
+  for (let index = 0; index < 4; index++) {
     await plugin["tool.execute.before"](
       { tool: "browser_browser_interact", sessionID, callID: `before_${index}` },
       { args: { action: "fill", kind: "label", target: "Password", value: "secret" } },
@@ -202,11 +202,64 @@ test("browser interactions require fresh evidence after a bounded run", async ()
 
   await plugin["tool.execute.after"](
     { tool: "browser_browser_snapshot", sessionID, callID: "snapshot", args: {} },
-    { output: "fresh state" },
+    { output: { url: "http://localhost:5173/login", title: "Login", text: "Ready to sign in", controls: [], audio: { active: false } } },
   );
   await plugin["tool.execute.before"](
     { tool: "browser_browser_interact", sessionID, callID: "unblocked" },
     { args: { action: "click", kind: "role", role: "button", target: "Accedi" } },
+  );
+});
+
+test("Agentic React authoring UI cannot become application evidence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "trustable-agentic-browser-"));
+  const plugin = await guardrails.default({ directory });
+  const sessionID = `ses_agentic_browser_${Date.now()}`;
+
+  await plugin["chat.message"](
+    { sessionID },
+    {
+      message: { role: "user" },
+      parts: [{ type: "text", text: "il login non funziona" }],
+    },
+  );
+  const opened = {
+    output: JSON.stringify({
+      url: "http://localhost:5173/",
+      aria: "button Open Agentic React toolkit",
+      text: "Open Agentic React toolkit",
+      controls: [{ ref: "e6", name: "Open Agentic React toolkit" }],
+      audio: { active: false },
+    }),
+  };
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_open", sessionID, callID: "agentic_open", args: { path: "/", mode: "development" } },
+    opened,
+  );
+  assert.match(opened.output, /non-application browser observation ID/i);
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "browser_browser_interact", sessionID, callID: "agentic_click" },
+      { args: { action: "click", kind: "ref", target: "e6" } },
+    ),
+    /Agentic React authoring controls are not application UI/i,
+  );
+  await plugin["tool.execute.after"](
+    { tool: "browser_browser_diagnostics", sessionID, callID: "agentic_diagnostics", args: {} },
+    { output: JSON.stringify({ url: "http://localhost:5173/", console: [], network: [], audio: { active: false } }) },
+  );
+  await assert.rejects(
+    plugin["tool.execute.before"](
+      { tool: "browser_browser_interact", sessionID, callID: "agentic_click_after_diagnostics" },
+      { args: { action: "click", kind: "ref", target: "e6" } },
+    ),
+    /Agentic React authoring controls are not application UI/i,
+  );
+  await assert.rejects(
+    plugin.tool.trustable_diagnostic_checkpoint.execute(
+      { phase: "reproduced", evidence: "Agentic React toolkit was opened instead of the application flow." },
+      { sessionID, directory, worktree: directory },
+    ),
+    /reproduce the user-visible symptom with browser_interact/i,
   );
 });
 
@@ -406,7 +459,7 @@ test("reported bugs require reproduction before edits", async () => {
   );
 });
 
-test("integrated Trustable Code does not force hidden completion recovery", async () => {
+test("integrated Trustable Code requests at most one missing completion check", async () => {
   const directory = mkdtempSync(join(tmpdir(), "trustable-core-owned-diagnostic-"));
   process.env.TRUSTABLE_RUNTIME_CONFIG = join(directory, "runtime.json");
   try {
@@ -429,9 +482,14 @@ test("integrated Trustable Code does not force hidden completion recovery", asyn
     );
     const completion = { text: "done" };
     await plugin["experimental.text.complete"]({ sessionID }, completion);
-    assert.equal(completion.text, "done");
-    assert.equal(completion.synthetic, undefined);
-    assert.equal(completion.continue, undefined);
+    assert.match(completion.text, /run trustable_completion_check exactly once/i);
+    assert.equal(completion.synthetic, true);
+    assert.equal(completion.continue, true);
+    const bounded = { text: "done" };
+    await plugin["experimental.text.complete"]({ sessionID }, bounded);
+    assert.equal(bounded.text, "done");
+    assert.equal(bounded.synthetic, undefined);
+    assert.equal(bounded.continue, undefined);
 
     const context = { sessionID, directory, worktree: directory };
     const first = await plugin.tool.trustable_completion_check.execute({}, context);

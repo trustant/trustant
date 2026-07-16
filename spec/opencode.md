@@ -142,10 +142,13 @@ It must say:
   the plugin. Feature requests containing labels such as `Problems` or
   `Errors` must not activate diagnostic mode. Pending diagnostics remove
   no longer hide or reject mutation tools. The integrated runtime must not
-  replace a normal final answer with an automatic completion-recovery turn. If
-  the provider stops without text, Trustable renders a concise visible status
-  instead of leaving an empty assistant message. The stricter hidden recovery
-  behavior remains limited to legacy non-integrated OpenCode runtimes;
+  repeatedly replace a normal final answer with automatic completion recovery.
+  When source changed and no completion check ran, it may request exactly one
+  internal turn to call `trustable_completion_check`; browser debt alone does
+  not create a hidden continuation. If the provider stops without text,
+  Trustable renders a concise visible status instead of leaving an empty
+  assistant message. Stricter recovery behavior remains limited to legacy
+  non-integrated OpenCode runtimes;
 - when the reproduction used the browser, every subsequent source change must
   require fresh post-change `browser_interact` evidence bound automatically to
   the current task and mutation revision before completion. Audio fixes must
@@ -158,7 +161,11 @@ It must say:
   assistant to inspect the exact changed route and runtime diagnostics
   immediately, then exercise the visible flow before speculative source edits.
   A browser open without a subsequent evidence-bearing interaction is not
-  sufficient;
+  sufficient. Only application controls may supply evidence: Agentic React
+  Select, Multiselect, Done, Adjust selection, and toolkit controls must be
+  disabled in the headless QA context and rejected by the guardrail. A stale
+  runtime that still exposes them must close the browser and use an explicit
+  typecheck/build/test/runtime-diagnostics fallback rather than retry them;
 - subagent work must be bounded to one question, at most eight relevant files,
   concise paths/line references, and capped tool output. Full-file or whole
   codebase delegation must be rejected before it consumes session context;

@@ -149,7 +149,12 @@ credentials or generated app `.env` variables are added.
 Browser snapshots expose bounded stable control refs and observable
 AudioContext/media state so frontend verification can prove form and sound
 behavior instead of relying on source inspection. The session plugin records
-successful evidence-bearing browser interactions automatically. It unlocks a
+successful evidence-bearing application interactions automatically. The
+headless context disables Agentic React's selection toolkit before page scripts
+run, and hidden/toolkit controls are excluded from snapshot refs. A stale
+runtime that still exposes Agentic React authoring UI must close the browser and
+use the deterministic typecheck/build/test/runtime-diagnostics fallback; its
+controls never count as evidence. The plugin unlocks a
 diagnostic fix after reproduction and clears post-change verification only
 after fresh evidence for the same task and mutation revision; sound fixes also
 require observable active audio state. The manual checkpoint remains a

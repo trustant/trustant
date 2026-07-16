@@ -141,6 +141,9 @@ export class TrustableBrowser {
     private readonly artifactDir = process.env.TRUSTABLE_BROWSER_ARTIFACT_DIR || "/tmp/trustable-browser",
     private readonly runtimeConfig = process.env.TRUSTABLE_RUNTIME_CONFIG || "",
     private readonly directory = process.cwd(),
+    private readonly testDevelopmentOrigin = process.env.NODE_ENV === "test"
+      ? process.env.TRUSTABLE_BROWSER_TEST_DEVELOPMENT_ORIGIN || ""
+      : "",
   ) {}
 
   private remember(target: string[], value: string) {
@@ -159,6 +162,12 @@ export class TrustableBrowser {
       ignoreHTTPSErrors: false,
     })
     await this.context.addInitScript({ content: `(() => {
+      Object.defineProperty(window, "__AGENTIC_REACT_CONFIG__", {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: { toolkit: { enabled: false } },
+      });
       window.__trustableAudioContexts = [];
       const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
       if (!NativeAudioContext) return;
@@ -195,7 +204,7 @@ export class TrustableBrowser {
   async open(mode: BrowserMode, path?: string): Promise<BrowserSnapshot> {
     const page = await this.ensurePage()
     const developmentOrigin = mode === "development"
-      ? await resolveManagedDevelopmentOrigin(this.runtimeConfig, this.directory)
+      ? await resolveManagedDevelopmentOrigin(this.runtimeConfig, this.directory) || this.testDevelopmentOrigin || undefined
       : undefined
     const target = resolveBrowserTarget(mode, path, this.externalOrigin, developmentOrigin)
     this.consoleMessages.length = 0
@@ -304,7 +313,13 @@ export class TrustableBrowser {
       page.title(),
       body.ariaSnapshot({ timeout: 5_000 }).catch(() => "(aria snapshot unavailable)"),
       body.innerText({ timeout: 5_000 }).catch(() => "(body text unavailable)"),
-      page.locator("a,button,input,select,textarea,[role]").evaluateAll((elements) => elements.map((element, index) => {
+      page.locator("a,button,input,select,textarea,[role]").evaluateAll((elements) => elements.filter((element) => {
+        const node = element as HTMLElement
+        if (node.closest('[data-agentic-react-toolkit="true"]')) return false
+        if (node.closest('[data-agentic-react-tuning-modal="true"]')) return false
+        const style = getComputedStyle(node)
+        return !node.hidden && style.display !== "none" && style.visibility !== "hidden"
+      }).map((element, index) => {
         const node = element as HTMLElement
         const input = element as HTMLInputElement
         const ref = `e${index}`

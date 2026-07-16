@@ -9,6 +9,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { TrustableBrowser, resolveBrowserTarget, resolveManagedDevelopmentOrigin } from "./browser.ts"
 
+async function listen(server: ReturnType<typeof createServer>) {
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  assert.ok(address && typeof address === "object")
+  return `http://127.0.0.1:${address.port}/`
+}
+
 test("target resolution keeps development on localhost and deployed on configured Vite", () => {
   assert.equal(resolveBrowserTarget("development", "/#/login"), "http://localhost:5173/#/login")
   assert.equal(
@@ -60,10 +67,10 @@ test("browser observes navigation, console, and failed requests", async (t) => {
       </script>
     </body></html>`)
   })
-  await new Promise<void>((resolve) => server.listen(5173, "127.0.0.1", resolve))
+  const developmentOrigin = await listen(server)
   t.after(() => server.close())
 
-  const browser = new TrustableBrowser("", `/tmp/trustable-browser-test-${Date.now()}`)
+  const browser = new TrustableBrowser("", `/tmp/trustable-browser-test-${Date.now()}`, "", process.cwd(), developmentOrigin)
   t.after(() => browser.close())
   const opened = await browser.open("development", "/")
   assert.match(opened.aria, /ACCEDI/)
@@ -74,6 +81,36 @@ test("browser observes navigation, console, and failed requests", async (t) => {
   const diagnostics = await browser.diagnostics()
   assert.equal(diagnostics.console.some((line) => line.includes("browser-test-warning")), true)
   assert.equal(diagnostics.network.some((line) => line.includes("404")), true)
+})
+
+test("browser QA disables Agentic React controls without hiding application controls", async (t) => {
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "text/html; charset=utf-8")
+    response.end(`<!doctype html><html><body>
+      <button type="button">Play note</button>
+      <script>
+        window.__AGENTIC_REACT_CONFIG__ = { toolkit: { enabled: true } }
+        const toolkit = document.createElement('div')
+        toolkit.dataset.agenticReactToolkit = 'true'
+        toolkit.style.display = window.__AGENTIC_REACT_CONFIG__.toolkit.enabled ? 'flex' : 'none'
+        const launcher = document.createElement('button')
+        launcher.setAttribute('aria-label', 'Open Agentic React toolkit')
+        toolkit.appendChild(launcher)
+        document.body.appendChild(toolkit)
+      </script>
+    </body></html>`)
+  })
+  const developmentOrigin = await listen(server)
+  t.after(() => server.close())
+
+  const browser = new TrustableBrowser("", `/tmp/trustable-browser-agentic-${Date.now()}`, "", process.cwd(), developmentOrigin)
+  t.after(() => browser.close())
+  const opened = await browser.open("development", "/")
+
+  assert.equal(opened.controls.some((control) => control.name.includes("Agentic React")), false)
+  assert.equal(opened.controls.some((control) => control.name === "Play note"), true)
+  assert.doesNotMatch(opened.aria, /Agentic React/i)
+  assert.doesNotMatch(opened.text, /Agentic React/i)
 })
 
 test("browser submits registration with duplicate password placeholders by explicit index", async (t) => {
@@ -116,10 +153,10 @@ test("browser submits registration with duplicate password placeholders by expli
       </script>
     </body></html>`)
   })
-  await new Promise<void>((resolve) => server.listen(5173, "127.0.0.1", resolve))
+  const developmentOrigin = await listen(server)
   t.after(() => server.close())
 
-  const browser = new TrustableBrowser("", `/tmp/trustable-browser-registration-${Date.now()}`)
+  const browser = new TrustableBrowser("", `/tmp/trustable-browser-registration-${Date.now()}`, "", process.cwd(), developmentOrigin)
   t.after(() => browser.close())
   const opened = await browser.open("development", "/")
 
@@ -169,10 +206,10 @@ test("browser reports observable audio state after a user gesture", async (t) =>
       </script>
     </body></html>`)
   })
-  await new Promise<void>((resolve) => server.listen(5173, "127.0.0.1", resolve))
+  const developmentOrigin = await listen(server)
   t.after(() => server.close())
 
-  const browser = new TrustableBrowser("", `/tmp/trustable-browser-audio-${Date.now()}`)
+  const browser = new TrustableBrowser("", `/tmp/trustable-browser-audio-${Date.now()}`, "", process.cwd(), developmentOrigin)
   t.after(() => browser.close())
   const opened = await browser.open("development", "/")
   assert.equal(opened.audio.active, false)
@@ -192,10 +229,10 @@ test("role interactions accept bounded shorthand without weakening strict matche
       <button type="button">Annulla</button>
     </body></html>`)
   })
-  await new Promise<void>((resolve) => server.listen(5173, "127.0.0.1", resolve))
+  const developmentOrigin = await listen(server)
   t.after(() => server.close())
 
-  const browser = new TrustableBrowser("", `/tmp/trustable-browser-role-${Date.now()}`)
+  const browser = new TrustableBrowser("", `/tmp/trustable-browser-role-${Date.now()}`, "", process.cwd(), developmentOrigin)
   t.after(() => browser.close())
   await browser.open("development", "/")
 
@@ -220,7 +257,7 @@ test("MCP stdio contract exposes index and forwards it to browser_interact", asy
       <input type="password" placeholder="••••••••">
     </body></html>`)
   })
-  await new Promise<void>((resolve) => server.listen(5173, "127.0.0.1", resolve))
+  const developmentOrigin = await listen(server)
   t.after(() => server.close())
 
   const packageDir = fileURLToPath(new URL("..", import.meta.url))
@@ -228,6 +265,11 @@ test("MCP stdio contract exposes index and forwards it to browser_interact", asy
     command: process.execPath,
     args: ["--import", "tsx", "src/index.ts"],
     cwd: packageDir,
+    env: {
+      ...process.env,
+      NODE_ENV: "test",
+      TRUSTABLE_BROWSER_TEST_DEVELOPMENT_ORIGIN: developmentOrigin,
+    },
     stderr: "pipe",
   })
   const client = new Client({ name: "trustable-browser-test", version: "1.0.0" })

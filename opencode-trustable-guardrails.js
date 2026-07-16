@@ -22,7 +22,7 @@ const TEST_DISCOVERY_MAX_ENTRIES = 5_000;
 const TEST_SUITE_LIMIT = 12;
 const TEST_TIMEOUT_MS = 180_000;
 const TEST_TOTAL_TIMEOUT_MS = 600_000;
-const BROWSER_INTERACTION_BUDGET = 12;
+const BROWSER_INTERACTION_BUDGET = 4;
 const DIAGNOSTIC_READ_BUDGET = 8;
 const RECOVERY_GUIDANCE_BYTES = 6 * 1024;
 const MAX_ACTIVE_TASK_CHARS = 4_000;
@@ -51,10 +51,10 @@ const CRITICAL_SYSTEM = [
   "With React Router HashRouter, pass logical routes such as /login to Link, NavLink, Navigate, and useNavigate. Never pass #/login to router APIs and never use root-relative anchors for internal navigation.",
   "After source changes, call trustable_completion_check before claiming that work is fixed, complete, or ready for the user.",
   "Every action endpoint created or modified in this session requires a focused executable application test under tests/actions/<endpoint> or packages/<endpoint> before completion. The completion gate runs it without installing dependencies; never ask the user to run tests.",
-  "Browser work is bounded: after repeated interactions, take a fresh browser snapshot or diagnostics and reason from that evidence instead of continuing blind clicks or fills.",
+  "Browser work is one bounded QA pass over application controls. Agentic React Select, Multiselect, Done, Adjust selection, and toolkit controls are authoring UI, never application verification. If that overlay appears, close the browser and continue with typecheck, build, and runtime diagnostics instead of retrying it.",
   "Delegate only bounded questions. Never ask a subagent to read or return full files or the whole codebase; request concise findings with paths and line references.",
   "When a browser-reproduced bug is changed, verify the fixed flow with browser_interact before the completion gate. Trustable binds successful post-change browser evidence automatically; audio work requires observable active audio state.",
-  "For frontend changes, run the project typecheck before the build. After a successful frontend build or deploy, immediately open the exact changed route with the browser tools, inspect the rendered page and diagnostics, and exercise the visible flow before more speculative edits. Do not clear caches or reinstall dependencies unless the observed failure points to dependency state.",
+  "For frontend changes, run the project typecheck before the build. After a successful frontend build or deploy, perform one bounded QA pass on the exact changed route with application controls only. Stop after repeated interactions without an observable application-state change. Do not clear caches or reinstall dependencies unless the observed failure points to dependency state.",
   "Completion checks run once per source revision and at most three times per real request; do not create placeholder changes to rerun them.",
 ].join(" ");
 
@@ -63,7 +63,7 @@ const CORE_SYSTEM = [
   "Inspect only the files needed to implement the request; use a short plan only when it helps.",
   "Do not restart the managed development server.",
   "For OpenServerless action source changes, deploy and run setup when required near the end of implementation.",
-  "For frontend changes, run the project typecheck before the build. After a successful frontend build or deploy, immediately inspect the exact changed route and runtime diagnostics with the browser tools; exercise the visible flow before more speculative edits. Do not clear caches or reinstall dependencies without concrete dependency evidence.",
+  "For frontend changes, run the project typecheck before the build. After a successful frontend build or deploy, perform one bounded QA pass on the exact changed route and runtime diagnostics. Interact only with application controls; never use Agentic React selection-toolkit controls as verification. If the toolkit interferes, close the browser and continue with typecheck, build, and runtime diagnostics instead of retrying it.",
   "Run trustable_completion_check once after substantial implementation. Do not create placeholder tests or loop on validation; fix concrete failures and otherwise report them clearly.",
 ].join(" ");
 
@@ -287,6 +287,9 @@ function defaultState() {
     lastBrowserInteractionRevision: -1,
     browserEvidenceSequence: 0,
     browserEvidence: [],
+    browserApplicationFingerprint: "",
+    browserOverlayInterference: false,
+    browserVerificationUnavailableReason: "",
     mutationRevision: 0,
     failureSignature: "",
     repeatedFailures: 0,
@@ -300,6 +303,7 @@ function defaultState() {
     lastCompletionFailure: "",
     lastCompletionRevision: -1,
     completionChecksThisTask: 0,
+    completionPrompted: false,
   };
 }
 
@@ -436,7 +440,55 @@ function toolOutputText(output) {
   }
 }
 
-function recordBrowserEvidence(current, input, output) {
+const AGENTIC_REACT_BROWSER_UI = /(?:agentic react toolkit|selection mode (?:active|enabled)|multiselect (?:mode active|enabled)|adjust selection|clear all selections|delete selection|click done to copy|captured and copied)/i;
+
+function isAgenticReactBrowserActivity(input, output) {
+  const args = Object.values(input.args || {}).filter((value) => typeof value === "string").join("\n");
+  return AGENTIC_REACT_BROWSER_UI.test(args) || AGENTIC_REACT_BROWSER_UI.test(toolOutputText(output));
+}
+
+function browserSnapshotValue(output) {
+  if (output?.output && typeof output.output === "object") return output.output;
+  if (typeof output?.output !== "string") return undefined;
+  try {
+    return JSON.parse(output.output);
+  } catch {
+    return undefined;
+  }
+}
+
+function browserApplicationFingerprint(output) {
+  const snapshot = browserSnapshotValue(output);
+  if (!snapshot || typeof snapshot !== "object") return "";
+  const controls = Array.isArray(snapshot.controls)
+    ? snapshot.controls.filter((control) => !AGENTIC_REACT_BROWSER_UI.test(String(control?.name || "")))
+    : [];
+  return fingerprint(JSON.stringify({
+    url: snapshot.url || "",
+    title: snapshot.title || "",
+    aria: snapshot.aria || "",
+    text: snapshot.text || "",
+    console: snapshot.console || [],
+    network: snapshot.network || [],
+    controls,
+    audio: snapshot.audio || {},
+  }));
+}
+
+function updateBrowserApplicationProgress(current, output, interaction) {
+  const next = browserApplicationFingerprint(output);
+  if (!next) {
+    if (interaction) current.browserInteractionsSinceEvidence += 1;
+    return false;
+  }
+  const changed = !current.browserApplicationFingerprint || current.browserApplicationFingerprint !== next;
+  current.browserApplicationFingerprint = next;
+  if (changed) current.browserInteractionsSinceEvidence = 0;
+  else if (interaction) current.browserInteractionsSinceEvidence += 1;
+  return changed;
+}
+
+function recordBrowserEvidence(current, input, output, application = true) {
   current.browserEvidenceSequence += 1;
   const id = `browser-${current.browserEvidenceSequence}-${fingerprint(`${input.tool}\n${JSON.stringify(input.args || {})}\n${toolOutputText(output)}`)}`;
   const item = {
@@ -445,11 +497,15 @@ function recordBrowserEvidence(current, input, output) {
     action: String(input.args?.action || ""),
     revision: current.mutationRevision,
     taskFingerprint: current.activeTaskFingerprint,
+    application,
   };
   current.browserEvidence = [...current.browserEvidence, item].slice(-20);
-  if (input.tool === "browser_browser_interact") current.browserSuccessfulInteractions += 1;
-  if (input.tool === "browser_browser_interact") current.lastBrowserInteractionRevision = current.mutationRevision;
-  if (typeof output.output === "string") output.output = `Trustable browser evidence ID: ${id}\n\n${output.output}`;
+  if (application && input.tool === "browser_browser_interact") current.browserSuccessfulInteractions += 1;
+  if (application && input.tool === "browser_browser_interact") current.lastBrowserInteractionRevision = current.mutationRevision;
+  if (typeof output.output === "string") {
+    const label = application ? "Trustable browser evidence ID" : "Trustable non-application browser observation ID";
+    output.output = `${label}: ${id}\n\n${output.output}`;
+  }
   return item;
 }
 
@@ -468,6 +524,7 @@ function browserOutputShowsActiveAudio(output) {
 }
 
 function applyAutomaticBrowserCheckpoint(current, input, output, evidence) {
+  if (evidence.application === false) return;
   if (!browserInteractionCanCheckpoint(input, output)) return;
   if (current.diagnosticRequired && !current.reproduced) {
     current.evidence = `Automatic browser reproduction evidence from ${input.args?.action || "interaction"}.`;
@@ -904,11 +961,13 @@ export default async function TrustableGuardrails(context = {}) {
           if (!args.evidence_id && args.phase === "reproduced") {
             browserEvidence = latestBrowserEvidence(current, (item) => (
               item.tool === "browser_browser_interact" &&
+              item.application !== false &&
               item.taskFingerprint === current.activeTaskFingerprint
             ));
           }
           if (!args.evidence_id && args.phase === "verified") {
             browserEvidence = latestBrowserEvidence(current, (item) => (
+              item.application !== false &&
               item.revision === current.mutationRevision &&
               item.taskFingerprint === current.activeTaskFingerprint
             ));
@@ -917,7 +976,7 @@ export default async function TrustableGuardrails(context = {}) {
             if (!current.browserVerificationRequired) {
               return "No browser verification checkpoint is currently required.";
             }
-            if (!browserEvidence || browserEvidence.revision !== current.mutationRevision || browserEvidence.taskFingerprint !== current.activeTaskFingerprint || current.lastBrowserInteractionRevision !== current.mutationRevision) {
+            if (!browserEvidence || browserEvidence.application === false || browserEvidence.revision !== current.mutationRevision || browserEvidence.taskFingerprint !== current.activeTaskFingerprint || current.lastBrowserInteractionRevision !== current.mutationRevision) {
               throw new Error("Trustable browser verification gate: pass the evidence_id from a successful browser interaction or snapshot produced after the latest source change in this session.");
             }
             current.evidence = args.evidence;
@@ -928,7 +987,7 @@ export default async function TrustableGuardrails(context = {}) {
             return "Browser verification checkpoint recorded. The deterministic completion gate may now run.";
           }
           if (args.phase === "reproduced" && current.browserDiagnosticRequired) {
-            if (!browserEvidence || browserEvidence.taskFingerprint !== current.activeTaskFingerprint || current.browserSuccessfulInteractions < 1) {
+            if (!browserEvidence || browserEvidence.application === false || browserEvidence.taskFingerprint !== current.activeTaskFingerprint || current.browserSuccessfulInteractions < 1) {
               throw new Error("Trustable diagnostic gate: reproduce the user-visible symptom with browser_interact, then call trustable_diagnostic_checkpoint again. Omit evidence_id to bind the latest valid browser interaction automatically. Source inspection or browser_open alone is not reproduction evidence.");
             }
           }
@@ -965,7 +1024,8 @@ export default async function TrustableGuardrails(context = {}) {
           current.lastCompletionRevision = current.mutationRevision;
           current.completionChecksThisTask += 1;
           saveState(context.sessionID, current);
-          let result = current.browserVerificationRequired
+          const browserUnavailable = Boolean(current.browserVerificationUnavailableReason);
+          let result = current.browserVerificationRequired && !browserUnavailable
             ? {
                 passed: false,
                 output: "===== browser verification: FAIL =====\nA browser-visible flow changed after the last evidence. Exercise the exact route and visible user flow with browser_interact; Trustable binds successful post-change evidence automatically. Audio fixes must report active audio state.",
@@ -981,11 +1041,14 @@ export default async function TrustableGuardrails(context = {}) {
                   output: "===== action setup: FAIL =====\nA setup action changed and was deployed but setup has not run yet. Run timeout 120 ops ide setup before completion.",
                 }
             : await completionChecks(context.directory, current.touchedActionEndpoints);
-          if (result.passed && current.frontendBrowserVerificationRequired) {
+          if (result.passed && current.frontendBrowserVerificationRequired && !browserUnavailable) {
             result = {
               passed: false,
               output: "===== browser verification: FAIL =====\nFrontend source changed after the last browser evidence. Open the exact route, inspect the rendered page and diagnostics, then exercise the visible flow with browser_interact.",
             };
+          }
+          if (result.passed && browserUnavailable) {
+            result.output = `===== browser verification: SKIP =====\n${current.browserVerificationUnavailableReason}\n\n${result.output}`;
           }
           if (result.passed) {
             current.dirty = false;
@@ -999,6 +1062,8 @@ export default async function TrustableGuardrails(context = {}) {
             current.frontendBrowserVerificationRequired = false;
             current.browserEvidenceAfterMutation = false;
             current.browserDiagnosisObserved = false;
+            current.browserOverlayInterference = false;
+            current.browserVerificationUnavailableReason = "";
             current.diagnosticReadCount = 0;
             current.touchedActionEndpoints = [];
             current.failureSignature = "";
@@ -1038,6 +1103,9 @@ export default async function TrustableGuardrails(context = {}) {
       if (output.message?.role !== "user") return;
       const current = stateFor(input.sessionID);
       current.browserInteractionsSinceEvidence = 0;
+      current.browserApplicationFingerprint = "";
+      current.browserOverlayInterference = false;
+      current.browserVerificationUnavailableReason = "";
       const text = (output.parts || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
       const synthetic = (output.parts || []).some((part) => part.synthetic === true) || isSyntheticContinuation(text);
       current.statusRequest = isStatusRequest(text);
@@ -1049,6 +1117,7 @@ export default async function TrustableGuardrails(context = {}) {
         current.lastCompletionFailure = "";
         current.lastCompletionRevision = -1;
         current.completionChecksThisTask = 0;
+        current.completionPrompted = false;
       }
       if (coreManaged && realTask) {
         current.diagnosticRequired = false;
@@ -1088,7 +1157,8 @@ export default async function TrustableGuardrails(context = {}) {
       if (current.actionDeployRequired) status += " ACTION DEPLOY IS REQUIRED BEFORE SETUP OR COMPLETION.";
       if (current.actionSetupRequired) status += " ACTION SETUP IS REQUIRED AFTER DEPLOY AND BEFORE COMPLETION.";
       if (current.touchedActionEndpoints?.length) status += ` FOCUSED TESTS ARE REQUIRED FOR ACTION ENDPOINTS: ${current.touchedActionEndpoints.join(", ")}.`;
-      if (current.browserVerificationRequired || current.frontendBrowserVerificationRequired) status += " FRONTEND BROWSER VERIFICATION IS REQUIRED BEFORE COMPLETION; OPEN THE EXACT ROUTE, INSPECT THE PAGE AND DIAGNOSTICS, THEN USE browser_interact ON THE VISIBLE FLOW. SUCCESSFUL EVIDENCE IS BOUND AUTOMATICALLY.";
+      if (current.browserVerificationUnavailableReason) status += ` BROWSER QA IS UNAVAILABLE FOR THIS TURN: ${current.browserVerificationUnavailableReason} CLOSE IT AND USE THE COMPLETION GATE; DO NOT RETRY AGENTIC REACT.`;
+      else if (current.browserVerificationRequired || current.frontendBrowserVerificationRequired) status += " FRONTEND BROWSER VERIFICATION IS REQUIRED BEFORE COMPLETION; OPEN THE EXACT ROUTE, INSPECT THE PAGE AND DIAGNOSTICS, THEN USE AT MOST ONE BOUNDED APPLICATION FLOW. NEVER USE AGENTIC REACT TOOLKIT CONTROLS AS EVIDENCE.";
       output.system.push(status);
     },
 
@@ -1101,8 +1171,14 @@ export default async function TrustableGuardrails(context = {}) {
 
     "tool.execute.before": async (input, output) => {
       const current = stateFor(input.sessionID);
+      if (input.tool === "browser_browser_interact" && current.browserOverlayInterference) {
+        throw new Error("Trustable browser QA stopped: Agentic React authoring controls are not application UI. Close the browser and continue with typecheck, build, runtime diagnostics, and the completion check; do not retry Select, Done, or Adjust selection.");
+      }
+      if (input.tool === "browser_browser_interact" && isAgenticReactBrowserActivity({ ...input, args: output.args }, {})) {
+        throw new Error("Trustable browser QA blocked an Agentic React toolkit control. Interact only with the application under test; never use Select, Multiselect, Done, or Adjust selection as verification.");
+      }
       if (input.tool === "browser_browser_interact" && current.browserInteractionsSinceEvidence >= BROWSER_INTERACTION_BUDGET) {
-        throw new Error(`Trustable browser diagnostic circuit breaker: ${BROWSER_INTERACTION_BUDGET} interactions ran without fresh evidence. Call browser_browser_snapshot or browser_browser_diagnostics, inspect the result, then continue with a bounded next action.`);
+        throw new Error(`Trustable browser diagnostic circuit breaker: ${BROWSER_INTERACTION_BUDGET} consecutive interactions did not change observable application state. Take one fresh browser_browser_snapshot or browser_browser_diagnostics. If the application state is unchanged, close the browser and continue from typecheck, build, and runtime diagnostics instead of clicking again.`);
       }
       if (input.tool === "task") {
         if (isUnboundedTaskRequest(output.args)) {
@@ -1157,17 +1233,40 @@ export default async function TrustableGuardrails(context = {}) {
 
     "tool.execute.after": async (input, output) => {
       const current = stateFor(input.sessionID);
+      if (input.tool === "browser_browser_close") {
+        current.browserOverlayInterference = false;
+        saveState(input.sessionID, current);
+        return;
+      }
       if (["browser_browser_open", "browser_browser_snapshot", "browser_browser_diagnostics"].includes(input.tool)) {
-        current.browserInteractionsSinceEvidence = 0;
-        recordBrowserEvidence(current, input, output);
+        const agenticReact = isAgenticReactBrowserActivity(input, output);
+        const blockedByExistingOverlay = input.tool === "browser_browser_diagnostics" && current.browserOverlayInterference;
+        if (agenticReact) {
+          current.browserOverlayInterference = true;
+          current.browserVerificationUnavailableReason = "Agentic React authoring UI interfered with the isolated Browser MCP; deterministic typecheck, build, and runtime diagnostics were used instead.";
+          if (typeof output.output === "string") output.output = `Trustable ignored Agentic React authoring controls. Close this browser; do not interact with Select, Done, or Adjust selection.\n\n${output.output}`;
+        } else if (input.tool !== "browser_browser_diagnostics") {
+          current.browserOverlayInterference = false;
+          current.browserVerificationUnavailableReason = "";
+          updateBrowserApplicationProgress(current, output, false);
+        }
+        recordBrowserEvidence(current, input, output, !agenticReact && !blockedByExistingOverlay);
         if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
-        if ((current.browserVerificationRequired || current.frontendBrowserVerificationRequired) && current.dirty) current.browserEvidenceAfterMutation = true;
+        if (!agenticReact && !blockedByExistingOverlay && (current.browserVerificationRequired || current.frontendBrowserVerificationRequired) && current.dirty) current.browserEvidenceAfterMutation = true;
         saveState(input.sessionID, current);
         return;
       }
       if (input.tool === "browser_browser_interact") {
-        current.browserInteractionsSinceEvidence += 1;
-        const evidence = recordBrowserEvidence(current, input, output);
+        const agenticReact = isAgenticReactBrowserActivity(input, output);
+        updateBrowserApplicationProgress(current, output, true);
+        const evidence = recordBrowserEvidence(current, input, output, !agenticReact);
+        if (agenticReact) {
+          current.browserOverlayInterference = true;
+          current.browserVerificationUnavailableReason = "Agentic React authoring UI interfered with the isolated Browser MCP; deterministic typecheck, build, and runtime diagnostics were used instead.";
+          if (typeof output.output === "string") output.output = `Trustable ignored this Agentic React authoring interaction. Close the browser and do not retry the toolkit.\n\n${output.output}`;
+          saveState(input.sessionID, current);
+          return;
+        }
         if (current.diagnosticRequired || current.reproduced) current.browserDiagnosisObserved = true;
         if ((current.browserVerificationRequired || current.frontendBrowserVerificationRequired) && current.dirty) current.browserEvidenceAfterMutation = true;
         applyAutomaticBrowserCheckpoint(current, input, output, evidence);
@@ -1250,10 +1349,16 @@ export default async function TrustableGuardrails(context = {}) {
         continueInternally(output, "Internal Trustable gate: diagnostic reproduction is pending. Reproduce the exact reported symptom with the browser tools before editing, then continue the active request. Do not answer the user yet.");
         return;
       }
-      if (current.browserVerificationRequired) {
+      if (!coreManaged && current.browserVerificationRequired && !current.browserVerificationUnavailableReason) {
         continueInternally(output, taskRequiresActiveAudio(current)
           ? "Internal Trustable gate: post-change browser verification has not observed active audio. Exercise the exact user flow until audio is observably running, then run the completion check. Do not answer the user yet."
           : "Internal Trustable gate: post-change browser verification is pending. Exercise the exact fixed user flow with browser tools, collect concrete evidence, then run the completion check. Do not answer the user yet.");
+        return;
+      }
+      if (coreManaged && current.dirty && !current.verified && current.completionChecksThisTask === 0 && !current.completionPrompted) {
+        current.completionPrompted = true;
+        saveState(input.sessionID, current);
+        continueInternally(output, "Internal Trustable gate: run trustable_completion_check exactly once before the final response. If Browser QA was stopped because Agentic React interfered, do not reopen it; the completion gate will use typecheck, build, tests, and runtime diagnostics. Do not answer the user yet.");
         return;
       }
       if (!coreManaged && current.dirty && !current.verified) {

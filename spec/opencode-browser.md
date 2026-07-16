@@ -51,6 +51,11 @@ The server exposes a deliberately small persistent browser surface:
 
 There is no arbitrary JavaScript evaluation tool. Snapshot and diagnostic
 output is bounded so the browser does not recreate Issue98 context pressure.
+The isolated headless context locks `window.__AGENTIC_REACT_CONFIG__` with the
+selection toolkit disabled before application scripts execute. Snapshot control
+collection also excludes hidden controls and descendants of Agentic React
+toolkit/tuning roots. This affects only Browser MCP QA: it does not disable the
+toolkit in the user's normal development browser.
 
 ## Image
 
@@ -76,10 +81,16 @@ two distinct inputs before the registration request is submitted.
 The same form must also be fillable through two distinct snapshot refs. An
 audio test must create and resume an `AudioContext` after a real click and prove
 that the next snapshot reports it as running and active.
+An Agentic React test must prove that page code cannot re-enable the toolkit in
+the isolated context, that toolkit controls are absent from text, ARIA, and
+control evidence, and that normal application controls remain available.
 The generated OpenCode and Claude MCP configs must both include the browser
 server. A live pod test must confirm `browser_open` can inspect
 `http://localhost:5173` for the currently launched app. Unit tests must also
 prove that a runtime manifest for another workbench blocks development
 navigation before the shared Vite target is used.
+Tests use an explicit test-only development origin on an ephemeral port so they
+do not stop or collide with the managed application on port 5173; production
+target resolution remains fixed to the runtime manifest and localhost port 5173.
 
 See [opencode-browser-flow.svg](opencode-browser-flow.svg).
