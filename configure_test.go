@@ -2,6 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1744,41 +1748,174 @@ func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	}
 }
 
-func TestNormalizeOpenCodeAgentColorMapsLegacyNames(t *testing.T) {
-	cases := map[string]string{
-		"blue":      "primary",
-		"purple":    "secondary",
-		"green":     "success",
-		"yellow":    "warning",
-		"red":       "error",
-		"cyan":      "info",
-		"primary":   "primary",
-		"#1a2B3c":   "#1a2B3c",
-		"not-valid": "primary",
+func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", dir)
+
+	cfg := &trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://api.example.test/v1",
+		APIKey:   "aip_secret",
+		Models: map[string]*ModelLimits{
+			"qwen3-coder:480b": {MaxToken: 131072, MaxOutput: 32768},
+			"nomic-embed-text": {Roles: []string{"embedding"}},
+		},
+		Opencode: &opencodeConfig{Default: "qwen3-coder:480b"},
 	}
-	for input, want := range cases {
-		if got := normalizeOpenCodeAgentColor(input); got != want {
-			t.Fatalf("normalizeOpenCodeAgentColor(%q) = %q, want %q", input, got, want)
+	if err := writePiGlobalConfig(cfg); err != nil {
+		t.Fatalf("writePiGlobalConfig: %s", err)
+	}
+
+	var models struct {
+		Providers map[string]struct {
+			BaseURL string `json:"baseUrl"`
+			API     string `json:"api"`
+			APIKey  string `json:"apiKey"`
+			Models  []struct {
+				ID            string `json:"id"`
+				ContextWindow int    `json:"contextWindow"`
+				MaxTokens     int    `json:"maxTokens"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %s", err)
+	}
+	if err := json.Unmarshal(data, &models); err != nil {
+		t.Fatalf("parse models.json: %s", err)
+	}
+	provider := models.Providers[piProviderName]
+	if provider.BaseURL != cfg.BaseURL || provider.API != "openai-completions" || provider.APIKey != piAPIKeyRef {
+		t.Fatalf("unexpected Pi provider: %#v", provider)
+	}
+	if len(provider.Models) != 1 || provider.Models[0].ID != "qwen3-coder:480b" {
+		t.Fatalf("non-coding model was not filtered: %#v", provider.Models)
+	}
+	if provider.Models[0].ContextWindow != 131072 || provider.Models[0].MaxTokens != 32768 {
+		t.Fatalf("unexpected model limits: %#v", provider.Models[0])
+	}
+
+	for _, name := range []string{"models.json", "auth.json"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("stat %s: %s", name, err)
+		}
+		if info.Mode().Perm() != 0600 {
+			t.Fatalf("%s mode = %o, want 600", name, info.Mode().Perm())
+		}
+	}
+	var settings map[string]interface{}
+	data, _ = os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("parse settings.json: %s", err)
+	}
+	if settings["defaultProvider"] != piProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
+		t.Fatalf("unexpected Pi settings: %#v", settings)
+	}
+	var auth map[string]map[string]string
+	data, _ = os.ReadFile(filepath.Join(dir, "auth.json"))
+	if err := json.Unmarshal(data, &auth); err != nil {
+		t.Fatalf("parse auth.json: %s", err)
+	}
+	if auth[piProviderName]["key"] != cfg.APIKey {
+		t.Fatalf("Pi auth key was not written")
+	}
+}
+
+func TestPostConfigurationWritesPiConfigOnlyAfterSuccessfulProbe(t *testing.T) {
+	piDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", piDir)
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = t.TempDir()
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	answerOK := false
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !answerOK {
+			http.Error(w, `{"error":"model not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hi"}}]}`)
+	}))
+	t.Cleanup(stub.Close)
+
+	post := func() *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{
+			"provider": "trustable",
+			"base_url": %q,
+			"api_key": "aip_secret",
+			"models": {"qwen3-coder:480b": {"maxToken": 131072, "maxOutput": 32768}},
+			"opencode": {"default": "qwen3-coder:480b", "small": "qwen3-coder:480b"}
+		}`, stub.URL)
+		req := httptest.NewRequest(http.MethodPost, "/api/configuration", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		handleConfiguration(rec, req)
+		return rec
+	}
+
+	if rec := post(); rec.Code != http.StatusOK {
+		t.Fatalf("save should succeed when the probe fails, got %d: %s", rec.Code, rec.Body)
+	}
+	if _, err := os.Stat(filepath.Join(piDir, "models.json")); !os.IsNotExist(err) {
+		t.Fatalf("failed probe must not write Pi config, stat err=%v", err)
+	}
+
+	answerOK = true
+	if rec := post(); rec.Code != http.StatusOK {
+		t.Fatalf("save failed: %d: %s", rec.Code, rec.Body)
+	}
+	for _, name := range []string{"models.json", "settings.json", "auth.json"} {
+		if _, err := os.Stat(filepath.Join(piDir, name)); err != nil {
+			t.Fatalf("%s not written after successful probe: %s", name, err)
 		}
 	}
 }
 
-func TestOpenCodeProjectIDIsStablePerApp(t *testing.T) {
-	first := openCodeProjectID("truorderingestion")
-	second := openCodeProjectID("truorderingestion")
-	other := openCodeProjectID("truk8s")
-	if first != second {
-		t.Fatalf("openCodeProjectID should be stable: %q != %q", first, second)
+func TestGenerateProjectAssetsForTruACP(t *testing.T) {
+	projectDir := t.TempDir()
+	isolateOpenServerlessCheckerInstall(t)
+	t.Setenv("HOME", t.TempDir())
+
+	if err := generateProjectAssetsInDir(projectDir, map[string]interface{}{
+		"redis": map[string]interface{}{
+			"type":        "local",
+			"command":     []string{"redis-mcp-server", "--url", "redis://local"},
+			"environment": map[string]string{"REDIS_PREFIX": "demo:"},
+		},
+	}); err != nil {
+		t.Fatalf("generateProjectAssetsInDir: %s", err)
 	}
-	if first == other {
-		t.Fatalf("openCodeProjectID should differ per app: %q", first)
+
+	if _, err := os.Stat(filepath.Join(projectDir, "opencode.json")); !os.IsNotExist(err) {
+		t.Fatalf("opencode.json must not be generated for TruACP, stat err=%v", err)
 	}
-	if len(first) != 40 {
-		t.Fatalf("openCodeProjectID length = %d, want 40", len(first))
-	}
-	for _, ch := range first {
-		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
-			t.Fatalf("openCodeProjectID contains non-hex character %q in %q", ch, first)
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md", ".openserverless-contract.md", ".mcp.json"} {
+		if _, err := os.Stat(filepath.Join(projectDir, name)); err != nil {
+			t.Fatalf("%s missing: %s", name, err)
 		}
+	}
+	agents, _ := os.ReadFile(filepath.Join(projectDir, "AGENTS.md"))
+	claude, _ := os.ReadFile(filepath.Join(projectDir, "CLAUDE.md"))
+	if string(agents) != string(claude) || !strings.Contains(string(agents), trustableAgentsBegin) {
+		t.Fatal("managed AGENTS.md/CLAUDE.md are not aligned")
+	}
+
+	var config struct {
+		Servers map[string]map[string]interface{} `json:"mcpServers"`
+	}
+	data, _ := os.ReadFile(filepath.Join(projectDir, ".mcp.json"))
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse .mcp.json: %s", err)
+	}
+	for _, name := range []string{"openserverless", "browser", "redis"} {
+		if _, ok := config.Servers[name]; !ok {
+			t.Fatalf("%s missing from .mcp.json: %#v", name, config.Servers)
+		}
+	}
+	if config.Servers["openserverless"]["command"] != "openserverless-mcp" ||
+		config.Servers["browser"]["command"] != "trustable-browser-mcp" {
+		t.Fatalf("unexpected managed MCP commands: %#v", config.Servers)
 	}
 }

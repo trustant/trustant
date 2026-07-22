@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -10,17 +8,15 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // ipPattern matches IPv4 addresses
 var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 
-// reverse proxy instances for opencode and vite
-var opencodeProxy = newSilentProxy("127.0.0.1:4096")
+// reverse proxy instances for the coding assistant (TruACP) and Vite.
+var truacpProxy = newSilentProxy("127.0.0.1:4096")
 var viteProxy = newSilentProxy("127.0.0.1:5173")
 var developmentProxyTransport http.RoundTripper = http.DefaultTransport
 
@@ -81,187 +77,6 @@ func parseHostname(r *http.Request) (hostname, port, protocol string) {
 	return hostname, port, protocol
 }
 
-func latestOpenCodeSessionID(directory string) string {
-	if directory == "" {
-		return ""
-	}
-	sessionURL := fmt.Sprintf("http://127.0.0.1:4096/session?directory=%s&roots=true&limit=20", url.QueryEscape(directory))
-	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(sessionURL)
-	if err != nil {
-		log.Printf("opencode redirect: failed to query latest session for %s: %s", directory, err)
-		return ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("opencode redirect: latest session query for %s returned %d", directory, resp.StatusCode)
-		return ""
-	}
-	var sessions []opencodeSession
-	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
-		log.Printf("opencode redirect: failed to decode latest session for %s: %s", directory, err)
-		return ""
-	}
-	return chooseOpenCodeSessionID(sessions)
-}
-
-func decodeOpenCodeDirectory(encoded string) string {
-	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	directory := string(decoded)
-	if !filepath.IsAbs(directory) {
-		return ""
-	}
-	return directory
-}
-
-func currentOpenCodeDirectory() (encodedDir, directory string) {
-	app, err := readCurrentApp()
-	if err != nil || app == "" {
-		return "", ""
-	}
-	directory, err = canonicalWorkbenchPath(app)
-	if err != nil {
-		return "", ""
-	}
-	directory = canonicalPath(directory)
-	encodedDir = base64.RawURLEncoding.EncodeToString([]byte(directory))
-	return encodedDir, directory
-}
-
-func redirectToLatestOpenCodeSession(w http.ResponseWriter, r *http.Request, encodedDir, directory string) bool {
-	sessionID := latestOpenCodeSessionID(directory)
-	if sessionID == "" {
-		return false
-	}
-
-	target := fmt.Sprintf("/%s/session/%s", encodedDir, url.PathEscape(sessionID))
-	if r.URL.RawQuery != "" {
-		target += "?" + r.URL.RawQuery
-	}
-	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
-	return true
-}
-
-func redirectOpenCodeSession(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		return false
-	}
-
-	currentEncodedDir, currentDirectory := currentOpenCodeDirectory()
-	if currentDirectory == "" {
-		return false
-	}
-
-	if r.URL.Path == "/" {
-		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
-	}
-
-	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 2 || parts[1] != "session" {
-		return false
-	}
-	if len(parts) > 3 {
-		return false
-	}
-
-	requestedEncodedDir := parts[0]
-	requestedDirectory := decodeOpenCodeDirectory(requestedEncodedDir)
-	if requestedDirectory == "" {
-		return false
-	}
-	if !samePath(requestedDirectory, currentDirectory) {
-		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
-	}
-	if requestedEncodedDir != currentEncodedDir {
-		target := fmt.Sprintf("/%s/session", currentEncodedDir)
-		if len(parts) == 3 {
-			target += "/" + url.PathEscape(parts[2])
-		}
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
-		return true
-	}
-	if len(parts) == 2 {
-		return redirectToLatestOpenCodeSession(w, r, currentEncodedDir, currentDirectory)
-	}
-	return false
-}
-
-func canonicalPath(path string) string {
-	if path == "" {
-		return ""
-	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return filepath.Clean(resolved)
-	}
-	if abs, err := filepath.Abs(path); err == nil {
-		return filepath.Clean(abs)
-	}
-	return filepath.Clean(path)
-}
-
-func samePath(a, b string) bool {
-	return canonicalPath(a) == canonicalPath(b)
-}
-
-func rewriteOpenCodeDirectoryQueryToCurrent(r *http.Request) {
-	q := r.URL.Query()
-	directory := q.Get("directory")
-	if directory == "" {
-		return
-	}
-	_, currentDirectory := currentOpenCodeDirectory()
-	if currentDirectory == "" {
-		return
-	}
-	currentCanonical := canonicalPath(currentDirectory)
-	requestedCanonical := canonicalPath(directory)
-	if requestedCanonical == currentCanonical && filepath.Clean(directory) == currentDirectory {
-		return
-	}
-	q.Set("directory", currentDirectory)
-	r.URL.RawQuery = q.Encode()
-	log.Printf("opencode: rewrote directory %s to current app %s", directory, currentDirectory)
-}
-
-func handleScopedOpenCodeProjectList(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != http.MethodGet || r.URL.Path != "/project" {
-		return false
-	}
-	_, currentDirectory := currentOpenCodeDirectory()
-	if currentDirectory == "" {
-		return false
-	}
-
-	reqURL := fmt.Sprintf("http://127.0.0.1:4096/project/current?directory=%s", url.QueryEscape(currentDirectory))
-	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(reqURL)
-	if err != nil {
-		log.Printf("opencode project list: failed to query current project for %s: %s", currentDirectory, err)
-		return false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("opencode project list: current project query for %s returned %d", currentDirectory, resp.StatusCode)
-		return false
-	}
-	var project json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
-		log.Printf("opencode project list: failed to decode current project for %s: %s", currentDirectory, err)
-		return false
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte("["))
-	w.Write(project)
-	w.Write([]byte("]"))
-	return true
-}
-
 // hostnameMiddleware wraps an http.Handler with hostname verification, IP redirect, and host-based routing
 func hostnameMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -308,15 +123,10 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			// Serve the web folder (static files + API)
 			next.ServeHTTP(w, r)
 		case "opencode":
-			if redirectOpenCodeSession(w, r) {
-				return
-			}
-			if handleScopedOpenCodeProjectList(w, r) {
-				return
-			}
-			rewriteOpenCodeDirectoryQueryToCurrent(r)
-			// Proxy pass to port 4096
-			opencodeProxy.ServeHTTP(w, r)
+			// Keep the public hostname stable while proxying the new ACP runtime.
+			// TruACP serves its own UI and owns cwd/session state internally, so
+			// no OpenCode directory or session rewriting is performed.
+			truacpProxy.ServeHTTP(w, r)
 		case "vite":
 			// Proxy pass to port 5173
 			viteProxy.ServeHTTP(w, r)

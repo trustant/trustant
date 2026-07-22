@@ -18,8 +18,12 @@ then split in 2:
 - Dockerfile.base is the text before the separator '###---###'
 - Dockerfile.current  accept an argument for the base, also the targetarch, builds FROM base and then use what is after the separator.
 
-Calculate the <hash> of the Dockerfile.base, the pinned OpenServerless MCP
-submodule commit, and the local `browser-mcp` source tree.
+Before splitting the Dockerfile, stage the pinned `mcp` and `trustable-acp`
+submodules plus the local `browser-mcp` source into the Docker context. Do not
+download a floating agent runtime while building.
+
+Calculate the <hash> of the Dockerfile.base, the pinned OpenServerless MCP and
+TruACP revisions/content, and the local `browser-mcp` source tree.
 Try to pull the <image>:<hash>
 If the hash does not exist build the Dockerfile.base with that hash for the archs selected
 
@@ -29,3 +33,7 @@ The base image installs `trustable-browser-mcp` and Playwright `1.56.1` with
 its Chromium runtime under `/opt/ms-playwright`. The browser package and runtime
 must work on both amd64 and arm64 and are installed at image build time, never
 downloaded when a user launches an app.
+
+The base image builds TruACP for the target architecture and installs the Pi
+toolchain pinned by `trustable-acp/pi.version` under the `trustable` user's
+`~/.local/bin`. It does not compile or install OpenCode.

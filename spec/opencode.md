@@ -1,5 +1,12 @@
 # Embedded `opencode.md`
 
+> **HISTORICAL RECORD.** Trustable no longer launches OpenCode and no longer
+> generates `opencode.json` or a project-local `opencode.md`. The still-relevant
+> application guidance is now folded into the managed `AGENTS.md` and
+> `CLAUDE.md` files used by TruACP/Pi. References below to the OpenCode runtime,
+> plugin, session gates and generated OpenCode files are not active behaviour.
+> See [pi.md](pi.md) and [4-launch.md](4-launch.md) for the current contract.
+
 This file specifies the `opencode.md` guidance embedded into the Trustable
 binary and written into every launched app as
 `<workbenchdir>/<app>/opencode.md`. The generated `opencode.json` must reference

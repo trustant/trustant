@@ -2,12 +2,8 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha1"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -16,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,56 +20,10 @@ import (
 )
 
 const (
-	opencodePort               = 4096
-	opsdevelPort               = 5173
-	localLoopbackHost          = "127.0.0.1"
-	trustableCodeRuntimeMarker = "TRUSTABLE_RUNTIME_CONFIG"
+	truacpPort        = 4096
+	opsdevelPort      = 5173
+	localLoopbackHost = "127.0.0.1"
 )
-
-func fileContainsMarker(path, marker string) (bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-
-	needle := []byte(marker)
-	if len(needle) == 0 {
-		return true, nil
-	}
-	buffer := make([]byte, 64*1024+len(needle)-1)
-	carry := 0
-	for {
-		n, readErr := file.Read(buffer[carry:])
-		total := carry + n
-		if bytes.Contains(buffer[:total], needle) {
-			return true, nil
-		}
-		if readErr == io.EOF {
-			return false, nil
-		}
-		if readErr != nil {
-			return false, readErr
-		}
-		carry = min(len(needle)-1, total)
-		copy(buffer[:carry], buffer[total-carry:total])
-	}
-}
-
-func resolveTrustableCodeBinary() (string, error) {
-	path, err := exec.LookPath("opencode")
-	if err != nil {
-		return "", fmt.Errorf("Trustable Code binary not found: %w", err)
-	}
-	present, err := fileContainsMarker(path, trustableCodeRuntimeMarker)
-	if err != nil {
-		return "", fmt.Errorf("cannot verify Trustable Code binary %s: %w", path, err)
-	}
-	if !present {
-		return "", fmt.Errorf("%s is upstream OpenCode without the Trustable runtime; rerun ./setup.sh inside trudev", path)
-	}
-	return path, nil
-}
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
@@ -313,96 +262,6 @@ func appServiceRuntimeEnv(base []string) []string {
 		base = append(base, "MONGODB_URI="+uri)
 	}
 	return base
-}
-
-var trustableRuntimeManifestPathOverride string
-
-type trustableRuntimeWorkbench struct {
-	App                string   `json:"app"`
-	Workspace          string   `json:"workspace"`
-	DevelopmentURL     string   `json:"developmentUrl"`
-	RequiredMCPServers []string `json:"requiredMcpServers"`
-}
-
-type trustableRuntimeManifest struct {
-	Version     int                         `json:"version"`
-	Workbenches []trustableRuntimeWorkbench `json:"workbenches"`
-}
-
-func trustableRuntimeManifestPath() (string, error) {
-	if trustableRuntimeManifestPathOverride != "" {
-		return trustableRuntimeManifestPathOverride, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve home for Trustable runtime manifest: %w", err)
-	}
-	return filepath.Join(home, ".config", "trustable", "opencode-runtime.json"), nil
-}
-
-func writeTrustableRuntimeManifest(app, projectDir string) (string, error) {
-	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve Trustable workbench %s: %w", projectDir, err)
-	}
-	canonicalProjectDir, err = filepath.Abs(canonicalProjectDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to make Trustable workbench absolute: %w", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(canonicalProjectDir, "opencode.json"))
-	if err != nil {
-		return "", fmt.Errorf("failed to read generated opencode config: %w", err)
-	}
-	var config struct {
-		MCP map[string]json.RawMessage `json:"mcp"`
-	}
-	if err := json.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("failed to parse generated opencode config: %w", err)
-	}
-	servers := make([]string, 0, len(config.MCP))
-	for name, raw := range config.MCP {
-		var server struct {
-			Enabled *bool `json:"enabled"`
-		}
-		if err := json.Unmarshal(raw, &server); err != nil {
-			return "", fmt.Errorf("failed to parse MCP server %s: %w", name, err)
-		}
-		if server.Enabled == nil || *server.Enabled {
-			servers = append(servers, name)
-		}
-	}
-	sort.Strings(servers)
-
-	manifest := trustableRuntimeManifest{
-		Version: 1,
-		Workbenches: []trustableRuntimeWorkbench{{
-			App:                app,
-			Workspace:          canonicalProjectDir,
-			DevelopmentURL:     "http://localhost:5173",
-			RequiredMCPServers: servers,
-		}},
-	}
-	encoded, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to encode Trustable runtime manifest: %w", err)
-	}
-	manifestPath, err := trustableRuntimeManifestPath()
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
-		return "", fmt.Errorf("failed to create Trustable runtime config directory: %w", err)
-	}
-	temporaryPath := manifestPath + ".tmp"
-	defer os.Remove(temporaryPath)
-	if err := os.WriteFile(temporaryPath, encoded, 0600); err != nil {
-		return "", fmt.Errorf("failed to write Trustable runtime manifest: %w", err)
-	}
-	if err := os.Rename(temporaryPath, manifestPath); err != nil {
-		return "", fmt.Errorf("failed to publish Trustable runtime manifest: %w", err)
-	}
-	return manifestPath, nil
 }
 
 // mongodbConnectionString returns a MongoDB URI only from the official
@@ -768,7 +627,7 @@ func killPgid(pgid int) error {
 // terminateLeftoverProcesses checks for and kills any leftover process group.
 // It handles two cases of stale state from a previous launch:
 //  1. A pgid file pointing at a still-running process group — kill it by pgid.
-//  2. No pgid file, but an orphaned opencode/devel still holding 4096/5173 (the
+//  2. No pgid file, but an orphaned truacp/devel still holding 4096/5173 (the
 //     pgid file was removed while the process kept running) — reclaim the ports
 //     directly so the upcoming port-free check doesn't wedge the launch.
 //
@@ -779,9 +638,9 @@ func terminateLeftoverProcesses() {
 	if err != nil {
 		// No pgid file: nothing to kill by group, but a prior process may still
 		// be holding the ports. Reclaim them and clear the stale current marker.
-		if isPortListening(opencodePort) || isPortListening(opsdevelPort) {
+		if isPortListening(truacpPort) || isPortListening(opsdevelPort) {
 			log.Printf("No pgid file but ports busy; reclaiming orphaned listeners")
-			reclaimPort(opencodePort)
+			reclaimPort(truacpPort)
 			reclaimPort(opsdevelPort)
 		}
 		removeCurrentFile()
@@ -799,172 +658,6 @@ func terminateLeftoverProcesses() {
 
 	// Wait a bit for ports to be freed
 	time.Sleep(500 * time.Millisecond)
-}
-
-func normalizeOpenCodeAgentColor(color string) string {
-	normalized := strings.TrimSpace(strings.ToLower(color))
-	switch normalized {
-	case "primary", "secondary", "accent", "success", "warning", "error", "info":
-		return normalized
-	case "blue", "indigo":
-		return "primary"
-	case "purple", "violet", "gray", "grey":
-		return "secondary"
-	case "cyan", "sky", "teal":
-		return "info"
-	case "green", "emerald", "lime":
-		return "success"
-	case "yellow", "amber", "orange":
-		return "warning"
-	case "red", "rose", "pink":
-		return "error"
-	default:
-		if len(color) == 7 && strings.HasPrefix(color, "#") {
-			valid := true
-			for _, ch := range color[1:] {
-				if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
-					valid = false
-					break
-				}
-			}
-			if valid {
-				return color
-			}
-		}
-		return "primary"
-	}
-}
-
-func sanitizeOpenCodeAgentMetadata(workbenchPath string) {
-	agentDir := filepath.Join(workbenchPath, ".opencode", "agent")
-	if _, err := os.Stat(agentDir); err != nil {
-		return
-	}
-	if err := filepath.WalkDir(agentDir, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			return nil
-		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			log.Printf("Warning: failed to read OpenCode agent metadata %s: %s", path, readErr)
-			return nil
-		}
-		lines := strings.Split(string(data), "\n")
-		changed := false
-		for i, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if !strings.HasPrefix(trimmed, "color:") {
-				continue
-			}
-			prefix := line[:strings.Index(line, "color:")]
-			rawColor := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "color:")), `"'`)
-			normalized := normalizeOpenCodeAgentColor(rawColor)
-			if normalized != rawColor {
-				lines[i] = prefix + "color: " + normalized
-				changed = true
-			}
-			break
-		}
-		if changed {
-			if writeErr := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); writeErr != nil {
-				log.Printf("Warning: failed to update OpenCode agent metadata %s: %s", path, writeErr)
-				return nil
-			}
-			log.Printf("Normalized OpenCode agent metadata in %s", path)
-		}
-		return nil
-	}); err != nil {
-		log.Printf("Warning: failed to scan OpenCode agent metadata: %s", err)
-	}
-}
-
-func openCodeProjectID(app string) string {
-	sum := sha1.Sum([]byte("trustable:" + app))
-	return hex.EncodeToString(sum[:])
-}
-
-func ensureOpenCodeProjectID(workbenchPath, app string) {
-	gitDirOutput, err := exec.Command("git", "-C", workbenchPath, "rev-parse", "--git-dir").Output()
-	gitDir := ""
-	if err == nil {
-		gitDir = strings.TrimSpace(string(gitDirOutput))
-		if gitDir != "" && !filepath.IsAbs(gitDir) {
-			gitDir = filepath.Join(workbenchPath, gitDir)
-		}
-	}
-	if gitDir == "" {
-		gitDir = filepath.Join(workbenchPath, ".git")
-	}
-	if info, statErr := os.Stat(gitDir); statErr != nil || !info.IsDir() {
-		log.Printf("Warning: failed to locate git dir for OpenCode project id: %s", gitDir)
-		return
-	}
-	projectIDPath := filepath.Join(gitDir, "opencode")
-	projectID := openCodeProjectID(app)
-	if err := os.WriteFile(projectIDPath, []byte(projectID), 0644); err != nil {
-		log.Printf("Warning: failed to write OpenCode project id %s: %s", projectIDPath, err)
-		return
-	}
-	log.Printf("OpenCode project id for %s set to %s", app, projectID)
-}
-
-func cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("Warning: failed to locate home for OpenCode DB cleanup: %s", err)
-		return
-	}
-	dbPath := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
-	if _, err := os.Stat(dbPath); err != nil {
-		return
-	}
-
-	projectID := openCodeProjectID(app)
-	script := `
-import json
-import sqlite3
-import sys
-
-db_path, directory, project_id = sys.argv[1:4]
-con = sqlite3.connect(db_path)
-cur = con.cursor()
-changed = 0
-
-cur.execute(
-    "delete from project_directory where directory = ? and project_id != ?",
-    (directory, project_id),
-)
-changed += cur.rowcount
-
-for stale_id, raw_sandboxes in cur.execute(
-    "select id, sandboxes from project where id != ?",
-    (project_id,),
-).fetchall():
-    try:
-        sandboxes = json.loads(raw_sandboxes or "[]")
-    except Exception:
-        sandboxes = []
-    updated = [entry for entry in sandboxes if entry != directory]
-    if updated != sandboxes:
-        cur.execute(
-            "update project set sandboxes = ? where id = ?",
-            (json.dumps(updated), stale_id),
-        )
-        changed += cur.rowcount
-
-con.commit()
-print(changed)
-`
-	cmd := exec.Command("python3", "-c", script, dbPath, workbenchPath, projectID)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Warning: failed to cleanup OpenCode project directory links: %s, output: %s", err, strings.TrimSpace(string(output)))
-		return
-	}
-	changed := strings.TrimSpace(string(output))
-	if changed != "" && changed != "0" {
-		log.Printf("Cleaned %s stale OpenCode project directory link(s) for %s", changed, workbenchPath)
-	}
 }
 
 // waitForProcessStart waits for a process to either exit (error) or stay running for the specified duration
@@ -986,188 +679,6 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 		// Process is still running after the duration - success
 		return nil
 	}
-}
-
-// opencodeSession mirrors the subset of opencode's session object we care about
-// when deciding whether to reuse an existing session (see spec/4-launch.md).
-type opencodeSession struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Time  struct {
-		Created int64 `json:"created"`
-		Updated int64 `json:"updated"`
-	} `json:"time"`
-	Tokens struct {
-		Input  int64 `json:"input"`
-		Output int64 `json:"output"`
-	} `json:"tokens"`
-}
-
-var (
-	listOpenCodeSessionsForUI  = listOpencodeSessions
-	createOpenCodeSessionForUI = createOpencodeSession
-)
-
-// handleOpenCodeSessions exposes the persistent root sessions for one
-// Trustable workbench. OpenCode remains the source of truth; this endpoint
-// gives the Trustable app chrome a stable session picker independent of the
-// embedded OpenCode sidebar state.
-func handleOpenCodeSessions(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	app := strings.TrimPrefix(r.URL.Path, "/api/opencode/sessions/")
-	if !namePattern.MatchString(app) {
-		http.Error(w, `{"error":"invalid app name"}`, http.StatusBadRequest)
-		return
-	}
-
-	directory, err := canonicalWorkbenchPath(app)
-	if err != nil {
-		http.Error(w, `{"error":"invalid workbench path"}`, http.StatusBadRequest)
-		return
-	}
-	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
-		http.Error(w, `{"error":"workbench not found"}`, http.StatusNotFound)
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		sessionID := createOpenCodeSessionForUI(localLoopbackHost, opencodePort, directory)
-		if sessionID == "" {
-			http.Error(w, `{"error":"unable to create OpenCode session"}`, http.StatusBadGateway)
-			return
-		}
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"id": sessionID})
-		return
-	}
-
-	sessions := listOpenCodeSessionsForUI(localLoopbackHost, opencodePort, directory)
-	if sessions == nil {
-		http.Error(w, `{"error":"OpenCode session history unavailable"}`, http.StatusBadGateway)
-		return
-	}
-	sort.SliceStable(sessions, func(i, j int) bool {
-		return sessions[i].Time.Updated > sessions[j].Time.Updated
-	})
-	json.NewEncoder(w).Encode(sessions)
-}
-
-// hasActivity reports whether a session is non-empty: it has token activity or a
-// title other than the default "New session - ..." placeholder (spec/4-launch.md).
-func (s opencodeSession) hasActivity() bool {
-	if s.Tokens.Input > 0 || s.Tokens.Output > 0 {
-		return true
-	}
-	title := strings.TrimSpace(s.Title)
-	return title != "" && !strings.HasPrefix(title, "New session - ")
-}
-
-func chooseOpenCodeSessionID(sessions []opencodeSession) string {
-	var best, newest *opencodeSession
-	for i := range sessions {
-		s := &sessions[i]
-		if newest == nil || s.Time.Updated > newest.Time.Updated {
-			newest = s
-		}
-		if s.hasActivity() && (best == nil || s.Time.Updated > best.Time.Updated) {
-			best = s
-		}
-	}
-	if best != nil {
-		return best.ID
-	}
-	if newest != nil {
-		return newest.ID
-	}
-	return ""
-}
-
-// resolveOpencodeSession returns the id of the session to use for the launched
-// app. It first queries opencode's root sessions for the workbench directory and
-// prefers the newest non-empty session; if none are non-empty it reuses the
-// newest returned session. Only when no session exists does it create a new one
-// via createOpencodeSession (see spec/4-launch.md). Failures are non-fatal.
-func resolveOpencodeSession(domain string, port int, directory string) string {
-	sessions := listOpencodeSessions(domain, port, directory)
-	if len(sessions) > 0 {
-		sessionID := chooseOpenCodeSessionID(sessions)
-		log.Printf("opencode: reusing session %s for %s", sessionID, directory)
-		return sessionID
-	}
-	return createOpencodeSession(domain, port, directory)
-}
-
-// listOpencodeSessions queries opencode for the root sessions scoped to the
-// given directory. Returns nil on any failure (treated as "no sessions").
-func listOpencodeSessions(domain string, port int, directory string) []opencodeSession {
-	reqURL := fmt.Sprintf("http://%s:%d/session?directory=%s&roots=true&limit=20", domain, port, url.QueryEscape(directory))
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		log.Printf("opencode session list: failed to build request: %s", err)
-		return nil
-	}
-	req.Header.Set("X-Opencode-Directory", directory)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("opencode session list %s failed: %s", reqURL, err)
-		return nil
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("opencode session list %s -> %d: %s", reqURL, resp.StatusCode, strings.TrimSpace(string(body)))
-		return nil
-	}
-	var sessions []opencodeSession
-	if err := json.Unmarshal(body, &sessions); err != nil {
-		log.Printf("Warning: failed to parse OpenCode session list: %s", err)
-		return nil
-	}
-	return sessions
-}
-
-// createOpencodeSession POSTs to opencode's /session/ endpoint with the
-// workbench directory header so the running opencode server scopes its session
-// to the launched app. Launch runs in the same pod as OpenCode, so this is an
-// explicit pod-local sidecar call to localhost:4096. Browser traffic uses the
-// opencode.<domain> ingress and Trustable proxy path instead.
-func createOpencodeSession(domain string, port int, directory string) string {
-	url := fmt.Sprintf("http://%s:%d/session/", domain, port)
-	req, err := http.NewRequest(http.MethodPost, url, nil)
-	if err != nil {
-		log.Printf("opencode session POST: failed to build request: %s", err)
-		return ""
-	}
-	req.Header.Set("X-Opencode-Directory", directory)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("opencode session POST %s failed: %s", url, err)
-		return ""
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	trimmedBody := strings.TrimSpace(string(body))
-	log.Printf("opencode session POST %s -> %d: %s", url, resp.StatusCode, trimmedBody)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ""
-	}
-	var session struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &session); err != nil {
-		log.Printf("Warning: failed to parse OpenCode session response: %s", err)
-		return ""
-	}
-	return session.ID
 }
 
 // ensureRequiredWorkbenchFolders scaffolds the folders every app must have
@@ -1309,8 +820,6 @@ func restoreMissingWorkbenchCheckouts() {
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to generate restored workbench .env for %s: %s", app, err)
 		}
-		ensureOpenCodeProjectID(workbenchPath, app)
-		cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
 	}
 }
 
@@ -1328,12 +837,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", app)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("App folder not found: %s/workspace/%s", WorkspaceDir, app)})
-		return
-	}
-
-	opencodeBinary, err := resolveTrustableCodeBinary()
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -1382,9 +885,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Ensure the required folders exist (packages/, web/) after checkout.
 	ensureRequiredWorkbenchFolders(workbenchPath)
 
-	ensureOpenCodeProjectID(workbenchPath, app)
-	cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
-
 	// Set up skills if not already present
 	skillsAdded := ensureSkills(app)
 
@@ -1393,6 +893,14 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to load config: %s", err)})
+		return
+	}
+	// A clean VM has no ~/.pi state even when the durable Trustable workspace
+	// already contains a valid provider selection. Rebuild Pi's native global
+	// configuration at launch so recreating Lima never requires a second manual
+	// configuration pass.
+	if err := writePiGlobalConfig(cfg); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to configure Pi: %s", err)})
 		return
 	}
 	storedPassword := ""
@@ -1462,7 +970,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	log.Printf("ops ide login for %s completed successfully", app)
 
 	// ops ide login (re)writes ~/.ops/config.json with the app user's service
-	// bindings. The opencode.json/MCP generation below reads that file, so log
+	// bindings. The project MCP generation below reads that file, so log
 	// which service blocks landed — a missing block here is exactly why an MCP
 	// server would be skipped or misconfigured (spec/4-launch.md).
 	logOpsServiceBlocks(app)
@@ -1494,15 +1002,15 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	log.Printf("ops ide deploy for %s completed successfully", app)
 
 	// Detect ports
-	leftPort := opencodePort
+	leftPort := truacpPort
 	rightPort := opsdevelPort
 
 	// Check if ports are free. If a port is held — typically by an orphaned
-	// opencode/devel from a prior launch whose pgid file is gone, so
+	// truacp/devel from a prior launch whose pgid file is gone, so
 	// terminateLeftoverProcesses couldn't clean it up — reclaim it by killing
 	// the listener directly before giving up.
 	if !isPortFree(leftPort) && !reclaimPort(leftPort) {
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Port %d (opencode) is not available", leftPort)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Port %d (truacp) is not available", leftPort)})
 		return
 	}
 	if !isPortFree(rightPort) && !reclaimPort(rightPort) {
@@ -1510,87 +1018,79 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	// Generate the complete, self-contained OpenCode config directly in the
-	// workbench project folder (<workbench>/<app>/opencode.json): provider,
-	// model defaults, lsp, and the mcp servers from ~/.ops/config.json. There is
-	// no global ~/.config/opencode/opencode.json (see spec/4-launch.md).
-	if cfg, err := loadTrustableConfig(); err != nil {
-		log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
-	} else if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		log.Printf("Warning: failed to generate opencode.json: %s", err)
+	// Generate the project assets consumed by Pi: standard .mcp.json,
+	// AGENTS.md/CLAUDE.md, the OpenServerless contract, and local checkers.
+	// Provider/model configuration is global under ~/.pi/agent.
+	if err := generateProjectAssetsForApp(app); err != nil {
+		log.Printf("Warning: failed to generate project assets: %s", err)
 	}
 	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
 	// MCP servers generated above from ~/.ops/config.json.
 	setupServiceTooling()
-	sanitizeOpenCodeAgentMetadata(workbenchPath)
-	runtimeManifestPath, err := writeTrustableRuntimeManifest(app, workbenchPath)
-	if err != nil {
-		log.Printf("Trustable runtime manifest generation failed: %s", err)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to generate Trustable runtime manifest: %s", err)})
-		return
-	}
 
-	// Start opencode
-	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
-	opencodeCmd := exec.Command(opencodeBinary, "serve", "--port", strconv.Itoa(leftPort), "--hostname", "0.0.0.0", "--log-level", "DEBUG", "--print-logs")
-	opencodeCmd.Dir = workbenchPath
-	opencodeCmd.Stdout = os.Stdout
-	opencodeCmd.Stderr = os.Stderr
-	opencodeCmd.Env = append(appServiceRuntimeEnv(os.Environ()), "TRUSTABLE_RUNTIME_CONFIG="+runtimeManifestPath)
+	// Start truacp. It serves its React UI on :4096 and owns the ACP session,
+	// spawning pi-acp (and therefore Pi) in the selected workbench directory.
+	// Trustable does not bootstrap or rewrite an agent session URL.
+	log.Printf("Starting truacp for %s on port %d...", app, leftPort)
+	truacpCmd := exec.Command("truacp", "--port", strconv.Itoa(leftPort), "--dir", workbenchPath)
+	truacpCmd.Dir = workbenchPath
+	truacpCmd.Stdout = os.Stdout
+	truacpCmd.Stderr = os.Stderr
+	truacpCmd.Env = appServiceRuntimeEnv(os.Environ())
 	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
 	for key, value := range appEnv {
 		if isServiceRuntimeEnvKey(key) {
 			continue
 		}
-		opencodeCmd.Env = append(opencodeCmd.Env, key+"="+value)
+		truacpCmd.Env = append(truacpCmd.Env, key+"="+value)
 	}
-	// Set process group so we can kill all child processes
-	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Keep truacp, pi-acp, Pi and ops ide devel in one process group.
+	truacpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Log exactly what we are about to run so failures are visible in the air console.
-	if bin, lookErr := exec.LookPath("opencode"); lookErr != nil {
-		log.Printf("opencode: WARNING `opencode` not found in PATH: %s", lookErr)
+	if bin, lookErr := exec.LookPath("truacp"); lookErr != nil {
+		log.Printf("truacp: WARNING `truacp` not found in PATH: %s", lookErr)
 	} else {
-		log.Printf("opencode: binary=%s", bin)
+		log.Printf("truacp: binary=%s", bin)
 	}
-	log.Printf("opencode: cmd=`%s`", strings.Join(opencodeCmd.Args, " "))
-	log.Printf("opencode: dir=%s config=%s appEnvCount=%d", workbenchPath, filepath.Join(workbenchPath, "opencode.json"), len(appEnv))
+	log.Printf("truacp: cmd=`%s`", strings.Join(truacpCmd.Args, " "))
+	log.Printf("truacp: dir=%s mcp=%s appEnvCount=%d", workbenchPath, filepath.Join(workbenchPath, ".mcp.json"), len(appEnv))
 
-	if err := opencodeCmd.Start(); err != nil {
-		log.Printf("opencode: FAILED to start: %s", err)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start opencode: %s", err)})
+	if err := truacpCmd.Start(); err != nil {
+		log.Printf("truacp: FAILED to start: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start truacp: %s", err)})
 		return
 	}
 
-	log.Printf("opencode: started pid=%d in directory: %s", opencodeCmd.Process.Pid, workbenchPath)
+	log.Printf("truacp: started pid=%d in directory: %s", truacpCmd.Process.Pid, workbenchPath)
 
 	// Get the process group ID
-	pgid, err := syscall.Getpgid(opencodeCmd.Process.Pid)
+	pgid, err := syscall.Getpgid(truacpCmd.Process.Pid)
 	if err != nil {
-		opencodeCmd.Process.Kill()
+		truacpCmd.Process.Kill()
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get process group: %s", err)})
 		return
 	}
 
-	// Check opencode doesn't terminate within 0.5 seconds
-	opencodeExited := make(chan error, 1)
+	// Check truacp doesn't terminate within 0.5 seconds.
+	truacpExited := make(chan error, 1)
 	go func() {
-		opencodeExited <- opencodeCmd.Wait()
+		truacpExited <- truacpCmd.Wait()
 	}()
 
 	select {
-	case err := <-opencodeExited:
+	case err := <-truacpExited:
 		// Process exited within 0.5 seconds - this is an error
-		errMsg := "opencode exited unexpectedly"
+		errMsg := "truacp exited unexpectedly"
 		if err != nil {
-			errMsg = fmt.Sprintf("opencode exited with error: %s", err)
+			errMsg = fmt.Sprintf("truacp exited with error: %s", err)
 		}
-		log.Printf("opencode: %s (see opencode stdout/stderr above for the cause)", errMsg)
+		log.Printf("truacp: %s (see truacp stdout/stderr above for the cause)", errMsg)
 		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
 		return
 	case <-time.After(500 * time.Millisecond):
 		// Process is still running - continue
-		log.Printf("opencode: pid=%d still alive after 500ms, serving on port %d", opencodeCmd.Process.Pid, leftPort)
+		log.Printf("truacp: pid=%d still alive after 500ms, serving on port %d", truacpCmd.Process.Pid, leftPort)
 	}
 
 	// Write pgid and current app name to files
@@ -1609,7 +1109,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	develCmd.Stdout = os.Stdout
 	develCmd.Stderr = os.Stderr
 	develCmd.Env = appServiceRuntimeEnv(os.Environ())
-	// Join the same process group as opencode
+	// Join the same process group as truacp.
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	if err := develCmd.Start(); err != nil {
@@ -1645,7 +1145,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	if err := waitForPort(leftPort, 30*time.Second); err != nil {
 		killPgid(pgid)
 		removePgidFile()
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("opencode failed to start listening: %s", err)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("truacp failed to start listening: %s", err)})
 		return
 	}
 	if err := waitForPort(rightPort, 30*time.Second); err != nil {
@@ -1655,29 +1155,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	// Calculate URL-encoded absolute path of the app folder
-	absPath, err := filepath.Abs(workbenchPath)
-	if err != nil {
-		killPgid(pgid)
-		removePgidFile()
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
-		return
-	}
-	absPath = canonicalPath(absPath)
-	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
-
-	// Notify the pod-local OpenCode server of the workbench directory so it
-	// scopes the session correctly. Browser requests use opencode.<domain>
-	// through the ingress/proxy path; launch bootstrapping stays inside the pod.
-	sessionID := resolveOpencodeSession(localLoopbackHost, leftPort, absPath)
-
-	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
+	log.Printf("Services for %s started - truacp on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"left":         leftPort,
 		"right":        rightPort,
-		"b64dir":       b64Path,
-		"encdir":       absPath,
-		"session_id":   sessionID,
 		"skills_added": skillsAdded,
 	})
 }

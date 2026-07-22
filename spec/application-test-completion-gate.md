@@ -1,5 +1,19 @@
 # Application test completion gate
 
+> **REMOVED — historical record only.** This entire gate was implemented by the
+> OpenCode session-enforcement plugin (`trustable_completion_check` and its
+> siblings). The plugin is gone and has no Pi replacement: Pi is reached through
+> `pi-acp`, which passes no tool flags, so no tool call can be intercepted or
+> blocked. Nothing below is enforced today. See "No tool-permission guardrail" in
+> [pi.md](pi.md).
+>
+> What survives is advisory only: the `check_trustable_app.sh` /
+> `check_openserverless_actions.sh` / `check_trustable_frontend.sh` scripts, which
+> the managed `AGENTS.md` tells the agent to run but cannot compel it to.
+>
+> The description below is retained so the behaviour can be re-specified if a
+> guardrail mechanism is reintroduced.
+
 ## Goal
 
 `trustable_completion_check` must run application tests that already exist

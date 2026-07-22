@@ -2,8 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,15 +22,21 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	if !strings.Contains(setup, `secret-unbind`) {
 		t.Fatal("setup.sh must verify a Trustable-only MCP registration")
 	}
-	if !strings.Contains(setup, `TRUSTABLE_CODE_WORKTREE_HASH`) ||
-		!strings.Contains(setup, `TRUSTABLE_CODE_BUILD_REF`) {
-		t.Fatal("setup.sh must rebuild Trustable Code when its development working tree changes")
+	if !strings.Contains(setup, `mongodb-mcp-server@1.9.0`) {
+		t.Fatal("setup.sh must install the MongoDB MCP version compatible with the pinned parser")
 	}
-	if !strings.Contains(setup, `trustable_code_source_identity trustable-code`) {
-		t.Fatal("setup.sh must fingerprint Trustable Code without requiring guest Git metadata")
+	if !strings.Contains(setup, `cd browser-mcp && npm pack`) ||
+		!strings.Contains(setup, `command -v trustable-browser-mcp`) {
+		t.Fatal("setup.sh must package and verify the checked-out browser MCP")
 	}
-	if strings.Contains(setup, `git -C trustable-code rev-parse`) {
-		t.Fatal("setup.sh must not follow host-only nested submodule Git metadata from the guest")
+	if !strings.Contains(setup, `playwright@1.56.1 install --with-deps chromium`) {
+		t.Fatal("setup.sh must install pinned Chromium and its Linux runtime dependencies")
+	}
+	if strings.Contains(setup, `git -C trustable-acp`) || strings.Contains(setup, `git -C mcp`) {
+		t.Fatal("setup.sh must consume mounted source without following host-only Git metadata")
+	}
+	if !strings.Contains(setup, `(cd trustable-acp && ./setup.sh)`) {
+		t.Fatal("setup.sh must build TruACP from the checked-out submodule")
 	}
 }
 
@@ -58,87 +62,38 @@ func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
 	}
 }
 
-func TestTrustableCodeIdentityDoesNotRequireGuestGitMetadata(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "trustable-code")
-	if err := os.MkdirAll(filepath.Join(root, "packages", "opencode"), 0o755); err != nil {
-		t.Fatalf("create fake Trustable Code checkout: %s", err)
-	}
-	for path, content := range map[string]string{
-		filepath.Join(root, ".git"):                                 "gitdir: /host-only/.git/modules/trustable-code\n",
-		filepath.Join(root, "packages", "opencode", "package.json"): "{\"version\":\"test\"}\n",
-		filepath.Join(root, "packages", "opencode", "source.ts"):    "export const value = 1\n",
-	} {
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatalf("write %s: %s", path, err)
-		}
-	}
-
-	identity := func(ref string) []string {
-		cmd := exec.Command("bash", "-c", `
-set -euo pipefail
-source ./setup-trustable-code.sh
-trustable_code_source_identity "$1"
-`, "bash", root)
-		cmd.Dir = "."
-		if ref != "" {
-			cmd.Env = append(os.Environ(), "TRUSTABLE_CODE_SOURCE_REF="+ref)
-		}
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("resolve source identity: %s\n%s", err, out)
-		}
-		fields := strings.Fields(string(out))
-		if len(fields) != 2 {
-			t.Fatalf("unexpected source identity %q", out)
-		}
-		return fields
-	}
-
-	const commit = "0123456789abcdef0123456789abcdef01234567"
-	withHostRef := identity(commit)
-	if withHostRef[0] != commit {
-		t.Fatalf("host revision not preserved: got %q", withHostRef[0])
-	}
-	withoutGit := identity("")
-	if !strings.HasPrefix(withoutGit[0], "source-") {
-		t.Fatalf("inaccessible Git metadata must fall back to source fingerprint, got %q", withoutGit[0])
-	}
-	if withoutGit[1] != withHostRef[1] {
-		t.Fatalf("source hash changed when only revision metadata changed: %q != %q", withoutGit[1], withHostRef[1])
-	}
-
-	ignored := filepath.Join(root, "node_modules", "generated.js")
-	if err := os.MkdirAll(filepath.Dir(ignored), 0o755); err != nil {
-		t.Fatalf("create ignored build directory: %s", err)
-	}
-	if err := os.WriteFile(ignored, []byte("generated\n"), 0o644); err != nil {
-		t.Fatalf("write ignored build artifact: %s", err)
-	}
-	if got := identity(commit)[1]; got != withHostRef[1] {
-		t.Fatalf("dependency output changed source fingerprint: %q != %q", got, withHostRef[1])
-	}
-
-	source := filepath.Join(root, "packages", "opencode", "source.ts")
-	if err := os.WriteFile(source, []byte("export const value = 2\n"), 0o644); err != nil {
-		t.Fatalf("modify source: %s", err)
-	}
-	if got := identity(commit)[1]; got == withHostRef[1] {
-		t.Fatal("source change did not change Trustable Code fingerprint")
-	}
-}
-
-func TestStartPassesTrustableCodeRevisionFromHostToGuest(t *testing.T) {
+func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 	content, err := os.ReadFile("start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
 	start := string(content)
 	for _, required := range []string{
-		`git -C "$MOUNT_DIR/trustable-code" rev-parse --verify HEAD`,
-		`env TRUSTABLE_CODE_SOURCE_REF="$trustable_code_ref" ./setup.sh`,
+		`git -C "$MOUNT_DIR" submodule update --init --recursive mcp trustable-acp`,
+		`[[ -f "$MOUNT_DIR/mcp/package.json" ]]`,
+		`[[ -f "$MOUNT_DIR/trustable-acp/package.json" ]]`,
+		`ensure_source_submodules`,
 	} {
 		if !strings.Contains(start, required) {
-			t.Fatalf("start.sh is missing portable Trustable Code setup fragment %q", required)
+			t.Fatalf("start.sh is missing portable TruACP source setup fragment %q", required)
+		}
+	}
+}
+
+func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
+	content, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatalf("read run.sh: %s", err)
+	}
+	run := string(content)
+	for _, required := range []string{
+		`write_dev_build_metadata`,
+		`[[ -s _build.txt ]] || write_dev_build_metadata`,
+		`TRUSTABLE_BUILD_BRANCH`,
+		`> _build.txt`,
+	} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("run.sh is missing clean-worktree build metadata fragment %q", required)
 		}
 	}
 }

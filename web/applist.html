@@ -1332,10 +1332,6 @@
                 document.cookie = `LEFT=${encodeURIComponent(leftURL)};path=/`;
                 document.cookie = `RIGHT=${encodeURIComponent(rightURL)};path=/`;
                 document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
-                const rawDirectory = data.encdir || '';
-                document.cookie = `URLDIR=${encodeURIComponent(rawDirectory)};path=/`;
-                document.cookie = `B64DIR=${data.b64dir || ''};path=/`;
-                document.cookie = `SESSIONID=${encodeURIComponent(data.session_id || '')};path=/`;
 
                 if (data.skills_added) {
                     alert('Added skills');

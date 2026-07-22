@@ -54,6 +54,21 @@ HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
 
+# setup.sh runs inside a VM that only mounts this worktree. A worktree's .git
+# file may point outside that mount, so source submodules must be initialized on
+# the macOS host before the guest starts; setup.sh then consumes plain files and
+# never follows host-only Git metadata.
+ensure_source_submodules() {
+  if [[ ! -f "$MOUNT_DIR/mcp/package.json" || ! -f "$MOUNT_DIR/trustable-acp/package.json" ]]; then
+    echo "--- Initializing runtime source submodules on the host ---"
+    git -C "$MOUNT_DIR" submodule update --init --recursive mcp trustable-acp \
+      || fail "failed to initialize mcp/trustable-acp submodules"
+  fi
+  [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/trustable-acp/package.json" ]] || fail "trustable-acp submodule source is unavailable"
+  ok "runtime source submodules are available"
+}
+
 # Ensure the k3s API serving cert covers the host-reachable lima0 IP, so the
 # kubeconfig setup.sh extracts (server: https://<ip>:6443) verifies. k3s's cert
 # only lists the node IP (eth0/vzNAT) + 127.0.0.1 by default, NOT the lima0 IP
@@ -534,6 +549,7 @@ if [[ "${1:-}" == "-k" ]]; then
 fi
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "start.sh is macOS-only (needs the Trustable support dir + vz)"
+ensure_source_submodules
 
 # If the VM already exists, don't re-provision — just make sure it's running and
 # refresh the support files (the IP can change across restarts). Use ./start.sh -k

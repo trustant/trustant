@@ -26,7 +26,22 @@ ARCH=$(uname -m)
 case "$ARCH" in
   x86_64)        ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
+  *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
 esac
+
+[[ "$OS" == "linux" ]] || fail "setup.sh supports Ubuntu Linux in Lima or WSL, not ${OS}"
+[[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
+# shellcheck disable=SC1091
+source /etc/os-release
+case " ${ID:-} ${ID_LIKE:-} " in
+  *ubuntu*|*debian*) ;;
+  *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
+esac
+
+IS_WSL=false
+if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then
+  IS_WSL=true
+fi
 
 RC_FILES=("$HOME/.bashrc")
 
@@ -235,17 +250,91 @@ WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) 
 ok "OpenWhisk reachable at ${APIHOST}"
 
 # --- 8. Extract kubeconfig for ops from the LOCAL k3s (no ssh, no IP rewrite) ---
-# The 127.0.0.1 in k3s.yaml is already correct inside the VM.
+# The 127.0.0.1 in k3s.yaml is already correct inside Lima/WSL. Select either
+# standalone kubectl or the client bundled with k3s.
 echo "--- Ensuring ops kubeconfig ---"
 KUBECONFIG_FILE="$HOME/.ops/tmp/kubeconfig"
-if KUBECONFIG="$KUBECONFIG_FILE" kubectl --raw='/readyz' &>/dev/null; then
+
+if command -v kubectl &>/dev/null; then
+  KUBECTL_CMD=(kubectl)
+elif command -v k3s &>/dev/null; then
+  KUBECTL_CMD=(k3s kubectl)
+else
+  fail "no Kubernetes client found: install kubectl or the local k3s runtime"
+fi
+kube() {
+  KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"
+}
+ok "Kubernetes client: ${KUBECTL_CMD[*]}"
+
+if kube get --raw='/readyz' &>/dev/null; then
   ok "kubeconfig already valid at $KUBECONFIG_FILE"
 else
   mkdir -p "$HOME/.ops/tmp"
+  [[ -r /etc/rancher/k3s/k3s.yaml ]] || sudo test -r /etc/rancher/k3s/k3s.yaml \
+    || fail "local k3s kubeconfig is not readable at /etc/rancher/k3s/k3s.yaml"
   sudo cat /etc/rancher/k3s/k3s.yaml > "$KUBECONFIG_FILE" || fail "failed to read /etc/rancher/k3s/k3s.yaml"
   chmod 600 "$KUBECONFIG_FILE"
   ok "kubeconfig written to $KUBECONFIG_FILE"
 fi
+
+KUBE_READY=false
+for _ in $(seq 1 30); do
+  if kube get --raw='/readyz' &>/dev/null; then
+    KUBE_READY=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$KUBE_READY" != true ]]; then
+  warn "Kubernetes API diagnostic:"
+  kube get --raw='/readyz' || true
+  fail "local k3s API did not become ready using $KUBECONFIG_FILE"
+fi
+ok "local k3s API is ready"
+
+# Host-side development processes resolve *.svc.cluster.local through the
+# local CoreDNS service. This is required in both Lima and WSL.
+echo "--- Configuring k3s service DNS ---"
+CLUSTER_DNS_IP=""
+for _ in $(seq 1 30); do
+  CLUSTER_DNS_IP=$(kube -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+  if [[ -z "$CLUSTER_DNS_IP" || "$CLUSTER_DNS_IP" == "None" ]]; then
+    CLUSTER_DNS_IP=$(kube -n kube-system get svc -l k8s-app=kube-dns -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null || true)
+  fi
+  [[ -n "$CLUSTER_DNS_IP" && "$CLUSTER_DNS_IP" != "None" ]] && break
+  sleep 2
+done
+if [[ -z "$CLUSTER_DNS_IP" || "$CLUSTER_DNS_IP" == "None" ]]; then
+  warn "Kubernetes services visible in kube-system:"
+  kube -n kube-system get svc || true
+  fail "cannot determine the local CoreDNS Service ClusterIP"
+fi
+
+if ! command -v systemctl &>/dev/null || ! systemctl is-active --quiet systemd-resolved; then
+  if [[ "$IS_WSL" == true ]]; then
+    fail "WSL requires systemd-resolved: enable systemd in /etc/wsl.conf, run 'wsl.exe --shutdown' from Windows, then retry"
+  fi
+  fail "systemd-resolved is required to route cluster.local inside this Ubuntu VM"
+fi
+RESOLVED_DIR=/etc/systemd/resolved.conf.d
+RESOLVED_FILE="$RESOLVED_DIR/trustable-k3s.conf"
+RESOLVED_CONTENT=$(printf '[Resolve]\nDNS=%s\nDomains=~cluster.local\n' "$CLUSTER_DNS_IP")
+if [[ "$(sudo cat "$RESOLVED_FILE" 2>/dev/null || true)" != "$RESOLVED_CONTENT" ]]; then
+  RESOLVED_TMP=$(mktemp)
+  printf '%s\n' "$RESOLVED_CONTENT" > "$RESOLVED_TMP"
+  sudo mkdir -p "$RESOLVED_DIR"
+  sudo install -m 0644 "$RESOLVED_TMP" "$RESOLVED_FILE"
+  rm -f "$RESOLVED_TMP"
+  sudo systemctl restart systemd-resolved || fail "failed to restart systemd-resolved"
+fi
+for _ in $(seq 1 15); do
+  getent hosts kubernetes.default.svc.cluster.local &>/dev/null && break
+  sleep 1
+done
+getent hosts kubernetes.default.svc.cluster.local &>/dev/null \
+  || fail "cluster.local DNS is not resolving through CoreDNS ${CLUSTER_DNS_IP}"
+ok "cluster.local DNS resolves through CoreDNS ${CLUSTER_DNS_IP}"
 
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
@@ -335,18 +424,35 @@ do
     uv tool install "$tool" || fail "uv tool install $tool failed"
 done
 
-# openserverless + mongodb MCP servers via npm (global, for the local user).
-# Run from $HOME so npm's git fetch does not stumble into this repo's broken
-# submodule worktree (.git/modules/...), and force the https transport so it
-# never falls back to ssh://git@github.com (which needs SSH keys).
+# OpenServerless, MongoDB, and browser MCP servers via npm. Package the checked
+# out sources so Lima/WSL runs exactly what the image build consumes; no guest
+# Git metadata is needed, which also supports host-mounted worktrees.
 command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"
-# --prefix "$HOME/.local" so binaries land in ~/.local/bin (already first in
-# PATH) and packages under ~/.local/lib — never the root-owned /usr/lib.
-( cd "$HOME" && GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf \
-    GIT_CONFIG_VALUE_0=ssh://git@github.com/ \
-    npm install -g --prefix "$HOME/.local" git+https://github.com/apache/openserverless-mcp.git mongodb-mcp-server@1.13.0 ) \
+[[ -f mcp/package.json ]] || fail "mcp submodule is not initialized (run ./start.sh on the host or: git submodule update --init mcp)"
+OPENSERVERLESS_MCP_PACK_DIR=$(mktemp -d)
+( cd mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing local openserverless-mcp failed"
+OPENSERVERLESS_MCP_PACKAGE=$(find "$OPENSERVERLESS_MCP_PACK_DIR" -maxdepth 1 -name 'openserverless-mcp-*.tgz' -print -quit)
+[[ -n "$OPENSERVERLESS_MCP_PACKAGE" ]] || fail "local openserverless-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$OPENSERVERLESS_MCP_PACKAGE" mongodb-mcp-server@1.9.0 ) \
   || fail "npm install of openserverless-mcp/mongodb-mcp-server failed"
+rm -rf "$OPENSERVERLESS_MCP_PACK_DIR"
+grep -qF 'secret-unbind' "$HOME/.local/lib/node_modules/openserverless-mcp/src/index.ts" \
+  || fail "installed openserverless-mcp does not match the checked-out source"
+
+[[ -f browser-mcp/package.json ]] || fail "browser-mcp source is missing"
+BROWSER_MCP_PACK_DIR=$(mktemp -d)
+( cd browser-mcp && npm pack --pack-destination "$BROWSER_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing trustable-browser-mcp failed"
+BROWSER_MCP_PACKAGE=$(find "$BROWSER_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-browser-mcp-*.tgz' -print -quit)
+[[ -n "$BROWSER_MCP_PACKAGE" ]] || fail "trustable-browser-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$BROWSER_MCP_PACKAGE" ) \
+  || fail "installing trustable-browser-mcp failed"
+rm -rf "$BROWSER_MCP_PACK_DIR"
+command -v trustable-browser-mcp &>/dev/null || fail "trustable-browser-mcp is not in PATH"
+env PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
+  npx --yes playwright@1.56.1 install --with-deps chromium \
+  || fail "installing Playwright Chromium failed"
 
 # s3 MCP: the txn2/mcp-s3 release binary behind the repo's Python wrapper (as the
 # Dockerfile does): release -> mcp-s3-real, wrapper (image/mcp-s3) -> mcp-s3. The
@@ -360,7 +466,7 @@ if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
 fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
 
-ok "MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
+ok "MCP servers (browser, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
 
 # --- 13. Build and install truacp (the ACP server that fronts `pi`) ---
 # truacp serves its own React UI on :4096 and spawns the `pi` coding agent over
@@ -378,14 +484,12 @@ ok "MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) installed
 # invoking it from here would install the agents and skip the build entirely
 # (trustable-acp/SPEC.md §10b).
 echo "--- Building truacp ---"
-if [[ -d trustable-acp ]]; then
-  [[ -x trustable-acp/setup.sh ]] || chmod +x trustable-acp/setup.sh
-  (cd trustable-acp && ./setup.sh) || fail "truacp build/install failed"
-  command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
-  ok "truacp installed ($(command -v truacp))"
-else
-  warn "trustable-acp/ not found — skipping truacp build (launch will fail without it)"
-fi
+[[ -f trustable-acp/package.json && -f trustable-acp/pi.version ]] \
+  || fail "trustable-acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init trustable-acp)"
+[[ -x trustable-acp/setup.sh ]] || chmod +x trustable-acp/setup.sh
+(cd trustable-acp && ./setup.sh) || fail "truacp build/install failed"
+command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
+ok "truacp installed ($(command -v truacp))"
 
 # Ensure ~/.bashrc PATH matches the image ordering, including BOTH the Go toolchain
 # dir (GOROOT/bin — where `go` itself lives, via g) and the Go install bin dir

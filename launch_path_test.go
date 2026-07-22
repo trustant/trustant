@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,179 +27,24 @@ func TestCanonicalWorkbenchPathResolvesSymlinkParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical existing path: %s", err)
 	}
-	if want := filepath.Join(workspaceWorkbench, "existing"); existing != want {
-		t.Fatalf("canonical existing path = %q, want %q", existing, want)
+	wantExisting, err := filepath.EvalSymlinks(filepath.Join(workspaceWorkbench, "existing"))
+	if err != nil {
+		t.Fatalf("resolve expected existing path: %s", err)
+	}
+	if existing != wantExisting {
+		t.Fatalf("canonical existing path = %q, want %q", existing, wantExisting)
 	}
 
 	missing, err := canonicalWorkbenchPath("missing")
 	if err != nil {
 		t.Fatalf("canonical missing path: %s", err)
 	}
-	if want := filepath.Join(workspaceWorkbench, "missing"); missing != want {
+	canonicalParent, err := filepath.EvalSymlinks(workspaceWorkbench)
+	if err != nil {
+		t.Fatalf("resolve expected missing parent: %s", err)
+	}
+	if want := filepath.Join(canonicalParent, "missing"); missing != want {
 		t.Fatalf("canonical missing path = %q, want %q", missing, want)
-	}
-}
-
-func TestChooseOpenCodeSessionIDPrefersNewestActiveSession(t *testing.T) {
-	sessions := []opencodeSession{
-		{
-			ID:    "empty-new",
-			Title: "New session - 2026-07-07T06:52:03.334Z",
-			Time: struct {
-				Created int64 `json:"created"`
-				Updated int64 `json:"updated"`
-			}{Updated: 200},
-		},
-		{
-			ID:    "active-old",
-			Title: "\"Homepage E2E visible on this page\" [Headline]",
-			Time: struct {
-				Created int64 `json:"created"`
-				Updated int64 `json:"updated"`
-			}{Updated: 100},
-		},
-	}
-
-	if got := chooseOpenCodeSessionID(sessions); got != "active-old" {
-		t.Fatalf("chosen session = %q, want active-old", got)
-	}
-}
-
-func TestHandleOpenCodeSessionsReturnsPersistentHistory(t *testing.T) {
-	origWorkbench := WorkbenchDir
-	origLister := listOpenCodeSessionsForUI
-	t.Cleanup(func() {
-		WorkbenchDir = origWorkbench
-		listOpenCodeSessionsForUI = origLister
-	})
-
-	WorkbenchDir = t.TempDir()
-	app := "truapp"
-	appDir := filepath.Join(WorkbenchDir, app)
-	if err := os.MkdirAll(appDir, 0755); err != nil {
-		t.Fatalf("create app workbench: %s", err)
-	}
-	canonicalAppDir, err := filepath.EvalSymlinks(appDir)
-	if err != nil {
-		t.Fatalf("resolve app workbench: %s", err)
-	}
-
-	listOpenCodeSessionsForUI = func(host string, port int, directory string) []opencodeSession {
-		if host != localLoopbackHost || port != opencodePort {
-			t.Fatalf("unexpected OpenCode target %s:%d", host, port)
-		}
-		if directory != canonicalAppDir {
-			t.Fatalf("session directory = %q, want %q", directory, canonicalAppDir)
-		}
-		oldSession := opencodeSession{ID: "ses_old", Title: "Older session"}
-		oldSession.Time.Updated = 100
-		newSession := opencodeSession{ID: "ses_new", Title: "Newest session"}
-		newSession.Time.Updated = 200
-		return []opencodeSession{oldSession, newSession}
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/opencode/sessions/"+app, nil)
-	rec := httptest.NewRecorder()
-	handleOpenCodeSessions(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	var sessions []opencodeSession
-	if err := json.NewDecoder(rec.Body).Decode(&sessions); err != nil {
-		t.Fatalf("decode sessions: %s", err)
-	}
-	if len(sessions) != 2 || sessions[0].ID != "ses_new" || sessions[1].ID != "ses_old" {
-		t.Fatalf("unexpected sessions: %#v", sessions)
-	}
-}
-
-func TestHandleOpenCodeSessionsReportsUnavailableHistory(t *testing.T) {
-	origWorkbench := WorkbenchDir
-	origLister := listOpenCodeSessionsForUI
-	t.Cleanup(func() {
-		WorkbenchDir = origWorkbench
-		listOpenCodeSessionsForUI = origLister
-	})
-
-	WorkbenchDir = t.TempDir()
-	app := "truapp"
-	if err := os.MkdirAll(filepath.Join(WorkbenchDir, app), 0755); err != nil {
-		t.Fatalf("create app workbench: %s", err)
-	}
-	listOpenCodeSessionsForUI = func(string, int, string) []opencodeSession { return nil }
-
-	req := httptest.NewRequest(http.MethodGet, "/api/opencode/sessions/"+app, nil)
-	rec := httptest.NewRecorder()
-	handleOpenCodeSessions(rec, req)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandleOpenCodeSessionsCreatesSession(t *testing.T) {
-	origWorkbench := WorkbenchDir
-	origCreator := createOpenCodeSessionForUI
-	t.Cleanup(func() {
-		WorkbenchDir = origWorkbench
-		createOpenCodeSessionForUI = origCreator
-	})
-
-	WorkbenchDir = t.TempDir()
-	app := "truapp"
-	appDir := filepath.Join(WorkbenchDir, app)
-	if err := os.MkdirAll(appDir, 0755); err != nil {
-		t.Fatalf("create app workbench: %s", err)
-	}
-	canonicalAppDir, err := filepath.EvalSymlinks(appDir)
-	if err != nil {
-		t.Fatalf("resolve app workbench: %s", err)
-	}
-
-	createOpenCodeSessionForUI = func(host string, port int, directory string) string {
-		if host != localLoopbackHost || port != opencodePort {
-			t.Fatalf("unexpected OpenCode target %s:%d", host, port)
-		}
-		if directory != canonicalAppDir {
-			t.Fatalf("session directory = %q, want %q", directory, canonicalAppDir)
-		}
-		return "ses_created"
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/opencode/sessions/"+app, nil)
-	rec := httptest.NewRecorder()
-	handleOpenCodeSessions(rec, req)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
-	}
-	var response map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %s", err)
-	}
-	if response["id"] != "ses_created" {
-		t.Fatalf("session id = %q, want ses_created", response["id"])
-	}
-}
-
-func TestHandleOpenCodeSessionsReportsCreateFailure(t *testing.T) {
-	origWorkbench := WorkbenchDir
-	origCreator := createOpenCodeSessionForUI
-	t.Cleanup(func() {
-		WorkbenchDir = origWorkbench
-		createOpenCodeSessionForUI = origCreator
-	})
-
-	WorkbenchDir = t.TempDir()
-	app := "truapp"
-	if err := os.MkdirAll(filepath.Join(WorkbenchDir, app), 0755); err != nil {
-		t.Fatalf("create app workbench: %s", err)
-	}
-	createOpenCodeSessionForUI = func(string, int, string) string { return "" }
-
-	req := httptest.NewRequest(http.MethodPost, "/api/opencode/sessions/"+app, nil)
-	rec := httptest.NewRecorder()
-	handleOpenCodeSessions(rec, req)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -1,5 +1,12 @@
 # OpenCode browser MCP
 
+> **PARTLY HISTORICAL.** The bounded browser MCP, its target restrictions and
+> strict locator contract remain relevant and are exposed to Pi through the
+> generated `.mcp.json`. References below to OpenCode sessions,
+> `TRUSTABLE_RUNTIME_CONFIG`, runtime-manifest ownership and automatic evidence
+> gates describe the removed OpenCode plugin integration and are not enforced by
+> TruACP/Pi. See [pi.md](pi.md) and [4-launch.md](4-launch.md) for current wiring.
+
 Trustable provides a bounded Playwright browser to the OpenCode session through
 the generated `browser` MCP entry. It is an app-development diagnostic tool,
 not a general web browser.

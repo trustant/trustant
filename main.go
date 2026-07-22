@@ -34,6 +34,7 @@ var trustableFrontendCheckerSh string
 var trustableAppCheckerSh string
 
 // Keep .air.toml watching JavaScript so guardrail edits refresh this embedded asset.
+//
 //go:embed opencode-trustable-guardrails.js
 var opencodeTrustableGuardrailsJS string
 
@@ -78,7 +79,6 @@ func main() {
 	http.HandleFunc("/api/upload", handleUpload)
 	http.HandleFunc("/api/launch/", handleLaunch)
 	http.HandleFunc("/api/launch", handleLaunch)
-	http.HandleFunc("/api/opencode/sessions/", handleOpenCodeSessions)
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/git/status/", handleGitStatus)
 	http.HandleFunc("/api/git/save", handleGitSave)

@@ -18,42 +18,39 @@ binary for linux/amd64 and linux/arm64, builds the Docker image through
 `StatefulSet/trustable` in namespace `nuvolaris`.
 
 `image/image.sh` builds the base image from the part of `image/Dockerfile`
-before the `###---###` separator. The base image installs
-`openserverless-mcp` from the repository `mcp` submodule and compiles OpenCode
-from the pinned `trustable-code` submodule. Before building, the script stages
-both submodules into the Docker build context. The base-image hash includes the
-base Dockerfile, both submodule commits, and the browser MCP source hash. This
-guarantees that any runtime pointer or browser-tool change rebuilds the base
-image used by Trustable.
+before the `###---###` separator. It stages `openserverless-mcp` from the pinned
+`mcp` submodule, TruACP from the pinned `trustable-acp` submodule, and the local
+browser MCP source. The base-image hash includes the base Dockerfile and all
+three staged runtime identities/content hashes, so any runtime or browser-tool
+change rebuilds the base image used by Trustable.
 
 `trustable-acp` is tracked as a Git submodule from
 `https://github.com/trustable-ai/trustable-acp.git`, following `main` while the
 parent repository pins the exact commit. Trustable builds must consume that
 checked-out revision and must not download a floating TruACP source archive or
-depend on another developer worktree. The OpenCode build path above remains in
-effect only until the atomic Pi/TruACP runtime cutover is completed on the
-integration branch.
+depend on another developer worktree. The Docker build compiles TruACP for the
+target architecture and installs the Pi packages pinned by
+`trustable-acp/pi.version`; OpenCode is not built or installed.
 
-The Lima `setup.sh` development path mirrors the image: it installs the pinned
-Bun toolchain, builds the same `trustable-code` commit, verifies the expected
-OpenCode version and Trustable runtime marker, and atomically installs the
-result in `~/.local/bin/opencode`. It packages both the local OpenServerless MCP
-submodule and the local browser MCP, installs pinned Playwright Chromium, and
-routes `cluster.local` DNS to the local k3s CoreDNS service. It must not use the
-upstream OpenCode installer or a direct Apache OpenServerless MCP Git install
-as a substitute for either checked-out source tree.
-The Lima build-state identifier includes both the pinned Trustable Code commit
-and a working-tree content fingerprint. This keeps release/image builds pinned
-to commits while allowing an uncommitted local Trustable Code change to be
-compiled and validated during development.
+The Lima `setup.sh` development path mirrors the image: it builds the checked-out
+TruACP source, installs the pinned Pi toolchain, packages the local
+OpenServerless/browser MCP sources, installs pinned Playwright Chromium with
+its Linux runtime dependencies, and
+routes `cluster.local` DNS to the local k3s CoreDNS service. It must not install
+floating OpenCode or OpenServerless MCP sources.
 
-For the macOS Lima flow, `start.sh` resolves the Trustable Code commit on the
-host and passes it explicitly to `setup.sh`. The guest must not follow a nested
-submodule `.git` path into host-only Git metadata. `setup.sh` computes the
-working-tree fingerprint directly from the mounted source while excluding Git
-metadata, dependencies, build output, caches, and Bun build markers. A direct
-Ubuntu/WSL setup resolves the commit locally when Git metadata is available;
-otherwise it uses the source fingerprint as a stable fallback and continues.
+For the macOS Lima flow, `start.sh` initializes `mcp` and `trustable-acp` on the
+host before starting the guest. A worktree's `.git` file may point outside the
+single mounted directory, so `setup.sh` consumes ordinary mounted files and
+must never require guest access to nested submodule Git metadata. The same
+`setup.sh` supports Ubuntu under Lima and WSL with local k3s and
+`systemd-resolved`.
+
+`run.sh` must also work from a fresh worktree where the ignored `_build.txt`
+does not exist. Before starting Air it writes local development build metadata;
+the macOS wrapper records the real host worktree branch, while direct Linux/WSL
+runs use `TRUSTABLE_BUILD_BRANCH` when supplied and otherwise report the
+`development` fallback. Release metadata remains owned by the build scripts.
 
 Server build environment:
 

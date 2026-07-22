@@ -8,6 +8,23 @@
 #
 cd "$(dirname "$0")"
 
+# Go embeds _build.txt at compile time. Release builds create it in build.sh,
+# while a fresh worktree has no copy because the file is intentionally ignored.
+# Generate local metadata before Air starts so development works from a clean
+# checkout. Inside Lima/WSL the mounted .git indirection may be unavailable, so
+# an explicit override or a truthful development fallback is used there.
+write_dev_build_metadata() {
+    local version expiry branch stream build
+    version="$(cat version.txt 2>/dev/null || printf 'dev')"
+    expiry="$(cat expiry.txt 2>/dev/null || printf '2099/12/31')"
+    branch="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+    branch="${branch:-development}"
+    stream="${TRUSTABLE_BUILD_STREAM:-$branch}"
+    build="${TRUSTABLE_BUILD_TAG:-local_$(date +%y.%j.%H%M)}"
+    printf 'Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n' \
+        "$version" "$build" "$branch" "$stream" "$expiry" > _build.txt
+}
+
 # On macOS everything lives in the trudev VM, not on the host. Do the whole
 # lifecycle from here so the user only ever runs ./run.sh:
 #   1. ./start.sh  — provision/boot the VM AND run setup.sh (idempotent)
@@ -17,6 +34,7 @@ cd "$(dirname "$0")"
 #   3. on ^C (or when the loop exits), stop the VM with ./start.sh -s, keeping it
 #      for a fast restart next time
 if [[ "$(uname)" == "Darwin" ]]; then
+    write_dev_build_metadata
     command -v limactl >/dev/null 2>&1 || { echo "limactl not found (brew install lima)" >&2; exit 1; }
     ./start.sh || { echo "start.sh failed" >&2; exit 1; }
     # Ignore ^C on the host: the interrupt reaches the in-VM run.sh (same process
@@ -28,6 +46,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
     ./start.sh -s
     exit 0
 fi
+
+[[ -s _build.txt ]] || write_dev_build_metadata
 
 source ./.env
 
@@ -98,7 +118,9 @@ if ! ss -ltn 2>/dev/null | grep -q ':11434 '; then
     ollama serve &
 fi
 
-sudo chown -Rvf "$(id -u)" "$WORKSPACE_DIR"/*
+# Own the roots themselves so empty directories and hidden Trustable state are
+# handled without an unmatched `*` warning on the first clean run.
+sudo chown -Rf "$(id -u):$(id -g)" "$WORKSPACE_DIR" "$WORKBENCH_DIR"
 
 # 3. launch air in background (hot-reloads the Go binary on :8910)
 air &

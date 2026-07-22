@@ -1,31 +1,11 @@
 ARG OLLAMA_VERSION=0.30.6
-ARG OPENCODE_VERSION=1.17.18
 ARG OPS_BRANCH=bestia
 ARG OPS_REPO=https://github.com/nuvolaris/bestia
-
-########################################################## trustable-code
-FROM oven/bun:1.3.14 AS opencode-builder
-ARG OPENCODE_VERSION
-WORKDIR /src
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 make g++ && \
-    rm -rf /var/lib/apt/lists/*
-COPY trustable-code /src
-RUN HUSKY=0 bun install --frozen-lockfile
-RUN \
-    cd packages/opencode ;\
-    bun run script/build.ts --single --skip-install ;\
-    mkdir -p /out ;\
-    binary="$(find dist -type f -path '*/bin/opencode' -print -quit)" ;\
-    test -n "$binary" ;\
-    cp "$binary" /out/opencode ;\
-    test "$(/out/opencode --version)" = "$OPENCODE_VERSION"
 
 ########################################################## loader
 FROM ubuntu:24.04 AS loader
 ARG TARGETARCH
 ARG OLLAMA_VERSION
-ARG OPENCODE_VERSION
 ARG OPS_BRANCH
 ARG OPS_REPO
 
@@ -39,7 +19,6 @@ RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
 
 RUN \
     echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
-    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment ;\
     echo "OPS_REPO=${OPS_REPO}" >>/etc/environment ;\
     echo "OPS_BRANCH=${OPS_BRANCH}" >>/etc/environment
 
@@ -52,7 +31,6 @@ USER root
 COPY --from=loader /etc/environment /etc/environment
 COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
 COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
-COPY --from=opencode-builder /out/opencode /usr/local/bin/opencode
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
@@ -134,13 +112,15 @@ RUN \
 
 RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
-# opencode
+# TruACP serves the coding UI on :4096 and starts pi-acp/Pi. Build it inside
+# the target architecture so esbuild's platform-specific output matches the
+# runtime image. The context is staged from the pinned trustable-acp submodule.
+COPY --chown=trustable:trustable trustable-acp /tmp/trustable-acp
 RUN \
-    mkdir -p "$HOME/.config/opencode" ;\
-    cd "$HOME/.config/opencode" ;\
-    npm init -y >/dev/null ;\
-    npm install  "@opencode-ai/plugin@$(/usr/local/bin/opencode --version)" ;\
-    test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
+    cd /tmp/trustable-acp ;\
+    ./setup.sh ;\
+    test -x "$HOME/.local/bin/truacp" ;\
+    rm -rf /tmp/trustable-acp
 
 # workspace
 RUN \
