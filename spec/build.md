@@ -26,6 +26,14 @@ base Dockerfile, both submodule commits, and the browser MCP source hash. This
 guarantees that any runtime pointer or browser-tool change rebuilds the base
 image used by Trustable.
 
+`trustable-acp` is tracked as a Git submodule from
+`https://github.com/trustable-ai/trustable-acp.git`, following `main` while the
+parent repository pins the exact commit. Trustable builds must consume that
+checked-out revision and must not download a floating TruACP source archive or
+depend on another developer worktree. The OpenCode build path above remains in
+effect only until the atomic Pi/TruACP runtime cutover is completed on the
+integration branch.
+
 The Lima `setup.sh` development path mirrors the image: it installs the pinned
 Bun toolchain, builds the same `trustable-code` commit, verifies the expected
 OpenCode version and Trustable runtime marker, and atomically installs the
