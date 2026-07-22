@@ -155,6 +155,15 @@ data:
           proxy_set_header Host \$upstream_host;
           proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto \$scheme;
+          # TruACP streams session updates over /ws. HTTP/1.1 alone does not
+          # preserve an Upgrade across this extra Lima proxy hop, so forwarding
+          # the browser headers is required to avoid turning /ws into a 404 GET.
+          proxy_set_header Upgrade \$http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_buffering off;
+          proxy_request_buffering off;
+          proxy_read_timeout 600s;
+          proxy_send_timeout 600s;
           proxy_pass http://${TRAEFIK_IP}:80;
         }
       }

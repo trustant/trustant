@@ -89,6 +89,26 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 	}
 }
 
+func TestStartProxyPreservesTruACPWebSocketUpgrades(t *testing.T) {
+	content, err := os.ReadFile("start.sh")
+	if err != nil {
+		t.Fatalf("read start.sh: %s", err)
+	}
+	start := string(content)
+	for _, required := range []string{
+		`proxy_set_header Upgrade \$http_upgrade;`,
+		`proxy_set_header Connection "upgrade";`,
+		`proxy_buffering off;`,
+		`proxy_request_buffering off;`,
+		`proxy_read_timeout 600s;`,
+		`proxy_send_timeout 600s;`,
+	} {
+		if !strings.Contains(start, required) {
+			t.Fatalf("start.sh port-8080 proxy is missing TruACP WebSocket fragment %q", required)
+		}
+	}
+}
+
 func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	content, err := os.ReadFile("run.sh")
 	if err != nil {

@@ -51,6 +51,15 @@ must never require guest access to nested submodule Git metadata. The same
 `setup.sh` supports Ubuntu under Lima and WSL with local k3s without requiring
 guest access to Git metadata or changing guest system services.
 
+`start.sh` also creates the Lima-only `apihost-proxy` on port 8080. It rewrites
+browser-visible `<label>.<lima-ip>.nip.io` hosts to the corresponding
+`<label>.miniops.me` host before forwarding to the in-cluster Traefik service.
+This additional Nginx hop must forward WebSocket `Upgrade` and `Connection`
+headers, disable request/response buffering, and use bounded 600-second proxy
+timeouts. Otherwise TruACP's `/ws` handshake becomes an ordinary HTTP request,
+the UI stays idle even though Pi completes the prompt, and `/ws` returns 404
+instead of `101 Switching Protocols`.
+
 `run.sh` must also work from a fresh worktree where the ignored `_build.txt`
 does not exist. Before starting Air it writes local development build metadata;
 the macOS wrapper records the real host worktree branch, while direct Linux/WSL
