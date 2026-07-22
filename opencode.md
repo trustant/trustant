@@ -26,7 +26,7 @@ wrappers, raw credentials, or guessed `ops` commands.
 - Generated `__main__.py` files are platform wrappers. Do not create or edit
   them.
 - Setup and initialization belong in private actions in package `setup`.
-- Trustable launches and manages the Vite dev server and OpenCode process.
+- Trustable launches and manages the Vite dev server and TruACP/Pi process.
 - OpenServerless web actions have their own request parameter, metadata, and
   response semantics. Treat them carefully.
 - Every backend change should end with bounded validation against the real
@@ -37,7 +37,9 @@ wrappers, raw credentials, or guessed `ops` commands.
 Trustable also generates `AGENTS.md` in this app root. It is the app-local
 mandatory entrypoint and exists to prevent Claude Code compatibility files from
 overriding Trustable rules. Treat `AGENTS.md`, `.openserverless-contract.md`,
-`opencode.md`, and `opencode.json` as the authoritative instruction set.
+`opencode.md`, and `.mcp.json` as the authoritative instruction set. The
+`opencode.md` filename is retained only for compatibility; Pi is the active
+coding runtime.
 
 Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
 `.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
@@ -135,8 +137,8 @@ source changes.
   validation yourself.
 - Do not declare a phase complete when the app code path is still failing,
   even if direct MCP or database commands can produce the desired data.
-- Do not invent tool or `ops` command names. Use only tools exposed in the
-  current OpenCode tool list or generated `opencode.json`.
+- Do not invent tool or `ops` command names. Use the Pi `mcp` proxy and the
+  servers declared in generated `.mcp.json`.
 - Do not use shell redirection to create or replace source files. Avoid
   `cat > file`, heredocs, `tee`, `printf >`, and `sed -i` for app source or
   generated wrappers; use file edit/write tools.
@@ -168,10 +170,8 @@ source changes.
 - `packages/<package>/<action>/__main__.py`: generated wrapper, do not edit.
 - `packages/setup/<action>/`: private setup actions.
 - `.agents/skills/`: app-specific skills, when installed.
-- `opencode.json`: generated OpenCode config for this app.
 - `opencode.md`: this instruction file.
-- `.mcp.json`: generated Claude-compatible MCP config with the same MCP
-  servers.
+- `.mcp.json`: authoritative standard MCP configuration for this workbench.
 
 ## Application Development Workflow
 
@@ -315,8 +315,12 @@ simulate routes. They are not valid Trustable/OpenServerless endpoints.
 
 ## MCP Servers And Service Access
 
-`opencode.json` is generated at launch with an `mcp` section. Use available MCP
-servers and generated CLI wrappers instead of inventing connection details.
+`.mcp.json` is regenerated at launch with an `mcpServers` object. Pi exposes
+those servers through one lazy `mcp` proxy tool; use `mcp({})` to inspect server
+status and `mcp({ server: "mongodb" })` to list one server's tools. A missing
+direct tool name or an MCP process that has not started does not mean the server
+is absent. Use the generated configuration and wrappers instead of inventing
+connection details.
 
 - `openserverless`: always present; exposes action-management tools.
 - `agentireact`: present only when the app's Vite config contains
@@ -372,8 +376,9 @@ You may inspect `~/.ops/config.json` only to understand which services exist.
 Do not copy values from it into app code, wrapper code, logs, docs, or frontend
 configuration.
 
-The launch process also writes `.mcp.json` in Claude Code format with the same
-MCP servers. OpenCode should rely on generated `opencode.json`.
+The `mcp` proxy starts server processes lazily on first use. Never report a
+configured service as missing before checking both `mcp({})` and the keys of
+`.mcp.json.mcpServers`.
 
 Service MCP servers are diagnostic and verification aids. They must not replace
 the app's own setup actions or public API paths. Do not use `postgres_execute_sql`

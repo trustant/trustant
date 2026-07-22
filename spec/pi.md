@@ -25,12 +25,18 @@ variable is unset, `~/.pi/agent`:
 | File | Mode | Trustable-owned values |
 |---|---:|---|
 | `models.json` | `0600` | `providers.trustable` with base URL and allowed coding models |
-| `settings.json` | `0644` | `defaultProvider` and `defaultModel` |
+| `settings.json` | `0644` | `defaultProvider`, `defaultModel`, and `enabledModels: ["trustable/*"]` |
 | `auth.json` | `0600` | the real provider API key |
 
 The provider key is always `trustable`. `models.json` stores the literal
 `$OPENAI_API_KEY` reference; the real key is only in `auth.json`. Keyless
 providers use `dummy` so Pi considers the provider configured.
+
+TruACP resolves that reference server-side from `auth.json` for its `/models`
+probe and never returns a stored key through `/api/pi/config/get`. Trustable
+launches TruACP with `TRUSTABLE_MANAGED_RUNTIME=1`; a failed probe then directs
+the user back to Trustable's main Configure screen instead of opening TruACP's
+standalone credential form.
 
 Writers merge Trustable-owned keys into existing JSON and preserve unrelated Pi
 settings and providers. Invalid or missing JSON is treated as empty. Model
@@ -63,6 +69,16 @@ Pi reaches MCP servers through `pi-mcp-adapter`. `.mcp.json` is fully regenerate
 on every launch. `openserverless` and `browser` are always present;
 `agentireact` is conditional on `AgentiReact()` in the Vite config; service MCP
 servers are conditional on their blocks in `~/.ops/config.json`.
+
+`setup.sh` must register `pi-mcp-adapter` and `pi-web-access` with `pi install`.
+A global npm installation alone does not activate a Pi extension. The adapter
+exposes a single lazy `mcp` proxy, so instructions must require `mcp({})` plus
+`.mcp.json.mcpServers` inspection before reporting binding availability.
+
+Pi still knows its built-in providers, and pi-acp currently advertises that
+full catalog even when Pi model cycling is scoped. Trustable therefore writes
+`enabledModels: ["trustable/*"]` for runtime selection and TruACP filters the
+header selector to the same provider prefix.
 
 ## Launch contract
 

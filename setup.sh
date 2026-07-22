@@ -175,6 +175,16 @@ ok "uv is available"
 echo "--- Checking Go ---"
 GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
 
+# `g` persists both its own bin directory and the active Go toolchain in this
+# file. Non-interactive Lima/WSL shells do not source it automatically, so load
+# it before deciding whether either executable must be installed again.
+if [[ -s "$HOME/.g/env" ]]; then
+  set +u
+  # shellcheck disable=SC1090
+  source "$HOME/.g/env"
+  set -u
+fi
+
 if ! command -v go &>/dev/null; then
   warn "go not found, installing g (Go version manager)..."
   curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash || fail "g install failed"

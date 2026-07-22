@@ -816,10 +816,15 @@ func resolveOllamaRoot(cfg *trustableConfig) (root string, isOwnHost bool) {
 }
 
 const (
+	// Keep one stable provider identity across models, settings, and auth. The
+	// environment reference is Pi's supported indirection: the real secret stays
+	// in auth.json instead of being duplicated in the model catalog.
 	piProviderName = "trustable"
 	piAPIKeyRef    = "$OPENAI_API_KEY"
 )
 
+// piAgentDir follows Pi's native directory contract while allowing tests and
+// packaged runtimes to relocate the state without inventing another config tree.
 func piAgentDir() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR")); dir != "" {
 		return dir, nil
@@ -831,6 +836,8 @@ func piAgentDir() (string, error) {
 	return filepath.Join(home, ".pi", "agent"), nil
 }
 
+// readPiJSONFile is deliberately merge-friendly: a fresh or damaged optional
+// file is treated as empty, while valid unrelated user-owned keys are preserved.
 func readPiJSONFile(path string) map[string]interface{} {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -847,6 +854,8 @@ func readPiJSONFile(path string) map[string]interface{} {
 	return parsed
 }
 
+// writePiJSONFile reapplies the requested mode after every write because Pi's
+// auth file contains a real credential whereas settings.json is non-secret.
 func writePiJSONFile(path string, content map[string]interface{}, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create pi config directory: %w", err)
@@ -864,6 +873,8 @@ func writePiJSONFile(path string, content map[string]interface{}, mode os.FileMo
 	return nil
 }
 
+// piDefaultModel reads the legacy opencode.default field only for the staged
+// cutover, so existing trustable.json files remain usable until schema migration.
 func piDefaultModel(cfg *trustableConfig) string {
 	if cfg == nil || cfg.Opencode == nil {
 		return ""
@@ -871,6 +882,8 @@ func piDefaultModel(cfg *trustableConfig) string {
 	return strings.TrimSpace(cfg.Opencode.Default)
 }
 
+// buildPiModels converts Trustable's catalog into Pi's native shape, retaining
+// only coding-capable models and conservative limits when metadata is incomplete.
 func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
 	ids := make([]string, 0, len(cfg.Models)+1)
 	for modelID := range cfg.Models {
@@ -912,6 +925,8 @@ func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
 	return models
 }
 
+// piBaseURL normalizes every provider to the OpenAI-compatible API consumed by
+// Pi; Ollama needs an explicit /v1 suffix while cloud endpoints already include it.
 func piBaseURL(cfg *trustableConfig) string {
 	if cfg.Provider == "ollama" {
 		root, _ := resolveOllamaRoot(cfg)
@@ -954,8 +969,10 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	providers[piProviderName] = map[string]interface{}{
 		"baseUrl": piBaseURL(cfg),
 		"api":     "openai-completions",
-		"apiKey":  piAPIKeyRef,
-		"models":  models,
+		// Do not put cfg.APIKey here: models.json is configuration, while the
+		// matching secret is written to auth.json below.
+		"apiKey": piAPIKeyRef,
+		"models": models,
 	}
 	modelsConfig["providers"] = providers
 	if err := writePiJSONFile(modelsPath, modelsConfig, 0600); err != nil {
@@ -966,6 +983,10 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	settings := readPiJSONFile(settingsPath)
 	settings["defaultProvider"] = piProviderName
 	settings["defaultModel"] = defaultModel
+	// Pi knows built-in providers even when Trustable configures only its own.
+	// Scope model cycling to Trustable so alternate providers cannot become the
+	// active runtime model through Pi's native selector or keyboard shortcuts.
+	settings["enabledModels"] = []string{piProviderName + "/*"}
 	if err := writePiJSONFile(settingsPath, settings, 0644); err != nil {
 		return err
 	}
@@ -1252,6 +1273,8 @@ const (
 )
 
 func managedAppAgentsContent() string {
+	// opencode.md keeps its historical filename for compatibility, but its
+	// product guidance is agent-neutral and must reach Pi through standard files.
 	body := strings.TrimSpace(appAgentsMd) + "\n\n" + strings.TrimSpace(opencodeMd)
 	return trustableAgentsBegin + "\n" + body + "\n" + trustableAgentsEnd + "\n"
 }
@@ -1279,6 +1302,8 @@ func mergeManagedAppAgents(existing string) string {
 	return managed + "\n## App-local notes\n\n" + existing + "\n"
 }
 
+// writeManagedInstructionFile replaces only the marked Trustable section, so
+// reruns can refresh policy without destroying an application's local notes.
 func writeManagedInstructionFile(projectDir, filename string) error {
 	path := filepath.Join(projectDir, filename)
 	existingBytes, err := os.ReadFile(path)
@@ -1292,6 +1317,8 @@ func writeManagedInstructionFile(projectDir, filename string) error {
 	return nil
 }
 
+// writeManagedAppAgents emits both standard discovery names because Pi reads
+// AGENTS.md while Claude-compatible ACP agents conventionally read CLAUDE.md.
 func writeManagedAppAgents(projectDir string) error {
 	if err := writeManagedInstructionFile(projectDir, "AGENTS.md"); err != nil {
 		return err

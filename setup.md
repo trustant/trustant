@@ -87,9 +87,10 @@ curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bi
 
 curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash
 
-Source `~/.g/env` first when it already exists, then activate the go version in
-go.mod. Repeated setup runs must not reinstall `g` merely because a
-non-interactive shell did not inherit its environment.
+Source `~/.g/env` first when it already exists, restoring both `~/.g/bin` and
+the active Go toolchain to `PATH`, then activate the Go version in `go.mod`.
+Repeated setup runs must not reinstall `g` or report it missing merely because
+a non-interactive Lima/WSL shell did not inherit its environment.
 
 add the Go install bin dir to the PATH (GOBIN if set, else `go env GOPATH`/bin),
 then install air (go install github.com/air-verse/air@latest)

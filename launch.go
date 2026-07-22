@@ -20,6 +20,8 @@ import (
 )
 
 const (
+	// Preserve the historical public port split: TruACP replaces OpenCode on the
+	// left pane without changing ingress/proxy contracts; Vite remains on 5173.
 	truacpPort        = 4096
 	opsdevelPort      = 5173
 	localLoopbackHost = "127.0.0.1"
@@ -885,7 +887,8 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Ensure the required folders exist (packages/, web/) after checkout.
 	ensureRequiredWorkbenchFolders(workbenchPath)
 
-	// Set up skills if not already present
+	// Skills remain project-local rather than being baked into Pi's global state,
+	// so each generated app carries the capabilities appropriate to its repo.
 	skillsAdded := ensureSkills(app)
 
 	// Ensure the OpenWhisk user exists and password is in sync
@@ -1039,11 +1042,18 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	truacpCmd.Env = appServiceRuntimeEnv(os.Environ())
 	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
 	for key, value := range appEnv {
+		// Service bindings are reconstructed from the post-login ops config by
+		// appServiceRuntimeEnv; accepting duplicates from .env could select stale
+		// credentials after an app switch.
 		if isServiceRuntimeEnvKey(key) {
 			continue
 		}
 		truacpCmd.Env = append(truacpCmd.Env, key+"="+value)
 	}
+	// TruACP also supports standalone use, where its local endpoint form is
+	// appropriate. Append this marker last so neither the inherited environment
+	// nor an application .env can override Trustable's ownership of Pi config.
+	truacpCmd.Env = append(truacpCmd.Env, "TRUSTABLE_MANAGED_RUNTIME=1")
 	// Keep truacp, pi-acp, Pi and ops ide devel in one process group.
 	truacpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

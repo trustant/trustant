@@ -8,8 +8,7 @@ Authoritative Trustable instruction sources:
 1. `.openserverless-contract.md` for the short OpenServerless/action recovery
    contract.
 2. `opencode.md` for the full Trustable app assistant guide.
-3. `opencode.json` for generated MCP servers, permissions, provider, and model
-   configuration.
+3. `.mcp.json` for the MCP servers generated for this workbench.
 
 Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
 `.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
@@ -20,6 +19,13 @@ files above.
 Before touching actions, databases, setup, deploy, or service state, read
 `.openserverless-contract.md`. If it is missing, say so and fall back to
 `opencode.md`.
+
+Pi exposes every configured server through one lazy `mcp` proxy tool. Before
+reporting which service bindings exist, call `mcp({})` and inspect the keys in
+`.mcp.json.mcpServers`; do not infer absence from a missing server-specific tool
+name or from the fact that no MCP subprocess has started yet. In particular,
+MongoDB is configured when `.mcp.json.mcpServers.mongodb` exists. Never print or
+copy its connection-string environment value.
 
 Service MCP servers are diagnostics for the agent, not automatic runtime
 bindings for action code. Do not use `MDB_MCP_CONNECTION_STRING` in app source;

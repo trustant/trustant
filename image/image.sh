@@ -82,6 +82,9 @@ TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
 echo "Using trustable-acp submodule: $TRUACP_REF"
 rm -rf "$TRUACP_CONTEXT_DIR"
 mkdir -p "$TRUACP_CONTEXT_DIR"
+# Stage the complete runtime source instead of only a generated bundle: the
+# Docker stage must rebuild esbuild output for TARGETARCH. Exclude caches and
+# outputs so host state cannot affect the context hash.
 tar -C ../trustable-acp \
     --exclude=.git --exclude=node_modules --exclude=dist-bin --exclude=dist-web \
     --exclude=.acp-data --exclude='*.log' -cf - . | tar -x -C "$TRUACP_CONTEXT_DIR"

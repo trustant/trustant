@@ -64,9 +64,9 @@ func main() {
 	// Terminate any leftover processes from previous run (kept for backward compatibility)
 	terminateLeftoverProcesses()
 
-	// Recreate missing ephemeral checkouts from durable bare repos. OpenCode
-	// stores recent project paths persistently, so those paths must keep existing
-	// across pod rebuilds and restarts.
+	// Recreate missing ephemeral checkouts from durable bare repos. TruACP/Pi is
+	// launched with those paths as cwd, so restoring them before serving requests
+	// keeps persisted applications editable across pod rebuilds and VM restarts.
 	restoreMissingWorkbenchCheckouts()
 
 	// Parse version info

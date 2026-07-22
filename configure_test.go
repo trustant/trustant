@@ -1813,6 +1813,10 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	if settings["defaultProvider"] != piProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
 		t.Fatalf("unexpected Pi settings: %#v", settings)
 	}
+	enabledModels, ok := settings["enabledModels"].([]interface{})
+	if !ok || len(enabledModels) != 1 || enabledModels[0] != piProviderName+"/*" {
+		t.Fatalf("Pi model scope must contain only Trustable models: %#v", settings)
+	}
 	var auth map[string]map[string]string
 	data, _ = os.ReadFile(filepath.Join(dir, "auth.json"))
 	if err := json.Unmarshal(data, &auth); err != nil {

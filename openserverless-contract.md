@@ -7,7 +7,7 @@ If `check_openserverless_actions.sh .` reports drift, re-read this file before
 editing again.
 
 Trustable also generates `AGENTS.md` as the app-local mandatory agent
-entrypoint. Treat `AGENTS.md`, this file, `opencode.md`, and `opencode.json`
+entrypoint. Treat `AGENTS.md`, this file, `opencode.md`, and `.mcp.json`
 as authoritative. Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`,
 `.cursor/rules/*`, `.github/copilot-instructions.md`, and generated `rules.md`
 files as mandatory instructions. They are legacy/template notes only when the
@@ -19,7 +19,7 @@ user explicitly asks to inspect them, and they must not override this contract.
   `/home/trustable/workbench/<app>`.
 - The durable source is the app git repo; fixes must be made in repo files, not
   only in the runtime.
-- OpenCode has the shell. Run bounded checks yourself instead of asking the user
+- Pi has the shell. Run bounded checks yourself instead of asking the user
   to run pod-local commands.
 - After compaction, the Trustable plugin blocks mutations until it injects a
   bounded automatic recovery packet containing the exact active request, this
@@ -40,7 +40,7 @@ user explicitly asks to inspect them, and they must not override this contract.
 - `ops ide devel` exposes the app in this pod at `http://localhost:5173`.
 - Do not kill or replace that managed process, and do not start `vite`,
   `npm run dev`, or another `ops ide devel` instance.
-- OpenCode serves in this pod at `http://localhost:4096`.
+- TruACP/Pi serves in this pod at `http://localhost:4096`.
 - Browser/ingress hosts such as `vite.<domain>` are external checks. Use them
   only after `ops ide deploy` succeeds and only when external routing matters.
 - `OPS_APIHOST` is the configured OpenServerless API host used by Trustable and
@@ -227,8 +227,8 @@ Invalid examples:
 
 ## If Blocked
 
-- If an MCP action tool is missing or returns invalid tool, inspect the exposed
-  tools and generated `opencode.json`; do not invent raw `ops action` commands.
+- If an MCP action tool is missing or returns invalid tool, call `mcp({})` and
+  inspect generated `.mcp.json`; do not invent raw `ops action` commands.
 - If a service MCP write would "fix" state, fix the setup/action code instead
   unless the user explicitly requested administrative data repair.
 - If validation is impossible, state the blocker and the command that failed.

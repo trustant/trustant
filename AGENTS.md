@@ -20,6 +20,11 @@ Use `./build-server.sh` on Linux servers. `./build.sh` is the compatibility entr
 
 - Everything is `package main`; keep feature code in the existing file-per-surface pattern.
 - Specs are the source of truth when they disagree with code.
+- Every behavioral change must add or update a nearby code comment explaining
+  why the change exists, which runtime or compatibility constraint it protects,
+  and why the less-obvious alternative was rejected. Do not add comments that
+  merely restate syntax; tests, generated files, and mechanical renames are
+  exempt when the rationale is already documented at the production boundary.
 - Add or change API routes in `main.go` plus the matching feature file.
 - The frontend is plain HTML/Tailwind in `web/`; there is no frontend build step.
 - Browser tests must use FQDN-style hosts such as `trustable.<domain>`, `opencode.<domain>`, and `vite.<domain>`.

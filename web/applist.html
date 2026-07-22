@@ -1332,6 +1332,8 @@
                 document.cookie = `LEFT=${encodeURIComponent(leftURL)};path=/`;
                 document.cookie = `RIGHT=${encodeURIComponent(rightURL)};path=/`;
                 document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
+				// TruACP owns ACP session creation and cwd selection. Do not recreate
+				// the removed OpenCode directory/session cookies in the outer shell.
 
                 if (data.skills_added) {
                     alert('Added skills');
