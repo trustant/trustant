@@ -53,4 +53,11 @@ Use `./build-server.sh` on Linux servers. `./build.sh` is the compatibility entr
 ## Git
 
 The worktree may contain user changes or submodule pointer changes. Do not revert unrelated files. If a submodule changes, commit inside that submodule first, then commit the pointer update in this repo.
+
+Never push any repository, branch, tag, submodule, or release artifact unless
+the user explicitly authorizes that specific push in the current conversation.
+Do not infer push authorization from a request to change, test, build, commit,
+or prepare a pull request. Ask immediately before pushing when authorization is
+not already explicit and unambiguous.
+
 Never push the `olaris` subrepo unless the user explicitly authorizes that push in the current conversation.
