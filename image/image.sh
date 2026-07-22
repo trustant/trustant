@@ -9,11 +9,11 @@ DOCKERFILE="Dockerfile"
 SEPARATOR='###---###'
 MCP_CONTEXT_DIR="openserverless-mcp"
 BROWSER_CONTEXT_DIR="trustable-browser-mcp"
-TRUACP_CONTEXT_DIR="trustable-acp"
+TRUACP_ARTIFACT_DIR="truacp-runtime"
 
 cleanup() {
     rm -f Dockerfile.base Dockerfile.current
-    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$TRUACP_CONTEXT_DIR"
+    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$TRUACP_ARTIFACT_DIR"
 }
 trap cleanup EXIT
 
@@ -80,15 +80,34 @@ if [ ! -f ../trustable-acp/package.json ]; then
 fi
 TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
 echo "Using trustable-acp submodule: $TRUACP_REF"
-rm -rf "$TRUACP_CONTEXT_DIR"
-mkdir -p "$TRUACP_CONTEXT_DIR"
-# Stage the complete runtime source instead of only a generated bundle: the
-# Docker stage must rebuild esbuild output for TARGETARCH. Exclude caches and
-# outputs so host state cannot affect the context hash.
-tar -C ../trustable-acp \
-    --exclude=.git --exclude=node_modules --exclude=dist-bin --exclude=dist-web \
-    --exclude=.acp-data --exclude='*.log' -cf - . | tar -x -C "$TRUACP_CONTEXT_DIR"
-TRUACP_HASH="$(find "$TRUACP_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
+for required in setup.sh pi.version package-lock.json; do
+    if [ ! -f "../trustable-acp/$required" ]; then
+        echo "Error: ../trustable-acp/$required is missing." >&2
+        exit 1
+    fi
+done
+
+# Build outside Docker, then stage only the self-contained JavaScript bundle,
+# its pinned agent manifest, and the sole installer. Shipping source or
+# node_modules in an earlier image layer would retain them even after rm and
+# would let Docker and VM installation paths drift apart.
+(
+    cd ../trustable-acp
+    npm install
+    npm run build
+)
+if [ ! -s ../trustable-acp/dist-bin/truacp.cjs ]; then
+    echo "Error: trustable-acp build did not produce dist-bin/truacp.cjs" >&2
+    exit 1
+fi
+
+rm -rf "$TRUACP_ARTIFACT_DIR"
+mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
+cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
+cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
+cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
+TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
+echo "Using staged TruACP artifact hash: $TRUACP_HASH"
 
 if [ ! -f ../browser-mcp/package.json ]; then
     echo "Error: ../browser-mcp/package.json is missing." >&2

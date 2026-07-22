@@ -51,7 +51,6 @@ func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
 		`KUBECTL_CMD=(k3s kubectl)`,
 		`KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"`,
 		`local k3s API did not become ready`,
-		`WSL requires systemd-resolved`,
 	} {
 		if !strings.Contains(setup, required) {
 			t.Fatalf("setup.sh is missing portable Kubernetes setup fragment %q", required)
@@ -59,6 +58,16 @@ func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
 	}
 	if strings.Contains(setup, `KUBECONFIG="$KUBECONFIG_FILE" kubectl`) {
 		t.Fatal("setup.sh must not assume a standalone kubectl binary")
+	}
+	for _, forbidden := range []string{
+		`systemd-resolved`,
+		`/etc/systemd/resolved.conf.d`,
+		`systemctl restart`,
+		`get svc kube-dns`,
+	} {
+		if strings.Contains(setup, forbidden) {
+			t.Fatalf("setup.sh must not change VM DNS or systemd state: found %q", forbidden)
+		}
 	}
 }
 

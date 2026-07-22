@@ -38,11 +38,6 @@ case " ${ID:-} ${ID_LIKE:-} " in
   *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
 esac
 
-IS_WSL=false
-if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then
-  IS_WSL=true
-fi
-
 RC_FILES=("$HOME/.bashrc")
 
 # Snapshot the shell's PATH before add_to_path mutates it, so the ~/.local/bin
@@ -303,48 +298,9 @@ if [[ "$KUBE_READY" != true ]]; then
 fi
 ok "local k3s API is ready"
 
-# Host-side development processes resolve *.svc.cluster.local through the
-# local CoreDNS service. This is required in both Lima and WSL.
-echo "--- Configuring k3s service DNS ---"
-CLUSTER_DNS_IP=""
-for _ in $(seq 1 30); do
-  CLUSTER_DNS_IP=$(kube -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-  if [[ -z "$CLUSTER_DNS_IP" || "$CLUSTER_DNS_IP" == "None" ]]; then
-    CLUSTER_DNS_IP=$(kube -n kube-system get svc -l k8s-app=kube-dns -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null || true)
-  fi
-  [[ -n "$CLUSTER_DNS_IP" && "$CLUSTER_DNS_IP" != "None" ]] && break
-  sleep 2
-done
-if [[ -z "$CLUSTER_DNS_IP" || "$CLUSTER_DNS_IP" == "None" ]]; then
-  warn "Kubernetes services visible in kube-system:"
-  kube -n kube-system get svc || true
-  fail "cannot determine the local CoreDNS Service ClusterIP"
-fi
-
-if ! command -v systemctl &>/dev/null || ! systemctl is-active --quiet systemd-resolved; then
-  if [[ "$IS_WSL" == true ]]; then
-    fail "WSL requires systemd-resolved: enable systemd in /etc/wsl.conf, run 'wsl.exe --shutdown' from Windows, then retry"
-  fi
-  fail "systemd-resolved is required to route cluster.local inside this Ubuntu VM"
-fi
-RESOLVED_DIR=/etc/systemd/resolved.conf.d
-RESOLVED_FILE="$RESOLVED_DIR/trustable-k3s.conf"
-RESOLVED_CONTENT=$(printf '[Resolve]\nDNS=%s\nDomains=~cluster.local\n' "$CLUSTER_DNS_IP")
-if [[ "$(sudo cat "$RESOLVED_FILE" 2>/dev/null || true)" != "$RESOLVED_CONTENT" ]]; then
-  RESOLVED_TMP=$(mktemp)
-  printf '%s\n' "$RESOLVED_CONTENT" > "$RESOLVED_TMP"
-  sudo mkdir -p "$RESOLVED_DIR"
-  sudo install -m 0644 "$RESOLVED_TMP" "$RESOLVED_FILE"
-  rm -f "$RESOLVED_TMP"
-  sudo systemctl restart systemd-resolved || fail "failed to restart systemd-resolved"
-fi
-for _ in $(seq 1 15); do
-  getent hosts kubernetes.default.svc.cluster.local &>/dev/null && break
-  sleep 1
-done
-getent hosts kubernetes.default.svc.cluster.local &>/dev/null \
-  || fail "cluster.local DNS is not resolving through CoreDNS ${CLUSTER_DNS_IP}"
-ok "cluster.local DNS resolves through CoreDNS ${CLUSTER_DNS_IP}"
+# setup.sh validates the local k3s API but must not reconfigure the VM resolver
+# or restart systemd services. DNS policy belongs to the VM/k3s image; changing
+# it here makes a repository setup unexpectedly mutate the host environment.
 
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
@@ -372,9 +328,9 @@ fi
 ok "milvus-cli available"
 
 # --- 11. Install the pi coding-agent toolchain (pinned by trustable-acp/pi.version) ---
-# Same pin file the image uses (image/Dockerfile runs trustable-acp/setup.sh,
-# which reads it). Format: one literal npm install spec per line, `#` comments
-# and blank lines ignored, every entry MUST carry a version.
+# Same pin file the image stages beside the standalone TruACP setup.sh. Format:
+# one literal npm install spec per line, `#` comments and blank lines ignored,
+# every entry MUST carry a version.
 echo "--- Installing the pi coding-agent toolchain ---"
 PI_VERSIONS_FILE="trustable-acp/pi.version"
 [[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
@@ -482,9 +438,10 @@ ok "MCP servers (browser, openserverless, postgres, redis, milvus, mongodb, s3) 
 # truacp serves its own React UI on :4096 and spawns the `pi` coding agent over
 # stdio via the `pi-acp` adapter. Trustable launches it as
 # `truacp --port <n> --dir <workbench>` (see spec/4-launch.md,
-# trustable-acp/SPEC.md §10a). `npm run build` bundles the server + embedded web
-# UI and installs a launcher at ~/.local/bin/truacp. esbuild is platform-specific,
-# so the build MUST run in-VM (here), not on the macOS host.
+# trustable-acp/SPEC.md §10a). Its setup.sh bundles the server + embedded web UI,
+# then installs the launcher at ~/.local/bin/truacp. Development setup builds
+# inside the VM so project dependencies match that declared environment; image
+# builds separately stage the resulting portable JavaScript bundle.
 #
 # trustable-acp/setup.sh owns this step: it (re)installs the pinned agents and
 # their ACP adapters from pi.version — the same pins step 11 applied — then,

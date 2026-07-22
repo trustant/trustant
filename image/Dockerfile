@@ -112,15 +112,18 @@ RUN \
 
 RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
-# TruACP serves the coding UI on :4096 and starts pi-acp/Pi. Build it inside
-# the target architecture so esbuild's platform-specific output matches the
-# runtime image. The context is staged from the pinned trustable-acp submodule.
-COPY --chown=trustable:trustable trustable-acp /tmp/trustable-acp
+# TruACP serves the coding UI on :4096 and starts pi-acp/Pi. image.sh builds the
+# self-contained JavaScript bundle before Docker runs and stages only these
+# three runtime inputs; source and node_modules must never enter an image layer.
+COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
+COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
+COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
 RUN \
-    cd /tmp/trustable-acp ;\
-    ./setup.sh ;\
+    cd /tmp/truacp ;\
+    sh setup.sh ;\
     test -x "$HOME/.local/bin/truacp" ;\
-    rm -rf /tmp/trustable-acp
+    test -x "$HOME/.local/bin/trustable-acp" ;\
+    rm -rf /tmp/truacp
 
 # workspace
 RUN \

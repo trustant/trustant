@@ -54,15 +54,17 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	}
 	source := string(dockerfile)
 	for _, required := range []string{
-		"COPY --chown=trustable:trustable trustable-acp /tmp/trustable-acp",
-		"./setup.sh",
+		"COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh",
+		"COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version",
+		"COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs",
+		"sh setup.sh",
 		`test -x "$HOME/.local/bin/truacp"`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("TruACP image contract missing %q", required)
 		}
 	}
-	for _, removed := range []string{"opencode-builder", "OPENCODE_VERSION", "@opencode-ai/plugin", "COPY trustable-code"} {
+	for _, removed := range []string{"opencode-builder", "OPENCODE_VERSION", "@opencode-ai/plugin", "COPY trustable-code", "COPY --chown=trustable:trustable trustable-acp"} {
 		if strings.Contains(source, removed) {
 			t.Fatalf("runtime image still contains OpenCode build path %q", removed)
 		}
@@ -73,9 +75,25 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		t.Fatalf("read image/image.sh: %s", err)
 	}
 	staging := string(imageScript)
-	if !strings.Contains(staging, "TRUACP_CONTEXT_DIR=\"trustable-acp\"") ||
-		!strings.Contains(staging, `printf 'trustable-acp=%s:%s\n' "$TRUACP_REF" "$TRUACP_HASH"`) {
-		t.Fatal("base-image hash does not include staged TruACP source")
+	for _, required := range []string{
+		`TRUACP_ARTIFACT_DIR="truacp-runtime"`,
+		`npm run build`,
+		`cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"`,
+		`cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
+		`cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
+		`printf 'trustable-acp=%s:%s\n' "$TRUACP_REF" "$TRUACP_HASH"`,
+	} {
+		if !strings.Contains(staging, required) {
+			t.Fatalf("TruACP artifact staging contract missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`tar -C ../trustable-acp`,
+		`TRUACP_CONTEXT_DIR="trustable-acp"`,
+	} {
+		if strings.Contains(staging, forbidden) {
+			t.Fatalf("image build must not stage TruACP source: found %q", forbidden)
+		}
 	}
 	if strings.Contains(staging, "TRUSTABLE_CODE_CONTEXT_DIR") {
 		t.Fatal("image context still stages Trustable Code")
