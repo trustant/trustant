@@ -367,7 +367,6 @@ done
 
 hash -r
 command -v pi &>/dev/null || fail "pi not on PATH after install (expected ~/.local/bin/pi)"
-command -v pi-acp &>/dev/null || fail "pi-acp not on PATH after install (expected ~/.local/bin/pi-acp)"
 ok "pi toolchain installed (${#PI_PACKAGES[@]} pinned packages)"
 
 # --- 12. Install MCP servers (openserverless, redis, milvus, postgres, mongodb, s3) ---
@@ -444,7 +443,7 @@ ok "MCP servers (browser, openserverless, postgres, redis, milvus, mongodb, s3) 
 # builds separately stage the resulting portable JavaScript bundle.
 #
 # trustable-acp/setup.sh owns this step: it (re)installs the pinned agents and
-# their ACP adapters from pi.version — the same pins step 11 applied — then,
+# adapters from pi.version, builds the nested Trustable pi-acp fork, then,
 # because a package.json is present in the working directory, builds and installs
 # the ~/.local/bin/truacp launcher. It MUST be run from inside trustable-acp/:
 # the build/install phases key off a package.json in the *current* directory, so
@@ -453,6 +452,8 @@ ok "MCP servers (browser, openserverless, postgres, redis, milvus, mongodb, s3) 
 echo "--- Building truacp ---"
 [[ -f trustable-acp/package.json && -f trustable-acp/pi.version ]] \
   || fail "trustable-acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init trustable-acp)"
+[[ -f trustable-acp/pi-acp/package.json ]] \
+  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive trustable-acp)"
 [[ -x trustable-acp/setup.sh ]] || chmod +x trustable-acp/setup.sh
 (cd trustable-acp && ./setup.sh) || fail "truacp build/install failed"
 command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"

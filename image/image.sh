@@ -61,7 +61,10 @@ detect_platforms() {
 
 PLATFORMS=$(detect_platforms)
 echo "Building for platforms: $PLATFORMS"
-git submodule update --init ../mcp ../trustable-acp
+git submodule update --init ../mcp
+# WHY: trustable-acp owns a pinned pi-acp fork. Recursive initialization is
+# required so image builds cannot silently fall back to an npm adapter.
+git submodule update --init --recursive ../trustable-acp
 
 if [ ! -f ../mcp/package.json ]; then
     echo "Error: ../mcp is not initialized. Run: git submodule update --init mcp" >&2
@@ -80,15 +83,22 @@ if [ ! -f ../trustable-acp/package.json ]; then
 fi
 TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
 echo "Using trustable-acp submodule: $TRUACP_REF"
-for required in setup.sh pi.version package-lock.json; do
+for required in setup.sh pi.version package-lock.json extensions/trustable-guardrails.ts; do
     if [ ! -f "../trustable-acp/$required" ]; then
         echo "Error: ../trustable-acp/$required is missing." >&2
         exit 1
     fi
 done
+for required in package.json package-lock.json; do
+    if [ ! -f "../trustable-acp/pi-acp/$required" ]; then
+        echo "Error: nested trustable-acp/pi-acp/$required is missing." >&2
+        exit 1
+    fi
+done
 
 # Build outside Docker, then stage only the self-contained JavaScript bundle,
-# its pinned agent manifest, and the sole installer. Shipping source or
+# its pinned agent manifest, the tested pi-acp package, the reviewed Pi
+# guardrail, and the sole installer. Shipping the remaining source or
 # node_modules in an earlier image layer would retain them even after rm and
 # would let Docker and VM installation paths drift apart.
 (
@@ -106,6 +116,21 @@ mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
 cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
 cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
 cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
+cp ../trustable-acp/extensions/trustable-guardrails.ts "$TRUACP_ARTIFACT_DIR/trustable-guardrails.ts"
+TRUACP_ARTIFACT_ABS="$PWD/$TRUACP_ARTIFACT_DIR"
+(
+    cd ../trustable-acp/pi-acp
+    npm ci
+    npm test
+    npm run build
+    npm pack --pack-destination "$TRUACP_ARTIFACT_ABS"
+)
+set -- "$TRUACP_ARTIFACT_DIR"/pi-acp-*.tgz
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+    echo "Error: nested pi-acp build did not produce exactly one package archive." >&2
+    exit 1
+fi
+mv "$1" "$TRUACP_ARTIFACT_DIR/pi-acp-package.tgz"
 TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using staged TruACP artifact hash: $TRUACP_HASH"
 

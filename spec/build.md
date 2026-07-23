@@ -19,13 +19,15 @@ binary for linux/amd64 and linux/arm64, builds the Docker image through
 
 `image/image.sh` builds the base image from the part of `image/Dockerfile`
 before the `###---###` separator. It stages `openserverless-mcp` from the pinned
-`mcp` submodule, the local browser MCP source, and only three TruACP runtime
-artifacts: `setup.sh`, `pi.version`, and `dist-bin/truacp.cjs`. Before staging,
-it runs the TruACP dependency install and bundle build in the pinned submodule.
-The complete TruACP source and `node_modules` must never enter the Docker build
-context or an image layer. The base-image hash includes the base Dockerfile and
-all staged runtime identities/content hashes, so any runtime or browser-tool
-change rebuilds the base image used by Trustable.
+`mcp` submodule, the local browser MCP source, and five TruACP runtime artifacts:
+`setup.sh`, `pi.version`, `dist-bin/truacp.cjs`, and
+`pi-acp-package.tgz`, plus `trustable-guardrails.ts`. Before staging, it
+recursively initializes TruACP's pinned
+`pi-acp` fork, runs its tests/build/package step, and builds the TruACP bundle.
+The complete sources and `node_modules` must never enter the Docker build context
+or an image layer. The base-image hash includes the base Dockerfile and all
+staged runtime identities/content hashes, so any runtime, adapter, or
+browser-tool change rebuilds the base image used by Trustable.
 
 `trustable-acp` is tracked as a Git submodule from
 `https://github.com/trustable-ai/trustable-acp.git`, following `main` while the
@@ -37,19 +39,22 @@ bundle and the Pi packages pinned by `trustable-acp/pi.version`. OpenCode is not
 built or installed.
 
 The Lima `setup.sh` development path mirrors the image: it builds the checked-out
-TruACP source, installs the pinned Pi toolchain, packages the local
-OpenServerless/browser MCP sources, and installs pinned Playwright Chromium
-with its Linux runtime dependencies. It must not install floating OpenCode or
-OpenServerless MCP sources, modify the VM DNS configuration, write
+TruACP source, installs the pinned Pi toolchain, builds the same nested
+`pi-acp` fork, packages the local OpenServerless/browser MCP sources, and
+installs pinned Playwright Chromium with its Linux runtime dependencies. It
+must not install floating OpenCode, public npm `pi-acp`, or OpenServerless MCP
+sources, modify the VM DNS configuration, write
 `systemd-resolved` drop-ins, or restart systemd services. Resolver policy is
 owned by the prepared VM/k3s environment rather than repository setup.
 
-For the macOS Lima flow, `start.sh` initializes `mcp` and `trustable-acp` on the
-host before starting the guest. A worktree's `.git` file may point outside the
-single mounted directory, so `setup.sh` consumes ordinary mounted files and
-must never require guest access to nested submodule Git metadata. The same
-`setup.sh` supports Ubuntu under Lima and WSL with local k3s without requiring
-guest access to Git metadata or changing guest system services.
+For the macOS Lima flow, `start.sh` initializes `mcp`, `trustable-acp`, and its
+nested `pi-acp` fork recursively on the host before starting the guest. It checks
+the nested leaf even when the outer submodule was already populated. A
+worktree's `.git` file may point outside the single mounted directory, so
+`setup.sh` consumes ordinary mounted files and must never require guest access
+to nested submodule Git metadata. The same `setup.sh` supports Ubuntu under
+Lima and WSL with local k3s without requiring guest access to Git metadata or
+changing guest system services.
 
 `start.sh` also creates the Lima-only `apihost-proxy` on port 8080. It rewrites
 browser-visible `<label>.<lima-ip>.nip.io` hosts to the corresponding

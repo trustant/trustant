@@ -11,11 +11,13 @@ rewriting behind that hostname.
 
 ## Source and version pinning
 
-`trustable-acp` is a pinned Git submodule. The Pi CLI, ACP adapter, and Pi
-extensions are pinned in `trustable-acp/pi.version`; every install entry must
-carry an explicit version. `start.sh` initializes the submodule on the host
-before Lima starts, while `setup.sh` consumes the mounted files without
-following worktree Git metadata that may exist only on the host.
+`trustable-acp` is a pinned Git submodule. The Pi CLI and Pi extensions are
+pinned in `trustable-acp/pi.version`; every install entry must carry an explicit
+version. The customized ACP adapter is the nested
+`trustable-acp/pi-acp` submodule, pinned to an exact fork revision. `start.sh`
+initializes both levels on the host before Lima starts, while `setup.sh`
+consumes the mounted files without following worktree Git metadata that may
+exist only on the host.
 
 ## Global model configuration
 
@@ -43,11 +45,10 @@ the user back to Trustable's main Configure screen instead of opening TruACP's
 standalone credential form. The managed process also receives
 `PI_SKIP_VERSION_CHECK=1`: Trustable owns the pinned Pi version through
 `trustable-acp/pi.version`, so Pi must not advertise or initiate an independent
-global npm upgrade from inside an application session. The currently pinned
-`pi-acp` adapter implements a second registry check without supporting that
-flag, so the TruACP installer adds a guarded, version-sensitive compatibility
-patch to the installed adapter. This prevents the request and banner at their
-source; setup fails if an adapter upgrade changes the expected patch location.
+global npm upgrade from inside an application session. The nested Trustable
+`pi-acp` fork honors both `PI_SKIP_VERSION_CHECK` and `PI_OFFLINE` natively, so
+setup does not patch installed JavaScript and does not fall back to the public
+npm adapter.
 
 Writers merge Trustable-owned keys into existing JSON and preserve unrelated Pi
 settings and providers. Invalid or missing JSON is treated as empty. Model
@@ -110,10 +111,21 @@ TruACP, Pi, and `ops ide devel` share one process group so Stop terminates the
 whole app runtime. TruACP owns its ACP session and working directory; Trustable
 does not bootstrap, select, or persist agent sessions itself.
 
+Inside a live turn, the TruACP Stop control sends ACP `session/cancel` to the
+current Pi session. The fork bounds the Pi abort request, reports explicit
+stopping/idle activity, exposes retry and compaction as control-plane status
+rather than assistant prose, and includes Pi extension commands in the command
+catalog. The UI shows activity plus elapsed time, not an invented completion
+percentage, and can create or resume Pi sessions through the ACP session APIs.
+Inactive Pi sessions can also be removed through standard ACP `session/delete`.
+The fork resolves the ID inside Pi's configured session directory and refuses
+to delete the currently loaded session; TruACP removes its secondary metadata
+only after Pi confirms the deletion.
+
 ## Guardrails
 
-The OpenCode session plugin and its deterministic tool-permission/completion
-gates are not part of Pi. The managed instructions, OpenServerless contract,
+The OpenCode session plugin and its deterministic completion/recovery state
+machine are not part of Pi. The managed instructions, OpenServerless contract,
 browser MCP, and checker scripts remain advisory verification surfaces. This is
 an explicit runtime simplification, not a silent fallback to upstream OpenCode.
 The legacy JavaScript plugin source is not embedded in the Go binary,
@@ -122,3 +134,14 @@ The legacy JavaScript plugin source is not embedded in the Go binary,
 `trustable_context_recover`, `trustable_diagnostic_checkpoint`, or
 `trustable_completion_check`; verification uses the real MCP/browser tools and
 checker commands directly.
+
+Trustable retains one narrow deterministic boundary: the reviewed
+`trustable-guardrails.ts` Pi extension runs on `tool_call` before built-in tools
+execute. It blocks direct read/write/edit access to credential-bearing paths,
+shell environment dumps, secret-variable expansion, and programmatic
+environment access, preventing secrets from entering model context. It is
+installed by TruACP setup and passed through the versioned, typed Pi launch
+metadata; no browser request can inject its path or arbitrary arguments.
+Non-secret templates such as `.env.example` remain available. This protection
+does not enforce implementation plans, browser verification, deployment, or
+completion and therefore cannot recreate the former retry loops.

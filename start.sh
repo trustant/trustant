@@ -59,13 +59,19 @@ MOUNT_DIR="$(pwd)"
 # the macOS host before the guest starts; setup.sh then consumes plain files and
 # never follows host-only Git metadata.
 ensure_source_submodules() {
-  if [[ ! -f "$MOUNT_DIR/mcp/package.json" || ! -f "$MOUNT_DIR/trustable-acp/package.json" ]]; then
+  # WHY: trustable-acp may already be populated while its nested pi-acp fork is
+  # still empty. Test the leaf explicitly so a reused worktree cannot reach the
+  # VM setup with an incomplete runtime source tree.
+  if [[ ! -f "$MOUNT_DIR/mcp/package.json" ||
+        ! -f "$MOUNT_DIR/trustable-acp/package.json" ||
+        ! -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]]; then
     echo "--- Initializing runtime source submodules on the host ---"
     git -C "$MOUNT_DIR" submodule update --init --recursive mcp trustable-acp \
       || fail "failed to initialize mcp/trustable-acp submodules"
   fi
   [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
   [[ -f "$MOUNT_DIR/trustable-acp/package.json" ]] || fail "trustable-acp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
   ok "runtime source submodules are available"
 }
 

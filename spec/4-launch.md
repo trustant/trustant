@@ -169,7 +169,7 @@ and sound behavior instead of relying on source inspection.
 > reproduction-before-fix unlock, the post-change verification gate, the
 > diagnostic checkpoint fallback, and the eight-read-only-call budget before a
 > browser-only phase) was implemented by the OpenCode session plugin and is
-> **gone** — see "No tool-permission guardrail" in [pi.md](pi.md). The browser
+> **gone** — see "Guardrails" in [pi.md](pi.md). The browser
 > tools themselves are unchanged.
 
 ## MCP servers
@@ -214,11 +214,12 @@ unconditionally, independent of `~/.ops/config.json`:
 }
 ```
 
-The `pi` CLI, `pi-acp`, and the pi extensions (`pi-mcp-adapter`, `pi-web-access`)
-are pinned in [trustable-acp/pi.version](../trustable-acp/pi.version), one
-`<module>@<version>` npm install spec per line. `setup.sh` reads that file and
-installs exactly those specs; an unpinned entry aborts the install. To upgrade,
-edit a version there — nothing else changes.
+The `pi` CLI and pi extensions (`pi-mcp-adapter`, `pi-web-access`) are pinned in
+[trustable-acp/pi.version](../trustable-acp/pi.version), one
+`<module>@<version>` npm install spec per line. `pi-acp` is built from the
+separately pinned nested Trustable fork under `trustable-acp/pi-acp`; setup must
+never replace it with the public npm adapter. An unpinned manifest entry aborts
+the install.
 
 The runtime image installs `openserverless-mcp` from the local `mcp` submodule,
 not from a direct `github:apache/openserverless-mcp` npm reference. The image
@@ -550,19 +551,22 @@ from a cached localStorage user/profile without an observable backend
 `me`/session validation. A full reload keeps an explicit loading state,
 validates the token and its expiry, and clears cached identity on failure.
 
-### No tool-permission guardrail
+### Narrow secret-access guardrail
 
-Launch installs **no** permission block and **no** session-enforcement plugin.
+Launch installs no OpenCode permission block and no session-enforcement plugin.
 The generated `permission` deny rules (`ops action` shell commands, edits to
-`packages/**/__main__.py` and `packages/**/*.zip`) and the auto-loaded
-`~/.config/opencode/plugins/trustable-guardrails.js` — with its recovery packets,
-mutation blocking, reproduction gate, circuit breaker, deploy/setup-required
-state machine, and completion gate — were OpenCode mechanisms and are gone with
-no replacement. See "No tool-permission guardrail" in [pi.md](pi.md) for the full
-list of dropped behaviours and why the regression is accepted.
+`packages/**/__main__.py` and `packages/**/*.zip`) and the old
+`~/.config/opencode/plugins/trustable-guardrails.js` recovery/completion state
+machine are gone. The checkers remain advisory: they can catch implementation
+drift after the fact and cannot block an ordinary code or deploy tool call.
 
-The checkers remain, but they are advisory: they can catch drift after the fact
-and cannot block a tool call.
+TruACP does install one deliberately narrow Pi extension. Its pre-execution
+`tool_call` hook blocks credential files, shell environment dumps, secret
+variable expansion, and programmatic environment access before those values can
+reach model context. The launcher supplies its fixed installed path through
+`TRUSTABLE_PI_EXTENSION`; TruACP adds it to the typed
+`_meta.trustable.piLaunch` extension paths. It does not enforce workflow,
+verification, deploy, or completion gates. See "Guardrails" in [pi.md](pi.md).
 
 > [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg) still depicts the
 > removed OpenCode guardrail state machine and no longer reflects the
@@ -578,9 +582,10 @@ stdio, which spawns the `pi` binary. Trustable never execs the agent directly,
 and there is no launch-time session bootstrap (truacp creates the ACP session, in
 the `--dir` cwd, on the first prompt; SPEC §10e).
 
-`pi-acp` accepts no argv flags and always spawns `pi --mode rpc --no-themes`, so
-pi's own `--tools` / `--exclude-tools` / `--no-tools` switches cannot be reached
-from here.
+The Trustable `pi-acp` fork always owns `--mode rpc --no-themes`; a versioned,
+typed ACP launch extension may add validated extension/skill/prompt/session
+paths as discrete arguments, but never arbitrary argv or shell fragments. Pi's
+other command-line switches cannot be injected through the browser request.
 
 ## start process group
 

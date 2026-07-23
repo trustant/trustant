@@ -113,11 +113,14 @@ RUN \
 RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
 # TruACP serves the coding UI on :4096 and starts pi-acp/Pi. image.sh builds the
-# self-contained JavaScript bundle before Docker runs and stages only these
-# three runtime inputs; source and node_modules must never enter an image layer.
+# self-contained JavaScript bundle and pi-acp package before Docker runs and
+# stages only these five runtime inputs; source and node_modules must never
+# enter an image layer.
 COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
 COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
+COPY --chown=trustable:trustable truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
 COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
+COPY --chown=trustable:trustable truacp-runtime/trustable-guardrails.ts /tmp/truacp/trustable-guardrails.ts
 RUN \
     cd /tmp/truacp ;\
     sh setup.sh ;\
