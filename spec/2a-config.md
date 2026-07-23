@@ -49,7 +49,8 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 - `pi.default` — must be a name that exists as a key in `models`. The
   configurator UI presents it as a single dropdown populated from `models`.
   Legacy `opencode.default` and `opencode.small` are ignored rather than
-  migrated; a missing `pi.default` sends the user to `configure.html?setup=1`.
+  migrated; a missing `pi.default` sends the user to `configure.html?setup=1`
+  from both the splash and the application list, before any model probe runs.
 - `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustable Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
 - `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
 
@@ -153,6 +154,13 @@ When the user picks a provider on the choice screen (or when the configure UI's 
 
 Switching provider replaces the model list **and** the Pi default from the
 catalog.
+
+Trustable Cloud and internal Ollama are catalog-backed. Their status section
+must contain at least one model, a non-empty default, and that default must
+exist in the model map before the provider choice can be persisted. The backend
+also rejects an empty Trustable Cloud catalog, so a stale frontend or partial
+status response cannot save a configuration that fails later in
+`/api/testmodel`.
 
 **Own-host Ollama is the seeding exception:** an empty `models` map and empty
 `pi.default` are persisted; the user populates both via the Test button on

@@ -138,6 +138,38 @@ func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
 	}
 }
 
+func TestValidatePiModelSelectionRejectsIncompleteTrustableCatalog(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *trustableConfig
+	}{
+		{
+			name: "empty catalog and selection",
+			cfg: &trustableConfig{
+				Provider: "trustable",
+				Models:   map[string]*ModelLimits{},
+				Pi:       &piConfig{Default: ""},
+			},
+		},
+		{
+			name: "catalog without selection",
+			cfg: &trustableConfig{
+				Provider: "trustable",
+				Models: map[string]*ModelLimits{
+					"qwen3-coder-next": {MaxToken: 131072},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validatePiModelSelection(tt.cfg); err == nil {
+				t.Fatal("incomplete Trustable catalog must be rejected before it reaches testmodel")
+			}
+		})
+	}
+}
+
 func TestTrustableConfigDoesNotMigrateLegacyOpenCodeSelection(t *testing.T) {
 	// Issue #51 requires an explicit first-run Pi selection; accepting this old
 	// object would hide the cutover and could silently choose the wrong model.

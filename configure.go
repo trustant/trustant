@@ -428,15 +428,24 @@ func modelAllowedForPi(provider, modelID string, limits *ModelLimits) (bool, str
 }
 
 func validatePiModelSelection(cfg *trustableConfig) error {
-	if cfg == nil || cfg.Pi == nil {
+	if cfg == nil {
 		return nil
 	}
 	models := cfg.Models
-	defaultModel := strings.TrimSpace(cfg.Pi.Default)
+	defaultModel := ""
+	if cfg.Pi != nil {
+		defaultModel = strings.TrimSpace(cfg.Pi.Default)
+	}
 
 	// Provider choice flows for BestIA / own-host Ollama intentionally persist
 	// an empty model set first; configure.html discovers models in the next step.
 	if len(models) == 0 && defaultModel == "" {
+		// Trustable Cloud is catalog-backed and has no deferred discovery page.
+		// Rejecting its empty state here prevents a partial status response or
+		// legacy payload from being saved and failing later in testmodel.
+		if cfg.Provider == "trustable" {
+			return fmt.Errorf("Trustable model catalog is empty")
+		}
 		return nil
 	}
 	if defaultModel == "" {

@@ -202,6 +202,22 @@
             }
         }
 
+        function catalogSelectionError(providerLabel, section) {
+            const models = section && section.models;
+            const defaultModel = String((section && section.default) || '').trim();
+            // Catalog-backed providers have no later discovery step. Treat an
+            // empty or internally inconsistent status block as unavailable so
+            // it cannot become a saved configuration that fails in testmodel.
+            if (!models || typeof models !== 'object' || Array.isArray(models)
+                || Object.keys(models).length === 0) {
+                return providerLabel + ' model catalog is empty. Please retry later.';
+            }
+            if (!defaultModel || !Object.prototype.hasOwnProperty.call(models, defaultModel)) {
+                return providerLabel + ' model catalog has no valid default model. Please retry later.';
+            }
+            return '';
+        }
+
         function selectOllama() {
             hideProviderModal();
             const modal = document.getElementById('ollamaModeModal');
@@ -230,8 +246,9 @@
         }
 
         async function selectOllamaInternal() {
-            if (!bootStatus || !bootStatus.ollama || !bootStatus.ollama.models) {
-                alert('Status response is not available. Cannot configure Ollama.');
+            const catalogError = catalogSelectionError('Ollama', bootStatus && bootStatus.ollama);
+            if (catalogError) {
+                alert(catalogError);
                 showProviderModal();
                 return;
             }
@@ -297,8 +314,9 @@
                 showProviderModal();
                 return;
             }
-            if (!bootStatus || !bootStatus.trustable || !bootStatus.trustable.models) {
-                alert('Status response is not available. Cannot configure Trustable.');
+            const catalogError = catalogSelectionError('Trustable', bootStatus && bootStatus.trustable);
+            if (catalogError) {
+                alert(catalogError);
                 showProviderModal();
                 return;
             }
@@ -433,11 +451,14 @@
             });
             // Issue #51 is a hard cutover: only a Pi payload can override the
             // provider default. Legacy data.opencode is deliberately ignored.
-            if (data.pi && typeof data.pi === 'object') {
-                cfg.pi = Object.assign({}, statusPi, data.pi);
-            } else {
-                cfg.pi = statusPi;
-            }
+            // An empty Pi value from an older registration page is not a real
+            // selection; retain the validated status default in that case.
+            const registeredPiDefault = String(
+                (data.pi && typeof data.pi === 'object' && data.pi.default) || ''
+            ).trim();
+            cfg.pi = {
+                default: registeredPiDefault || statusPi.default
+            };
             cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
             if (typeof sec.modelsVersion === 'number') {
                 cfg.model_versions.trustable = sec.modelsVersion;
@@ -714,6 +735,15 @@
             const params = new URLSearchParams(window.location.search);
             const forceChoose = params.get('choose') === '1';
             const provider = currentConfig && currentConfig.provider;
+            const configuredPiDefault = String((currentConfig.pi && currentConfig.pi.default) || '').trim();
+
+            // Issue #51 deliberately ignores legacy opencode selections. Stop
+            // before configure/testmodel so upgrades land on the model picker
+            // instead of exposing "pi.default not defined" as a runtime error.
+            if (provider && !forceChoose && !configuredPiDefault) {
+                window.location.href = 'configure.html?setup=1';
+                return;
+            }
 
             // Own-host Ollama is exempt from the reselect redirect: those
             // users discover their model list via /api/discover-models on

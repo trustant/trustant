@@ -42,7 +42,19 @@ Then:
 
 - If the merged config has no `provider` set, show the **Provider Choice** modal. This is the first-run / unconfigured state — Configuration cannot run without a provider.
 - If the URL contains `?choose=1`, show the **Provider Choice** modal regardless of the current provider (used by configure.html's "Change Provider" button).
+- If a provider exists but `pi.default` is absent or empty, redirect to
+  `configure.html?setup=1` before invoking `/api/configure` or `/api/testmodel`.
+  This is the expected hard-cutover path for an existing workspace containing
+  only the ignored legacy `opencode` block; the splash must not expose the
+  internal `pi.default not defined` diagnostic.
 - Otherwise (provider is set and `?choose=1` is absent), skip the choice screen and go straight to the **Configuration** flow below.
+
+Before opening a catalog-backed provider flow (Trustable Cloud or internal
+Ollama), validate that its `/api/status` section has a non-empty `models`
+object, a non-empty `default`, and that `default` is a key in `models`. An
+incomplete section is unavailable and must not be persisted. Own-host Ollama
+and BestIA keep their intentional empty intermediate configurations because
+their models are discovered on `configure.html`.
 
 The Provider Choice modal is centered and shows two cards:
 
@@ -93,7 +105,9 @@ After the user picks one of the two Ollama-mode cards, branch:
 3. On message: close the iframe and merge into the workspace config:
    - `provider: "trustable"`
    - `models` from `status.trustable.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
-   - `pi.default` from the iframe payload if present, else from `status.trustable.default`; legacy `opencode` payloads are ignored
+   - `pi.default` from a non-empty iframe Pi payload if present, else from
+     `status.trustable.default`; legacy `opencode` payloads and empty Pi values
+     from older registration pages are ignored
    - `base_url` and `api_key` from the iframe payload's `env.OPENAI_BASE_URL` and `env.OPENAI_API_KEY`
    - `model_versions.trustable = status.trustable.modelsVersion`
 

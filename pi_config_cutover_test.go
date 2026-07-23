@@ -57,8 +57,16 @@ func TestAppListRequiresPiConfiguration(t *testing.T) {
 
 func TestProviderSelectionPersistsPiContract(t *testing.T) {
 	html := readWebAssetForPiCutoverTest(t, "web/index.html")
-	if !strings.Contains(html, `pi: { default: refreshedDefault }`) {
-		t.Fatal("provider selection does not persist pi.default")
+	for _, required := range []string{
+		`pi: { default: refreshedDefault }`,
+		`const configuredPiDefault = String((currentConfig.pi && currentConfig.pi.default) || '').trim()`,
+		`if (provider && !forceChoose && !configuredPiDefault)`,
+		`window.location.href = 'configure.html?setup=1'`,
+		`function catalogSelectionError(providerLabel, section)`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("provider selection is missing Pi migration guard %q", required)
+		}
 	}
 	for _, legacy := range []string{
 		`opencode: { default:`,
