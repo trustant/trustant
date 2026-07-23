@@ -122,6 +122,11 @@ state; users without `pi.default` must complete Configure before opening an app.
 Both `applist.html` and the launch API enforce this guard so a stale/direct tab
 is routed back to `configure.html?setup=1`.
 
+The removed OpenCode generator is not retained as an unreachable compatibility
+path: the Go binary does not embed a session-enforcement JavaScript plugin and
+the Node test package does not depend on `@opencode-ai/plugin`. This keeps the
+hard cutover observable in both shipped code and dependency metadata.
+
 What launch writes into `<workbenchdir>/<app>/` is:
 
 - `.mcp.json` — the standard MCP config (`mcpServers` map), built from
@@ -171,7 +176,7 @@ and sound behavior instead of relying on source inspection.
 
 `.mcp.json` is emitted in the standard form below. The implementation may reuse
 the established service-config builder internally and translate its entries at
-the final write boundary. OpenCode-only fields (`enabled`, `timeout`,
+the final write boundary. Launcher-only fields (`enabled`, `timeout`,
 `type: "local"`/`"remote"`, command arrays, and `environment`) must never appear
 in the written file.
 

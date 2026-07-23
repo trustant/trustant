@@ -18,10 +18,10 @@ The whole product is delivered as **one process listening on `:8910`**. There is
 
 ## What it does
 
-`trustable-app` lets a user **create, edit, run, and publish** web applications backed by OpenServerless, with the [opencode](https://opencode.ai/) AI coding assistant wired into each app. The single `:8910` server:
+`trustable-app` lets a user **create, edit, run, and publish** web applications backed by OpenServerless, with TruACP and Pi wired into each app. The single `:8910` server:
 
 - **Serves the local UI** (`web/`) — splash, app list, per-app editor, and config pages
-- **Reverse-proxies** the user's running app (Vite on `:5173`) and the AI assistant (opencode on `:4096`), so all three surfaces share one origin
+- **Reverse-proxies** the user's running app (Vite on `:5173`) and the TruACP/Pi assistant (`:4096`), so all three surfaces share one origin
 - **Manages per-app state** as **bare git repos** (durable workspaces) and **active checkouts** (working workbenches)
 - **Drives `ops` CLI subprocesses** for login, deploy, and teardown of each app on the k3s VM
 - **Handles configuration and billing** — provider/model selection, credits/top-up, and signature-gated publishing
@@ -95,7 +95,7 @@ The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.j
 
 - For macOS development, a **running Trustable VM** on the local machine — the macOS app from [trustable.ai](https://trustable.ai) provisions a k3s VM and writes `id_ed25519`, `current.ip`, and `apihost` into `~/Library/Application Support/Trustable/`. `setup.sh` reads these to extract the VM's kubeconfig so `ops` can talk to k3s directly.
 - For Linux server development, local access to the Trustable k3s cluster with `kubectl`, Docker, and passwordless `sudo -n k3s` for importing images into containerd. This is the path used by `build-server.sh`.
-- **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, and the pinned Trustable Code build of `opencode` — all installed and verified by `setup.sh`.
+- **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, Node, and the TruACP/Pi versions pinned by `trustable-acp/pi.version` — all installed and verified by `setup.sh`.
 - A populated **`.env`** (see below). Startup fails preflight if it is missing.
 
 ## Getting started
@@ -197,7 +197,7 @@ git submodule update --init --recursive
 
 ## Testing
 
-- **Unit and guardrail tests:** `go test ./...` runs the Go test suite. `npm run test:guardrails`, `npm run test:e2e-providers`, and `npm --prefix browser-mcp test` cover the OpenCode guardrails, provider runner, and browser MCP contracts.
+- **Unit and component tests:** `go test ./...` runs the Go test suite. `npm run test:e2e-providers` and `npm --prefix browser-mcp test` cover the legacy provider runner and browser MCP contracts. Pi has no OpenCode guardrail-plugin test suite.
 - **End-to-end scenarios:** [tests/](tests/) contains runnable cluster tests for issue 98, action workflows, compaction recovery, generated authentication, and the BestIA, Ollama Cloud, and Regolo providers. They are intentionally separate from `go test` because they launch applications and may invoke a model. See [tests/issue98-e2e.md](tests/issue98-e2e.md) and [spec/8-e2e.md](spec/8-e2e.md).
 
 ## Conventions

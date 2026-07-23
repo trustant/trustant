@@ -34,11 +34,6 @@ var trustableFrontendCheckerSh string
 //go:embed check_trustable_app.sh
 var trustableAppCheckerSh string
 
-// Keep .air.toml watching JavaScript so guardrail edits refresh this embedded asset.
-//
-//go:embed opencode-trustable-guardrails.js
-var opencodeTrustableGuardrailsJS string
-
 //go:embed milvus_cli.tmpl
 var milvusCliTemplate string
 

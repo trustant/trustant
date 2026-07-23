@@ -33,108 +33,17 @@ func isolateOpenServerlessCheckerInstall(t *testing.T) string {
 	origCheckerPath := openServerlessCheckerInstallPathOverride
 	origFrontendPath := frontendCheckerInstallPathOverride
 	origAppPath := appCheckerInstallPathOverride
-	origPluginPath := guardrailPluginInstallPathOverride
 	root := t.TempDir()
 	checkerInstallPath := filepath.Join(root, "bin", "check_openserverless_actions.sh")
 	openServerlessCheckerInstallPathOverride = checkerInstallPath
 	frontendCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_frontend.sh")
 	appCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_app.sh")
-	guardrailPluginInstallPathOverride = filepath.Join(root, "config", "opencode", "plugins", "trustable-guardrails.js")
 	t.Cleanup(func() {
 		openServerlessCheckerInstallPathOverride = origCheckerPath
 		frontendCheckerInstallPathOverride = origFrontendPath
 		appCheckerInstallPathOverride = origAppPath
-		guardrailPluginInstallPathOverride = origPluginPath
 	})
 	return checkerInstallPath
-}
-
-func TestManagedOllamaDetectionRequiresGeneratedModelMarker(t *testing.T) {
-	customOllama := map[string]interface{}{
-		"options": map[string]interface{}{
-			"baseURL": "http://localhost:11434/v1",
-		},
-		"models": map[string]interface{}{
-			"gemma4:latest": map[string]interface{}{
-				"name": "Gemma4",
-			},
-		},
-	}
-	if isTrustableManagedOpenCodeProvider("ollama", customOllama) {
-		t.Fatal("custom ollama provider without generated marker should be preserved")
-	}
-
-	generatedOllama := map[string]interface{}{
-		"options": map[string]interface{}{
-			"baseURL": "http://localhost:11434/v1",
-		},
-		"models": map[string]interface{}{
-			"qwen3.5:cloud": map[string]interface{}{
-				"variants": map[string]interface{}{
-					"disabled_variant": map[string]interface{}{
-						"disabled": true,
-					},
-				},
-			},
-		},
-	}
-	if !isTrustableManagedOpenCodeProvider("ollama", generatedOllama) {
-		t.Fatal("generated ollama provider should be removed")
-	}
-}
-
-func TestDisabledProvidersForCustomConfigKeepsCustomProviderSelectable(t *testing.T) {
-	filtered := disabledProvidersForCustomConfig(
-		[]string{"openai", "ollama", "ollama2", "opencode"},
-		map[string]interface{}{
-			"openai":  map[string]interface{}{},
-			"ollama2": map[string]interface{}{},
-		},
-	)
-
-	for _, disabled := range filtered {
-		if disabled == "openai" || disabled == "ollama2" {
-			t.Fatalf("custom provider %q should not remain disabled: %#v", disabled, filtered)
-		}
-	}
-	if len(filtered) != 2 || filtered[0] != "ollama" || filtered[1] != "opencode" {
-		t.Fatalf("unexpected disabled providers after filtering: %#v", filtered)
-	}
-}
-
-func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
-	lsp := defaultOpenCodeLSPConfig()
-	python, ok := lsp["python"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("python LSP config missing: %#v", lsp)
-	}
-	command, ok := python["command"].([]string)
-	if !ok || len(command) != 1 || command[0] != "pylsp" {
-		t.Fatalf("unexpected python LSP command: %#v", python["command"])
-	}
-}
-
-func TestBuildModelProviderBoundsSilentTrustableStreams(t *testing.T) {
-	provider := buildModelProvider(&trustableConfig{
-		Provider: "trustable",
-		BaseURL:  "https://proxy.example.test/v1",
-		APIKey:   "test-key",
-		Models:   map[string]*ModelLimits{"qwen": {MaxToken: 240000, MaxOutput: 120000}},
-	})
-	options, ok := provider["options"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("provider options missing: %#v", provider)
-	}
-	if options["headerTimeout"] != trustableProviderSilenceTimeoutMS ||
-		options["chunkTimeout"] != trustableProviderSilenceTimeoutMS {
-		t.Fatalf("silent stream timeouts missing: %#v", options)
-	}
-
-	ollama := buildModelProvider(&trustableConfig{Provider: "ollama"})
-	ollamaOptions := ollama["options"].(map[string]interface{})
-	if _, present := ollamaOptions["headerTimeout"]; present {
-		t.Fatalf("cloud timeout should not be forced on local providers: %#v", ollamaOptions)
-	}
 }
 
 func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *testing.T) {
@@ -443,14 +352,10 @@ func TestGeneratedAppEnvIncludesPersistentSecretsWithoutOverridingManagedValues(
 	}
 }
 
-// The opencode.json is a single, self-contained file fully regenerated in the
-// app's workbench project folder on every launch: provider + model defaults +
-// lsp, instructions pointing at the project's own contract/opencode.md, the
-// AGENTS.md guard that shadows CLAUDE.md, the checker script, and the
-// openserverless MCP server wired in. There is no merge — any pre-existing
-// content in the file (custom providers/lsp/mcp, stale managed entries) is
-// discarded so the result always reflects the current config.
-func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
+// Project generation follows the Pi/ACP contract even when the workbench path
+// is a symlink: standard instructions, MCP config, contract, and checkers are
+// generated without creating or rewriting an OpenCode configuration.
+func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	durableWorkbench := t.TempDir()
@@ -471,110 +376,28 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
 
-	// Seed an existing project file with custom + stale entries that must NOT
-	// survive the full regeneration.
-	seed := map[string]interface{}{
-		"provider": map[string]interface{}{
-			"custom-provider": map[string]interface{}{"options": map[string]interface{}{}},
-		},
-		"lsp": map[string]interface{}{
-			"custom-lsp": map[string]interface{}{"command": []string{"my-lsp"}},
-		},
-		"mcp": map[string]interface{}{
-			"postgres": map[string]interface{}{
-				"type":        "local",
-				"command":     []string{"postgres-mcp", "--access-mode=unrestricted"},
-				"environment": map[string]interface{}{"DATABASE_URI": "postgres://stale:stale@old/db"},
-			},
-		},
-	}
-	seedData, _ := json.Marshal(seed)
+	// A stale file may remain in an older app checkout. The Pi asset generator
+	// must ignore it rather than treating it as current runtime configuration.
+	seedData := []byte(`{"legacy":true}`)
 	if err := os.WriteFile(filepath.Join(appDir, "opencode.json"), seedData, 0644); err != nil {
 		t.Fatalf("seed project config: %s", err)
 	}
 
-	cfg := &trustableConfig{
-		Provider: "ollama",
-		BaseURL:  "http://localhost:11434/v1",
-		APIKey:   "dummy",
-		Models:   map[string]*ModelLimits{"qwen3:latest": {MaxToken: 131072, MaxOutput: 32768}},
-		Pi:       &piConfig{Default: "qwen3:latest"},
-	}
-
-	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	if err := generateProjectAssetsForApp(app); err != nil {
+		t.Fatalf("generateProjectAssetsForApp: %s", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(appDir, "opencode.json"))
 	if err != nil {
-		t.Fatalf("read project config: %s", err)
+		t.Fatalf("read legacy project config: %s", err)
 	}
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("parse project config: %s", err)
+	if string(data) != string(seedData) {
+		t.Fatalf("legacy opencode.json must not be rewritten, got %s", data)
 	}
-
-	// Full config: provider + model + lsp present.
-	if got["model"] != "ollama/qwen3:latest" {
-		t.Fatalf("unexpected model: %#v", got["model"])
-	}
-	providers, ok := got["provider"].(map[string]interface{})
-	if !ok || providers["ollama"] == nil {
-		t.Fatalf("generated provider missing: %#v", got["provider"])
-	}
-	// No merge: the seeded custom provider/lsp must be gone.
-	if _, present := providers["custom-provider"]; present {
-		t.Fatalf("custom provider should be discarded by full regeneration: %#v", providers)
-	}
-	agentLimits, ok := got["agent"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("generated agent limits missing: %#v", got["agent"])
-	}
-	for name, steps := range map[string]int{
-		"build": trustableBuildAgentSteps,
-		"plan":  trustablePlanAgentSteps,
-	} {
-		agent, ok := agentLimits[name].(map[string]interface{})
-		if !ok || agent["steps"] != float64(steps) {
-			t.Fatalf("generated %s step limit missing: %#v", name, agentLimits[name])
-		}
-	}
-	lsp, ok := got["lsp"].(map[string]interface{})
-	if !ok || lsp["typescript"] == nil || lsp["python"] == nil {
-		t.Fatalf("generated lsp missing: %#v", got["lsp"])
-	}
-	if _, present := lsp["custom-lsp"]; present {
-		t.Fatalf("custom lsp should be discarded by full regeneration: %#v", lsp)
-	}
-	permission, ok := got["permission"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("generated permission config missing: %#v", got["permission"])
-	}
-	readPerm, ok := permission["read"].(map[string]interface{})
-	if !ok || readPerm["*.env"] != "deny" || readPerm["*.env.*"] != "deny" {
-		t.Fatalf("generated env read guardrails missing: %#v", permission["read"])
-	}
-	editPerm, ok := permission["edit"].(map[string]interface{})
-	if !ok || editPerm["packages/**/__main__.py"] != "deny" || editPerm["packages/**/*.zip"] != "deny" {
-		t.Fatalf("generated edit guardrails missing: %#v", permission["edit"])
-	}
-	bashPerm, ok := permission["bash"].(map[string]interface{})
-	if !ok || bashPerm["ops action"] != "deny" || bashPerm["ops action *"] != "deny" {
-		t.Fatalf("generated bash guardrails missing: %#v", permission["bash"])
-	}
-
-	// instructions must point first at the project's own OpenServerless
-	// contract, then at opencode.md.
-	instr, ok := got["instructions"].([]interface{})
 	wantContract := filepath.Join(canonicalDurableWorkbench, app, ".openserverless-contract.md")
-	wantMd := filepath.Join(canonicalDurableWorkbench, app, "opencode.md")
-	if !ok || len(instr) != 2 || instr[0] != wantContract || instr[1] != wantMd {
-		t.Fatalf("instructions should reference %s then %s, got %#v", wantContract, wantMd, got["instructions"])
-	}
 
-	// AGENTS.md, the contract, and opencode.md must be written in the project dir,
-	// not under ~/.config. The checker is installed once in the configured bin
-	// path and is executable; it is not duplicated into every app repo.
+	// AGENTS.md, CLAUDE.md, and the contract belong in the project directory.
+	// Checkers remain user-local executables and are not copied into app repos.
 	agentsData, err := os.ReadFile(filepath.Join(appDir, "AGENTS.md"))
 	if err != nil {
 		t.Fatalf("AGENTS.md not written to project dir: %s", err)
@@ -588,8 +411,8 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if _, err := os.Stat(wantContract); err != nil {
 		t.Fatalf(".openserverless-contract.md not written to project dir: %s", err)
 	}
-	if _, err := os.Stat(wantMd); err != nil {
-		t.Fatalf("opencode.md not written to project dir: %s", err)
+	if _, err := os.Stat(filepath.Join(appDir, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md not written to project dir: %s", err)
 	}
 	if _, err := os.Stat(filepath.Join(appDir, "scripts", "check_openserverless_actions.sh")); !os.IsNotExist(err) {
 		t.Fatalf("checker should not be copied into app repo, stat err=%v", err)
@@ -610,49 +433,7 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 			t.Fatalf("Trustable checker should be executable at %s, mode=%s", path, info.Mode())
 		}
 	}
-	pluginData, err := os.ReadFile(guardrailPluginInstallPathOverride)
-	if err != nil {
-		t.Fatalf("OpenCode guardrail plugin not installed: %s", err)
-	}
-	if !strings.Contains(string(pluginData), "session.compacted") ||
-		!strings.Contains(string(pluginData), "trustable_completion_check") {
-		t.Fatalf("OpenCode guardrail plugin missing enforcement hooks")
-	}
-	// The action tools are provided by the openserverless MCP server, which must
-	// always be wired into the mcp section.
-	mcp, ok := got["mcp"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("mcp section missing: %#v", got["mcp"])
-	}
-	oss, ok := mcp["openserverless"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("openserverless MCP server missing: %#v", mcp)
-	}
-	if cmd, ok := oss["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "openserverless-mcp" {
-		t.Fatalf("unexpected openserverless command: %#v", oss["command"])
-	}
-	ossEnv, ok := oss["environment"].(map[string]interface{})
-	if !ok || ossEnv["OPENSERVERLESS_SECRETS_FILE"] != appSecretStorePath(app) {
-		t.Fatalf("openserverless persistent secret store missing: %#v", oss["environment"])
-	}
-	browser, ok := mcp["browser"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("browser MCP server missing: %#v", mcp)
-	}
-	if cmd, ok := browser["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "trustable-browser-mcp" {
-		t.Fatalf("unexpected browser command: %#v", browser["command"])
-	}
-	// No merge: if a postgres MCP is present it must be the freshly generated one,
-	// never the stale seeded DATABASE_URI.
-	if pg, present := mcp["postgres"].(map[string]interface{}); present {
-		env, _ := pg["environment"].(map[string]interface{})
-		if uri, _ := env["DATABASE_URI"].(string); uri == "postgres://stale:stale@old/db" {
-			t.Fatalf("stale seeded postgres DATABASE_URI survived full regeneration: %#v", pg)
-		}
-	}
-
-	// A Claude-format .mcp.json must be emitted with the same servers, translated
-	// to the mcpServers/stdio schema.
+	// The shared .mcp.json is the sole project-local MCP configuration.
 	mcpData, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
 	if err != nil {
 		t.Fatalf(".mcp.json not written to project dir: %s", err)
@@ -702,9 +483,9 @@ func TestManagedAppAgentsPreservesExistingNotesWithoutDuplication(t *testing.T) 
 	}
 }
 
-// When vite.config.* contains AgentiReact(), the agentireact remote MCP server
-// is added to opencode.json and translated to an http server in .mcp.json.
-func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
+// When vite.config.* contains AgentiReact(), the standard project MCP config
+// includes the Vite-served endpoint as an eager HTTP server for Pi.
+func TestGenerateProjectAssetsAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
@@ -720,34 +501,10 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 		t.Fatalf("write vite config: %s", err)
 	}
 
-	cfg := &trustableConfig{
-		Provider: "ollama",
-		BaseURL:  "http://localhost:11434/v1",
-		APIKey:   "dummy",
-		Pi:       &piConfig{Default: "qwen3:latest"},
-	}
-	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	if err := generateProjectAssetsForApp(app); err != nil {
+		t.Fatalf("generateProjectAssetsForApp: %s", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(appDir, "opencode.json"))
-	if err != nil {
-		t.Fatalf("read opencode.json: %s", err)
-	}
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("parse opencode.json: %s", err)
-	}
-	mcp, _ := got["mcp"].(map[string]interface{})
-	ar, ok := mcp["agentireact"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("agentireact MCP server missing: %#v", mcp)
-	}
-	if ar["type"] != "remote" || ar["url"] != "http://localhost:5173/mcp" {
-		t.Fatalf("unexpected agentireact entry: %#v", ar)
-	}
-
-	// In .mcp.json (Claude format), remote -> http.
 	mcpData, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
 	if err != nil {
 		t.Fatalf("read .mcp.json: %s", err)
@@ -1740,8 +1497,9 @@ func TestFrontendCheckerAcceptsCachedProfileAfterBackendSessionValidation(t *tes
 	}
 }
 
-// Without an AgentiReact() opt-in, no agentireact server is added.
-func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
+// Without an AgentiReact() opt-in, the standard MCP config stays limited to
+// the managed service and browser servers.
+func TestGenerateProjectAssetsSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
@@ -1757,18 +1515,21 @@ func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 		t.Fatalf("write vite config: %s", err)
 	}
 
-	cfg := &trustableConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1", APIKey: "dummy"}
-	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	if err := generateProjectAssetsForApp(app); err != nil {
+		t.Fatalf("generateProjectAssetsForApp: %s", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(appDir, "opencode.json"))
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("parse opencode.json: %s", err)
+	data, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
+	if err != nil {
+		t.Fatalf("read .mcp.json: %s", err)
 	}
-	mcp, _ := got["mcp"].(map[string]interface{})
-	if _, present := mcp["agentireact"]; present {
-		t.Fatalf("agentireact should be absent without opt-in: %#v", mcp)
+	var config struct {
+		Servers map[string]map[string]interface{} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse .mcp.json: %s", err)
+	}
+	if _, present := config.Servers["agentireact"]; present {
+		t.Fatalf("agentireact should be absent without opt-in: %#v", config.Servers)
 	}
 }
 

@@ -66,30 +66,27 @@ again, and rerun the checker. If the contract is missing or the checker is
 unavailable in PATH, say so and fall back to this file's rules. Do not invent
 manual zip or raw `ops action create/update/deploy` workflows.
 
-After compaction, do not continue editing from memory. Trustable automatically
-injects a bounded recovery packet containing the exact active user request,
-this file, `.openserverless-contract.md`, sanitized `opencode.json`, git status,
-and a bounded project map before tools run. Resume that request rather than a
-generic continuation message. Call `trustable_context_recover` only if the
-automatic recovery gate explicitly remains active; do not bypass the gate.
+After compaction, do not continue editing from memory. Re-read the active user
+request, this managed guidance, `.openserverless-contract.md`, git status, and
+the relevant project files before resuming. Pi has no Trustable recovery gate
+or `trustable_context_recover` tool.
 
 When the user reports a bug or says a previous fix still does not work,
 reproduce the exact symptom before editing. Use `browser_interact` for browser
-bugs; Trustable records successful browser evidence automatically. For HTTP,
-logs, or deterministic tests, call `trustable_diagnostic_checkpoint` with
-concise evidence. If the same completion failure occurs twice, the diagnostic
-circuit breaker requires fresh evidence before another source change.
+bugs when the browser MCP is available; use bounded HTTP, log, or deterministic
+tests for non-browser failures. If the same check fails repeatedly, stop
+repeating it, inspect the new evidence, and change the diagnosis before another
+source edit.
 When the symptom was reproduced in the browser, exercise the fixed flow again
-with `browser_interact` after the last source change. Trustable binds that
-evidence automatically; sound fixes must show active audio state. Backend-only
-checks do not verify a browser-visible flow.
+with `browser_interact` after the last source change; sound fixes must show
+active audio state. Backend-only checks do not verify a browser-visible flow.
 Protected views that load identity asynchronously must keep a distinct loading
 state; do not redirect merely because the initial user/profile value is null.
 
-After source changes, call `trustable_completion_check` before claiming the
-work is fixed or asking the user to try it. The completion tool runs the
-OpenServerless checker, frontend checker, git diff validation, and the frontend
-typecheck and build when available.
+After source changes, run the relevant checker scripts directly, plus git diff
+validation and the frontend typecheck/build when available. Pi has no
+`trustable_completion_check`; do not search for or repeatedly call that legacy
+tool.
 
 For frontend work, run the project typecheck before the build after each
 coherent edit batch. A successful Vite build does not prove that every JSX
@@ -104,10 +101,10 @@ source changes.
 
 - Never create a backend server. Create public or private actions instead.
 - Never create or edit generated `__main__.py` files.
-- If OpenCode denies an edit to `packages/**/__main__.py`, `packages/**/*.zip`,
-  or a raw shell command matching `ops action` / `ops action *`, treat that as
-  a Trustable guardrail: use the OpenServerless MCP action tools and
-  `ops ide deploy/setup` flow instead of trying to bypass it.
+- Do not edit `packages/**/__main__.py`, `packages/**/*.zip`, or use raw shell
+  commands matching `ops action` / `ops action *`. Pi does not enforce these
+  rules with a plugin; use the OpenServerless MCP action tools and
+  `ops ide deploy/setup` flow because those own the generated artifacts.
 - Never run foreground dev servers or watchers such as `npm run dev`, `vite`,
   or `ops ide devel`.
 - Never kill, restart, or replace Trustable-managed processes. Diagnose the
@@ -115,8 +112,8 @@ source changes.
 - Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
   hang.
 - Never append `|| true` or `|| echo` to deploy, setup, login, checker, or build
-  commands, and never pipe those commands through `head` or `tail`; the plugin
-  blocks output masking because it can turn a real failure into apparent success.
+  commands, and never pipe those commands through `head` or `tail`; output
+  masking can turn a real failure into apparent success.
 - Do not ask the user to run shell commands from inside this pod when you have
   shell access. Run bounded checks yourself, including `ops ide deploy`, `curl`,
   `npm run build`, `python3 -m compileall`, and `git diff --check`. Ask the
@@ -130,7 +127,7 @@ source changes.
   `timeout 120 ops ide deploy` before setup, runtime verification, or
   completion. This includes setup actions.
 - If setup actions change, run `timeout 120 ops ide setup` only after deploy.
-- The completion gate remains blocked until required setup succeeds.
+- Do not claim completion until required setup succeeds.
 - Never create, edit, move, or delete action ZIP files manually. They are
   derived sibling artifacts owned by `ops ide deploy`.
 - Do not leave the user with only "try it now" when you can run a bounded
@@ -445,16 +442,18 @@ the configured app bucket/action path or `rclone` when available.
 
 ## Runtime Host Rules
 
-OpenCode runs inside the Trustable pod. Classify hosts before using them:
+Pi and TruACP run inside the Trustable environment. Classify hosts before using
+them:
 
 - `localhost:5173` is the pod-local app dev server started by `ops ide devel`.
   Use it for normal app HTTP validation from this shell.
-- `localhost:4096` is the pod-local OpenCode server.
+- `localhost:4096` is the local TruACP server.
 - `trustable.<domain>` is the browser-visible Trustable UI/API host.
 - `vite.<domain>` is the browser-visible app host through Trustable
   proxy/ingress. Use it only after `ops ide deploy` succeeds and only when
   external browser or ingress routing is in scope.
-- `opencode.<domain>` is the browser-visible OpenCode host.
+- `opencode.<domain>` is the legacy browser-visible hostname that proxies
+  TruACP for ingress and WAF compatibility.
 - `OPS_APIHOST` is the configured OpenServerless API host for Trustable and
   `ops ide` orchestration. It must never be bound into an action, exposed as
   `ctx.OPS_APIHOST`, read by an action module, or emitted as

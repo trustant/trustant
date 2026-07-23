@@ -116,3 +116,9 @@ The OpenCode session plugin and its deterministic tool-permission/completion
 gates are not part of Pi. The managed instructions, OpenServerless contract,
 browser MCP, and checker scripts remain advisory verification surfaces. This is
 an explicit runtime simplification, not a silent fallback to upstream OpenCode.
+The legacy JavaScript plugin source is not embedded in the Go binary,
+`@opencode-ai/plugin` is not a project dependency, and launch has no dormant
+`opencode.json` generator. Managed instructions must not tell Pi to call
+`trustable_context_recover`, `trustable_diagnostic_checkpoint`, or
+`trustable_completion_check`; verification uses the real MCP/browser tools and
+checker commands directly.
