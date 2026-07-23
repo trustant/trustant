@@ -50,15 +50,18 @@ settings and providers. Invalid or missing JSON is treated as empty. Model
 entries are sorted, embedding/reranking/non-coding models are filtered, and
 limits fall back to 32768 when the catalog provides none.
 
-The configure flow writes these files after selecting a working provider.
-Launch writes the same deterministic content again from Trustable's durable
-configuration so a recreated VM can recover its ephemeral `~/.pi` state.
+The configure flow writes these files after the selected provider and model
+pass the connectivity probe. App launch never writes or repairs global Pi
+configuration: Edit is an app operation, while Configure is the single owner of
+runtime settings and credentials.
 
-During this integration phase, the selected default is read from the existing
-`opencode.default` field in `trustable.json` for backward compatibility. This
-field is configuration-schema debt only: it does not activate OpenCode and will
-be renamed to `pi.default` in a separate migration that preserves existing
-installations.
+The selected model is stored as `pi.default` in `trustable.json`. There is no
+secondary/small model. Legacy `opencode.default` and `opencode.small` fields are
+ignored rather than migrated; an existing installation without `pi.default`
+is redirected to `configure.html?setup=1` for one explicit selection.
+Trustable serves HTML documents with `Cache-Control: no-store` so an upgraded
+browser cannot restore stale inline OpenCode redirect logic from history after
+the Pi configuration has already been saved.
 
 ## Per-app project assets
 

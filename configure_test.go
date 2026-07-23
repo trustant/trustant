@@ -157,7 +157,7 @@ func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *tes
 	}
 }
 
-func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
+func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 	cases := []string{
 		"Qwen3-Embedding-8B",
 		"bestia/embedding:952mb",
@@ -168,8 +168,8 @@ func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
 		"gte-Qwen2",
 	}
 	for _, model := range cases {
-		if ok, reason := modelAllowedForOpenCode("bestia", model, nil); ok || reason == "" {
-			t.Fatalf("%s should be blocked for OpenCode, ok=%v reason=%q", model, ok, reason)
+		if ok, reason := modelAllowedForPi("bestia", model, nil); ok || reason == "" {
+			t.Fatalf("%s should be blocked for Pi, ok=%v reason=%q", model, ok, reason)
 		}
 	}
 
@@ -180,52 +180,67 @@ func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
 		"gpt-oss-20b",
 	}
 	for _, model := range allowed {
-		if ok, reason := modelAllowedForOpenCode("bestia", model, nil); !ok {
-			t.Fatalf("%s should be allowed for OpenCode, reason=%q", model, reason)
+		if ok, reason := modelAllowedForPi("bestia", model, nil); !ok {
+			t.Fatalf("%s should be allowed for Pi, reason=%q", model, reason)
 		}
 	}
 }
 
-func TestModelAllowedForOpenCodeHonorsCatalogMetadata(t *testing.T) {
+func TestModelAllowedForPiHonorsCatalogMetadata(t *testing.T) {
 	disabled := false
-	if ok, reason := modelAllowedForOpenCode("trustable", "qwen3.6-27b", &ModelLimits{
+	if ok, reason := modelAllowedForPi("trustable", "qwen3.6-27b", &ModelLimits{
 		Enabled: &disabled,
 		Reason:  "temporarily unavailable",
 	}); ok || reason != "temporarily unavailable" {
 		t.Fatalf("disabled catalog model should be blocked with reason, ok=%v reason=%q", ok, reason)
 	}
 
-	if ok, reason := modelAllowedForOpenCode("trustable", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
+	if ok, reason := modelAllowedForPi("trustable", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
 		t.Fatalf("coding role should allow model, reason=%q", reason)
 	}
-	if ok, reason := modelAllowedForOpenCode("trustable", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
+	if ok, reason := modelAllowedForPi("trustable", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
 		t.Fatalf("embedding role should block model, ok=%v reason=%q", ok, reason)
 	}
 }
 
-func TestValidateOpenCodeModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
+func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 	cfg := &trustableConfig{
 		Provider: "bestia",
 		Models: map[string]*ModelLimits{
 			"bestia/embedding:952mb": {MaxInput: 8192},
 			"qwen3.6:35b":            {MaxInput: 131072},
 		},
-		Opencode: &opencodeConfig{Default: "bestia/embedding:952mb", Small: "qwen3.6:35b"},
+		Pi: &piConfig{Default: "bestia/embedding:952mb"},
 	}
-	err := validateOpenCodeModelSelection(cfg)
+	err := validatePiModelSelection(cfg)
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("expected disallowed model validation error, got %v", err)
 	}
 }
 
-func TestValidateOpenCodeModelSelectionAllowsDeferredDiscovery(t *testing.T) {
+func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
 	cfg := &trustableConfig{
 		Provider: "bestia",
 		Models:   map[string]*ModelLimits{},
-		Opencode: &opencodeConfig{Default: "", Small: ""},
+		Pi:       &piConfig{Default: ""},
 	}
-	if err := validateOpenCodeModelSelection(cfg); err != nil {
+	if err := validatePiModelSelection(cfg); err != nil {
 		t.Fatalf("empty provider-choice config should be allowed before discovery: %s", err)
+	}
+}
+
+func TestTrustableConfigDoesNotMigrateLegacyOpenCodeSelection(t *testing.T) {
+	// Issue #51 requires an explicit first-run Pi selection; accepting this old
+	// object would hide the cutover and could silently choose the wrong model.
+	var cfg trustableConfig
+	if err := json.Unmarshal([]byte(`{
+		"provider": "trustable",
+		"opencode": {"default": "legacy-default", "small": "legacy-small"}
+	}`), &cfg); err != nil {
+		t.Fatalf("unmarshal legacy configuration: %s", err)
+	}
+	if cfg.Pi != nil || piDefaultModel(&cfg) != "" {
+		t.Fatalf("legacy opencode selection must not populate Pi: %#v", cfg.Pi)
 	}
 }
 
@@ -483,7 +498,7 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 		BaseURL:  "http://localhost:11434/v1",
 		APIKey:   "dummy",
 		Models:   map[string]*ModelLimits{"qwen3:latest": {MaxToken: 131072, MaxOutput: 32768}},
-		Opencode: &opencodeConfig{Default: "qwen3:latest", Small: "qwen3:latest"},
+		Pi:       &piConfig{Default: "qwen3:latest"},
 	}
 
 	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
@@ -703,7 +718,7 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 		Provider: "ollama",
 		BaseURL:  "http://localhost:11434/v1",
 		APIKey:   "dummy",
-		Opencode: &opencodeConfig{Default: "qwen3:latest", Small: "qwen3:latest"},
+		Pi:       &piConfig{Default: "qwen3:latest"},
 	}
 	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
 		t.Fatalf("generateOpencodeConfigForApp: %s", err)
@@ -1760,7 +1775,7 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 			"qwen3-coder:480b": {MaxToken: 131072, MaxOutput: 32768},
 			"nomic-embed-text": {Roles: []string{"embedding"}},
 		},
-		Opencode: &opencodeConfig{Default: "qwen3-coder:480b"},
+		Pi: &piConfig{Default: "qwen3-coder:480b"},
 	}
 	if err := writePiGlobalConfig(cfg); err != nil {
 		t.Fatalf("writePiGlobalConfig: %s", err)
@@ -1851,7 +1866,7 @@ func TestPostConfigurationWritesPiConfigOnlyAfterSuccessfulProbe(t *testing.T) {
 			"base_url": %q,
 			"api_key": "aip_secret",
 			"models": {"qwen3-coder:480b": {"maxToken": 131072, "maxOutput": 32768}},
-			"opencode": {"default": "qwen3-coder:480b", "small": "qwen3-coder:480b"}
+			"pi": {"default": "qwen3-coder:480b"}
 		}`, stub.URL)
 		req := httptest.NewRequest(http.MethodPost, "/api/configuration", strings.NewReader(body))
 		rec := httptest.NewRecorder()

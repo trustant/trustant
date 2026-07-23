@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed web
@@ -40,6 +41,19 @@ var opencodeTrustableGuardrailsJS string
 
 //go:embed milvus_cli.tmpl
 var milvusCliTemplate string
+
+// noStoreHTML prevents an upgraded Trustable UI from restoring stale inline
+// configuration logic from browser history. This is especially important for
+// hard schema cutovers such as OpenCode -> Pi, where old JavaScript can create
+// a redirect loop even though the server-side configuration is already valid.
+func noStoreHTML(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func main() {
 	auth, err := newAuthManagerFromEnv()
@@ -106,7 +120,7 @@ func main() {
 	if _, err := os.Stat("web"); err == nil {
 		// Serve from disk (development mode)
 		log.Println("Serving from disk: ./web")
-		http.Handle("/", http.FileServer(http.Dir("web")))
+		http.Handle("/", noStoreHTML(http.FileServer(http.Dir("web"))))
 	} else {
 		// Serve from embedded filesystem
 		log.Println("Serving from embedded filesystem")
@@ -114,7 +128,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		http.Handle("/", http.FileServer(http.FS(webFS)))
+		http.Handle("/", noStoreHTML(http.FileServer(http.FS(webFS))))
 	}
 
 	log.Println("Starting server on :8910")

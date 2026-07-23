@@ -239,7 +239,7 @@
             const cfg = Object.assign({}, currentConfig || {}, {
                 provider: 'ollama',
                 models: sec.models,
-                opencode: { default: sec.default || '', small: sec.small || '' },
+                pi: { default: sec.default || '' },
                 base_url: 'http://localhost:11434/v1',
                 api_key: 'dummy'
             });
@@ -248,6 +248,7 @@
                 cfg.model_versions.ollama = sec.modelsVersion;
             }
             // Drop legacy fields if present.
+            delete cfg.opencode;
             delete cfg.model_version;
             delete cfg.env;
             await saveAndRunConfiguration(cfg);
@@ -262,10 +263,11 @@
                 base_url: '',
                 api_key: 'dummy',
                 models: {},
-                opencode: { default: '', small: '' }
+                pi: { default: '' }
             });
             cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
             // Drop legacy fields if present.
+            delete cfg.opencode;
             delete cfg.model_version;
             delete cfg.env;
             try {
@@ -361,9 +363,10 @@
                     base_url: 'http://bestia:11434/v1',
                     api_key: data.api_key,
                     models: {},
-                    opencode: { default: '', small: '' }
+                    pi: { default: '' }
                 });
                 cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
+                delete cfg.opencode;
                 delete cfg.model_version;
                 delete cfg.env;
                 hideRegisterOverlay();
@@ -420,7 +423,7 @@
             }
 
             const sec = bootStatus.trustable;
-            const statusOpencode = { default: sec.default || '', small: sec.small || '' };
+            const statusPi = { default: sec.default || '' };
 
             const cfg = Object.assign({}, currentConfig || {}, {
                 provider: 'trustable',
@@ -428,18 +431,19 @@
                 base_url: data.base_url,
                 api_key: data.api_key
             });
-            // OpenCode defaults: prefer the iframe payload (the proxy may
-            // have user-specific suggestions), fall back to the status block.
-            if (data.opencode && typeof data.opencode === 'object') {
-                cfg.opencode = Object.assign({}, statusOpencode, data.opencode);
+            // Issue #51 is a hard cutover: only a Pi payload can override the
+            // provider default. Legacy data.opencode is deliberately ignored.
+            if (data.pi && typeof data.pi === 'object') {
+                cfg.pi = Object.assign({}, statusPi, data.pi);
             } else {
-                cfg.opencode = statusOpencode;
+                cfg.pi = statusPi;
             }
             cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
             if (typeof sec.modelsVersion === 'number') {
                 cfg.model_versions.trustable = sec.modelsVersion;
             }
             // Drop legacy fields if present.
+            delete cfg.opencode;
             delete cfg.model_version;
             delete cfg.env;
             hideRegisterOverlay();
@@ -701,10 +705,10 @@
 
             // STATUS_URL is the single source of truth for the per-provider
             // catalog (models + default + small + modelsVersion). On each
-            // splash we compare the active provider's saved snapshot against
-            // the live response; any drift (modelsVersion bump OR a changed
-            // default/small) persists the new values and routes the user
-            // through configure.html?reselect=1.
+            // splash we compare the active provider's saved catalog version
+            // against the live response. The catalog's default is only a seed:
+            // a different saved Pi model is an intentional user choice, not
+            // drift, and must never create a configure/applist redirect loop.
             bootStatus = await fetchStatus();
 
             const params = new URLSearchParams(window.location.search);
@@ -723,24 +727,29 @@
             if (provider && !ownHostOllama && !forceChoose && bootStatus && bootStatus[provider]) {
                 const sec = bootStatus[provider];
                 const savedVer = (currentConfig.model_versions && currentConfig.model_versions[provider]) || 0;
-                const savedOpencode = currentConfig.opencode || {};
+                const savedPi = currentConfig.pi || {};
                 const versionChanged = typeof sec.modelsVersion === 'number'
                     && sec.modelsVersion > 0
                     && sec.modelsVersion !== savedVer;
-                const defaultsChanged =
-                    (sec.default && sec.default !== savedOpencode.default) ||
-                    (sec.small   && sec.small   !== savedOpencode.small);
 
-                if ((versionChanged || defaultsChanged) && sec.models) {
+                if (versionChanged && sec.models) {
                     const newVersions = Object.assign({}, currentConfig.model_versions || {});
                     if (typeof sec.modelsVersion === 'number') {
                         newVersions[provider] = sec.modelsVersion;
                     }
+                    // Keep the user's selection when it still exists in the
+                    // refreshed catalog; use the catalog default only when the
+                    // previous model disappeared.
+                    const refreshedDefault = savedPi.default
+                        && Object.prototype.hasOwnProperty.call(sec.models, savedPi.default)
+                        ? savedPi.default
+                        : (sec.default || '');
                     const cfg = Object.assign({}, currentConfig, {
                         models: sec.models,
-                        opencode: { default: sec.default || '', small: sec.small || '' },
+                        pi: { default: refreshedDefault },
                         model_versions: newVersions
                     });
+                    delete cfg.opencode;
                     delete cfg.model_version;
                     delete cfg.env;
                     try {

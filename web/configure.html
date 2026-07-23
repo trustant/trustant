@@ -30,9 +30,10 @@
             Current provider: <span id="currentProvider" class="font-semibold text-[color:var(--nu-ink)]">—</span>
         </div>
 
-        <!-- Reselect banner (shown when ?reselect=1 or version mismatch detected) -->
+        <!-- Pi setup banner: setup=1 is the explicit hard-cutover path for
+             installations that do not yet have the new pi.default setting. -->
         <div id="reselectBanner" class="hidden mb-4 p-4 nu-banner text-sm">
-            Model catalog updated. Please re-select the default and small OpenCode models below, then click <strong>Save &amp; Configure</strong>.
+            <span id="configurationBannerMessage">Model catalog updated. Please re-select the Pi model below, then click <strong>Save &amp; Configure</strong>.</span>
         </div>
 
         <!-- Ollama Host (only when provider == "ollama") -->
@@ -100,19 +101,14 @@
             </table>
         </div>
 
-        <!-- OpenCode Models -->
+        <!-- Pi exposes one coding model; keeping a second "small" selector
+             would reintroduce the OpenCode schema that issue #51 removes. -->
         <div class="nu-card p-5 mb-4">
-            <h2 class="text-lg font-medium mb-4">OpenCode Models</h2>
+            <h2 class="text-lg font-medium mb-4">Pi Model</h2>
             <div class="space-y-3">
                 <div>
                     <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Default Model</label>
-                    <select id="opencodeDefault"
-                        class="nu-input w-full px-3 py-2 text-sm bg-white">
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Small Model</label>
-                    <select id="opencodeSmall"
+                    <select id="piDefault"
                         class="nu-input w-full px-3 py-2 text-sm bg-white">
                     </select>
                 </div>
@@ -178,7 +174,7 @@
     </div>
 
     <script>
-        let config = { models: {}, opencode: { default: '', small: '' } };
+        let config = { models: {}, pi: { default: '' } };
 
         function providerLabel(name) {
             if (name === 'trustable') return 'Trustable Cloud <br> powered by Regolo.AI';
@@ -199,14 +195,14 @@
                 const resp = await fetch('/api/configuration');
                 config = await resp.json();
                 if (!config.models) config.models = {};
-                if (!config.opencode) config.opencode = { default: '', small: '' };
+                if (!config.pi) config.pi = { default: '' };
 
                 document.getElementById('currentProvider').innerHTML = providerLabel(config.provider);
                 document.getElementById('modelsHeading').textContent = modelsHeading(config.provider);
                 renderOllamaHost();
                 renderBestiaHost();
                 renderModels();
-                renderOpencodeSelects();
+                renderPiSelect();
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
                 if (config.provider === 'bestia') {
@@ -225,7 +221,7 @@
         // BestIA: discover the model list from the fixed GPU host using the
         // proxy-issued api_key (sent as Authorization: Bearer because it is not
         // the literal "dummy"). Preserve any previously-saved per-model limits
-        // so a returning user keeps their opencode default/small selection.
+        // so a returning user keeps the selected Pi model.
         async function loadBestiaModels() {
             try {
                 const resp = await fetch('/api/discover-models', {
@@ -246,7 +242,7 @@
                 }
                 config.models = next;
                 renderModels();
-                renderOpencodeSelects();
+                renderPiSelect();
             } catch (e) {
                 setSaveStatus('Could not load BestIA models: ' + e.message, 'error');
             }
@@ -337,10 +333,12 @@
                 for (const name of models) {
                     config.models[name] = { maxToken: 131072, maxOutput: 32768 };
                 }
-                config.opencode = { default: '', small: '' };
+                // A discovered catalog requires an explicit Pi selection; do
+                // not silently reuse an identifier from the previous host.
+                config.pi = { default: '' };
                 renderModels();
-                renderOpencodeSelects();
-                setTestStatus('Found ' + models.length + ' model(s). Pick a Default and Small model below, then Save & Configure.', 'ok');
+                renderPiSelect();
+                setTestStatus('Found ' + models.length + ' model(s). Pick the Pi model below, then Save & Configure.', 'ok');
             } catch (e) {
                 setTestStatus('Error: ' + e.message, 'error');
             } finally {
@@ -368,7 +366,7 @@
                 return;
             }
             tbody.innerHTML = keys.map(name => {
-                const policy = opencodeModelPolicy(name, models[name]);
+                const policy = piModelPolicy(name, models[name]);
                 const badgeClass = policy.allowed
                     ? 'border-[color:var(--nu-border)] bg-white text-[color:var(--nu-ink)]'
                     : 'border-amber-200 bg-amber-50 text-amber-800';
@@ -418,13 +416,13 @@
                     return;
                 }
                 config.models = sec.models;
-                config.opencode = { default: sec.default || '', small: sec.small || '' };
+                config.pi = { default: sec.default || '' };
                 if (typeof sec.modelsVersion === 'number') {
                     if (!config.model_versions) config.model_versions = {};
                     config.model_versions[config.provider] = sec.modelsVersion;
                 }
                 renderModels();
-                renderOpencodeSelects();
+                renderPiSelect();
             } catch (e) {
                 alert('Error refreshing models: ' + e.message);
             } finally {
@@ -447,7 +445,7 @@
             return roles.some(role => got.includes(role));
         }
 
-        function opencodeModelPolicy(name, entry) {
+        function piModelPolicy(name, entry) {
             const id = String(name || '').toLowerCase();
             if (!id) return { allowed: false, reason: 'model id is empty' };
             if (entry && entry.enabled === false) {
@@ -456,6 +454,8 @@
             if (hasModelRole(entry, ['embedding', 'embed', 'rerank', 'vector'])) {
                 return { allowed: false, reason: 'not a chat/coding model' };
             }
+            // The catalog still calls this capability "opencode"; it is
+            // metadata supplied by the provider, not the persisted runtime.
             if (hasModelRole(entry, ['opencode', 'agent', 'coding', 'chat'])) {
                 return { allowed: true, reason: '' };
             }
@@ -475,7 +475,7 @@
                 'audio'
             ];
             if (blocked.some(part => id.includes(part))) {
-                return { allowed: false, reason: 'not suitable for OpenCode agent work' };
+                return { allowed: false, reason: 'not suitable for Pi agent work' };
             }
             const match = /(^|[/:_-])([0-9]+(?:\.[0-9]+)?)b($|[/:_-])/i.exec(id);
             if (match && parseFloat(match[2]) > 0 && parseFloat(match[2]) < 20) {
@@ -484,17 +484,15 @@
             return { allowed: true, reason: '' };
         }
 
-        function opencodeModelNames() {
+        function piModelNames() {
             return Object.keys(config.models || {})
-                .filter(name => opencodeModelPolicy(name, config.models[name]).allowed);
+                .filter(name => piModelPolicy(name, config.models[name]).allowed);
         }
 
-        function renderOpencodeSelects() {
-            const keys = opencodeModelNames();
-            const def = config.opencode?.default || '';
-            const small = config.opencode?.small || '';
-            populateSelect('opencodeDefault', keys, keys.includes(def) ? def : '');
-            populateSelect('opencodeSmall', keys, keys.includes(small) ? small : '');
+        function renderPiSelect() {
+            const keys = piModelNames();
+            const def = config.pi?.default || '';
+            populateSelect('piDefault', keys, keys.includes(def) ? def : '');
         }
 
         function populateSelect(id, options, selected) {
@@ -571,7 +569,7 @@
             if (!config.models) config.models = {};
             config.models[name] = { maxToken: n };
             renderModels();
-            renderOpencodeSelects();
+            renderPiSelect();
             hideAddModelModal();
         }
 
@@ -579,7 +577,7 @@
             if (config.models) {
                 delete config.models[name];
                 renderModels();
-                renderOpencodeSelects();
+                renderPiSelect();
             }
         }
 
@@ -599,9 +597,8 @@
                 api_key: config.api_key || '',
                 model_versions: config.model_versions || {},
                 models: config.models || {},
-                opencode: {
-                    default: document.getElementById('opencodeDefault').value.trim(),
-                    small: document.getElementById('opencodeSmall').value.trim()
+                pi: {
+                    default: document.getElementById('piDefault').value.trim()
                 },
                 git: {
                     user: document.getElementById('gitUser').value.trim(),
@@ -675,7 +672,12 @@
                 const tm = data.testmodel || {};
                 if (tm.ok) {
                     setSaveStatus('Success — opening app list…', 'ok');
-                    window.location.href = 'applist.html';
+                    // A successful save and model probe is authoritative for
+                    // this navigation. The one-shot flag prevents an
+                    // immediately concurrent catalog check from bouncing the
+                    // user back into Configure; normal checks resume on the
+                    // next app-list load.
+                    window.location.href = 'applist.html?configured=1';
                     return;
                 }
                 setSaveStatus('Connection test failed: ' + (tm.error || 'unknown error'), 'error');
@@ -724,12 +726,19 @@
             }
             await loadConfig();
 
-            // The reselect banner only makes sense for catalog-backed providers
-            // (Trustable). For Ollama and BestIA the model list is user-controlled
-            // / discover-models-backed, so the prompt is wrong even if
-            // ?reselect=1 leaks in via a stale URL.
+            // setup=1 is provider-independent: every provider must make the
+            // new Pi selection explicitly because legacy opencode settings are
+            // intentionally not migrated. reselect=1 remains catalog-only.
             const params = new URLSearchParams(window.location.search);
-            if (params.get('reselect') === '1' && config.provider !== 'ollama' && config.provider !== 'bestia') {
+            const setupRequired = params.get('setup') === '1';
+            const catalogReselect = params.get('reselect') === '1'
+                && config.provider !== 'ollama'
+                && config.provider !== 'bestia';
+            if (setupRequired || catalogReselect) {
+                if (setupRequired) {
+                    document.getElementById('configurationBannerMessage').innerHTML =
+                        'Choose the Pi model to complete the runtime setup, then click <strong>Save &amp; Configure</strong>.';
+                }
                 document.getElementById('reselectBanner').classList.remove('hidden');
             }
         })();

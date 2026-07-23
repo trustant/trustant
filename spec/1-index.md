@@ -27,8 +27,14 @@ After the version check, fetch the merged config via `GET /api/configuration`, t
 
 Per-provider model-list freshness is tracked on the workspace config in `model_versions: { ollama?: int, trustable?: int }`. When `provider` is set, compare `status[provider].modelsVersion` against `config.model_versions[provider]`:
 
-- **Bumped** — persist the new value via `POST /api/configuration` and redirect to `configure.html?reselect=1` so the user re-picks `opencode.default` / `opencode.small` from the refreshed catalog. The configuration flow below does not run on this turn — it resumes after the user saves on the configure screen.
+- **Bumped** — persist the new value via `POST /api/configuration` and redirect to `configure.html?reselect=1` so the user re-picks `pi.default` from the refreshed catalog. The configuration flow below does not run on this turn — it resumes after the user saves on the configure screen.
 - **Same / first run** — proceed to the provider-choice / configuration flow below.
+
+`status[provider].default` is only the seed used when a provider is first
+selected or when the previously selected model disappeared from a refreshed
+catalog. A valid saved `pi.default` may intentionally differ from that catalog
+default and must not trigger a reselect redirect; treating that difference as
+catalog drift creates a `configure.html` / `applist.html` loop.
 
 **Exception — own-host Ollama:** the reselect redirect is suppressed when the saved provider is Ollama **and** `base_url` is not a localhost URL (see "Detecting own-host Ollama" in [2a-config.md](2a-config.md)). On own-host the model list is discovered via `POST /api/discover-models` against the user's machine, not from the proxy catalog, so catalog drift is irrelevant. Internal Ollama (localhost `base_url`) and Trustable are both catalog-backed and **do** trigger the redirect.
 
@@ -55,7 +61,7 @@ After the user picks one of the two Ollama-mode cards, branch:
    - `provider: "ollama"`
    - `base_url: "http://localhost:11434/v1"`
    - `api_key: "dummy"`
-   - `models` and `opencode` seeded from `status.ollama.models` and `status.ollama` (`default` / `small`) — see "Per-provider seeding" in [2a-config.md](2a-config.md)
+   - `models` and `pi.default` seeded from `status.ollama.models` and `status.ollama.default` — see "Per-provider seeding" in [2a-config.md](2a-config.md)
    - `model_versions.ollama = status.ollama.modelsVersion`
 
    The dummy `api_key` will fail Ed25519 verification at the publish endpoints, which is the intended behavior for Ollama — see [6-publish.md](6-publish.md).
@@ -68,9 +74,9 @@ After the user picks one of the two Ollama-mode cards, branch:
    - `base_url: ""`
    - `api_key: "dummy"`
    - `models: {}`
-   - `opencode: { "default": "", "small": "" }`
+   - `pi: { "default": "" }`
    - `model_versions.ollama = status.ollama.modelsVersion` (recorded so a future bump doesn't trigger a reselect — own-host is exempt regardless)
-2. Navigate to `configure.html?ollama=own`. The splash Configuration flow does **not** run; the user completes setup on the configure screen by entering their LAN host, clicking Test to discover models, picking default/small, and clicking Save & Configure.
+2. Navigate to `configure.html?ollama=own`. The splash Configuration flow does **not** run; the user completes setup on the configure screen by entering their LAN host, clicking Test to discover models, picking the Pi model, and clicking Save & Configure.
 
 ## Trustable Cloud selected
 
@@ -79,7 +85,7 @@ After the user picks one of the two Ollama-mode cards, branch:
 
    ```json
    {
-     "opencode": { "default": "...", "small": "..." },
+     "pi": { "default": "..." },
      "env":      { "OPENAI_BASE_URL": "...", "OPENAI_API_KEY": "aip_..." }
    }
    ```
@@ -87,7 +93,7 @@ After the user picks one of the two Ollama-mode cards, branch:
 3. On message: close the iframe and merge into the workspace config:
    - `provider: "trustable"`
    - `models` from `status.trustable.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
-   - `opencode` from the iframe payload if present, else from `status.trustable` (`default` / `small`)
+   - `pi.default` from the iframe payload if present, else from `status.trustable.default`; legacy `opencode` payloads are ignored
    - `base_url` and `api_key` from the iframe payload's `env.OPENAI_BASE_URL` and `env.OPENAI_API_KEY`
    - `model_versions.trustable = status.trustable.modelsVersion`
 
@@ -99,7 +105,7 @@ After the user picks one of the two Ollama-mode cards, branch:
 0. **Availability pre-check.** Before opening the registration iframe, call `GET /api/bestia-check` (a server-side reachability probe of the fixed BestIA host — the browser cannot reach it directly). If the response is not `{ "available": true }`, show an alert "You are not running a BestIA", return to the Provider Choice modal, and do **not** proceed. Only if the host is reachable continue with step 1.
 1. Open the same centered register iframe overlay used by Trustable, loading `register_url` with `bestia=1` appended to the query string (e.g. `<register_url>?bestia=1`, or `&bestia=1` if the URL already has a query) so the proxy can tailor the BestIA sign-up. The Cancel button closes the iframe and returns to the choice modal without saving.
 2. Listen for the `message` event. For BestIA **only `api_key` (non-empty string) is required**; any `base_url` the proxy posts is **ignored** — BestIA inference is always the fixed internal host.
-3. On message: merge into the workspace config `provider: "bestia"`, `base_url: "http://bestia:11434/v1"`, `api_key` from the payload, empty `models`, empty `opencode` (`{default:"", small:""}`); `POST /api/configuration`; then navigate to `configure.html?bestia=1`. The splash Configuration flow does **not** run on this turn — like own-host Ollama, setup completes on the configure screen where the model list is discovered.
+3. On message: merge into the workspace config `provider: "bestia"`, `base_url: "http://bestia:11434/v1"`, `api_key` from the payload, empty `models`, and `pi: {default:""}`; `POST /api/configuration`; then navigate to `configure.html?bestia=1`. The splash Configuration flow does **not** run on this turn — like own-host Ollama, setup completes on the configure screen where the model list is discovered.
 4. The configure screen shows a fixed read-only "Using BestIA dedicated infrastructure" note (no editable host field) while the stored `base_url` is `http://bestia:11434/v1` (the `/v1` suffix is required so `/models` and `/chat/completions` resolve).
 
 # Configuration
@@ -111,7 +117,8 @@ When `provider == "trustable"` the backend skips the Ollama connectivity check a
 
 The same applies when `provider == "bestia"`: the backend skips the Ollama connectivity check and model-pull and streams `OK: Skipping Ollama setup (BestIA)`. The BestIA model list is supplied by `POST /api/discover-models` (run on `configure.html?bestia=1`), not the status catalog.
 
-Then invoke the openai ai api using informations in trustable.json, env.OPENAI_BASE_URL and env.OPENAI_API_KEY and the opencode.small model, asking hello.
+Then invoke the OpenAI-compatible API using `base_url`, `api_key`, and
+`pi.default` from `trustable.json`, asking hello.
 
 If `/api/testmodel` returns an error **and** `provider == "ollama"`, show a sign-in required popup. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
 
@@ -128,7 +135,8 @@ Repeat until the test succeeded.
 When `provider == "trustable"` and `/api/testmodel` returns an error, run the **Trustable sign-in recovery**:
 
 1. Re-open the registration iframe overlay (the same one used by the initial Trustable Cloud selection) pointing at `register_url`.
-2. Wait for the iframe's `postMessage` payload `{ env: { OPENAI_BASE_URL, OPENAI_API_KEY }, opencode?: { default, small } }`.
+2. Wait for the iframe's `postMessage` payload containing `base_url`, `api_key`,
+   and optionally `pi: { default }`.
 3. On message, merge the new `base_url` and `api_key` into the workspace config, `POST /api/configuration`, then **re-run the health check** (`/api/testmodel`).
 4. If the user closes the overlay with **Cancel**, show a generic error with a Retry button and stop the loop until the user clicks Retry (which re-opens the iframe).
 

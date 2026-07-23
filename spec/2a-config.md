@@ -19,9 +19,8 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
     "models": {
         "<model-name>": "<context-size>"
     },
-    "opencode": {
-        "default": "<chosen default model name>",
-        "small": "<chosen small model name>"
+    "pi": {
+        "default": "<chosen Pi model name>"
     },
     "apps": {
         "<app-name>": {
@@ -47,13 +46,17 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   - **BestIA** — `base_url` is fixed to `http://bestia:11434/v1` (the dedicated GPU inference host; the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve). The configure UI displays and **locks** it as `http://bestia:11434` (not editable). `api_key` is the proxy-signed `aip_` key taken from the BestIA registration iframe message; any `base_url` the proxy posts is ignored. **Publishing note:** the BestIA `base_url` is the GPU box, not the ai-proxy, so the publish-key pubkey origin is derived from `AIP_BASE_URL` instead of `base_url` — see [6-publish.md](6-publish.md).
   There is **no** global `env` section in `trustable.json`. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
-- `opencode.default` / `opencode.small` — must be names that exist as keys in `models`. The configurator UI (see "Configuration UI") presents these as dropdowns populated from `models`, not free-text fields.
+- `pi.default` — must be a name that exists as a key in `models`. The
+  configurator UI presents it as a single dropdown populated from `models`.
+  Legacy `opencode.default` and `opencode.small` are ignored rather than
+  migrated; a missing `pi.default` sends the user to `configure.html?setup=1`.
 - `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustable Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
 - `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
 
 The base config has no `apps` or `provider` section. Those live only in the workspace config.
 
-There is no top-level `testmodel` field. The model used for the say-hello connection test is always `opencode.small`.
+There is no top-level `testmodel` field. The model used for the say-hello
+connection test is always `pi.default`.
 
 All fields in the workspace config use `omitempty` — absent fields inherit from the base.
 
@@ -84,19 +87,20 @@ shape:
 ```
 
 `enabled`, `recommended`, `roles`, and `reason` are optional and
-backward-compatible. They describe whether a model is suitable for OpenCode
+backward-compatible. They describe whether a model is suitable for Pi
 agent work, not whether the upstream provider exposes it. If `enabled` is
 `false`, the model must remain visible in the provider model table for
-diagnostics but must not be selectable as `opencode.default` or
-`opencode.small`. Roles such as `embedding`, `embed`, `rerank`, or `vector`
-also make a model non-selectable for OpenCode. Roles such as `coding`,
-`agent`, `chat`, or `opencode` explicitly mark a model as selectable.
+diagnostics but must not be selectable as `pi.default`. Roles such as
+`embedding`, `embed`, `rerank`, or `vector` also make a model non-selectable
+for Pi. Roles such as `coding`,
+`agent`, `chat`, or the historical catalog capability `opencode` explicitly
+mark a model as selectable.
 
 When a provider does not return policy metadata (for example BestIA or
 own-host Ollama discovery), Trustable applies a conservative local policy:
 embedding/rerank/vector models, obvious tiny/small non-agent models, vision,
 audio, TTS/Whisper-style models, and models below roughly 20B parameters are
-hidden from the OpenCode dropdowns. They may still appear in the provider model
+hidden from the Pi dropdown. They may still appear in the provider model
 table because availability and suitability are different facts.
 
 There is no longer a top-level `version` field driving reselect — the previous `<WorkspaceDir>/models.json` cache and the catalog-level version check have been retired in favor of the per-provider `modelsVersion` mechanism below.
@@ -109,7 +113,13 @@ On every page load that depends on a chosen provider (splash, applist), the fron
 
 - **First run / no recorded version** — write the value into `model_versions` on first save and proceed.
 - **Same version** — proceed normally.
-- **Version changed** — persist the new value to `model_versions[provider]` and redirect to `configure.html?reselect=1` so the user re-picks `opencode.default` / `opencode.small` from the refreshed catalog. The redirect happens *before* the splash configuration flow runs.
+- **Version changed** — persist the new value to `model_versions[provider]` and redirect to `configure.html?reselect=1` so the user re-picks `pi.default` from the refreshed catalog. The redirect happens *before* the splash configuration flow runs.
+
+The provider catalog's `default` value is not a freshness signal. It seeds
+`pi.default` for a new provider and is used as a fallback only when the saved
+model no longer exists after a real `modelsVersion` change. If the saved model
+still exists, preserve it across the refresh. A user-selected `pi.default` that
+differs from `status[provider].default` must not trigger a redirect.
 
 ### Exception — own-host Ollama
 
@@ -138,21 +148,25 @@ When the user picks a provider on the choice screen (or when the configure UI's 
 
 - `provider` — the chosen value
 - `models` — `status.<provider>.models` verbatim
-- `opencode.default` / `opencode.small` — `status.<provider>.default` / `.small` (defaults; the user can override via the dropdowns in the configure UI)
+- `pi.default` — `status.<provider>.default` (the user can override it in Configure)
 - `model_versions[provider]` — `status.<provider>.modelsVersion`
 
-This is what the user means by "change the OpenCode models to the Ollama models when switching back to Ollama" — switching provider replaces the model list **and** the opencode defaults from the catalog.
+Switching provider replaces the model list **and** the Pi default from the
+catalog.
 
-**Own-host Ollama is the seeding exception:** an empty `models` map and empty `opencode` defaults are persisted; the user populates both via the Test button on `configure.html?ollama=own`. `model_versions.ollama` is still seeded from the current `status.ollama.modelsVersion`.
+**Own-host Ollama is the seeding exception:** an empty `models` map and empty
+`pi.default` are persisted; the user populates both via the Test button on
+`configure.html?ollama=own`. `model_versions.ollama` is still seeded from the
+current `status.ollama.modelsVersion`.
 
 ## Ollama mode selection
 
 When the user picks **Ollama** on the splash provider-choice modal, a sub-modal asks them to pick between two modes:
 
-- **Use internal Ollama with recommended cloud models** — the existing behavior: `base_url = "http://localhost:11434/v1"`, `models` and `opencode` are seeded from `status.ollama` (see "Per-provider seeding"), and `GET /api/configure` proceeds to check connectivity and pull each model.
-- **Use my own Ollama with currently installed models** — a minimal workspace config is persisted (`provider="ollama"`, `base_url=""`, `models={}`, `opencode={default:"", small:""}`, `model_versions.ollama = status.ollama.modelsVersion`) and the user is routed to `configure.html?ollama=own` to enter their LAN host. No model pull runs at this stage. The recorded `modelsVersion` is never used as a reselect trigger for this mode (own-host is exempt).
+- **Use internal Ollama with recommended cloud models** — the existing behavior: `base_url = "http://localhost:11434/v1"`, `models` and `pi.default` are seeded from `status.ollama` (see "Per-provider seeding"), and `GET /api/configure` proceeds to check connectivity and pull each model.
+- **Use my own Ollama with currently installed models** — a minimal workspace config is persisted (`provider="ollama"`, `base_url=""`, `models={}`, `pi={default:""}`, `model_versions.ollama = status.ollama.modelsVersion`) and the user is routed to `configure.html?ollama=own` to enter their LAN host. No model pull runs at this stage. The recorded `modelsVersion` is never used as a reselect trigger for this mode (own-host is exempt).
 
-On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** builds `base_url = "http://<host>:<port>/v1"` from the inputs and calls `POST /api/discover-models` with that `base_url` and `api_key = "dummy"`. On success the frontend writes the same `base_url` into `config.base_url`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.opencode` so the user picks default/small from the discovered list.
+On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** builds `base_url = "http://<host>:<port>/v1"` from the inputs and calls `POST /api/discover-models` with that `base_url` and `api_key = "dummy"`. On success the frontend writes the same `base_url` into `config.base_url`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.pi.default` so the user makes an explicit selection.
 
 After **Save & Configure**, `GET /api/configure` reaches the user's host (via `cfg.base_url` stripped of `/v1`) for the connectivity check and for capability discovery via `/api/show`. The model-pull loop (Step 2) is **skipped** when the resolved host is not localhost — the user's host already has the models installed locally; pulling them again would be wasteful. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)` instead.
 
@@ -160,9 +174,9 @@ After **Save & Configure**, `GET /api/configure` reaches the user's host (via `c
 
 When the user clicks the **BestIA** card on the splash, the frontend first calls `GET /api/bestia-check`. This is a server-side reachability probe of the fixed BestIA host `http://bestia:11434` (the browser cannot reach the GPU box — it is only routable from inside the VM). The handler does a short `GET http://bestia:11434/v1/models`; **any** HTTP response (including 401/403 — there is no api_key yet) means a BestIA is running and it returns `{ "available": true }`; only a connection/timeout error returns `{ "available": false }`. If not available, the splash shows an alert "You are not running a BestIA" and returns to the Provider Choice modal without opening the registration iframe.
 
-Once availability is confirmed, the register iframe runs with `?bestia=1` and posts back an `api_key`. A minimal workspace config is persisted (`provider="bestia"`, `base_url="http://bestia:11434/v1"`, `api_key=<from message>`, `models={}`, `opencode={default:"", small:""}`) and the user is routed to `configure.html?bestia=1`.
+Once availability is confirmed, the register iframe runs with `?bestia=1` and posts back an `api_key`. A minimal workspace config is persisted (`provider="bestia"`, `base_url="http://bestia:11434/v1"`, `api_key=<from message>`, `models={}`, `pi={default:""}`) and the user is routed to `configure.html?bestia=1`.
 
-On that screen the **BestIA Host** section shows a fixed read-only note "Using BestIA dedicated infrastructure" (no input, cannot be changed — mirrors the internal-Ollama read-only note). On load the screen calls `POST /api/discover-models` with `base_url = "http://bestia:11434/v1"` and the stored `api_key` (the real proxy key — sent as `Authorization: Bearer`), populating `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}` while preserving any previously-saved limits/opencode selection. The model table is **editable** (Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is hidden (there is no `status.bestia` catalog). `model_versions` and the `?reselect=1` redirect do not apply to BestIA (discover-models-backed, like own-host Ollama). **Save & Configure** runs the say-hello test against `http://bestia:11434/v1/chat/completions`.
+On that screen the **BestIA Host** section shows a fixed read-only note "Using BestIA dedicated infrastructure" (no input, cannot be changed — mirrors the internal-Ollama read-only note). On load the screen calls `POST /api/discover-models` with `base_url = "http://bestia:11434/v1"` and the stored `api_key` (the real proxy key — sent as `Authorization: Bearer`), populating `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}` while preserving any previously-saved limits and Pi selection. The model table is **editable** (Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is hidden (there is no `status.bestia` catalog). `model_versions` and the `?reselect=1` redirect do not apply to BestIA (discover-models-backed, like own-host Ollama). **Save & Configure** runs the say-hello test against `http://bestia:11434/v1/chat/completions`.
 
 ## POST /api/discover-models
 
@@ -185,7 +199,7 @@ Backend behavior:
 
 On any failure return `{ "error": "<message>" }` with an HTTP status reflecting the cause (400 for bad input, 502/504 for upstream failures, 500 for parse errors).
 
-The endpoint is purely a read — it does not write to `trustable.json`. The frontend takes the returned model list, builds the new `config.models` map with default limits, resets `config.opencode`, and saves via `POST /api/configuration` as usual.
+The endpoint is purely a read — it does not write to `trustable.json`. The frontend takes the returned model list, builds the new `config.models` map with default limits, resets `config.pi.default`, and saves via `POST /api/configuration` as usual.
 
 This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which was Ollama-specific in name only — it already hit the OpenAI-compatible `/v1/models` endpoint). The old route is removed; callers must use `POST /api/discover-models`.
 
@@ -234,12 +248,12 @@ use generated service bindings directly.
    `.env` merges valid uppercase names from that file, but the secret store
    cannot override `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
    `OPS_SKILLS`, or service-only runtime credentials. Values are never written
-   to `opencode.json`, `.mcp.json`, assistant output, or `.env.production`.
+   to Pi configuration, `.mcp.json`, assistant output, or `.env.production`.
 
 5. Service runtime bindings from official OpenServerless config are not written
    to `.env`. When `~/.ops/config.json` exposes an official MongoDB capability,
    Trustable may pass the resolved URI as `MONGODB_URI` only in the process
-   environment of OpenCode/`ops ide deploy`/`ops ide devel`, so
+   environment of TruACP/Pi, `ops ide deploy`, and `ops ide devel`, so
    `action_add_mongodb` can bind it without exposing the credential in the
    editable app configuration. A casual per-app/workbench `MONGODB_URI` must not
    enable MongoDB by itself; the source of truth remains the official post-login
@@ -263,13 +277,13 @@ Passwords are stored in `apps.<name>.password` in the workspace `trustable.json`
 
 This endpoint streams progress to the client. It assumes a provider has already been chosen (`provider`, `base_url`, and `api_key` are set in the workspace `trustable.json`); it does **not** prompt for provider selection. Provider selection happens once on the splash page (see [1-index.md](1-index.md)) and is changed only via the **Change Provider** button in the configure UI. If `provider` is empty, the splash flow handles the choice — `/api/configure` is only invoked afterwards.
 
-`/api/configure` is the streamed path used by the splash after a provider is freshly chosen: it runs the Ollama connectivity check and the model-pull loop. It is **not** invoked by the configure UI's Save & Configure button — that path is now `POST /api/configuration` (see below), which persists and runs testmodel in a single call. Neither path writes an `opencode.json`; that file is generated per-app in the workbench project directory at launch (see [4-launch.md](4-launch.md)).
+`/api/configure` is the streamed path used by the splash after a provider is freshly chosen: it runs the Ollama connectivity check and the model-pull loop. It is **not** invoked by the configure UI's Save & Configure button — that path is now `POST /api/configuration` (see below), which persists, runs testmodel, and writes global Pi configuration in a single call.
 
 The behaviour depends on the merged config's `provider`:
 
 - **`provider == "ollama"`** — run Step 1 and Step 2 below.
-- **`provider == "trustable"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustable Cloud)` so the UI shows progress, then proceed to "Prepare opencode config".
-- **`provider == "bestia"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (BestIA)`, then proceed to "Prepare opencode config".
+- **`provider == "trustable"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustable Cloud)` so the UI shows progress, then write global Pi configuration when `pi.default` is present.
+- **`provider == "bestia"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (BestIA)`, then write global Pi configuration when `pi.default` is present.
 
 In both cases the frontend separately calls `GET /api/testmodel` after the configure stream ends to run the say-hello connection test.
 
@@ -289,214 +303,27 @@ For **internal** Ollama, connect to the resolved Ollama endpoint and pull every 
 
 For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this step is skipped — the models were discovered via `POST /api/discover-models` against `<base_url>/models` on that host and are already installed there. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)`.
 
-# Prepare opencode config
+# Prepare global Pi configuration
 
-The OpenCode config is a **single, self-contained** file written into each app's
-project directory at launch — `<workbenchdir>/<app>/opencode.json`. There is
-**no** global `~/.config/opencode/opencode.json`; the rules below describe the
-content of the per-app file (see [4-launch.md](4-launch.md) for when it is
-written). `<provider>` is the active `provider` from `trustable.json` —
-`ollama`, `trustable`, or `bestia`. `instructions` points first at the
-project's short OpenServerless contract and then at the project's full
-`opencode.md`:
+The Configure flow is the only owner of Pi's global configuration. Both the
+streamed provider-setup endpoint and `POST /api/configuration` write only after
+`pi.default` passes the provider connectivity probe:
 
-```
-{
-  "$schema": "https://opencode.ai/config.json",
-  "instructions": [
-    "<workbenchdir>/<app>/.openserverless-contract.md",
-    "<workbenchdir>/<app>/opencode.md"
-  ],
-  "model": "<provider>/<opencode.default>",
-  "small_model": "<provider>/<opencode.small>",
-  "disabled_providers": [<default OpenCode providers, minus "<provider>">],
-  "provider": {
-    "<provider>": {
-      "options": {
-        "baseURL": "<base_url>",
-        "apiKey": "<api_key>",
-        "headerTimeout": 60000,
-        "chunkTimeout": 60000
-      },
-      "models": { <one entry per model in trustable.json "models" map> }
-    }
-  }
-}
-```
+- `${PI_CODING_AGENT_DIR:-~/.pi/agent}/models.json`;
+- `${PI_CODING_AGENT_DIR:-~/.pi/agent}/settings.json`;
+- `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json`.
 
-Always **fully regenerate** the `opencode.json` from the merged `trustable.json`
-and `~/.ops/config.json` — there is **no merge** with any existing
-`opencode.json`. The file is overwritten on every launch, so any prior content
-(custom providers/lsp/mcp, hand-edits, stale managed entries such as an old
-postgres `DATABASE_URI`) is discarded and the result always reflects the current
-config. The `<provider>` entry's `models` map contains
-one entry per model listed under `models` in `trustable.json` (built from the
-template below). The provider's `baseURL` and `apiKey` are taken **directly
-from the top-level `base_url` and `api_key` fields** of `trustable.json`:
+The writer merges only Trustable-owned keys, preserves unrelated Pi providers
+and settings, and uses the file modes and credential boundary defined in
+[pi.md](pi.md). It emits a single provider named `trustable` and limits runtime
+selection to `trustable/*`. `auth.json` is the only file containing the real
+provider credential.
 
-- Ollama → `baseURL = "http://localhost:11434/v1"`, `apiKey = "dummy"`.
-- Trustable → `baseURL` and `apiKey` are the values posted by the ai-proxy
-  registration iframe and stored in `trustable.json` (see [1-index.md](1-index.md)).
-- BestIA → `baseURL = "http://bestia:11434/v1"` (fixed); `apiKey` is the
-  proxy-signed key stored in `trustable.json`. The OpenCode provider key is its
-  own dedicated `bestia` (parallel to `trustable`), not the `ollama` fallback.
-
-The generated `trustable` cloud provider also sets `headerTimeout` and
-`chunkTimeout` to 60 seconds. A provider request that produces neither response
-headers nor another streamed chunk therefore fails promptly and enters
-OpenCode's bounded retry path instead of leaving the session apparently busy
-for several minutes. These cloud transport timeouts are not forced on local
-Ollama or BestIA providers.
-
-Because `<provider>` is now a generated provider it must not appear in
-`disabled_providers`.
-
-Always set top-level `model` and `small_model` to
-`<provider>/<opencode.default>` and `<provider>/<opencode.small>` respectively,
-using the values from `trustable.json`. Any user-selected `model`/`small_model`
-from a previous `opencode.json` is overwritten.
-
-Hide OpenCode's other automatic/default providers via `disabled_providers`.
-
-Only the generated Trustable provider is written — custom providers from a prior
-`opencode.json` are **not** preserved (the file is fully regenerated). Do not emit
-`enabled_providers`: in OpenCode that field is a whitelist and would prevent
-providers added later from being selectable.
-
-The `lsp` section is generated for local TypeScript/JavaScript and Python
-language servers installed in the Trustable image. The `mcp` section is built
-from `~/.ops/config.json` at app launch time (see [4-launch.md](4-launch.md)),
-plus the always-present `openserverless` MCP server that provides the action
-tools; since the whole file is generated per-app at launch, the `mcp` servers
-are part of it. The provider-choice/config-save flows (`GET /api/configure`,
-`POST /api/configuration`) do **not** write any `opencode.json` — they only
-persist `trustable.json`, check connectivity, and run testmodel; the new model
-defaults take effect on the next launch. Do not hardcode server-specific
-hostnames or IP addresses in `opencode.json` generation.
-
-The `lsp` and `mcp` sections are likewise fully regenerated, not merged: only
-the Trustable-generated `lsp` servers and the `mcp` servers built from
-`~/.ops/config.json` (plus `openserverless`/`agentireact`) are written. Custom
-`lsp`/`mcp` entries from a prior `opencode.json` are not carried forward.
-
-In Ollama mode, to get the capabilities of a model use the OllamaEndPoint,
-list the models then show their capabilities. In Trustable mode capability
-discovery is not available; assume `tool_call: true, reasoning: false` and
-let the user override later via the OpenCode UI.
-
-To get the context size for a model look in trustable.json -  <value>K mean  <value> * 1024.
-
-Model name is the model id, split in "-" and ":", capitalized, with numbers with extensions in parenthesis
-
-Example: qwen3-coder:480b-cloud => Quen3 Coder (48OB) Cloud
-
-Template:
-
-```
-"<model>": {
-  "name": <model-name>,
-  "tool_call": >true if you find tools in capabilities
-  "reasoning": true if you find thinking>
-  "temperature": true,
-  "limit": {
-    "context": <context size for model>
-    "output": 32768
-  },
-  "options": {
-    "maxTokens": 8192
-  },
-  "variants": {
-    "fast": {
-      "options": { "maxTokens": 2048 }
-    },
-    "deep": {
-      "options": { "maxTokens": 16000 }
-    },
-    "disabled_variant": {
-      "disabled": true
-    }
-  }
-}
-```
-
-OpenCode state must be persistent across pod restarts. At container startup,
-`~/.config/opencode`, `~/.cache/opencode`, and `~/.local/share/opencode` are
-symlinked into the mounted workspace under `.trustable/opencode/` (this is
-OpenCode's own cache/state, independent of the per-app config file). If the
-persistent target already contains data, startup must keep it and replace the
-ephemeral home directory with the symlink before Trustable/OpenCode starts; this
-preserves OpenCode sessions across image rebuilds and pod restarts. After
-generating the project `opencode.json`, write these generated app-repo files in
-the same project directory:
-
-- `<workbenchdir>/<app>/AGENTS.md` — a Trustable-managed app-local agent
-  entrypoint. It must be written before OpenCode starts, must take precedence
-  over template `CLAUDE.md` files, and must explicitly say that `CLAUDE.md`,
-  `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
-  `.github/copilot-instructions.md`, and generated `rules.md` files are
-  legacy/template notes, not mandatory Trustable instructions. If an app already
-  has `AGENTS.md`, Trustable updates only its managed block and preserves
-  app-local notes below it;
-- `<workbenchdir>/<app>/.openserverless-contract.md` — the short critical
-  action/DB recovery contract, first in `instructions`;
-- `<workbenchdir>/<app>/opencode.md` — the full assistant guidance, second in
-  `instructions`;
-- `~/.local/bin/check_openserverless_actions.sh` — executable checker installed
-  once per Trustable user. OpenCode runs it with the app path, normally
-  `timeout 60 check_openserverless_actions.sh .`.
-
-The checker must treat `.zip` files produced under `packages/` by
-`ops ide deploy` as normal deploy artifacts, not as drift by themselves. It may
-fail on hand-authored zip deploy workflows or raw `ops action create/update`
-shortcuts, but not on the mere presence of generated deploy zips.
-
-The checker must also treat standard generated `__main__.py` service wiring as
-normal scaffolding. For example, a wrapper generated by the action tooling may
-contain `init_postgresql`, `args.get("POSTGRES_URL")`, `os.getenv("POSTGRES_URL")`,
-`import psycopg`, and `ctx.POSTGRESQL = psycopg.connect(dburl)`. That alone is
-not business logic and must not be a hard failure. Hard failures should remain
-limited to high-confidence wrapper drift such as SQL statements, web servers, or
-hand-written business behavior in `__main__.py`.
-
-For setup/seed modules, the checker should warn on bulk `INSERT INTO` logic
-only when it cannot find an obvious idempotency guard. Accepted low-noise guards
-include explicit seed marker names such as `seed_state`, `seed_marker`,
-`demo_seed`, `applied_at`, `already_populated`, and the common
-`SELECT COUNT(*) FROM ...` before inserting demo rows.
-
-The generated `opencode.json` must also include OpenCode permission guardrails:
-
-- allow normal edits by default;
-- deny direct edits to `packages/**/__main__.py`;
-- deny direct edits to generated `packages/**/*.zip` deploy artifacts;
-- deny raw shell commands matching `ops action` / `ops action *`.
-
-These permission guards are defense-in-depth. The OpenServerless MCP tools may
-still create or repair generated action wrappers, while assistant file edits and
-raw action-shell shortcuts are blocked or caught by the checker.
-
-The checker must hard-fail if an action module exists at
-`packages/<package>/<action>/<module>.py` without a sibling generated
-`__main__.py`. It must also hard-fail when a wrapper defines `main()` but lacks
-generated action/service markers such as `#--kind`, `#--web`,
-`## build-context ##`, or `init_<service>` wiring. This catches the observed
-drift where an assistant creates or repairs backend wrappers by hand after
-ignoring the MCP action tools.
-
-The action tools are no longer copied as an embedded `tools/` folder; they are
-provided by the `openserverless` MCP server wired into the `mcp` section.
-
-The content contract for the embedded `opencode.md` lives in
-[opencode.md](opencode.md). Keep that spec synchronized with the embedded file:
-it defines the serverless mental model, critical contract recovery, required
-OpenServerless action/MCP guidance, web-action request/response handling,
-runtime host rules, and validation checklist that coding assistants must
-receive. The guardrail flow diagram is
-[opencode-guardrail-flow.svg](opencode-guardrail-flow.svg).
-
-The language servers are stdio programs. OpenCode launches and supervises
-`typescript-language-server --stdio` and `pylsp` when matching file types are
-used. Do not add them as long-running `supervisord` programs.
+Configure writes these files only after a successful test-model request.
+A failed probe preserves any previously working Pi files. App launch never
+writes or repairs global Pi configuration and never creates `opencode.json`.
+Project-local MCP and instruction assets are described in
+[4-launch.md](4-launch.md).
 
 # Manage configuration: GET /api/configuration
 
@@ -507,9 +334,11 @@ Returns the merged configuration (base + workspace overrides) as JSON.
 The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs two steps in order and returns a single JSON result:
 
 1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
-2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `opencode.small` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process.
+2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process.
+3. **Write global Pi configuration** — only when testmodel succeeds, merge the Trustable provider into `models.json`, `settings.json`, and `auth.json`. On test failure the previously working files remain unchanged.
 
-This endpoint does **not** write any `opencode.json`. The OpenCode config is a single self-contained file generated per-app in the workbench project directory at launch (see [4-launch.md](4-launch.md)); the new model defaults take effect on the next launch.
+This endpoint does not write any per-app agent configuration. App launch does
+not repeat the global write.
 
 Response shape on success:
 
@@ -531,7 +360,12 @@ Rationale for the single endpoint: testmodel must see the just-persisted config.
 
 # GET /api/testmodel
 
-Tests the AI model connection by sending a "hello" prompt to `opencode.small` from the merged config, using the resolved provider URL and `api_key`. For internal Ollama, the resolved URL is derived from `OLLAMA_ENDPOINT` rather than the persisted localhost `base_url`; in the Trustable pod that endpoint is the pod-local `ollama serve` process. For own-host Ollama, Trustable, and BestIA it is the configured provider URL. There is no separate `testmodel` field — the small OpenCode model is always used for the connection test, in both Ollama and Trustable modes.
+Tests the AI model connection by sending a "hello" prompt to `pi.default` from
+the merged config, using the resolved provider URL and `api_key`. For internal
+Ollama, the resolved URL is derived from `OLLAMA_ENDPOINT` rather than the
+persisted localhost `base_url`; in the Trustable pod that endpoint is the
+pod-local `ollama serve` process. For own-host Ollama, Trustable, and BestIA it
+is the configured provider URL. There is no separate `testmodel` field.
 
 # Per-app configuration: GET /api/appconfig/<name>
 
@@ -574,23 +408,41 @@ Sections (rendered top to bottom in this order):
 
 - **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
     - In **internal** mode (or when `base_url` parses as `http://(localhost|127.0.0.1|ollama):...`) the inputs are pre-filled from the existing `base_url`. The Test button is still available for re-validation but is not required.
-    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.opencode` so the user picks default/small from the new list.
+    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.pi.default` so the user chooses the Pi model.
 - **`<Provider> Models`** — a table of the currently selected provider's models with context size and a **For coding** column that shows whether each model can be selected for coding agent work. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
   - **Ollama** — editable. The user can add or remove rows; adds/removes only edit the workspace `models` map (they do not change the catalog). The header shows an **Add Model** button and each row has a **Remove** button.
-  - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map (and `opencode` defaults) from `status.trustable`. The dropdowns repopulate from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
-- **OpenCode Models** — two `<select>` dropdowns labelled "Default Model" and "Small Model". Both are populated from the keys of the active provider's `models` map. Selected values are written to `opencode.default` and `opencode.small`. Free-text input is no longer accepted.
-  The dropdowns include only models allowed by the OpenCode model policy above.
+  - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map and `pi.default` from `status.trustable`. The dropdown repopulates from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
+- **Pi Model** — one `<select>` labelled "Default Model", populated from the
+  keys of the active provider's `models` map. The selected value is written to
+  `pi.default`; there is no small/secondary model.
+  The dropdown includes only models allowed by the Pi model policy above.
   The provider model table can still show hidden models with a short reason, so
   operators can diagnose provider inventory without letting a basic user choose
   an embedding, rerank, tiny, or otherwise unsuitable model. `POST
   /api/configuration` enforces the same policy server-side before writing
   `trustable.json`; UI filtering alone is not sufficient.
 - **Git User** — name and email (unchanged).
-If the URL has `?reselect=1` (set by the splash or applist when `status[provider].modelsVersion` bumped — see "Model catalog → Version tracking (per provider)"), show a banner at the top: *"Model catalog updated. Please re-select the default and small OpenCode models."* The banner clears once the user clicks **Save & Configure**.
+If the URL has `?reselect=1` (set by the splash or applist when
+`status[provider].modelsVersion` bumped), show a banner asking the user to
+re-select the Pi model. If `applist.html` finds no `pi.default`, it redirects to
+`configure.html?setup=1`; that provider-independent banner explains that one
+explicit selection is required by the hard cutover. Legacy `opencode` fields
+are not used to satisfy this guard.
+
+After **Save & Configure** succeeds and the selected model passes its
+connection probe, navigate once to `applist.html?configured=1`. The app list
+removes this marker from browser history without reloading and suppresses only
+its immediate catalog-reselect redirect. This guarantees that a successful
+configuration can exit the configure screen even if a status response changes
+concurrently; normal `modelsVersion` checks resume on the next app-list load.
 
 The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
-Read the configuration with `GET /api/configuration`. **Save & Configure** calls `POST /api/configuration`, which persists and runs testmodel in a single call (see "POST /api/configuration" above); it does not write an `opencode.json` (that is generated per-app at launch). The button does **not** invoke `GET /api/configure` — the streamed connectivity-check + model-pull flow runs only on the splash, after a provider is freshly chosen. Subsequent edits on `configure.html` are model-defaults edits and do not require re-pulling models.
+Read the configuration with `GET /api/configuration`. **Save & Configure** calls
+`POST /api/configuration`, which persists, runs testmodel, and writes Pi's
+global native files after a successful probe. The button does **not** invoke
+`GET /api/configure` — the streamed connectivity-check + model-pull flow runs
+only on the splash, after a provider is freshly chosen.
 
 On `testmodel.ok == true` → navigate to `applist.html`. On `testmodel.ok == false` → stay on `configure.html` and surface the error inline (see "Save & Configure UX" below). Do **not** bounce back to `index.html` on failure — the splash would just re-run configure with the same broken settings.
 

@@ -116,11 +116,11 @@ The generation must happen AFTER `ops ide login` (which refreshes
 started.
 
 There is **no per-app agent config file**. `opencode.json` is not written. Pi's
-model configuration is global under `~/.pi/agent/` and is produced by the
-configure flow (see [pi.md](pi.md)). Launch also rematerializes the same files
-from the durable Trustable configuration before starting an app. This is
-idempotent and lets a recreated Lima VM recover without another configuration
-round-trip; it does not introduce per-app model state.
+model configuration is global under `~/.pi/agent/` and is produced only by the
+configure flow (see [pi.md](pi.md)). Launch does not mutate or repair global Pi
+state; users without `pi.default` must complete Configure before opening an app.
+Both `applist.html` and the launch API enforce this guard so a stale/direct tab
+is routed back to `configure.html?setup=1`.
 
 What launch writes into `<workbenchdir>/<app>/` is:
 
@@ -489,10 +489,9 @@ above: `.mcp.json`, the managed `AGENTS.md`/`CLAUDE.md`, and
 `.openserverless-contract.md`, plus the three `~/.local/bin` checkers.
 
 There is **no per-app agent config file** to write. Pi's model configuration is
-global (`~/.pi/agent/models.json`, `settings.json`, `auth.json`), written by the
-configure flow and idempotently rematerialized from Trustable's durable config
-at launch for clean-VM recovery. Do not generate, symlink, or copy any
-`opencode.json`.
+global (`~/.pi/agent/models.json`, `settings.json`, `auth.json`) and is written
+only by the configure flow. Launch must not change those files. Do not generate,
+symlink, or copy any `opencode.json`.
 
 `AGENTS.md` is the Trustable-managed app-local rules entrypoint (with the long
 assistant guidance folded into its managed block); `CLAUDE.md` is a full

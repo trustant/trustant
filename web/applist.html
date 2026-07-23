@@ -1324,6 +1324,12 @@
                 const response = await fetch(`/api/launch/${encodeURIComponent(name)}`);
                 const data = await response.json();
 
+                // The API repeats the Pi setup guard for stale/direct tabs.
+                // Route to the same explicit hard-cutover flow as page boot.
+                if (data.setup_required) {
+                    window.location.href = 'configure.html?setup=1';
+                    return;
+                }
                 if (data.error) {
                     showLaunchError(data.error);
                     return;
@@ -1414,6 +1420,20 @@
 
         // Load version and apps
         (async function() {
+            const bootParams = new URLSearchParams(window.location.search);
+            const configurationJustSaved = bootParams.get('configured') === '1';
+            if (configurationJustSaved) {
+                // Remove the one-shot marker without reloading so bookmarks
+                // and subsequent visits return to the normal catalog checks.
+                bootParams.delete('configured');
+                const cleanQuery = bootParams.toString();
+                window.history.replaceState(
+                    null,
+                    '',
+                    'applist.html' + (cleanQuery ? '?' + cleanQuery : '')
+                );
+            }
+
             // Guard: no provider configured -> send user to provider selection
             let bootProvider = '';
             let bootConfig = null;
@@ -1431,10 +1451,19 @@
                 return;
             }
 
+            // Issue #51 intentionally provides no legacy opencode migration.
+            // An existing installation must choose pi.default once before any
+            // app can be launched, making the global runtime contract explicit.
+            if (!bootConfig.pi || !String(bootConfig.pi.default || '').trim()) {
+                window.location.href = 'configure.html?setup=1';
+                return;
+            }
+
             // Status check (every applist load): show the operator message
-            // banner AND, for the active provider, detect a modelsVersion or
-            // default/small drift and route the user through
-            // configure.html?reselect=1 to confirm or change their defaults.
+            // banner AND, for the active provider, detect a modelsVersion
+            // change and route the user through configure.html?reselect=1.
+            // The catalog default is only an initial seed; it may legitimately
+            // differ from the Pi model selected by the user.
             try {
                 const sresp = await fetch('/api/status');
                 if (sresp.ok) {
@@ -1454,25 +1483,33 @@
                         const ownHostOllama = bootProvider === 'ollama' && bootBaseURL !== ''
                             && !/^http:\/\/(localhost|127\.0\.0\.1|ollama)(:|\/)/i.test(bootBaseURL);
                         const sec = sdata[bootProvider];
-                        if (!ownHostOllama && sec && sec.models) {
+                        // Configure already saved and tested this exact
+                        // selection. Suppress only the immediate reselect
+                        // redirect; a later visit performs the normal check.
+                        if (!configurationJustSaved && !ownHostOllama && sec && sec.models) {
                             const savedVer = (bootConfig.model_versions && bootConfig.model_versions[bootProvider]) || 0;
-                            const savedOpencode = bootConfig.opencode || {};
+                            const savedPi = bootConfig.pi || {};
                             const versionChanged = typeof sec.modelsVersion === 'number'
                                 && sec.modelsVersion > 0
                                 && sec.modelsVersion !== savedVer;
-                            const defaultsChanged =
-                                (sec.default && sec.default !== savedOpencode.default) ||
-                                (sec.small   && sec.small   !== savedOpencode.small);
-                            if (versionChanged || defaultsChanged) {
+                            if (versionChanged) {
                                 const newVersions = Object.assign({}, bootConfig.model_versions || {});
                                 if (typeof sec.modelsVersion === 'number') {
                                     newVersions[bootProvider] = sec.modelsVersion;
                                 }
+                                // Preserve an available user choice across a
+                                // catalog refresh; fall back only when that
+                                // model was removed from the catalog.
+                                const refreshedDefault = savedPi.default
+                                    && Object.prototype.hasOwnProperty.call(sec.models, savedPi.default)
+                                    ? savedPi.default
+                                    : (sec.default || '');
                                 const updated = Object.assign({}, bootConfig, {
                                     models: sec.models,
-                                    opencode: { default: sec.default || '', small: sec.small || '' },
+                                    pi: { default: refreshedDefault },
                                     model_versions: newVersions
                                 });
+                                delete updated.opencode;
                                 delete updated.model_version;
                                 delete updated.env;
                                 try {

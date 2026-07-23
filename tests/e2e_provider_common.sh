@@ -119,7 +119,6 @@ e2e_preflight_profile() {
     '.provider == $provider
      and .base_url == $base_url
      and .model == $model
-     and .small_model == $model
      and .limits.max_token == $max_token
      and .limits.max_output == $max_output
      and .credential.required == $credential_required
@@ -187,7 +186,10 @@ e2e_apply_profile() {
      | .base_url = $base_url
      | if $api_key == "" then del(.api_key) else .api_key = $api_key end
      | .models = {($model): {maxToken: $max_token, maxOutput: $max_output}}
-     | .opencode = {default: $model, small: $model}' \
+     # The benchmark must exercise the same Pi-only schema as the product;
+     # retaining opencode here would conceal a broken issue #51 cutover.
+     | .pi = {default: $model}
+     | del(.opencode)' \
     "$E2E_CONFIG_BACKUP" >"$E2E_CONFIG_STAGED"
   kubectl -n "$E2E_NAMESPACE" exec -i "$E2E_POD" -c "$E2E_CONTAINER" -- \
     sh -c 'cat > "$1"' sh "$E2E_CONFIG_PATH" <"$E2E_CONFIG_STAGED"
@@ -199,11 +201,10 @@ e2e_apply_profile() {
       {
         provider: .provider,
         base_url: .base_url,
-        model: .opencode.default,
-        small_model: .opencode.small,
+        model: .pi.default,
         limits: {
-          max_token: .models[.opencode.default].maxToken,
-          max_output: .models[.opencode.default].maxOutput
+          max_token: .models[.pi.default].maxToken,
+          max_output: .models[.pi.default].maxOutput
         },
         credential: {
           required: $credential_required,

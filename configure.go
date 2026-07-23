@@ -20,10 +20,11 @@ import (
 	"unicode"
 )
 
-// opencodeConfig holds the opencode model settings
-type opencodeConfig struct {
+// piConfig holds the single coding model selected for Pi. Pi has no secondary
+// "small model" role, so keeping a second field would create configuration that
+// the runtime cannot consume.
+type piConfig struct {
 	Default string `json:"default"`
-	Small   string `json:"small"`
 }
 
 // ModelLimits is the per-model hint block from /api/v2/status and what we
@@ -89,11 +90,12 @@ type trustableConfig struct {
 	// ModelVersions is keyed by provider name ("ollama", "trustable", ...) and
 	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
 	// On every splash boot and every applist load the frontend compares the
-	// live value against this map; a mismatch (or differing default/small)
-	// routes the user through configure.html?reselect=1.
+	// live value against this map; only a version mismatch routes the user
+	// through configure.html?reselect=1. A different Pi default is a valid user
+	// choice and must not be treated as catalog drift.
 	ModelVersions map[string]int          `json:"model_versions,omitempty"`
 	Models        map[string]*ModelLimits `json:"models,omitempty"`
-	Opencode      *opencodeConfig         `json:"opencode,omitempty"`
+	Pi            *piConfig               `json:"pi,omitempty"`
 	Git           *GitConfig              `json:"git,omitempty"`
 	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
 	Current       string                  `json:"current,omitempty"`
@@ -245,8 +247,8 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 		result.Models = merged
 	}
 
-	if override.Opencode != nil {
-		result.Opencode = override.Opencode
+	if override.Pi != nil {
+		result.Pi = override.Pi
 	}
 
 	if override.Git != nil {
@@ -372,7 +374,7 @@ func modelHasRole(limits *ModelLimits, roles ...string) bool {
 	return false
 }
 
-func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (bool, string) {
+func modelAllowedForPi(provider, modelID string, limits *ModelLimits) (bool, string) {
 	name := strings.ToLower(strings.TrimSpace(modelID))
 	if name == "" {
 		return false, "model id is empty"
@@ -387,6 +389,9 @@ func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (boo
 	if modelHasRole(limits, "embedding", "embed", "rerank", "vector") {
 		return false, "not a chat/coding model"
 	}
+	// Catalogs may still use the historical "opencode" role. It describes model
+	// capability rather than a runtime dependency, so accept it during the Pi
+	// cutover while all newly emitted configuration remains Pi-native.
 	if modelHasRole(limits, "opencode", "agent", "coding", "chat") {
 		return true, ""
 	}
@@ -408,47 +413,41 @@ func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (boo
 	}
 	for _, part := range blockedNameParts {
 		if strings.Contains(name, part) {
-			return false, "not suitable for OpenCode agent work"
+			return false, "not suitable for Pi agent work"
 		}
 	}
 
 	if match := modelParamSizePattern.FindStringSubmatch(name); len(match) >= 3 {
 		params, err := strconv.ParseFloat(match[2], 64)
 		if err == nil && params > 0 && params < 20 {
-			return false, "model is below the recommended 20B minimum for OpenCode agent work"
+			return false, "model is below the recommended 20B minimum for Pi agent work"
 		}
 	}
 
 	return true, ""
 }
 
-func validateOpenCodeModelSelection(cfg *trustableConfig) error {
-	if cfg == nil || cfg.Opencode == nil {
+func validatePiModelSelection(cfg *trustableConfig) error {
+	if cfg == nil || cfg.Pi == nil {
 		return nil
 	}
 	models := cfg.Models
-	defaultModel := strings.TrimSpace(cfg.Opencode.Default)
-	smallModel := strings.TrimSpace(cfg.Opencode.Small)
+	defaultModel := strings.TrimSpace(cfg.Pi.Default)
 
 	// Provider choice flows for BestIA / own-host Ollama intentionally persist
 	// an empty model set first; configure.html discovers models in the next step.
-	if len(models) == 0 && defaultModel == "" && smallModel == "" {
+	if len(models) == 0 && defaultModel == "" {
 		return nil
 	}
-	for label, selected := range map[string]string{
-		"default": defaultModel,
-		"small":   smallModel,
-	} {
-		if selected == "" {
-			return fmt.Errorf("opencode.%s model must be selected", label)
-		}
-		limits, ok := models[selected]
-		if !ok {
-			return fmt.Errorf("opencode.%s model %q is not in the configured model list", label, selected)
-		}
-		if ok, reason := modelAllowedForOpenCode(cfg.Provider, selected, limits); !ok {
-			return fmt.Errorf("opencode.%s model %q is not allowed: %s", label, selected, reason)
-		}
+	if defaultModel == "" {
+		return fmt.Errorf("pi.default model must be selected")
+	}
+	limits, ok := models[defaultModel]
+	if !ok {
+		return fmt.Errorf("pi.default model %q is not in the configured model list", defaultModel)
+	}
+	if ok, reason := modelAllowedForPi(cfg.Provider, defaultModel, limits); !ok {
+		return fmt.Errorf("pi.default model %q is not allowed: %s", defaultModel, reason)
 	}
 	return nil
 }
@@ -873,13 +872,14 @@ func writePiJSONFile(path string, content map[string]interface{}, mode os.FileMo
 	return nil
 }
 
-// piDefaultModel reads the legacy opencode.default field only for the staged
-// cutover, so existing trustable.json files remain usable until schema migration.
+// piDefaultModel reads the only model selector supported by Pi. Legacy
+// opencode configuration is intentionally ignored: issue #51 defines a hard
+// cutover so first-run recovery happens through Configure instead of migration.
 func piDefaultModel(cfg *trustableConfig) string {
-	if cfg == nil || cfg.Opencode == nil {
+	if cfg == nil || cfg.Pi == nil {
 		return ""
 	}
-	return strings.TrimSpace(cfg.Opencode.Default)
+	return strings.TrimSpace(cfg.Pi.Default)
 }
 
 // buildPiModels converts Trustable's catalog into Pi's native shape, retaining
@@ -900,7 +900,7 @@ func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
 	models := make([]map[string]interface{}, 0, len(ids))
 	for _, modelID := range ids {
 		limits := cfg.Models[modelID]
-		if ok, reason := modelAllowedForOpenCode(cfg.Provider, modelID, limits); !ok {
+		if ok, reason := modelAllowedForPi(cfg.Provider, modelID, limits); !ok {
 			log.Printf("Skipping Pi model %s: %s", modelID, reason)
 			continue
 		}
@@ -941,8 +941,7 @@ func piBaseURL(cfg *trustableConfig) string {
 
 // writePiGlobalConfig materializes Trustable's selected provider in Pi's
 // native config. It intentionally preserves unrelated Pi providers/settings.
-// The legacy trustable.json `opencode.default` field is used during this staged
-// cutover; the configuration schema will be renamed separately.
+// Configure owns this global write; app launch only emits project-local assets.
 func writePiGlobalConfig(cfg *trustableConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("configuration not loaded")
@@ -1001,7 +1000,7 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	return writePiJSONFile(authPath, auth, 0600)
 }
 
-// handleConfigure handles GET /api/configure - pulls models and generates opencode config, streaming progress
+// handleConfigure handles GET /api/configure - pulls models and materializes Pi's global config, streaming progress.
 func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
 		return
@@ -1137,11 +1136,31 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The opencode.json is no longer generated here: it is a single,
-	// self-contained file written into each app's workbench project folder at
-	// launch time (see generateOpencodeConfigForApp / spec/4-launch.md). The
-	// global configure flow only verifies connectivity and pulls models.
-	sendMsg("OK: opencode.json is generated per-app at launch")
+	// Provider-choice setup also enters through this streamed endpoint. Probe
+	// after any Ollama pull, then write the same Pi-native files as POST
+	// /api/configuration. This prevents a failed provider choice from replacing
+	// a previously working global Pi configuration.
+	if piDefaultModel(cfg) != "" {
+		test := runTestModel(cfg)
+		if !test.OK {
+			msg := test.Error
+			if msg == "" {
+				msg = test.Warning
+			}
+			if msg == "" {
+				msg = "connection test failed"
+			}
+			sendMsg("ERROR: Pi model test failed: " + msg)
+			return
+		}
+		if err := writePiGlobalConfig(cfg); err != nil {
+			sendMsg("ERROR: Failed to write Pi configuration: " + err.Error())
+			return
+		}
+		sendMsg("OK: Pi global configuration written")
+	} else {
+		sendMsg("OK: Models ready; choose the Pi model in Configure")
+	}
 
 	sendMsg("DONE")
 }
@@ -1156,7 +1175,7 @@ func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
 	ollamaRoot, _ := resolveOllamaRoot(cfg)
 	models := make(map[string]interface{})
 	for modelID, limits := range cfg.Models {
-		if ok, reason := modelAllowedForOpenCode(cfg.Provider, modelID, limits); !ok {
+		if ok, reason := modelAllowedForPi(cfg.Provider, modelID, limits); !ok {
 			log.Printf("  - Skipping OpenCode model %s: %s", modelID, reason)
 			continue
 		}
@@ -1475,14 +1494,11 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 	}
 	config["mcp"] = mcp
 
-	// Always set top-level model/small_model from trustable.json opencode config.
-	if cfg.Opencode != nil {
-		if cfg.Opencode.Default != "" {
-			config["model"] = providerKey + "/" + cfg.Opencode.Default
-		}
-		if cfg.Opencode.Small != "" {
-			config["small_model"] = providerKey + "/" + cfg.Opencode.Small
-		}
+	// This legacy generator is retained only until the remaining OpenCode files
+	// are removed. Do not recreate the deleted small-model concept while it
+	// exists: Pi's single default is the only selection that can be represented.
+	if cfg.Pi != nil && cfg.Pi.Default != "" {
+		config["model"] = providerKey + "/" + cfg.Pi.Default
 	}
 
 	// opencode.json and its mcp servers are fully regenerated from trustable.json
@@ -1807,17 +1823,17 @@ type testModelResult struct {
 	Error        string
 }
 
-// runTestModel sends a "hello" prompt to cfg.Opencode.Small using the resolved
-// provider URL and cfg.APIKey, then classifies the response. Shared by
-// GET /api/testmodel and the testmodel step of POST /api/configuration.
+// runTestModel sends a "hello" prompt to Pi's configured default model using
+// the resolved provider URL and cfg.APIKey. Pi has no small-model role, so the
+// connectivity probe must exercise the exact model the coding session will use.
 func runTestModel(cfg *trustableConfig) testModelResult {
 	if cfg == nil {
 		return testModelResult{Error: "configuration not loaded"}
 	}
-	if cfg.Opencode == nil || strings.TrimSpace(cfg.Opencode.Small) == "" {
-		return testModelResult{Error: "opencode.small not defined in trustable.json"}
+	if cfg.Pi == nil || strings.TrimSpace(cfg.Pi.Default) == "" {
+		return testModelResult{Error: "pi.default not defined in trustable.json"}
 	}
-	model := cfg.Opencode.Small
+	model := cfg.Pi.Default
 
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	apiKey := strings.TrimSpace(cfg.APIKey)
@@ -2179,7 +2195,7 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := validateOpenCodeModelSelection(&cfg); err != nil {
+	if err := validatePiModelSelection(&cfg); err != nil {
 		http.Error(w, "Invalid model selection: "+err.Error(), http.StatusBadRequest)
 		return
 	}

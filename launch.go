@@ -898,12 +898,14 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to load config: %s", err)})
 		return
 	}
-	// A clean VM has no ~/.pi state even when the durable Trustable workspace
-	// already contains a valid provider selection. Rebuild Pi's native global
-	// configuration at launch so recreating Lima never requires a second manual
-	// configuration pass.
-	if err := writePiGlobalConfig(cfg); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to configure Pi: %s", err)})
+	// Configure owns Pi's global provider/model state. Edit intentionally avoids
+	// repairing it here. Keep an API-side guard as well as the applist redirect
+	// so a stale/direct browser tab cannot launch an unconfigured Pi runtime.
+	if piDefaultModel(cfg) == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":          "Pi model is not configured",
+			"setup_required": true,
+		})
 		return
 	}
 	storedPassword := ""

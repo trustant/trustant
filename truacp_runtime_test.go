@@ -15,7 +15,7 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 	for _, required := range []string{
 		`exec.Command("truacp", "--port", strconv.Itoa(leftPort), "--dir", workbenchPath)`,
 		`generateProjectAssetsForApp(app)`,
-		`writePiGlobalConfig(cfg)`,
+		`if piDefaultModel(cfg) == ""`,
 		`"PI_SKIP_VERSION_CHECK=1"`,
 	} {
 		if !strings.Contains(source, required) {
@@ -27,6 +27,7 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 		`handleOpenCodeSessions`,
 		`resolveOpencodeSession`,
 		`writeTrustableRuntimeManifest`,
+		`writePiGlobalConfig(`,
 	} {
 		if strings.Contains(source, removed) {
 			t.Fatalf("legacy OpenCode runtime path is still active: %q", removed)

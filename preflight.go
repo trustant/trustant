@@ -206,11 +206,9 @@ func migrateToLayeredConfig() error {
 		if modelLimitsEqual(wsCfg.Models, baseCfg.Models) {
 			wsCfg.Models = nil
 		}
-		if wsCfg.Opencode != nil && baseCfg.Opencode != nil &&
-			wsCfg.Opencode.Default == baseCfg.Opencode.Default &&
-			wsCfg.Opencode.Small == baseCfg.Opencode.Small {
-			wsCfg.Opencode = nil
-		}
+		// Do not collapse pi.default during legacy layered-config migration.
+		// Issue #51 has no OpenCode-to-Pi migration; the explicit Pi selection
+		// must remain visible in the workspace layer that Configure owns.
 	}
 
 	log.Printf("  Migrated %d app(s) to layered config", len(wsCfg.Apps))
