@@ -1050,10 +1050,15 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		}
 		truacpCmd.Env = append(truacpCmd.Env, key+"="+value)
 	}
-	// TruACP also supports standalone use, where its local endpoint form is
-	// appropriate. Append this marker last so neither the inherited environment
-	// nor an application .env can override Trustable's ownership of Pi config.
-	truacpCmd.Env = append(truacpCmd.Env, "TRUSTABLE_MANAGED_RUNTIME=1")
+	// TruACP also supports standalone use, where its local endpoint form and Pi
+	// update notice are appropriate. Append these managed-runtime controls last
+	// so neither the inherited environment nor an application .env can override
+	// Trustable's ownership of configuration and dependency updates.
+	truacpCmd.Env = append(
+		truacpCmd.Env,
+		"TRUSTABLE_MANAGED_RUNTIME=1",
+		"PI_SKIP_VERSION_CHECK=1",
+	)
 	// Keep truacp, pi-acp, Pi and ops ide devel in one process group.
 	truacpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 

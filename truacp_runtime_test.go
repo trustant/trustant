@@ -16,6 +16,7 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 		`exec.Command("truacp", "--port", strconv.Itoa(leftPort), "--dir", workbenchPath)`,
 		`generateProjectAssetsForApp(app)`,
 		`writePiGlobalConfig(cfg)`,
+		`"PI_SKIP_VERSION_CHECK=1"`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("TruACP launcher contract missing %q", required)

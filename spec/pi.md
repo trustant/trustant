@@ -36,7 +36,14 @@ TruACP resolves that reference server-side from `auth.json` for its `/models`
 probe and never returns a stored key through `/api/pi/config/get`. Trustable
 launches TruACP with `TRUSTABLE_MANAGED_RUNTIME=1`; a failed probe then directs
 the user back to Trustable's main Configure screen instead of opening TruACP's
-standalone credential form.
+standalone credential form. The managed process also receives
+`PI_SKIP_VERSION_CHECK=1`: Trustable owns the pinned Pi version through
+`trustable-acp/pi.version`, so Pi must not advertise or initiate an independent
+global npm upgrade from inside an application session. The currently pinned
+`pi-acp` adapter implements a second registry check without supporting that
+flag, so the TruACP installer adds a guarded, version-sensitive compatibility
+patch to the installed adapter. This prevents the request and banner at their
+source; setup fails if an adapter upgrade changes the expected patch location.
 
 Writers merge Trustable-owned keys into existing JSON and preserve unrelated Pi
 settings and providers. Invalid or missing JSON is treated as empty. Model
