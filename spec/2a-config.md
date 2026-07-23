@@ -315,9 +315,11 @@ streamed provider-setup endpoint and `POST /api/configuration` write only after
 
 The writer merges only Trustable-owned keys, preserves unrelated Pi providers
 and settings, and uses the file modes and credential boundary defined in
-[pi.md](pi.md). It emits a single provider named `trustable` and limits runtime
-selection to `trustable/*`. `auth.json` is the only file containing the real
-provider credential.
+[pi.md](pi.md). It writes the selected endpoint under `trustable` for the
+Trustable status catalog, `ollama` for embedded/status-backed Ollama, or `local`
+for user-provided endpoints and BestIA, then limits runtime selection to that
+single active prefix. `auth.json` is the only file containing the real provider
+credential.
 
 Configure writes these files only after a successful test-model request.
 A failed probe preserves any previously working Pi files. App launch never

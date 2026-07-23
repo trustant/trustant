@@ -670,6 +670,9 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if cOss["type"] != "stdio" || cOss["command"] != "openserverless-mcp" {
 		t.Fatalf("unexpected .mcp.json openserverless entry: %#v", cOss)
 	}
+	if cOss["lifecycle"] != "eager" {
+		t.Fatalf("openserverless must connect when the Pi session starts: %#v", cOss)
+	}
 	cOssEnv, ok := cOss["env"].(map[string]interface{})
 	if !ok || cOssEnv["OPENSERVERLESS_SECRETS_FILE"] != appSecretStorePath(app) {
 		t.Fatalf(".mcp.json persistent secret store missing: %#v", cOss)
@@ -677,6 +680,9 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	cBrowser, ok := claude.MCPServers["browser"]
 	if !ok || cBrowser["type"] != "stdio" || cBrowser["command"] != "trustable-browser-mcp" {
 		t.Fatalf("unexpected .mcp.json browser entry: %#v", cBrowser)
+	}
+	if cBrowser["lifecycle"] != "eager" {
+		t.Fatalf("browser must connect when the Pi session starts: %#v", cBrowser)
 	}
 }
 
@@ -758,6 +764,9 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 	}
 	if cAR["type"] != "http" || cAR["url"] != "http://localhost:5173/mcp" {
 		t.Fatalf("unexpected .mcp.json agentireact entry: %#v", cAR)
+	}
+	if cAR["lifecycle"] != "eager" {
+		t.Fatalf("remote MCP servers must connect when the Pi session starts: %#v", cAR)
 	}
 }
 
@@ -1800,7 +1809,7 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	if err := json.Unmarshal(data, &models); err != nil {
 		t.Fatalf("parse models.json: %s", err)
 	}
-	provider := models.Providers[piProviderName]
+	provider := models.Providers[piTrustableProviderName]
 	if provider.BaseURL != cfg.BaseURL || provider.API != "openai-completions" || provider.APIKey != piAPIKeyRef {
 		t.Fatalf("unexpected Pi provider: %#v", provider)
 	}
@@ -1825,11 +1834,11 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatalf("parse settings.json: %s", err)
 	}
-	if settings["defaultProvider"] != piProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
+	if settings["defaultProvider"] != piTrustableProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
 		t.Fatalf("unexpected Pi settings: %#v", settings)
 	}
 	enabledModels, ok := settings["enabledModels"].([]interface{})
-	if !ok || len(enabledModels) != 1 || enabledModels[0] != piProviderName+"/*" {
+	if !ok || len(enabledModels) != 1 || enabledModels[0] != piTrustableProviderName+"/*" {
 		t.Fatalf("Pi model scope must contain only Trustable models: %#v", settings)
 	}
 	var auth map[string]map[string]string
@@ -1837,8 +1846,45 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	if err := json.Unmarshal(data, &auth); err != nil {
 		t.Fatalf("parse auth.json: %s", err)
 	}
-	if auth[piProviderName]["key"] != cfg.APIKey {
+	if auth[piTrustableProviderName]["key"] != cfg.APIKey {
 		t.Fatalf("Pi auth key was not written")
+	}
+}
+
+func TestPiProviderNameForConfigMatchesEndpointOrigin(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *trustableConfig
+		want string
+	}{
+		{name: "missing config", cfg: nil, want: piLocalProviderName},
+		{
+			name: "trustable status catalog",
+			cfg:  &trustableConfig{Provider: "trustable"},
+			want: piTrustableProviderName,
+		},
+		{
+			name: "embedded ollama status catalog",
+			cfg:  &trustableConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1"},
+			want: piOllamaProviderName,
+		},
+		{
+			name: "user supplied ollama host",
+			cfg:  &trustableConfig{Provider: "ollama", BaseURL: "http://192.168.1.50:11434/v1"},
+			want: piLocalProviderName,
+		},
+		{
+			name: "bestia direct endpoint",
+			cfg:  &trustableConfig{Provider: "bestia", BaseURL: "http://bestia:11434/v1"},
+			want: piLocalProviderName,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := piProviderNameForConfig(tt.cfg); got != tt.want {
+				t.Fatalf("piProviderNameForConfig() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -1931,6 +1977,9 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 	for _, name := range []string{"openserverless", "browser", "redis"} {
 		if _, ok := config.Servers[name]; !ok {
 			t.Fatalf("%s missing from .mcp.json: %#v", name, config.Servers)
+		}
+		if config.Servers[name]["lifecycle"] != "eager" {
+			t.Fatalf("%s must use eager MCP lifecycle: %#v", name, config.Servers[name])
 		}
 	}
 	if config.Servers["openserverless"]["command"] != "openserverless-mcp" ||

@@ -815,12 +815,32 @@ func resolveOllamaRoot(cfg *trustableConfig) (root string, isOwnHost bool) {
 }
 
 const (
-	// Keep one stable provider identity across models, settings, and auth. The
-	// environment reference is Pi's supported indirection: the real secret stays
-	// in auth.json instead of being duplicated in the model catalog.
-	piProviderName = "trustable"
-	piAPIKeyRef    = "$OPENAI_API_KEY"
+	piLocalProviderName     = "local"
+	piOllamaProviderName    = "ollama"
+	piTrustableProviderName = "trustable"
+	// Pi resolves this reference through auth.json, keeping the real secret out
+	// of the model catalog regardless of the selected provider origin.
+	piAPIKeyRef = "$OPENAI_API_KEY"
 )
+
+// piProviderNameForConfig keeps Pi's provider prefix aligned with the source
+// boundary shown to users: status-backed catalogs retain their product name,
+// while user-supplied/direct endpoints share the neutral "local" namespace.
+func piProviderNameForConfig(cfg *trustableConfig) string {
+	if cfg == nil {
+		return piLocalProviderName
+	}
+	switch cfg.Provider {
+	case "trustable":
+		return piTrustableProviderName
+	case "ollama":
+		_, ownHost := resolveOllamaRoot(cfg)
+		if !ownHost {
+			return piOllamaProviderName
+		}
+	}
+	return piLocalProviderName
+}
 
 // piAgentDir follows Pi's native directory contract while allowing tests and
 // packaged runtimes to relocate the state without inventing another config tree.
@@ -954,6 +974,7 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	if len(models) == 0 {
 		return fmt.Errorf("no configured model is suitable for Pi")
 	}
+	providerName := piProviderNameForConfig(cfg)
 	dir, err := piAgentDir()
 	if err != nil {
 		return err
@@ -965,7 +986,7 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	if providers == nil {
 		providers = make(map[string]interface{})
 	}
-	providers[piProviderName] = map[string]interface{}{
+	providers[providerName] = map[string]interface{}{
 		"baseUrl": piBaseURL(cfg),
 		"api":     "openai-completions",
 		// Do not put cfg.APIKey here: models.json is configuration, while the
@@ -980,12 +1001,12 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 
 	settingsPath := filepath.Join(dir, "settings.json")
 	settings := readPiJSONFile(settingsPath)
-	settings["defaultProvider"] = piProviderName
+	settings["defaultProvider"] = providerName
 	settings["defaultModel"] = defaultModel
 	// Pi knows built-in providers even when Trustable configures only its own.
-	// Scope model cycling to Trustable so alternate providers cannot become the
-	// active runtime model through Pi's native selector or keyboard shortcuts.
-	settings["enabledModels"] = []string{piProviderName + "/*"}
+	// Scope model cycling to the active managed prefix so stale or built-in
+	// providers cannot become active through Pi's selector or shortcuts.
+	settings["enabledModels"] = []string{providerName + "/*"}
 	if err := writePiJSONFile(settingsPath, settings, 0644); err != nil {
 		return err
 	}
@@ -996,7 +1017,7 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	if apiKey == "" {
 		apiKey = "dummy"
 	}
-	auth[piProviderName] = map[string]interface{}{"type": "api_key", "key": apiKey}
+	auth[providerName] = map[string]interface{}{"type": "api_key", "key": apiKey}
 	return writePiJSONFile(authPath, auth, 0600)
 }
 
@@ -1734,7 +1755,9 @@ func appUsesAgentiReact(projectDir string) bool {
 //     string + args + env)
 //   - type "remote" (url) -> http (url)
 //
-// OpenCode-only fields (enabled, timeout) are dropped.
+// OpenCode-only fields (enabled, timeout) are dropped. Every translated server
+// is eager so Pi reports real connection state at session start instead of
+// discovering service failures only after the first model-issued tool call.
 func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 	servers := make(map[string]interface{})
 	for name, raw := range mcp {
@@ -1748,7 +1771,11 @@ func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 			if url == "" {
 				continue
 			}
-			servers[name] = map[string]interface{}{"type": "http", "url": url}
+			servers[name] = map[string]interface{}{
+				"type":      "http",
+				"url":       url,
+				"lifecycle": "eager",
+			}
 		default: // "local" (or unset) -> stdio
 			// command may be []string (servers we generate) or []interface{}
 			// (custom servers carried over from a parsed opencode.json).
@@ -1757,9 +1784,10 @@ func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 				continue
 			}
 			entry := map[string]interface{}{
-				"type":    "stdio",
-				"command": cmd[0],
-				"args":    cmd[1:],
+				"type":      "stdio",
+				"command":   cmd[0],
+				"args":      cmd[1:],
+				"lifecycle": "eager",
 			}
 			if env := toStringMap(server["environment"]); len(env) > 0 {
 				entry["env"] = env

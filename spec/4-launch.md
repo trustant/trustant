@@ -129,7 +129,8 @@ What launch writes into `<workbenchdir>/<app>/` is:
   single MCP surface; pi reads it via the `pi-mcp-adapter` extension. It is
   **fully regenerated** on every launch, so a stale managed value (e.g. an old
   postgres `DATABASE_URI`) is never carried forward and hand-edits are
-  discarded;
+  discarded. Every entry uses `lifecycle: "eager"` so its initial connection is
+  attempted when the Pi session starts;
 - `AGENTS.md` and `CLAUDE.md` — the Trustable-managed instruction block. The
   long assistant guidance (formerly a separate `opencode.md`) is folded into the
   managed block; `CLAUDE.md` is a full duplicate. Existing app-local notes
@@ -177,12 +178,14 @@ in the written file.
 ```
 {
   "mcpServers": {
-    "<name>": { "type": "stdio", "command": "<cmd>", "args": [...], "env": { ... } },
-    "<name>": { "type": "http",  "url": "<url>" }
+    "<name>": { "type": "stdio", "command": "<cmd>", "args": [...], "env": { ... }, "lifecycle": "eager" },
+    "<name>": { "type": "http",  "url": "<url>", "lifecycle": "eager" }
 }
 ```
 
-`args` and `env` are omitted when empty.
+`args` and `env` are omitted when empty. `lifecycle: "eager"` is mandatory for
+every generated server; unlike `keep-alive`, it starts the initial connection
+without imposing permanent automatic reconnect behavior.
 
 Read <config> values from ~/.ops/config.json and add the mcp servers and command line utils
 as follows:
@@ -198,6 +201,7 @@ unconditionally, independent of `~/.ops/config.json`:
 ```
 "openserverless": {
   "type": "stdio",
+  "lifecycle": "eager",
   "command": "openserverless-mcp",
   "env": {
     "OPENSERVERLESS_SECRETS_FILE": "<WorkspaceDir>/.trustable/secrets/<app>.env"
@@ -228,6 +232,7 @@ http MCP server pointing at it:
 ```
 "agentireact": {
   "type": "http",
+  "lifecycle": "eager",
   "url": "http://localhost:5173/mcp"
 }
 ```
@@ -239,6 +244,7 @@ If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
 ```
 "s3": {
   "type": "stdio",
+  "lifecycle": "eager",
   "command": "mcp-s3",
   "env": {
     "S3_ENDPOINT": "http://<config.s3.host>:<config.s3.port>",
@@ -273,6 +279,7 @@ exec rclone "$@"
 ```
 "postgres": {
   "type": "stdio",
+  "lifecycle": "eager",
   "command": "postgres-mcp",
   "args": ["--access-mode=unrestricted"],
   "env": {
@@ -294,6 +301,7 @@ exec psql "<config.postgres.url>" "$@"
 ```
 "redis": {
   "type": "stdio",
+  "lifecycle": "eager",
   "command": "redis-mcp-server",
   "args": [
     "--host", "<config.redis.service>",
@@ -330,6 +338,7 @@ because Nuvolaris Redis ACLs only allow the configured user prefix.
 ```
 "milvus": {
   "type": "stdio",
+  "lifecycle": "eager",
   "command": "mcp-server-milvus",
   "args": ["--milvus-token", "<config.milvus.token>", "--milvus-db", "<config.milvus.db.name>", "--milvus-uri", "http://<config.milvus.host>:<config.milvus.port>"],
   "env": {
@@ -438,6 +447,7 @@ MongoDB binding.
 ```
 "mongodb": {
   "type": "stdio",
+  "lifecycle": "eager",
   "command": "mongodb-mcp-server",
   "env": {
     "MDB_MCP_CONNECTION_STRING": "<resolved mongodb connection string>"
@@ -506,7 +516,8 @@ above) and contains `openserverless`, `browser`, the optional
 block is present. It is the **only** MCP surface: pi reads it via the
 `pi-mcp-adapter` extension and Claude-format clients read it natively. There is
 no second agent-specific MCP file; any internal legacy-shaped data is translated
-only at this write boundary.
+only at this write boundary. All listed servers are generated with eager
+lifecycle so the session starts with their real connected/error state.
 
 The checker must accept sibling `.zip` files created by `ops ide deploy`, such
 as `packages/v1/contacts.zip`. It must fail on ZIP files created inside action
