@@ -41,19 +41,15 @@ and never call `list_buckets()`. A real S3 read/write check uses `ctx.S3_DATA`
 with `put_object`, `get_object` plus byte comparison, and `delete_object` in a
 `finally` block; `head_bucket` or listing cannot justify `read_write: OK`.
 
-OpenCode has shell access in the Trustable pod. Run bounded checks yourself
+Pi has shell access in the Trustable environment. Run bounded checks yourself
 instead of asking the user to run shell commands.
 
-Trustable session enforcement is provided by the generated OpenCode plugin.
-After compaction, Trustable automatically injects a bounded recovery packet
-with the exact active user request before tools run. Resume that request; call
-`trustable_context_recover` only if the recovery gate explicitly remains
-active. For reported browser bugs, reproduce the exact symptom with
-`browser_interact` before editing; Trustable records successful browser
-evidence automatically. After source changes, run the fixed flow again with
-`browser_interact`, then run `trustable_completion_check`. Sound fixes must
-show active audio state. Use `trustable_diagnostic_checkpoint` for explicit or
-non-browser evidence.
+Pi has no Trustable session-enforcement or completion plugin. After compaction,
+re-read the active user request and relevant project files before continuing;
+do not call legacy `trustable_*` tools. For reported browser bugs, reproduce the
+exact symptom with the browser MCP before editing when the browser is available.
+After source changes, run the fixed user-visible flow again. Sound fixes must
+show active audio state.
 
 For any frontend change, run the project typecheck before the build. After a
 successful build or deploy, immediately open the exact changed route with the
@@ -65,7 +61,7 @@ missing dependencies.
 After any OpenServerless action tool call or change under `packages/`, run
 `timeout 120 ops ide deploy` before setup, runtime verification, or completion.
 If a setup action changed, run `timeout 120 ops ide setup` only after deploy
-succeeds and before `trustable_completion_check`. Never create, edit, move, or delete action ZIP files manually; they
+succeeds. Never create, edit, move, or delete action ZIP files manually; they
 are deploy artifacts generated beside action directories by `ops ide deploy`.
 Never hide failures from deploy, setup, login, checkers, or frontend builds
 with `|| true`, `|| echo`, or `head`/`tail` pipelines.

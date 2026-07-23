@@ -18,10 +18,11 @@ describe the k3s running in that same WSL instance. WSL must have systemd and
 `systemd-resolved` enabled so `cluster.local` can be routed without rewriting
 the generated Windows resolver configuration.
 
-Everything is installed for the local user — into `~/.local/bin` and
-`~/.config/opencode`, no `/opt/uv/*`, no `sudo` except where a step needs a system
-package (the guest user has passwordless sudo). This mirrors the Dockerfile's
-per-user (`trustable`) stages but for the mirrored guest user.
+Everything is installed for the local user — into `~/.local/bin`,
+`~/.local/lib/truacp`, and `~/.pi/agent`; no `/opt/uv/*`, no `sudo` except
+where a step needs a system package (the guest user has passwordless sudo).
+This mirrors the Dockerfile's per-user (`trustable`) stages but for the mirrored
+guest user.
 
 When I say add to the PATH, add to ~/.bashrc (the VM is Ubuntu; bash login shell).
 
@@ -34,7 +35,6 @@ ARG <VARIABLE>=<VALUE>
 and set the env vars
 
 - OLLAMA_VERSION
-- OPENCODE_VERSION
 - OPS_BRANCH
 - OPS_REPO
 
@@ -246,22 +246,18 @@ mv "$HOME/.local/bin/mcp-s3" "$HOME/.local/bin/mcp-s3-real"
 install -m 0755 image/mcp-s3 "$HOME/.local/bin/mcp-s3"
 ```
 
-The Go server writes each app's opencode.json / .mcp.json referencing these
-servers by command name (mcp-s3, postgres-mcp, redis-mcp-server, mcp-server-milvus,
+The Go server writes each app's `.mcp.json` referencing these servers by command
+name (mcp-s3, postgres-mcp, redis-mcp-server, mcp-server-milvus,
 mongodb-mcp-server, openserverless-mcp), so "MCP ready" means all of them resolve
 on the guest's PATH.
 
-13. Recreate the opencode plugin and PATH from the Dockerfile's user stage.
+13. Build and install TruACP/Pi from the checked-out `trustable-acp` submodule.
 
-Install the opencode plugin matched to the opencode version:
-
-```
-mkdir -p "$HOME/.config/opencode"
-cd "$HOME/.config/opencode"
-npm init -y >/dev/null
-npm install "@opencode-ai/plugin@$(opencode --version)"
-test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
-```
+Every Pi package must be pinned in `trustable-acp/pi.version`. Run
+`trustable-acp/setup.sh` from inside that directory so it builds the bundled UI,
+installs the pinned agents/adapters, and creates `~/.local/bin/truacp`. Verify
+that `pi`, `pi-acp`, and `truacp` resolve from the guest PATH. Do not install an
+OpenCode runtime or `@opencode-ai/plugin`: issue #51 is a hard Pi cutover.
 
 This is the "references ready" prerequisite. Ensure the ~/.bashrc PATH matches the
 image ordering, including the Go bin dir (GOBIN/GOPATH-bin) so a fresh login shell

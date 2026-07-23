@@ -21,22 +21,17 @@ user explicitly asks to inspect them, and they must not override this contract.
   only in the runtime.
 - Pi has the shell. Run bounded checks yourself instead of asking the user
   to run pod-local commands.
-- After compaction, the Trustable plugin blocks mutations until it injects a
-  bounded automatic recovery packet containing the exact active request, this
-  contract, `AGENTS.md`, bounded `opencode.md`, sanitized OpenCode
-  configuration, git status, and project structure. Call
-  `trustable_context_recover` only if that automatic recovery gate explicitly
-  remains active.
+- After compaction, re-read the exact active request, this contract,
+  `AGENTS.md`, git status, and the relevant project files before resuming.
+  Pi has no Trustable session-enforcement plugin or recovery tool.
 - For a reported browser bug, reproduce the exact symptom with
-  `browser_interact` before modifying source; Trustable records successful
-  browser evidence automatically. Use `trustable_diagnostic_checkpoint` for
-  explicit or non-browser evidence. Two repeated completion failures reopen
-  this diagnostic gate.
-- After source changes, run `trustable_completion_check`. It runs the action
-  and frontend contract checkers, `git diff --check`, and the frontend
-  typecheck and build when present. Frontend mutations also require fresh
-  Browser MCP evidence from the exact changed route. Do not claim completion
-  before it passes.
+  `browser_interact` before modifying source when the browser MCP is available.
+  Use bounded HTTP, log, or deterministic tests for non-browser evidence. If a
+  check fails repeatedly, stop repeating it and revise the diagnosis.
+- After source changes, run the relevant action and frontend checker commands,
+  `git diff --check`, and the frontend typecheck/build when present. Verify
+  user-visible frontend changes through the exact changed route. Pi has no
+  `trustable_completion_check` tool.
 - `ops ide devel` exposes the app in this pod at `http://localhost:5173`.
 - Do not kill or replace that managed process, and do not start `vite`,
   `npm run dev`, or another `ops ide devel` instance.
@@ -61,9 +56,9 @@ user explicitly asks to inspect them, and they must not override this contract.
 - Action logic lives in `packages/<package>/<action>/<module>.py`.
 - Generated wrappers live in `packages/<package>/<action>/__main__.py`.
   Do not edit wrappers for business logic.
-- Trustable may deny direct edits to generated wrappers and deploy artifacts.
-  If a wrapper edit is blocked, use the OpenServerless MCP action tool instead
-  of working around the guard.
+- Direct edits to generated wrappers and deploy artifacts are unsupported even
+  though Pi has no plugin that blocks them. Use the OpenServerless MCP action
+  tool instead of working around artifact ownership.
 - Deploy archives live beside action directories, for example
   `packages/v1/contacts.zip`. Never create, edit, move, or delete ZIP files
   manually, including ZIP files inside an action source directory.
@@ -194,8 +189,8 @@ Invalid examples:
   `timeout 120 ops ide deploy` before setup, runtime verification, or
   completion. This includes setup actions.
 - After setup action changes, run `timeout 120 ops ide setup` only after the
-  deploy succeeds and before completion. The Trustable completion gate remains
-  blocked until setup runs successfully.
+  deploy succeeds and before completion. Do not claim completion until setup
+  runs successfully.
 - Never create or update action ZIP files manually. `ops ide deploy` owns the
   sibling `packages/<package>/<action>.zip` artifacts.
 - Run `timeout 60 check_openserverless_actions.sh .` after deploy and before
@@ -222,8 +217,9 @@ Invalid examples:
   verification.
 - Do not hide failures with `|| true` or output truncation that masks the first
   actionable error.
-- The Trustable plugin rejects `|| true`, `|| echo`, and `head`/`tail`
-  pipelines on deploy, setup, login, checker, and frontend-build commands.
+- Do not use `|| true`, `|| echo`, or `head`/`tail` pipelines on deploy, setup,
+  login, checker, and frontend-build commands; output masking can turn a real
+  failure into apparent success.
 
 ## If Blocked
 

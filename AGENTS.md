@@ -4,7 +4,7 @@ Be brief. When changing code, update the matching spec under `spec/*.md`.
 
 ## Project
 
-`trustable-app` is a Go single-binary web server for a Trustable/OpenServerless development environment. It serves `web/`, exposes `/api/*`, proxies OpenCode and Vite by hostname, and manages per-app workspace/workbench state.
+`trustable-app` is a Go single-binary web server for a Trustable/OpenServerless development environment. It serves `web/`, exposes `/api/*`, proxies TruACP/Pi and Vite by hostname, and manages per-app workspace/workbench state.
 
 ## Commands
 
