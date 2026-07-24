@@ -44,6 +44,8 @@ and set the env vars
 - OLLAMA_VERSION
 - OPS_BRANCH
 - OPS_REPO
+- MILVUS_MCP_REPO
+- MILVUS_MCP_REF
 
 1. Ensure a proper .env exists, then load it.
 
@@ -192,11 +194,21 @@ pointing the tool bin dir to ~/.local/bin:
 for tool in \
     postgres-mcp==0.3.0 \
     redis-mcp-server==0.5.0 \
-    git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3 ;
+    git+https://github.com/trustable-ai/mcp-server-milvus.git@a7e624f3057a0d739528bca3ed92504943224ceb ;
 do
     env UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install $tool
 done
 ```
+
+The Milvus MCP source and commit are declared by
+`MILVUS_MCP_REPO`/`MILVUS_MCP_REF` in `image/Dockerfile` and consumed by both
+the image and this development setup. Use the Trustable fork at the exact
+checked-in commit; never install its floating `main` or fall back directly to
+the `zilliztech` upstream URL. On an existing VM, inspect uv's
+`mcp-server-milvus/uv-receipt.toml`; if either repository or revision differs,
+force-reinstall the pinned specification and verify the resulting receipt.
+Package-name-only “already installed” output is not sufficient evidence because
+it can leave an executable created from the previous upstream source.
 
 Package the repository `mcp` submodule and install that tarball together with
 the mongodb server using npm (global, for the local user):

@@ -588,13 +588,12 @@ The generated `permission` deny rules (`ops action` shell commands, edits to
 machine are gone. The checkers remain advisory: they can catch implementation
 drift after the fact and cannot block an ordinary code or deploy tool call.
 
-TruACP does install one deliberately narrow Pi extension. Its pre-execution
-`tool_call` hook blocks credential files, shell environment dumps, secret
-variable expansion, and programmatic environment access before those values can
-reach model context. The launcher supplies its fixed installed path through
-`TRUSTABLE_PI_EXTENSION`; TruACP adds it to the typed
-`_meta.trustable.piLaunch` extension paths. It does not enforce workflow,
-verification, deploy, or completion gates. See "Guardrails" in [pi.md](pi.md).
+The current issue #58 runtime baseline does not install a deterministic Pi
+execution-policy extension. The complete host/extension contract, including
+the secret boundary and workflow competencies, is owned by issue #57. Launch
+must not supply the removed `TRUSTABLE_PI_EXTENSION` placeholder before that
+contract and its regression tests are implemented. See "Guardrails" in
+[pi.md](pi.md).
 
 > [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg) still depicts the
 > removed OpenCode guardrail state machine and no longer reflects the

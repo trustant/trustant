@@ -153,13 +153,11 @@ The legacy JavaScript plugin source is not embedded in the Go binary,
 `trustable_completion_check`; verification uses the real MCP/browser tools and
 checker commands directly.
 
-Trustable retains one narrow deterministic boundary: the reviewed
-`trustable-guardrails.ts` Pi extension runs on `tool_call` before built-in tools
-execute. It blocks direct read/write/edit access to credential-bearing paths,
-shell environment dumps, secret-variable expansion, and programmatic
-environment access, preventing secrets from entering model context. It is
-installed by TruACP setup and passed through the versioned, typed Pi launch
-metadata; no browser request can inject its path or arbitrary arguments.
-Non-secret templates such as `.env.example` remain available. This protection
-does not enforce implementation plans, browser verification, deployment, or
-completion and therefore cannot recreate the former retry loops.
+The current issue #58 runtime baseline does not install a deterministic Pi
+execution-policy extension. The complete host manifest, reviewed Pi extension,
+secret boundary, MCP routing policy, workflow state, circuit breakers, context
+continuity, and completion verification are owned by issue #57 and must be
+introduced together with their contract and regression tests. Image and VM
+setup must not revive the former `trustable-guardrails.ts` placeholder alone:
+doing so would restore only a partial policy while making the runtime appear to
+have the full Trustable competency layer.

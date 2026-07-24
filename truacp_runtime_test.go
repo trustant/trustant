@@ -96,9 +96,12 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	for _, forbidden := range []string{
 		`tar -C ../trustable-acp`,
 		`TRUACP_CONTEXT_DIR="trustable-acp"`,
+		// WHY: the issue #57 execution-policy extension must return through
+		// its complete contract, not as the stale issue #58 build placeholder.
+		`trustable-guardrails.ts`,
 	} {
 		if strings.Contains(staging, forbidden) {
-			t.Fatalf("image build must not stage TruACP source: found %q", forbidden)
+			t.Fatalf("image build contains forbidden TruACP staging entry %q", forbidden)
 		}
 	}
 	if strings.Contains(staging, "TRUSTABLE_CODE_CONTEXT_DIR") {

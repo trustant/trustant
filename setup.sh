@@ -64,7 +64,9 @@ read_arg() {
   grep -m1 "^ARG ${var}=" image/Dockerfile | cut -d'=' -f2- | tr -d ' '
 }
 
-for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO; do
+# WHY: source identity is owned by the image contract even in development.
+# Reading the same pinned fork here keeps clean VM and pod installations equal.
+for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF; do
   val=$(read_arg "$v")
   [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
   export "$v=$val"
@@ -408,16 +410,31 @@ mkdir -p "$MCP_BIN"
 command -v uv &>/dev/null || fail "uv is required to install MCP servers"
 
 # postgres, redis, milvus MCP servers via uv tool (same pins as the Dockerfile)
+MILVUS_MCP_SPEC="git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
+MILVUS_MCP_RECEIPT="$(uv tool dir)/mcp-server-milvus/uv-receipt.toml"
 for tool in \
     postgres-mcp==0.3.0 \
     redis-mcp-server==0.5.0 \
-    'git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3' ;
+    "$MILVUS_MCP_SPEC" ;
 do
+  UV_INSTALL_ARGS=()
+  if [[ "$tool" == "$MILVUS_MCP_SPEC" ]] &&
+     { [[ ! -f "$MILVUS_MCP_RECEIPT" ]] ||
+       ! grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" ||
+       ! grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT"; }; then
+    # WHY: uv identifies tools by package name. Without --force, a VM carrying
+    # the former upstream install can remain "already installed" after the
+    # repository pin changes, even though its executable still resolves.
+    UV_INSTALL_ARGS+=(--force)
+  fi
   env \
     UV_TOOL_BIN_DIR="$MCP_BIN" \
     UV_LINK_MODE=hardlink \
-    uv tool install "$tool" || fail "uv tool install $tool failed"
+    uv tool install "${UV_INSTALL_ARGS[@]}" "$tool" || fail "uv tool install $tool failed"
 done
+grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
+  grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT" \
+  || fail "installed Milvus MCP does not match ${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
 
 # OpenServerless, MongoDB, and browser MCP servers via npm. Package the checked
 # out sources so Lima/WSL runs exactly what the image build consumes; no guest

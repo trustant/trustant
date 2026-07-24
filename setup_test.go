@@ -198,6 +198,66 @@ func TestSetupInstallsGlobalPinnedMilvusCli(t *testing.T) {
 	}
 }
 
+func TestMilvusMCPUsesPinnedTrustableFork(t *testing.T) {
+	setupData, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	dockerData, err := os.ReadFile("image/Dockerfile")
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	setup := string(setupData)
+	dockerfile := string(dockerData)
+	const repository = "https://github.com/trustable-ai/mcp-server-milvus.git"
+	const revision = "a7e624f3057a0d739528bca3ed92504943224ceb"
+	if !strings.Contains(dockerfile, repository) || !strings.Contains(dockerfile, revision) {
+		t.Fatal("image/Dockerfile must own the pinned Trustable Milvus MCP fork")
+	}
+	for name, source := range map[string]string{"setup.sh": setup, "image/Dockerfile": dockerfile} {
+		if strings.Contains(source, "github.com/zilliztech/mcp-server-milvus") {
+			t.Fatalf("%s still installs the upstream Milvus MCP directly", name)
+		}
+	}
+	// WHY: setup must consume the Dockerfile-owned source identity rather than
+	// grow a second hardcoded install that can diverge from the pod.
+	for _, required := range []string{"MILVUS_MCP_REPO", "MILVUS_MCP_REF"} {
+		if !strings.Contains(setup, `read_arg "$v"`) || !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh does not consume Dockerfile variable %s", required)
+		}
+	}
+	for _, required := range []string{
+		`MILVUS_MCP_RECEIPT="$(uv tool dir)/mcp-server-milvus/uv-receipt.toml"`,
+		`UV_INSTALL_ARGS+=(--force)`,
+		`installed Milvus MCP does not match`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing Milvus MCP source reconciliation %q", required)
+		}
+	}
+}
+
+func TestLocalE2ERequiresRunKubefwd(t *testing.T) {
+	data, err := os.ReadFile("tests/e2e_issue98.sh")
+	if err != nil {
+		t.Fatalf("read local E2E runner: %s", err)
+	}
+	source := string(data)
+	for _, required := range []string{
+		`pgrep -x kubefwd`,
+		`"${#KUBEFWD_PIDS[@]}" -ne 1`,
+		`"-n nuvolaris"`,
+		`metadata.name!=trustable-svc`,
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("local E2E runner is missing kubefwd preflight %q", required)
+		}
+	}
+	if strings.Contains(source, "kubefwd svc") {
+		t.Fatal("E2E runner must not start a second kubefwd process")
+	}
+}
+
 func TestScriptSpecificationsLiveUnderSpec(t *testing.T) {
 	for _, name := range []string{"setup.md", "run.md", "start.md"} {
 		if _, err := os.Stat(name); !os.IsNotExist(err) {

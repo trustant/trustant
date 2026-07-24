@@ -1,6 +1,10 @@
 ARG OLLAMA_VERSION=0.30.6
 ARG OPS_BRANCH=bestia
 ARG OPS_REPO=https://github.com/nuvolaris/bestia
+# WHY: VM setup reads these exact values too, so image and development installs
+# cannot drift back to the upstream Milvus MCP or a floating branch.
+ARG MILVUS_MCP_REPO=https://github.com/trustable-ai/mcp-server-milvus.git
+ARG MILVUS_MCP_REF=a7e624f3057a0d739528bca3ed92504943224ceb
 
 ########################################################## loader
 FROM ubuntu:24.04 AS loader
@@ -25,6 +29,8 @@ RUN \
 ########################################################## stage1-root
 FROM ubuntu:24.04 AS stage1-root
 ARG TARGETARCH
+ARG MILVUS_MCP_REPO
+ARG MILVUS_MCP_REF
 USER root
 
 # collecting
@@ -63,7 +69,7 @@ RUN \
         'python-lsp-server[yapf]' \
         postgres-mcp==0.3.0 \
         redis-mcp-server==0.5.0 \
-        git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3 ;\
+        "git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}" ;\
     do env \
         UV_TOOL_BIN_DIR=/usr/local/bin \
         UV_TOOL_DIR=/opt/uv/tools \
@@ -117,13 +123,13 @@ RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
 # TruACP serves the coding UI on :4096 and starts pi-acp/Pi. image.sh builds the
 # self-contained JavaScript bundle and pi-acp package before Docker runs and
-# stages only these five runtime inputs; source and node_modules must never
-# enter an image layer.
+# stages only these four runtime inputs; source and node_modules must never
+# enter an image layer. The planned issue #57 execution-policy extension is
+# intentionally absent until its complete runtime contract is implemented.
 COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
 COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
 COPY --chown=trustable:trustable truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
 COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
-COPY --chown=trustable:trustable truacp-runtime/trustable-guardrails.ts /tmp/truacp/trustable-guardrails.ts
 RUN \
     cd /tmp/truacp ;\
     sh setup.sh ;\

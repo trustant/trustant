@@ -83,7 +83,10 @@ if [ ! -f ../trustable-acp/package.json ]; then
 fi
 TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
 echo "Using trustable-acp submodule: $TRUACP_REF"
-for required in setup.sh pi.version package-lock.json extensions/trustable-guardrails.ts; do
+# WHY: the issue #58 runtime baseline contains only TruACP and its pinned
+# adapters. The broader deterministic Pi policy belongs to issue #57 and must
+# not be required by image packaging before that extension is implemented.
+for required in setup.sh pi.version package-lock.json; do
     if [ ! -f "../trustable-acp/$required" ]; then
         echo "Error: ../trustable-acp/$required is missing." >&2
         exit 1
@@ -97,10 +100,10 @@ for required in package.json package-lock.json; do
 done
 
 # Build outside Docker, then stage only the self-contained JavaScript bundle,
-# its pinned agent manifest, the tested pi-acp package, the reviewed Pi
-# guardrail, and the sole installer. Shipping the remaining source or
-# node_modules in an earlier image layer would retain them even after rm and
-# would let Docker and VM installation paths drift apart.
+# its pinned agent manifest, the tested pi-acp package, and the sole installer.
+# Shipping the remaining source or node_modules in an earlier image layer would
+# retain them even after rm and would let Docker and VM installation paths drift
+# apart.
 (
     cd ../trustable-acp
     npm install
@@ -116,7 +119,6 @@ mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
 cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
 cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
 cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
-cp ../trustable-acp/extensions/trustable-guardrails.ts "$TRUACP_ARTIFACT_DIR/trustable-guardrails.ts"
 TRUACP_ARTIFACT_ABS="$PWD/$TRUACP_ARTIFACT_DIR"
 (
     cd ../trustable-acp/pi-acp
