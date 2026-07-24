@@ -491,6 +491,7 @@
         }
 
         async function saveAndRunConfiguration(cfg) {
+            let saveResult = null;
             try {
                 const resp = await fetch('/api/configuration', {
                     method: 'POST',
@@ -502,6 +503,7 @@
                     showProviderModal();
                     return;
                 }
+                saveResult = await resp.json();
             } catch (e) {
                 alert('Failed to save configuration: ' + e.message);
                 showProviderModal();
@@ -512,6 +514,12 @@
                 const fresh = await fetch('/api/configuration');
                 currentConfig = await fresh.json();
             } catch (e) {}
+            // POST /api/configuration already performs a model probe. Honour
+            // its structured auth result instead of discarding it and letting
+            // the following streamed gate surface a misleading generic error.
+            if (saveResult && saveResult.testmodel && saveResult.testmodel.auth_required) {
+                await waitForOllamaSignin();
+            }
             await runConfiguration();
         }
 
@@ -559,7 +567,19 @@
 
         function retryOpenAITest() {
             hideSigninModal();
-            if (_openaiTestResolve) _openaiTestResolve();
+            const resolve = _openaiTestResolve;
+            _openaiTestResolve = null;
+            if (resolve) resolve();
+        }
+
+        // Both the JSON connectivity probe and the streamed Pi gate can detect
+        // the same missing Ollama Cloud identity. Keep one managed wait point
+        // so Retry resumes the operation that originally required sign-in.
+        async function waitForOllamaSignin() {
+            await new Promise(resolve => {
+                _openaiTestResolve = resolve;
+                showSigninModal();
+            });
         }
 
         function isSigninError(message) {
@@ -594,10 +614,7 @@
 
                 if (isOllama) {
                     if (result.auth_required || isSigninError(result.error)) {
-                        await new Promise(resolve => {
-                            _openaiTestResolve = resolve;
-                            showSigninModal();
-                        });
+                        await waitForOllamaSignin();
                         continue;
                     }
                     return result;
@@ -615,6 +632,7 @@
             showConfigModal();
             const msgEl = document.getElementById('configMessages');
             let configError = false;
+            let authRequired = false;
             try {
                 const resp = await fetch('/api/configure');
                 const reader = resp.body.getReader();
@@ -629,7 +647,14 @@
                     for (const line of lines) {
                         if (line.trim()) {
                             const div = document.createElement('div');
-                            if (line.startsWith('ERROR:')) {
+                            // /api/configure must not collapse an Ollama 401
+                            // into a generic configuration error: that would
+                            // skip the sign-in modal and strand Pi unconfigured.
+                            if (line.startsWith('AUTH_REQUIRED:')) {
+                                div.className = 'text-[color:var(--nu-danger)]';
+                                div.textContent = line.substring('AUTH_REQUIRED:'.length).trim();
+                                authRequired = true;
+                            } else if (line.startsWith('ERROR:')) {
                                 div.className = 'text-[color:var(--nu-danger)]';
                                 div.textContent = line;
                                 configError = true;
@@ -659,6 +684,13 @@
                 configError = true;
             }
             document.getElementById('configSpinner').classList.add('hidden');
+
+            if (authRequired) {
+                await waitForOllamaSignin();
+                // Rerun the full gate, not only /api/testmodel: a successful
+                // retry must also materialize Pi's global models/auth/settings.
+                return runConfiguration();
+            }
 
             if (configError) {
                 document.getElementById('configRetryBtn').classList.remove('hidden');

@@ -185,6 +185,69 @@ func TestTrustableConfigDoesNotMigrateLegacyOpenCodeSelection(t *testing.T) {
 	}
 }
 
+func TestConfigurePiTestFailureLinePreservesOllamaAuthentication(t *testing.T) {
+	got := configurePiTestFailureLine(testModelResult{
+		AuthRequired: true,
+		Warning:      "Unauthorized",
+	})
+	if got != configureAuthRequiredPrefix+"Unauthorized" {
+		t.Fatalf("authentication failure lost its stream marker: %q", got)
+	}
+
+	got = configurePiTestFailureLine(testModelResult{Warning: "upstream unavailable"})
+	if got != "ERROR: Pi model test failed: upstream unavailable" {
+		t.Fatalf("ordinary failure should remain a generic error: %q", got)
+	}
+}
+
+func TestConfigureStreamsOllamaAuthenticationBeforeWritingPiConfig(t *testing.T) {
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"data":[{"id":"qwen3.5:cloud"}]}`)
+		case "/api/pull":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"status":"success"}`)
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"error":"Unauthorized"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	originalWorkspace, originalEndpoint := WorkspaceDir, OllamaEndpoint
+	WorkspaceDir, OllamaEndpoint = t.TempDir(), ollama.URL
+	t.Cleanup(func() {
+		WorkspaceDir, OllamaEndpoint = originalWorkspace, originalEndpoint
+	})
+	if err := saveWorkspaceConfig(&trustableConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		APIKey:   "dummy",
+		Models: map[string]*ModelLimits{
+			"qwen3.5:cloud": {MaxToken: 131072, MaxOutput: 32768},
+		},
+		Pi:  &piConfig{Default: "qwen3.5:cloud"},
+		Git: &GitConfig{},
+	}); err != nil {
+		t.Fatalf("save test configuration: %s", err)
+	}
+
+	response := httptest.NewRecorder()
+	handleConfigure(response, httptest.NewRequest(http.MethodGet, "/api/configure", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, configureAuthRequiredPrefix+"Unauthorized") {
+		t.Fatalf("configure stream did not preserve Ollama authentication: %q", body)
+	}
+	if strings.Contains(body, "ERROR: Pi model test failed") {
+		t.Fatalf("Ollama authentication was collapsed into a generic error: %q", body)
+	}
+}
+
 func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	var cfg opsConfig
 	cfg.S3.Host = "seaweedfs"
@@ -1589,9 +1652,11 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 			API     string `json:"api"`
 			APIKey  string `json:"apiKey"`
 			Models  []struct {
-				ID            string `json:"id"`
-				ContextWindow int    `json:"contextWindow"`
-				MaxTokens     int    `json:"maxTokens"`
+				ID               string             `json:"id"`
+				ContextWindow    int                `json:"contextWindow"`
+				MaxTokens        int                `json:"maxTokens"`
+				Reasoning        bool               `json:"reasoning"`
+				ThinkingLevelMap map[string]*string `json:"thinkingLevelMap"`
 			} `json:"models"`
 		} `json:"providers"`
 	}
@@ -1611,6 +1676,12 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	}
 	if provider.Models[0].ContextWindow != 131072 || provider.Models[0].MaxTokens != 32768 {
 		t.Fatalf("unexpected model limits: %#v", provider.Models[0])
+	}
+	if !provider.Models[0].Reasoning {
+		t.Fatalf("Trustable Cloud coding model did not receive the high-effort baseline: %#v", provider.Models[0])
+	}
+	if provider.Models[0].ThinkingLevelMap != nil {
+		t.Fatalf("xhigh must remain opt-in when the catalog has no level map: %#v", provider.Models[0])
 	}
 
 	for _, name := range []string{"models.json", "auth.json"} {
@@ -1641,6 +1712,60 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	}
 	if auth[piTrustableProviderName]["key"] != cfg.APIKey {
 		t.Fatalf("Pi auth key was not written")
+	}
+}
+
+func TestBuildPiModelsPreservesExplicitReasoningCapabilities(t *testing.T) {
+	enabled := true
+	disabled := false
+	xhigh := "xhigh"
+	cfg := &trustableConfig{
+		Provider: "ollama",
+		Models: map[string]*ModelLimits{
+			"custom-reasoning-model": {
+				Reasoning: &enabled,
+				Roles:     []string{"coding"},
+				ThinkingLevelMap: map[string]*string{
+					"xhigh":       &xhigh,
+					"medium":      nil,
+					"unsupported": &xhigh,
+				},
+			},
+			"custom-disabled-model": {
+				Reasoning: &disabled,
+				Roles:     []string{"coding"},
+			},
+		},
+		Pi: &piConfig{Default: "custom-reasoning-model"},
+	}
+
+	models := buildPiModels(cfg)
+	byID := make(map[string]map[string]interface{}, len(models))
+	for _, model := range models {
+		byID[model["id"].(string)] = model
+	}
+
+	reasoning := byID["custom-reasoning-model"]
+	if reasoning["reasoning"] != true {
+		t.Fatalf("explicit reasoning capability was lost: %#v", reasoning)
+	}
+	levelMap, ok := reasoning["thinkingLevelMap"].(map[string]*string)
+	if !ok || levelMap["xhigh"] == nil || *levelMap["xhigh"] != "xhigh" {
+		t.Fatalf("explicit xhigh capability was lost: %#v", reasoning)
+	}
+	if _, present := levelMap["unsupported"]; present {
+		t.Fatalf("unknown Pi thinking level was not filtered: %#v", levelMap)
+	}
+	if value, present := levelMap["medium"]; !present || value != nil {
+		t.Fatalf("explicitly unsupported standard level was not preserved: %#v", levelMap)
+	}
+
+	nonReasoning := byID["custom-disabled-model"]
+	if nonReasoning["reasoning"] != false {
+		t.Fatalf("explicit reasoning=false was not preserved: %#v", nonReasoning)
+	}
+	if _, present := nonReasoning["thinkingLevelMap"]; present {
+		t.Fatalf("disabled reasoning model must not carry a level map: %#v", nonReasoning)
 	}
 }
 

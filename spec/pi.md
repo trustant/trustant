@@ -55,6 +55,15 @@ settings and providers. Invalid or missing JSON is treated as empty. Model
 entries are sorted, embedding/reranking/non-coding models are filtered, and
 limits fall back to 32768 when the catalog provides none.
 
+Pi reasoning capability is written per model. Explicit catalog values for
+`reasoning` and `thinkingLevelMap` are preserved after validating Pi's known
+level keys. For the managed `trustable` provider only, missing `reasoning`
+defaults to `true` because the Trustable Cloud proxy supports Pi's standard
+`high` reasoning-effort contract for coding models. Other providers default to
+non-reasoning unless their catalog explicitly opts in. `xhigh` is never
+inferred: it is supported only when `thinkingLevelMap.xhigh` is present and
+non-null, so Pi and TruACP cannot silently downgrade an Extra high selection.
+
 The configure flow writes these files after the selected provider and model
 pass the connectivity probe. App launch never writes or repairs global Pi
 configuration: Edit is an app operation, while Configure is the single owner of

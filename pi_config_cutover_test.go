@@ -80,3 +80,17 @@ func TestProviderSelectionPersistsPiContract(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderSelectionResumesPiGateAfterOllamaCloudSignin(t *testing.T) {
+	html := readWebAssetForPiCutoverTest(t, "web/index.html")
+	for _, required := range []string{
+		`async function waitForOllamaSignin()`,
+		`line.startsWith('AUTH_REQUIRED:')`,
+		`saveResult.testmodel.auth_required`,
+		`return runConfiguration();`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("provider selection is missing Ollama Cloud recovery contract %q", required)
+		}
+	}
+}

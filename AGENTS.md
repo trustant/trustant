@@ -2,6 +2,22 @@
 
 Be brief. When changing code, update the matching spec under `spec/*.md`.
 
+## Specification gate
+
+- At the start of every implementation iteration—including the initial change
+  and every follow-up after user feedback, review, failure, or live test—identify
+  the affected behavior and read the complete matching `spec/*.md` files plus
+  their directly relevant cross-references before editing code. A read from a
+  previous iteration, memory, `rg` matches, or isolated excerpts does not
+  satisfy this gate.
+- State which specifications were read before applying the patch. When a change
+  crosses surfaces, read every owning specification; do not select only the
+  file containing the line being edited.
+- Before declaring the iteration complete, re-read the same specifications,
+  compare every affected invariant with the diff, update the specs when behavior
+  changed, and add or update regression tests. Resolve any code/spec conflict
+  before continuing.
+
 ## Project
 
 `trustable-app` is a Go single-binary web server for a Trustable/OpenServerless development environment. It serves `web/`, exposes `/api/*`, proxies TruACP/Pi and Vite by hostname, and manages per-app workspace/workbench state.

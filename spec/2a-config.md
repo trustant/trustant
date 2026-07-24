@@ -80,6 +80,11 @@ shape:
   "maxToken": 240000,
   "maxInput": 120000,
   "maxOutput": 120000,
+  "reasoning": true,
+  "thinkingLevelMap": {
+    "high": "high",
+    "xhigh": "xhigh"
+  },
   "enabled": true,
   "recommended": true,
   "roles": ["coding", "agent"],
@@ -96,6 +101,18 @@ diagnostics but must not be selectable as `pi.default`. Roles such as
 for Pi. Roles such as `coding`,
 `agent`, `chat`, or the historical catalog capability `opencode` explicitly
 mark a model as selectable.
+
+`reasoning` and `thinkingLevelMap` are optional Pi capability metadata.
+`reasoning: true` enables Pi's standard effort levels through `high`.
+Extended `xhigh` is available only when the model explicitly publishes a
+non-null `thinkingLevelMap.xhigh`; a missing or null entry must never be
+presented as Extra high. Trustable Cloud is the managed compatibility
+exception: its OpenAI-compatible proxy supports the standard `high`
+reasoning-effort contract for coding models, so the Pi writer treats a missing
+`reasoning` value as `true` for provider `trustable`. Ollama, BestIA, and
+user-provided endpoints remain capability-driven and are not assumed to support
+reasoning. An explicit `reasoning: false` always wins, including for Trustable
+Cloud.
 
 When a provider does not return policy metadata (for example BestIA or
 own-host Ollama discovery), Trustable applies a conservative local policy:
@@ -326,8 +343,11 @@ and settings, and uses the file modes and credential boundary defined in
 [pi.md](pi.md). It writes the selected endpoint under `trustable` for the
 Trustable status catalog, `ollama` for embedded/status-backed Ollama, or `local`
 for user-provided endpoints and BestIA, then limits runtime selection to that
-single active prefix. `auth.json` is the only file containing the real provider
-credential.
+single active prefix. Generated model entries preserve `reasoning` and a
+sanitized Pi `thinkingLevelMap`. A Trustable Cloud coding model with no
+capability metadata receives the managed `reasoning: true` baseline, which
+allows `high` but does not opt it into `xhigh`. `auth.json` is the only file
+containing the real provider credential.
 
 Configure writes these files only after a successful test-model request.
 A failed probe preserves any previously working Pi files. App launch never
@@ -344,7 +364,7 @@ Returns the merged configuration (base + workspace overrides) as JSON.
 The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs two steps in order and returns a single JSON result:
 
 1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
-2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process.
+2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process. An Ollama authentication failure is preserved as `testmodel.auth_required` in the save response and as `AUTH_REQUIRED:` in the streamed Configure gate. The browser opens the managed Ollama Cloud sign-in modal and reruns the complete gate after Retry, ensuring the Pi global configuration is written only after the model succeeds.
 3. **Write global Pi configuration** — only when testmodel succeeds, merge the Trustable provider into `models.json`, `settings.json`, and `auth.json`. On test failure the previously working files remain unchanged.
 
 This endpoint does not write any per-app agent configuration. App launch does

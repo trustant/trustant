@@ -31,13 +31,15 @@ type piConfig struct {
 // persist in trustable.json under the active provider's `models` map.
 // All three fields are optional (omitempty); zero values are dropped.
 type ModelLimits struct {
-	MaxToken    int      `json:"maxToken,omitempty"`
-	MaxInput    int      `json:"maxInput,omitempty"`
-	MaxOutput   int      `json:"maxOutput,omitempty"`
-	Enabled     *bool    `json:"enabled,omitempty"`
-	Recommended bool     `json:"recommended,omitempty"`
-	Roles       []string `json:"roles,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
+	MaxToken         int                `json:"maxToken,omitempty"`
+	MaxInput         int                `json:"maxInput,omitempty"`
+	MaxOutput        int                `json:"maxOutput,omitempty"`
+	Reasoning        *bool              `json:"reasoning,omitempty"`
+	ThinkingLevelMap map[string]*string `json:"thinkingLevelMap,omitempty"`
+	Enabled          *bool              `json:"enabled,omitempty"`
+	Recommended      bool               `json:"recommended,omitempty"`
+	Roles            []string           `json:"roles,omitempty"`
+	Reason           string             `json:"reason,omitempty"`
 }
 
 // UnmarshalJSON accepts the new object form AND the legacy "256K" string form
@@ -314,6 +316,8 @@ func modelLimitsEqual(a, b map[string]*ModelLimits) bool {
 		if av.MaxToken != bv.MaxToken ||
 			av.MaxInput != bv.MaxInput ||
 			av.MaxOutput != bv.MaxOutput ||
+			!boolPtrEqual(av.Reasoning, bv.Reasoning) ||
+			!stringPtrMapsEqual(av.ThinkingLevelMap, bv.ThinkingLevelMap) ||
 			!boolPtrEqual(av.Enabled, bv.Enabled) ||
 			av.Recommended != bv.Recommended ||
 			av.Reason != bv.Reason ||
@@ -329,6 +333,28 @@ func boolPtrEqual(a, b *bool) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+func stringPtrMapsEqual(a, b map[string]*string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, av := range a {
+		bv, ok := b[key]
+		if !ok {
+			return false
+		}
+		if av == nil || bv == nil {
+			if av != nil || bv != nil {
+				return false
+			}
+			continue
+		}
+		if *av != *bv {
+			return false
+		}
+	}
+	return true
 }
 
 func stringSlicesEqual(a, b []string) bool {
@@ -601,6 +627,35 @@ func piDefaultModel(cfg *trustableConfig) string {
 	return strings.TrimSpace(cfg.Pi.Default)
 }
 
+var piThinkingLevels = map[string]struct{}{
+	"off": {}, "minimal": {}, "low": {}, "medium": {},
+	"high": {}, "xhigh": {}, "max": {},
+}
+
+// piReasoningConfig translates only capabilities that Pi can enforce. Trustable
+// Cloud supplies the high-effort compatibility baseline; extended levels remain
+// model declarations so the UI cannot claim xhigh while Pi clamps it to high.
+func piReasoningConfig(provider string, limits *ModelLimits) (bool, map[string]*string) {
+	reasoning := provider == piTrustableProviderName
+	if limits != nil && limits.Reasoning != nil {
+		reasoning = *limits.Reasoning
+	}
+	if !reasoning || limits == nil || len(limits.ThinkingLevelMap) == 0 {
+		return reasoning, nil
+	}
+	levelMap := make(map[string]*string)
+	for level, value := range limits.ThinkingLevelMap {
+		if _, allowed := piThinkingLevels[level]; !allowed {
+			continue
+		}
+		levelMap[level] = value
+	}
+	if len(levelMap) == 0 {
+		return reasoning, nil
+	}
+	return reasoning, levelMap
+}
+
 // buildPiModels converts Trustable's catalog into Pi's native shape, retaining
 // only coding-capable models and conservative limits when metadata is incomplete.
 func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
@@ -634,12 +689,18 @@ func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
 				maxTokens = limits.MaxOutput
 			}
 		}
-		models = append(models, map[string]interface{}{
+		reasoning, thinkingLevelMap := piReasoningConfig(cfg.Provider, limits)
+		model := map[string]interface{}{
 			"id":            modelID,
 			"name":          modelDisplayName(modelID),
 			"contextWindow": contextWindow,
 			"maxTokens":     maxTokens,
-		})
+			"reasoning":     reasoning,
+		}
+		if len(thinkingLevelMap) > 0 {
+			model["thinkingLevelMap"] = thinkingLevelMap
+		}
+		models = append(models, model)
 	}
 	return models
 }
@@ -859,18 +920,13 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	// Provider-choice setup also enters through this streamed endpoint. Probe
 	// after any Ollama pull, then write the same Pi-native files as POST
 	// /api/configuration. This prevents a failed provider choice from replacing
-	// a previously working global Pi configuration.
+	// a previously working global Pi configuration. Authentication failures use
+	// a distinct stream marker: treating them as generic ERROR lines prevents
+	// the browser from opening the managed Ollama Cloud sign-in flow.
 	if piDefaultModel(cfg) != "" {
 		test := runTestModel(cfg)
 		if !test.OK {
-			msg := test.Error
-			if msg == "" {
-				msg = test.Warning
-			}
-			if msg == "" {
-				msg = "connection test failed"
-			}
-			sendMsg("ERROR: Pi model test failed: " + msg)
+			sendMsg(configurePiTestFailureLine(test))
 			return
 		}
 		if err := writePiGlobalConfig(cfg); err != nil {
@@ -883,6 +939,26 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendMsg("DONE")
+}
+
+const configureAuthRequiredPrefix = "AUTH_REQUIRED: "
+
+// configurePiTestFailureLine preserves the structured authentication outcome
+// across /api/configure's text stream. The splash page can then pause, complete
+// `ollama signin`, and rerun this same gate so Pi config is written only after
+// the selected cloud model is genuinely usable.
+func configurePiTestFailureLine(test testModelResult) string {
+	msg := test.Error
+	if msg == "" {
+		msg = test.Warning
+	}
+	if msg == "" {
+		msg = "connection test failed"
+	}
+	if test.AuthRequired {
+		return configureAuthRequiredPrefix + msg
+	}
+	return "ERROR: Pi model test failed: " + msg
 }
 
 // generateProjectAssetsForApp writes the runtime assets consumed by Pi and

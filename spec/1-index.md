@@ -134,13 +134,13 @@ The same applies when `provider == "bestia"`: the backend skips the Ollama conne
 Then invoke the OpenAI-compatible API using `base_url`, `api_key`, and
 `pi.default` from `trustable.json`, asking hello.
 
-If `/api/testmodel` returns an error **and** `provider == "ollama"`, show a sign-in required popup. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
+If the connectivity probe returns an authentication error **and** `provider == "ollama"`, show a sign-in required popup. This applies both to the structured `testmodel.auth_required` result returned while saving configuration and to the `AUTH_REQUIRED:` marker emitted by the streamed `/api/configure` Pi gate. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
 
 - Dev startup does not pre-run an external `ops trustable signin` / Docker-based Ollama signin helper. The sign-in flow belongs to Trustable itself and starts only after the app detects an Ollama auth failure.
 
 - The backend executes `ollama signin` as a subprocess with `HOME=$WORKSPACE_DIR` and `OLLAMA_HOST=$OLLAMA_ENDPOINT`, then scrapes its output for the first URL starting with `https://ollama.com/connect`. The current page's query string is **not** forwarded — the URL returned by `ollama signin` is used verbatim. In the Trustable pod this writes the Ollama Cloud identity into `/home/trustable/workspace`, the same persistent home used by the pod-local `ollama serve` process.
 
-- If a URL is found, show **"Click here to login to Ollama Cloud"** as a link pointing to that URL with `target="_blank"` (opens in a new tab) and a Retry button.
+- If a URL is found, show **"Click here to login to Ollama Cloud"** as a link pointing to that URL with `target="_blank"` (opens in a new tab) and a Retry button. Retry reruns the streamed Pi gate, rather than only the model probe, so a successful sign-in also writes Pi's global models, authentication reference, and default selection.
 
 - If `ollama signin` produces no recognizable URL, show **"You are not logged in to Ollama Cloud. Please execute `ollama signin` in your terminal and click Retry."**
 
