@@ -1,7 +1,11 @@
 This file describes the api for launching.
 Put the code in the file `launch.go`
 
-<local.prefix> is `/usr/bin` on Linux and `/opt/homebrew/bin/` on Mac
+`<local.prefix>` is `/usr/bin` on Linux and `/opt/homebrew/bin/` on Mac for the
+`rclone`, `psql`, and `redis-cli` wrappers. The Milvus implementation has a
+separate invariant: the upstream `milvus_client` entry point is installed
+globally at `/usr/local/bin/milvus_client`, while the Trustable-managed
+auto-connect wrapper is a regular executable at `~/.local/bin/milvus_cli`.
 
 # GET /api/launch/<name>
 
@@ -227,13 +231,17 @@ build stages that submodule into the Docker build context and includes the
 submodule commit in the base-image hash, so changing the MCP pointer forces the
 base image to rebuild.
 
-# if the app uses AgentiReact add the agentireact MCP server:
+# if the app uses Agentic React add the agentireact MCP server:
 
 Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
-`vite.config.js` or `vite.config.ts`). If that file exists and its contents
-contain `AgentiReact()`, the running app exposes an MCP endpoint over HTTP at
-`http://localhost:5173/mcp` (the `opsdevel` dev server on port 5173). Add an
-http MCP server pointing at it:
+`vite.config.js` or `vite.config.ts`). Enable this server only when executable
+config code both imports/references `@agentic-react/vite` and invokes the
+plugin as `AgenticReact()`; comments, strings, the obsolete `AgentiReact()`
+spelling, a wrong package, or only one of the two conditions are not an opt-in.
+When enabled, the running app exposes an MCP endpoint over HTTP at
+`http://localhost:5173/mcp` (the co-located `opsdevel` dev server on port
+5173). This `localhost` is intentional runtime-local connectivity, not a
+browser-visible or configured API host. Add an HTTP MCP server pointing at it:
 
 ```
 "agentireact": {
@@ -243,7 +251,10 @@ http MCP server pointing at it:
 }
 ```
 
-If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
+If no supported Vite config exists or the complete import-plus-invocation
+contract is absent, skip this server. Detection occurs when project assets are
+regenerated at app launch; installing or removing the plugin during a live
+session requires relaunching the app before `.mcp.json` changes.
 
 # if config.s3.host is defined and not empty add:
 
@@ -353,7 +364,8 @@ because Nuvolaris Redis ACLs only allow the configured user prefix.
 },
 ```
 
-and create in ~/.local/bin/milvus_cli rendering this template:
+and create `~/.local/bin/milvus_cli` as an atomically installed regular
+executable rendering this template:
 
 ```
 #!{{.PythonVenv}}
@@ -408,11 +420,20 @@ if __name__ == "__main__":
 
 with:
 
-{{.PythonVenv}} = first line of <local.prefix>/milvus_client
+{{.PythonVenv}} = interpreter from the first line of the exact global entry
+point `/usr/local/bin/milvus_client`
 {{.Host}} = <config.milvus.host>
 {{.Port}} = <config.milvus.port>
 {{.Token}} = <config.milvus.token>
 {{.DbName}} = <config.milvus.db.name>
+
+The generator must never search for `milvus_client` or `milvus_cli` through
+`PATH`: `~/.local/bin` is first and would rediscover the wrapper itself. A
+missing or unreadable `/usr/local/bin/milvus_client` is a launch configuration
+error. If `~/.local/bin/milvus_cli` is an existing symlink, replace the link
+itself with an atomic rename; never follow it and overwrite the upstream
+package-managed target. Wrapper-generation failures are returned by launch
+without logging credentials.
 
 # if config.mongodb is defined and has a connection string add:
 
@@ -524,6 +545,13 @@ block is present. It is the **only** MCP surface: pi reads it via the
 no second agent-specific MCP file; any internal legacy-shaped data is translated
 only at this write boundary. All listed servers are generated with eager
 lifecycle so the session starts with their real connected/error state.
+
+The companion `rclone`, `psql`, `redis-cli`, and `milvus_cli` wrappers and the
+service MCP entries are generated from the same post-login `~/.ops/config.json`
+object in one launch. For Redis in particular, the wrapper and MCP must use the
+same `service` host and `port`; VM reachability is supplied by the one
+namespace-wide `kubefwd` owned by repository-root `run.sh`. The production pod
+uses native Kubernetes Service DNS and never starts that VM-only forwarder.
 
 The checker must accept sibling `.zip` files created by `ops ide deploy`, such
 as `packages/v1/contacts.zip`. It must fail on ZIP files created inside action

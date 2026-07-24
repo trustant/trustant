@@ -47,6 +47,12 @@ DIST_DIR="dist"                              # host-side cache for the .deb
 # image/Dockerfile) so the VM matches the container.
 OLLAMA_VERSION="$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
 
+# Keep the release identity and both supported archive digests in source so a
+# clean VM never depends on a mutable "latest" asset.
+KUBEFWD_VERSION="1.25.16"
+KUBEFWD_SHA_AMD64="07275cad05b2427069071160125b8cb29e94dd44582f685ce6d966fa9e7fb7d7"
+KUBEFWD_SHA_ARM64="e01ade02d919be2c7e306543f0a65de2e629c254ef16b51ecb45830b0044a3e8"
+
 # The current macOS user + the folder start.sh runs from. Both are mirrored into
 # the VM: a guest user with the same name and UID owns a virtiofs mount of this
 # folder at the same path, so files edited in the VM keep the host's ownership.
@@ -75,11 +81,10 @@ ensure_source_submodules() {
   ok "runtime source submodules are available"
 }
 
-# Ensure the k3s API serving cert covers the host-reachable lima0 IP, so the
-# kubeconfig setup.sh extracts (server: https://<ip>:6443) verifies. k3s's cert
-# only lists the node IP (eth0/vzNAT) + 127.0.0.1 by default, NOT the lima0 IP
-# the host connects to — so without this, host-side `kubectl`/`ops` fail TLS
-# verification. Idempotent: only regenerates the cert when the IP isn't a SAN yet.
+# Ensure the k3s API serving cert covers the host-reachable lima0 IP, so any
+# host-side kubeconfig using that address verifies. The in-VM setup keeps its
+# local 127.0.0.1 endpoint; this SAN is only for host-side `kubectl`/`ops`.
+# Idempotent: only regenerates the cert when the IP isn't a SAN yet.
 ensure_tls_san() {
   local IP="$1"
   echo "--- Ensuring k3s API cert covers $IP ---"
@@ -244,6 +249,69 @@ GUEST
   ok "ollama serving on localhost:11434 in the VM"
 }
 
+# Install the exact Linux kubefwd consumed by repository-root run.sh. WHY:
+# Trustable and its MCP children execute outside k3s in trudev, while production
+# runs inside a pod; a checked release binary gives the VM temporary service
+# reachability without mutating its permanent resolver configuration.
+ensure_kubefwd() {
+  echo "--- Ensuring kubefwd ${KUBEFWD_VERSION} in the VM ---"
+  limactl shell "$VM_NAME" sudo \
+    KUBEFWD_VERSION="$KUBEFWD_VERSION" \
+    KUBEFWD_SHA_AMD64="$KUBEFWD_SHA_AMD64" \
+    KUBEFWD_SHA_ARM64="$KUBEFWD_SHA_ARM64" \
+    bash -euo pipefail -s <<'GUEST'
+installed_version="$(
+  /usr/local/bin/kubefwd version 2>/dev/null \
+    | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
+)"
+if [ "$installed_version" = "$KUBEFWD_VERSION" ]; then
+  echo "kubefwd ${installed_version} already installed"
+  exit 0
+fi
+
+case "$(uname -m)" in
+  x86_64|amd64)
+    archive_arch="x86_64"
+    expected_sha="$KUBEFWD_SHA_AMD64"
+    ;;
+  aarch64|arm64)
+    archive_arch="arm64"
+    expected_sha="$KUBEFWD_SHA_ARM64"
+    ;;
+  *)
+    echo "unsupported kubefwd architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+archive="$tmp_dir/kubefwd.tar.gz"
+url="https://github.com/txn2/kubefwd/releases/download/v${KUBEFWD_VERSION}/kubefwd_Linux_${archive_arch}.tar.gz"
+curl -fsSL --retry 3 -o "$archive" "$url"
+printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum -c -
+tar -C "$tmp_dir" -xzf "$archive"
+[ -x "$tmp_dir/kubefwd" ] || {
+  echo "kubefwd archive did not contain an executable" >&2
+  exit 1
+}
+
+# Install then rename on the same filesystem so an interrupted update cannot
+# leave /usr/local/bin/kubefwd partially written.
+install -m 0755 "$tmp_dir/kubefwd" "/usr/local/bin/.kubefwd-${KUBEFWD_VERSION}.tmp"
+mv -f "/usr/local/bin/.kubefwd-${KUBEFWD_VERSION}.tmp" /usr/local/bin/kubefwd
+installed_version="$(
+  /usr/local/bin/kubefwd version 2>/dev/null \
+    | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
+)"
+[ "$installed_version" = "$KUBEFWD_VERSION" ] || {
+  echo "kubefwd validation failed: expected ${KUBEFWD_VERSION}, got ${installed_version:-unknown}" >&2
+  exit 1
+}
+GUEST
+  ok "kubefwd ${KUBEFWD_VERSION} installed at /usr/local/bin/kubefwd"
+}
+
 # Read the host-reachable IP from the running VM and write the Trustable support
 # files. Used both by the fresh-install path and when the VM already exists.
 finish() {
@@ -288,6 +356,7 @@ finish() {
   ensure_guest_user
   ensure_ssh_config "$IP"
   ensure_ollama
+  ensure_kubefwd
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 

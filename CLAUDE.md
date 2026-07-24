@@ -16,14 +16,14 @@ macOS development uses a **running Trustable VM** on the local machine — the m
 
 Linux server development uses local access to the Trustable k3s cluster with `kubectl`, Docker, and passwordless `sudo -n k3s` so images can be imported into containerd. When the macOS VM files are absent, `build.sh` delegates to `build-server.sh`.
 
-`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** as a host process in the VM (pinned to the image's `OLLAMA_VERSION`, serving `localhost:11434` — the app's `OLLAMA_ENDPOINT`; vz gives no GPU passthrough, but the app mostly uses cloud models). `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM; k3s is local, so there is no `kubefwd`.
+`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustable-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
 
 ## Common commands
 
 ```bash
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
-./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, runs `air` for hot reload, prints the Trustable URL (no kubefwd)
+./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
 ./build.sh       # Compatibility build: Mac VM when available, Linux/k3s server otherwise
 ./build-server.sh # Force Linux/k3s server build, import, StatefulSet patch, rollout wait
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push olaris-bestia only with explicit user authorization

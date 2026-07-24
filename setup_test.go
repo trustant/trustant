@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -123,6 +124,88 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("run.sh is missing clean-worktree build metadata fragment %q", required)
+		}
+	}
+}
+
+func TestStartInstallsPinnedKubefwdForSupportedArchitectures(t *testing.T) {
+	content, err := os.ReadFile("start.sh")
+	if err != nil {
+		t.Fatalf("read start.sh: %s", err)
+	}
+	start := string(content)
+	for _, required := range []string{
+		`KUBEFWD_VERSION="1.25.16"`,
+		`kubefwd_Linux_${archive_arch}.tar.gz`,
+		`KUBEFWD_SHA_AMD64=`,
+		`KUBEFWD_SHA_ARM64=`,
+		`sha256sum -c -`,
+		`/usr/local/bin/kubefwd`,
+		`ensure_kubefwd`,
+	} {
+		if !strings.Contains(start, required) {
+			t.Fatalf("start.sh is missing pinned kubefwd fragment %q", required)
+		}
+	}
+}
+
+func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
+	content, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatalf("read run.sh: %s", err)
+	}
+	run := string(content)
+	if got := strings.Count(run, "kubefwd svc"); got != 1 {
+		t.Fatalf("run.sh must start exactly one kubefwd process, found %d", got)
+	}
+	for _, required := range []string{
+		`-f 'metadata.name!=trustable-svc'`,
+		`--kubeconfig "$KUBECONFIG_FILE"`,
+		`-n nuvolaris`,
+		`getent ahostsv4 "$FORWARD_PROBE_SERVICE"`,
+		`grep -q '^127\.'`,
+		`sudo -n kill "$KUBEFWD_PID"`,
+		`tail -n 80 "$KUBEFWD_LOG"`,
+	} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("run.sh is missing kubefwd lifecycle fragment %q", required)
+		}
+	}
+}
+
+func TestSetupInstallsGlobalPinnedMilvusCli(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+	for _, required := range []string{
+		`MILVUS_CLI_VERSION="1.2.1"`,
+		`UV_TOOL_BIN_DIR=/usr/local/bin`,
+		`"milvus-cli==${MILVUS_CLI_VERSION}"`,
+		`/usr/local/bin/milvus_client`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing global Milvus CLI fragment %q", required)
+		}
+	}
+	if strings.Contains(setup, `UV_TOOL_BIN_DIR="$LOCAL_BIN" uv tool install milvus-cli`) {
+		t.Fatal("setup.sh must not install the upstream milvus_cli into the managed wrapper directory")
+	}
+}
+
+func TestScriptSpecificationsLiveUnderSpec(t *testing.T) {
+	for _, name := range []string{"setup.md", "run.md", "start.md"} {
+		if _, err := os.Stat(name); !os.IsNotExist(err) {
+			t.Fatalf("obsolete root specification %s still exists", name)
+		}
+		path := filepath.Join("spec", name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read relocated specification %s: %s", path, err)
+		}
+		if !strings.Contains(string(data), "repository-root") {
+			t.Fatalf("%s must identify the top-level script it specifies", path)
 		}
 	}
 }

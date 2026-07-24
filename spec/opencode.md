@@ -312,7 +312,8 @@ The guidance must tell assistants how to choose the backend shape:
   configured;
 - use Milvus for vector search;
 - never use Milvus as a replacement for MongoDB;
-- use AgentiReact MCP only when the app is configured with AgentiReact.
+- use the Agentic React MCP only when the Vite config imports/references
+  `@agentic-react/vite` and invokes `AgenticReact()`.
 
 ## OpenServerless Action Tools
 
@@ -425,8 +426,13 @@ Required MCP/service guidance:
   only the derived deployed Vite origin and an artifact directory outside the
   app repo; development navigation is fixed inside the MCP to
   `http://localhost:5173`.
-- `agentireact` is present only when the Vite config contains `AgentiReact()`;
-  it is a remote MCP server at `http://localhost:5173/mcp`.
+- `agentireact` is present only when `vite.config.js` or `vite.config.ts`
+  imports/references `@agentic-react/vite` and invokes `AgenticReact()` in
+  executable config code; it is an HTTP MCP server at
+  `http://localhost:5173/mcp`. Comments, strings, wrong packages, and the
+  obsolete `AgentiReact()` spelling do not enable it. Adding the plugin while
+  an app is running requires relaunching the app so Trustable regenerates
+  `.mcp.json`.
 - `s3` is present only when S3 is configured. The companion CLI wrapper is
   `rclone`.
 - `postgres` is present only when PostgreSQL is configured. The companion CLI

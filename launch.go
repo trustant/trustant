@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -25,6 +26,9 @@ const (
 	truacpPort        = 4096
 	opsdevelPort      = 5173
 	localLoopbackHost = "127.0.0.1"
+	// WHY: ~/.local/bin contains the generated wrapper itself, so resolving the
+	// upstream Milvus CLI through PATH can recurse or follow a stale uv symlink.
+	globalMilvusClientPath = "/usr/local/bin/milvus_client"
 )
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
@@ -335,35 +339,34 @@ func localBinPrefix() string {
 	return "/usr/bin"
 }
 
-// setupServiceTooling writes the CLI wrapper scripts into ~/.local/bin that
-// accompany service MCP servers with companion CLIs (see spec/4-launch.md):
-// `rclone` (s3), `psql` (postgres), `redis-cli` (redis), and `milvus_cli`
-// (milvus). Each is gated on the same config block that gates its MCP server
-// and is best-effort — failures are logged, never fatal to a launch.
-//
-// Every wrapper sets PATH to localBinPrefix() and then invokes the real binary
-// by bare name (rather than an absolute path) so it reaches the system binary
-// without re-entering the ~/.local/bin wrapper itself (spec/4-launch.md line 4).
-func setupServiceTooling() {
-	cfg, err := loadOpsConfig()
-	if err != nil {
-		log.Printf("Warning: failed to load ~/.ops/config.json for service tooling: %s", err)
-		return
-	}
+// setupServiceToolingFromConfig renders every companion CLI from the same
+// post-login snapshot used for MCP generation. WHY: reading config separately
+// can produce a Redis wrapper and MCP entry with different endpoints if login
+// refreshes the file between the two operations. Every wrapper sets PATH to
+// localBinPrefix() and invokes the real binary by bare name so it cannot
+// re-enter ~/.local/bin; Milvus instead derives its interpreter from the exact
+// global entry point.
+func setupServiceToolingFromConfig(cfg *opsConfig) error {
+	return setupServiceToolingFromConfigWithMilvusClient(cfg, globalMilvusClientPath)
+}
+
+// setupServiceToolingFromConfigWithMilvusClient keeps the global implementation
+// path explicit for regression fixtures while the production call above fixes
+// it to /usr/local/bin. No caller may rediscover that entry point through PATH.
+func setupServiceToolingFromConfigWithMilvusClient(cfg *opsConfig, globalClientPath string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Warning: failed to locate home for service tooling: %s", err)
-		return
+		return fmt.Errorf("locate home for service tooling: %w", err)
 	}
 	binDir := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
-		log.Printf("Warning: failed to create ~/.local/bin: %s", err)
-		return
+		return fmt.Errorf("create service wrapper directory: %w", err)
 	}
 	prefix := localBinPrefix()
+	var wrapperErrors []error
 
 	if cfg.S3.Host != "" {
-		writeServiceWrapper(binDir, "rclone", fmt.Sprintf(
+		if err := writeServiceWrapper(binDir, "rclone", fmt.Sprintf(
 			"#!/bin/bash\n"+
 				"export PATH=%s\n"+
 				"export RCLONE_CONFIG_S3_TYPE=s3\n"+
@@ -378,42 +381,47 @@ func setupServiceTooling() {
 				"export RCLONE_CONFIG_DATA_REMOTE=s3:%s\n"+
 				"exec rclone \"$@\"\n",
 			prefix, cfg.S3.Access.Key, cfg.S3.Secret.Key, cfg.S3.Host, cfg.S3.Port,
-			cfg.S3.Bucket.Static, cfg.S3.Bucket.Data))
+			cfg.S3.Bucket.Static, cfg.S3.Bucket.Data)); err != nil {
+			wrapperErrors = append(wrapperErrors, err)
+		}
 	}
 	if cfg.Postgres.Database != "" {
-		writeServiceWrapper(binDir, "psql", fmt.Sprintf(
+		if err := writeServiceWrapper(binDir, "psql", fmt.Sprintf(
 			"#!/bin/bash\nexport PATH=%s\nexec psql \"%s\" \"$@\"\n",
-			prefix, cfg.Postgres.URL))
+			prefix, cfg.Postgres.URL)); err != nil {
+			wrapperErrors = append(wrapperErrors, err)
+		}
 	}
 	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
 		user := redisUsername(cfg)
-		writeServiceWrapper(binDir, "redis-cli", fmt.Sprintf(
+		if err := writeServiceWrapper(binDir, "redis-cli", fmt.Sprintf(
 			"#!/bin/bash\n"+
 				"export PATH=%s\n"+
 				"export REDISCLI_AUTH='%s'\n"+
 				"exec redis-cli -h '%s' --user '%s' -p '%d' \"$@\"\n",
-			prefix, cfg.Redis.Password, cfg.Redis.Service, user, cfg.Redis.Port))
-	}
-	if cfg.Milvus.Host != "" {
-		// The milvus_cli wrapper is a self-contained Python script (rendered from
-		// the embedded milvus_cli.tmpl) that auto-connects to the configured
-		// host/db before dropping into the milvus-cli REPL, reusing the installed
-		// milvus-cli venv. Its shebang is the venv python taken from the first line
-		// of the installed `milvus_client` binary (see spec/4-launch.md).
-		if body, err := renderMilvusCliWrapper(prefix, cfg); err != nil {
-			log.Printf("Warning: failed to render milvus_cli wrapper: %s", err)
-		} else {
-			writeServiceWrapper(binDir, "milvus_cli", body)
+			prefix, cfg.Redis.Password, cfg.Redis.Service, user, cfg.Redis.Port)); err != nil {
+			wrapperErrors = append(wrapperErrors, err)
 		}
 	}
+	if cfg.Milvus.Host != "" {
+		// WHY: the global path is outside ~/.local/bin, so the configured
+		// milvus_cli wrapper cannot rediscover itself through PATH.
+		if body, err := renderMilvusCliWrapper(globalClientPath, cfg); err != nil {
+			wrapperErrors = append(wrapperErrors, fmt.Errorf("render milvus_cli wrapper: %w", err))
+		} else {
+			if err := writeServiceWrapper(binDir, "milvus_cli", body); err != nil {
+				wrapperErrors = append(wrapperErrors, err)
+			}
+		}
+	}
+	return errors.Join(wrapperErrors...)
 }
 
 // renderMilvusCliWrapper renders the embedded milvus_cli.tmpl with the milvus
-// config and the python venv resolved from the installed `milvus_client`
-// binary. <local.prefix> (prefix) is a PATH-style list of bin dirs; the first
-// one containing `milvus_client` supplies the venv shebang (its first line).
-func renderMilvusCliWrapper(prefix string, cfg *opsConfig) (string, error) {
-	pythonVenv, err := milvusPythonVenv(prefix)
+// config and the interpreter resolved from the exact globally installed
+// `milvus_client` entry point.
+func renderMilvusCliWrapper(globalClientPath string, cfg *opsConfig) (string, error) {
+	pythonVenv, err := milvusPythonInterpreter(globalClientPath)
 	if err != nil {
 		return "", err
 	}
@@ -440,40 +448,56 @@ func renderMilvusCliWrapper(prefix string, cfg *opsConfig) (string, error) {
 	return buf.String(), nil
 }
 
-// milvusPythonVenv returns the venv python interpreter for the milvus_cli
-// wrapper shebang: the first line of the installed `milvus_client` binary, found
-// by scanning the colon-separated <local.prefix> bin dirs.
-func milvusPythonVenv(prefix string) (string, error) {
-	for _, dir := range strings.Split(prefix, ":") {
-		dir = strings.TrimSpace(dir)
-		if dir == "" {
-			continue
-		}
-		path := filepath.Join(dir, "milvus_client")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		firstLine := string(data)
-		if idx := strings.IndexByte(firstLine, '\n'); idx != -1 {
-			firstLine = firstLine[:idx]
-		}
-		firstLine = strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
-		if firstLine != "" {
-			return firstLine, nil
-		}
+// milvusPythonInterpreter returns the interpreter from the global
+// milvus_client shebang. WHY: scanning PATH is unsafe after the generated
+// ~/.local/bin wrapper has taken precedence and can select the wrapper again.
+func milvusPythonInterpreter(globalClientPath string) (string, error) {
+	data, err := os.ReadFile(globalClientPath)
+	if err != nil {
+		return "", fmt.Errorf("read global milvus_client at %s: %w", globalClientPath, err)
 	}
-	return "", fmt.Errorf("milvus_client not found in any of: %s", prefix)
+	firstLine := string(data)
+	if idx := strings.IndexByte(firstLine, '\n'); idx != -1 {
+		firstLine = firstLine[:idx]
+	}
+	interpreter := strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
+	if interpreter == "" || interpreter == firstLine {
+		return "", fmt.Errorf("global milvus_client at %s has no interpreter shebang", globalClientPath)
+	}
+	if !filepath.IsAbs(interpreter) {
+		return "", fmt.Errorf("global milvus_client at %s uses non-absolute interpreter", globalClientPath)
+	}
+	return interpreter, nil
 }
 
-// writeServiceWrapper writes a single executable wrapper script into binDir.
-func writeServiceWrapper(binDir, name, body string) {
+// writeServiceWrapper atomically installs one regular executable into binDir.
+// WHY: os.WriteFile follows an existing symlink, which can overwrite a
+// package-managed uv target when replacing the old milvus_cli installation.
+func writeServiceWrapper(binDir, name, body string) (err error) {
 	path := filepath.Join(binDir, name)
-	if err := os.WriteFile(path, []byte(body), 0755); err != nil {
-		log.Printf("Warning: failed to write %s wrapper: %s", name, err)
-		return
+	temp, err := os.CreateTemp(binDir, "."+name+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary %s wrapper: %w", name, err)
+	}
+	tempPath := temp.Name()
+	defer func() {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+	}()
+	if _, err := temp.WriteString(body); err != nil {
+		return fmt.Errorf("write temporary %s wrapper: %w", name, err)
+	}
+	if err := temp.Chmod(0755); err != nil {
+		return fmt.Errorf("chmod temporary %s wrapper: %w", name, err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close temporary %s wrapper: %w", name, err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("install %s wrapper: %w", name, err)
 	}
 	log.Printf("Configured %s wrapper at %s", name, path)
+	return nil
 }
 
 // getPgidFile returns the path to the pgid file inside WorkbenchDir
@@ -1023,15 +1047,39 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
+	// Generate MCP entries and companion CLIs from one post-login snapshot.
+	// WHY: service endpoints are an atomic platform contract; two reads can
+	// drift when ops refreshes ~/.ops/config.json during launch.
+	serviceConfig, err := loadOpsConfig()
+	if err != nil {
+		log.Printf("Failed to load post-login service configuration: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to load post-login service configuration: %s", err),
+		})
+		return
+	}
+
 	// Generate the project assets consumed by Pi: standard .mcp.json,
 	// AGENTS.md/CLAUDE.md, the OpenServerless contract, and local checkers.
 	// Provider/model configuration is global under ~/.pi/agent.
-	if err := generateProjectAssetsForApp(app); err != nil {
-		log.Printf("Warning: failed to generate project assets: %s", err)
+	if err := generateProjectAssetsInDir(workbenchPath, buildMCPFromOpsConfig(serviceConfig)); err != nil {
+		log.Printf("Failed to generate project assets: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to generate project assets: %s", err),
+		})
+		return
 	}
 	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
-	// MCP servers generated above from ~/.ops/config.json.
-	setupServiceTooling()
+	// MCP servers generated above from ~/.ops/config.json. WHY: these wrappers
+	// are one launch contract with the MCP entries; continuing after a required
+	// wrapper fails would expose tooling Pi cannot actually use.
+	if err := setupServiceToolingFromConfig(serviceConfig); err != nil {
+		log.Printf("Service tooling configuration failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("service tooling configuration failed: %s", err),
+		})
+		return
+	}
 
 	// Start truacp. It serves its React UI on :4096 and owns the ACP session,
 	// spawning pi-acp (and therefore Pi) in the selected workbench directory.

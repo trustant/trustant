@@ -2,9 +2,10 @@
 #
 # run.sh — dev loop, run INSIDE the trudev VM (see spec/run.md, spec/setup.md).
 #
-# k3s is local in the VM, so there is no kubefwd and no kubeconfig loopback
-# forwarding: the Go app and the MCP servers it spawns reach cluster services
-# directly. Run ./setup.sh first to provision the toolchain + MCP servers.
+# The Go app and MCP servers run in the VM host namespace, outside k3s. One
+# namespace-wide kubefwd supplies the service-name reachability written by
+# `ops ide login`; production pods continue to use native Kubernetes DNS.
+# Run ./setup.sh first to provision the toolchain + MCP servers.
 #
 cd "$(dirname "$0")"
 
@@ -76,19 +77,36 @@ for port in 8910 5173 4096; do
     lsof -ti :"$port" | xargs kill 2>/dev/null
 done
 
+# Process handles are initialized before traps so an early readiness failure
+# cannot leave kubefwd or Air behind.
+AIR_PID=""
+KUBEFWD_PID=""
+KUBEFWD_LOG=""
+
 # 6. wait until ^c and terminate everything
 cleanup() {
     echo "Shutting down..."
-    kill "$AIR_PID" 2>/dev/null
+    if [[ -n "$AIR_PID" ]]; then
+        kill "$AIR_PID" 2>/dev/null
+    fi
+    if [[ -n "$KUBEFWD_PID" ]]; then
+        # WHY: kubefwd runs through sudo to manage loopback addresses and
+        # /etc/hosts, so teardown must target that tracked privileged process
+        # rather than a broad pkill that could stop another development run.
+        sudo -n kill "$KUBEFWD_PID" 2>/dev/null || kill "$KUBEFWD_PID" 2>/dev/null
+    fi
     for port in 8910 5173 4096; do
         lsof -ti :"$port" | xargs kill 2>/dev/null
     done
     wait 2>/dev/null
+    [[ -z "$KUBEFWD_LOG" ]] || rm -f "$KUBEFWD_LOG"
     echo "Done."
 }
 
-# 2. trap ^c
-trap cleanup INT
+# 2. SIGINT/SIGTERM exit through the single EXIT cleanup path, so normal
+# failures and Ctrl-C have identical ownership semantics.
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 # 2b. sanity: k3s must be up and the nuvolaris namespace present. Do NOT call
 #     ./start.sh here — that is macOS-only and provisions the VM from the host.
@@ -99,17 +117,62 @@ fi
 # Prefer a standalone kubectl; k3s does not always symlink one, so fall back to
 # `sudo k3s kubectl` (which reads the root-owned /etc/rancher/k3s/k3s.yaml).
 if command -v kubectl &>/dev/null; then
-    kubectl_check() { KUBECONFIG="$KUBECONFIG_FILE" kubectl get ns nuvolaris &>/dev/null; }
+    KUBECTL_CMD=(kubectl)
 elif command -v k3s &>/dev/null; then
-    kubectl_check() { sudo k3s kubectl get ns nuvolaris &>/dev/null; }
+    KUBECTL_CMD=(sudo -n k3s kubectl)
 else
     echo "neither kubectl nor k3s found — is the VM package healthy?"; exit 1
 fi
-if ! kubectl_check; then
+kube() {
+    KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"
+}
+if ! kube get ns nuvolaris &>/dev/null; then
     echo "k3s not ready or nuvolaris namespace missing — is the VM package healthy?"; exit 1
 fi
 
-# 2c. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT).
+# 2c. Start one forwarder for the complete namespace. WHY: separate kubefwd
+# processes each allocate their first service to the same loopback address and
+# race for ports; trustable-svc is excluded because it would steal 8910/4096/5173.
+command -v kubefwd &>/dev/null \
+    || { echo "kubefwd is missing — run ./start.sh on macOS or install the pinned version before run.sh" >&2; exit 1; }
+FORWARD_PROBE_SERVICE="$(
+    kube -n nuvolaris get services \
+        -o custom-columns=NAME:.metadata.name --no-headers 2>/dev/null \
+        | awk '$1 != "trustable-svc" { print $1; exit }'
+)"
+if [[ -z "$FORWARD_PROBE_SERVICE" ]]; then
+    echo "no nuvolaris service is available for kubefwd readiness (trustable-svc is intentionally excluded)" >&2
+    exit 1
+fi
+KUBEFWD_LOG="$(mktemp -t trustable-kubefwd.XXXXXX.log)"
+sudo -n kubefwd svc \
+    -f 'metadata.name!=trustable-svc' \
+    --kubeconfig "$KUBECONFIG_FILE" \
+    -n nuvolaris >"$KUBEFWD_LOG" 2>&1 &
+KUBEFWD_PID=$!
+
+KUBEFWD_READY=false
+for _ in $(seq 1 60); do
+    if ! kill -0 "$KUBEFWD_PID" 2>/dev/null; then
+        echo "kubefwd exited before it became ready:" >&2
+        tail -n 80 "$KUBEFWD_LOG" >&2
+        exit 1
+    fi
+    if getent ahostsv4 "$FORWARD_PROBE_SERVICE" 2>/dev/null \
+        | awk '{print $1}' | grep -q '^127\.'; then
+        KUBEFWD_READY=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$KUBEFWD_READY" != true ]]; then
+    echo "kubefwd readiness timed out: ${FORWARD_PROBE_SERVICE} did not resolve to a loopback address" >&2
+    tail -n 80 "$KUBEFWD_LOG" >&2
+    exit 1
+fi
+echo "kubefwd ready for namespace nuvolaris (excluding trustable-svc)"
+
+# 2d. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT).
 #     start.sh installs it in the VM (owned by another user), so probe the port
 #     system-wide with `ss` — unprivileged `lsof -i` only sees this user's own
 #     sockets and would miss it, spawning a second server that fails to bind.

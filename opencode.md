@@ -223,7 +223,8 @@ Choose the backend shape this way:
   configured.
 - Use Milvus for vector search.
 - Do not use Milvus as a replacement for MongoDB.
-- Use AgentiReact MCP only when the app is configured with AgentiReact.
+- Use the Agentic React MCP only when the Vite config imports/references
+  `@agentic-react/vite` and invokes `AgenticReact()`.
 
 ## OpenServerless Action Tools
 
@@ -320,8 +321,12 @@ is absent. Use the generated configuration and wrappers instead of inventing
 connection details.
 
 - `openserverless`: always present; exposes action-management tools.
-- `agentireact`: present only when the app's Vite config contains
-  `AgentiReact()`; remote MCP at `http://localhost:5173/mcp`.
+- `agentireact`: present only when `vite.config.js` or `vite.config.ts`
+  imports/references `@agentic-react/vite` and invokes `AgenticReact()` in
+  executable config code; HTTP MCP at `http://localhost:5173/mcp`. Comments,
+  strings, wrong packages, and the obsolete `AgentiReact()` spelling do not
+  enable it. Adding the plugin during a live session requires relaunching the
+  app so Trustable regenerates `.mcp.json`.
 - `s3`: present only when S3 is configured; companion CLI wrapper: `rclone`.
 - `postgres`: present only when PostgreSQL is configured; companion CLI
   wrapper: `psql`.

@@ -45,7 +45,9 @@ installs pinned Playwright Chromium with its Linux runtime dependencies. It
 must not install floating OpenCode, public npm `pi-acp`, or OpenServerless MCP
 sources, modify the VM DNS configuration, write
 `systemd-resolved` drop-ins, or restart systemd services. Resolver policy is
-owned by the prepared VM/k3s environment rather than repository setup.
+owned by the prepared VM/k3s environment rather than repository setup. The
+upstream Milvus CLI is pinned and installed globally under `/usr/local/bin`;
+`~/.local/bin/milvus_cli` remains reserved for the per-app configured wrapper.
 
 For the macOS Lima flow, `start.sh` initializes `mcp`, `trustable-acp`, and its
 nested `pi-acp` fork recursively on the host before starting the guest. It checks
@@ -64,6 +66,14 @@ headers, disable request/response buffering, and use bounded 600-second proxy
 timeouts. Otherwise TruACP's `/ws` handshake becomes an ordinary HTTP request,
 the UI stays idle even though Pi completes the prompt, and `/ws` returns 404
 instead of `101 Switching Protocols`.
+
+`start.sh` also installs the pinned official Linux `kubefwd` archive in
+`trudev`, selecting amd64 or arm64 and verifying a checked-in SHA-256 before
+placing it at `/usr/local/bin/kubefwd`. Repository-root `run.sh` owns exactly
+one namespace-wide forwarder for `nuvolaris`, excludes `trustable-svc`, waits
+for bounded readiness, and cleans it with the normal development process trap.
+This is a VM-host process only: production pods use native Kubernetes Service
+DNS and never start `kubefwd`.
 
 `run.sh` must also work from a fresh worktree where the ignored `_build.txt`
 does not exist. Before starting Air it writes local development build metadata;

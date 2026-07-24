@@ -51,12 +51,15 @@ RUN \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 
+# Keep the upstream Milvus CLI pinned in /usr/local/bin. WHY: app launch replaces
+# ~/.local/bin/milvus_cli with a configured wrapper and must not follow a
+# floating package or overwrite the package-managed implementation.
 # installing lsp: ts py, mcp: postgres, redis, milvus, mongodb, cli: milvus
 RUN \
     curl -LsSf https://astral.sh/uv/install.sh | \
     env UV_INSTALL_DIR="/usr/bin" INSTALLER_NO_MODIFY_PATH=1 sh ;\
     for tool in \
-        milvus-cli \
+        milvus-cli==1.2.1 \
         'python-lsp-server[yapf]' \
         postgres-mcp==0.3.0 \
         redis-mcp-server==0.5.0 \

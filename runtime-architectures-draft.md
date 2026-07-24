@@ -51,8 +51,9 @@ Caratteristiche:
 - Trustable Code e Vite sono processi figli nella stessa VM, non pod.
 - `localhost:4096` e `localhost:5173` sono quindi porte della VM.
 - k3s gira nella stessa VM, ma Trustable è esterno al cluster.
-- Trustable raggiunge k3s tramite kubeconfig, ingress locale e DNS
-  `cluster.local`.
+- Trustable raggiunge l'API k3s tramite kubeconfig. I processi VM-host
+  raggiungono i Service del namespace `nuvolaris` tramite un unico `kubefwd`
+  avviato da `run.sh`, senza modificare il resolver permanente.
 - Dentro la VM `miniops.me` può raggiungere l'ingress locale.
 - Dal browser macOS `miniops.me` non è affidabile perché risolve al loopback del
   Mac. Si usano:
@@ -162,7 +163,7 @@ La matrice che l'assistente deve conoscere è:
 | Chiamante | Significato di `localhost` | Host browser-facing | Accesso ai servizi dati |
 |---|---|---|---|
 | Browser | computer dell'utente | sì | mai direttamente |
-| Trustable in sviluppo VM | VM | tramite proxy Trustable | configurazione e DNS cluster |
+| Trustable in sviluppo VM | VM | tramite proxy Trustable | configurazione e `kubefwd` |
 | Trustable nel pod | pod Trustable | ingress o sidecar | DNS e binding |
 | Action OpenServerless | pod della action | non usare per composizione | `ctx.REDIS`, `ctx.MONGODB`, `ctx.POSTGRESQL`, `ctx.S3_CLIENT` |
 

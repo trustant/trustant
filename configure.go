@@ -1057,7 +1057,7 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 		},
 	}
 	mcp["browser"] = browserMCPConfig(projectDir)
-	if appUsesAgentiReact(projectDir) {
+	if appUsesAgenticReact(projectDir) {
 		mcp["agentireact"] = map[string]interface{}{
 			"type": "remote",
 			"url":  "http://localhost:5173/mcp",
@@ -1207,16 +1207,171 @@ func ensureAppCheckerInstalled() (string, error) {
 	return ensureEmbeddedExecutable(path, "Trustable app checker", trustableAppCheckerSh)
 }
 
-// appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.
-// It checks vite.config.js and vite.config.ts in projectDir for a call to
-// AgentiReact(); a missing or unreadable config means false.
-func appUsesAgentiReact(projectDir string) bool {
+var (
+	agenticReactImportPattern = regexp.MustCompile(`(?m)^[\t ]*import[\t\r\n ]+(?:AgenticReact|\{[^}]*\bAgenticReact\b[^}]*\})[\t\r\n ]+from[\t\r\n ]+["']@agentic-react/vite["'][\t ]*;?`)
+	agenticReactCallPattern   = regexp.MustCompile(`\bAgenticReact[\t ]*\(`)
+)
+
+// stripJavaScriptComments removes line and block comments while preserving
+// quoted source. WHY: the Agentic React opt-in is a runtime capability and a
+// README/example left in vite.config must not silently add tools to Pi.
+func stripJavaScriptComments(source string) string {
+	const (
+		jsNormal = iota
+		jsSingleQuote
+		jsDoubleQuote
+		jsTemplateQuote
+		jsLineComment
+		jsBlockComment
+	)
+	state := jsNormal
+	escaped := false
+	var out strings.Builder
+	out.Grow(len(source))
+	for i := 0; i < len(source); i++ {
+		ch := source[i]
+		next := byte(0)
+		if i+1 < len(source) {
+			next = source[i+1]
+		}
+
+		switch state {
+		case jsLineComment:
+			if ch == '\n' {
+				state = jsNormal
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+		case jsBlockComment:
+			if ch == '*' && next == '/' {
+				out.WriteString("  ")
+				i++
+				state = jsNormal
+			} else if ch == '\n' {
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+		case jsTemplateQuote:
+			// Template literals can span lines and contain text that looks like
+			// a complete import. Mask their payload so examples stored in a
+			// string cannot opt the app into a live MCP dependency.
+			if ch == '\n' {
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '`' {
+				state = jsNormal
+			}
+		case jsSingleQuote, jsDoubleQuote:
+			out.WriteByte(ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if (state == jsSingleQuote && ch == '\'') ||
+				(state == jsDoubleQuote && ch == '"') {
+				state = jsNormal
+			}
+		default:
+			switch {
+			case ch == '/' && next == '/':
+				out.WriteString("  ")
+				i++
+				state = jsLineComment
+			case ch == '/' && next == '*':
+				out.WriteString("  ")
+				i++
+				state = jsBlockComment
+			default:
+				out.WriteByte(ch)
+				switch ch {
+				case '\'':
+					state = jsSingleQuote
+				case '"':
+					state = jsDoubleQuote
+				case '`':
+					state = jsTemplateQuote
+				}
+			}
+		}
+	}
+	return out.String()
+}
+
+// stripJavaScriptStrings masks quoted values in already comment-free source.
+// The import detector still sees module specifiers in the original cleaned
+// source, while the invocation detector uses this view so "AgenticReact()" in
+// an example string is not executable evidence.
+func stripJavaScriptStrings(source string) string {
+	const (
+		jsCode = iota
+		jsQuoted
+	)
+	state := jsCode
+	quote := byte(0)
+	escaped := false
+	var out strings.Builder
+	out.Grow(len(source))
+	for i := 0; i < len(source); i++ {
+		ch := source[i]
+		if state == jsQuoted {
+			if ch == '\n' {
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				state = jsCode
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			state = jsQuoted
+			quote = ch
+			out.WriteByte(' ')
+		default:
+			out.WriteByte(ch)
+		}
+	}
+	return out.String()
+}
+
+// appUsesAgenticReact reports whether a supported Vite config imports the real
+// plugin and invokes AgenticReact(). WHY: matching only a misspelled call made
+// unrelated or comment-only configs receive an unreachable eager MCP server.
+func appUsesAgenticReact(projectDir string) bool {
 	for _, name := range []string{"vite.config.js", "vite.config.ts"} {
 		data, err := os.ReadFile(filepath.Join(projectDir, name))
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), "AgentiReact()") {
+		source := stripJavaScriptComments(string(data))
+		if agenticReactImportPattern.MatchString(source) &&
+			agenticReactCallPattern.MatchString(stripJavaScriptStrings(source)) {
 			return true
 		}
 	}

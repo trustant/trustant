@@ -578,9 +578,9 @@ func TestManagedAppAgentsPreservesExistingNotesWithoutDuplication(t *testing.T) 
 	}
 }
 
-// When vite.config.* contains AgentiReact(), the standard project MCP config
-// includes the Vite-served endpoint as an eager HTTP server for Pi.
-func TestGenerateProjectAssetsAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
+// When a supported Vite config imports and invokes Agentic React, the standard
+// project MCP config includes the Vite-served endpoint as eager HTTP for Pi.
+func TestGenerateProjectAssetsAddsAgenticReactWhenViteConfigOptsIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
@@ -591,7 +591,7 @@ func TestGenerateProjectAssetsAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) 
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
-	vite := "import AgentiReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgentiReact()] }\n"
+	vite := "import { AgenticReact } from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n"
 	if err := os.WriteFile(filepath.Join(appDir, "vite.config.ts"), []byte(vite), 0644); err != nil {
 		t.Fatalf("write vite config: %s", err)
 	}
@@ -620,6 +620,90 @@ func TestGenerateProjectAssetsAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) 
 	if cAR["lifecycle"] != "eager" {
 		t.Fatalf("remote MCP servers must connect when the Pi session starts: %#v", cAR)
 	}
+	if _, present := cAR["enabled"]; present {
+		t.Fatalf("launcher-only enabled field leaked into .mcp.json: %#v", cAR)
+	}
+}
+
+func TestAppUsesAgenticReactRequiresRealImportAndInvocation(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		source   string
+		want     bool
+	}{
+		{
+			name:     "typescript named import",
+			filename: "vite.config.ts",
+			source:   "import { AgenticReact } from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n",
+			want:     true,
+		},
+		{
+			name:     "javascript default import with whitespace",
+			filename: "vite.config.js",
+			source:   "import AgenticReact from \"@agentic-react/vite\";\nexport default { plugins: [AgenticReact ( )] };\n",
+			want:     true,
+		},
+		{
+			name:     "multiline named import",
+			filename: "vite.config.ts",
+			source:   "import {\n  AgenticReact,\n} from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n",
+			want:     true,
+		},
+		{
+			name:     "missing import",
+			filename: "vite.config.ts",
+			source:   "export default { plugins: [AgenticReact()] }\n",
+		},
+		{
+			name:     "missing invocation",
+			filename: "vite.config.ts",
+			source:   "import { AgenticReact } from '@agentic-react/vite'\nexport default { plugins: [] }\n",
+		},
+		{
+			name:     "obsolete spelling",
+			filename: "vite.config.ts",
+			source:   "import AgentiReact from '@agentic-react/vite'\nexport default { plugins: [AgentiReact()] }\n",
+		},
+		{
+			name:     "wrong package",
+			filename: "vite.config.ts",
+			source:   "import AgenticReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgenticReact()] }\n",
+		},
+		{
+			name:     "comment only",
+			filename: "vite.config.ts",
+			source:   "// import { AgenticReact } from '@agentic-react/vite'\n/* AgenticReact() */\nexport default {}\n",
+		},
+		{
+			name:     "template string only",
+			filename: "vite.config.ts",
+			source:   "const example = `\nimport { AgenticReact } from '@agentic-react/vite'\nAgenticReact()\n`\nexport default {}\n",
+		},
+		{
+			name:     "invocation string only",
+			filename: "vite.config.ts",
+			source:   "import { AgenticReact } from '@agentic-react/vite'\nconst example = 'AgenticReact()'\nexport default {}\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, tc.filename), []byte(tc.source), 0644); err != nil {
+				t.Fatalf("write Vite config: %s", err)
+			}
+			if got := appUsesAgenticReact(dir); got != tc.want {
+				t.Fatalf("appUsesAgenticReact()=%v, want %v for %s", got, tc.want, tc.source)
+			}
+		})
+	}
+
+	t.Run("missing config", func(t *testing.T) {
+		if appUsesAgenticReact(t.TempDir()) {
+			t.Fatal("missing Vite config must not enable Agentic React")
+		}
+	})
 }
 
 func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
@@ -1592,9 +1676,9 @@ func TestFrontendCheckerAcceptsCachedProfileAfterBackendSessionValidation(t *tes
 	}
 }
 
-// Without an AgentiReact() opt-in, the standard MCP config stays limited to
+// Without an AgenticReact() opt-in, the standard MCP config stays limited to
 // the managed service and browser servers.
-func TestGenerateProjectAssetsSkipsAgentiReactWithoutOptIn(t *testing.T) {
+func TestGenerateProjectAssetsSkipsAgenticReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
@@ -1605,7 +1689,7 @@ func TestGenerateProjectAssetsSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
-	// A vite config that does NOT use AgentiReact.
+	// A Vite config that does not use Agentic React.
 	if err := os.WriteFile(filepath.Join(appDir, "vite.config.js"), []byte("export default {}\n"), 0644); err != nil {
 		t.Fatalf("write vite config: %s", err)
 	}

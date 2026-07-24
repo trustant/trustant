@@ -27,6 +27,13 @@ name or from the fact that no MCP subprocess has started yet. In particular,
 MongoDB is configured when `.mcp.json.mcpServers.mongodb` exists. Never print or
 copy its connection-string environment value.
 
+The optional `agentireact` server is valid only when the app's
+`vite.config.js` or `vite.config.ts` imports/references
+`@agentic-react/vite` and invokes `AgenticReact()`. Trustable evaluates this at
+launch; comments or strings are not an opt-in. After adding or removing the
+plugin, relaunch the app before relying on
+`.mcp.json.mcpServers.agentireact`.
+
 Service MCP servers are diagnostics for the agent, not automatic runtime
 bindings for action code. Do not use `MDB_MCP_CONNECTION_STRING` in app source;
 do not invent `MONGODB_URI`, `MONGO_URL`, or `MDB_CONNECTION_STRING` runtime

@@ -1,4 +1,7 @@
-create run.sh invoking the app with air, run INSIDE the trudev VM (see setup.md):
+# Repository-root `run.sh`
+
+This specification defines the repository-root `run.sh`, which invokes the app
+with Air inside the `trudev` VM (see [setup.md](setup.md)):
 
 0. on macOS (uname == Darwin) everything lives in the VM, not the host — run.sh
 is the single entrypoint and owns the whole lifecycle:
@@ -19,10 +22,19 @@ is the single entrypoint and owns the whole lifecycle:
 
 2b. sanity-check the local k3s (kubeconfig at ~/.ops/tmp/kubeconfig, nuvolaris
 namespace present). Do NOT call ./start.sh — it is macOS-only and provisions the
-VM from the host. k3s is local in the VM, so there is no kubefwd: the Go app and
-the MCP servers it spawns reach cluster services directly.
+VM from the host.
 
-2c. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT);
+2c. start exactly one `kubefwd` for namespace `nuvolaris`, using
+`~/.ops/tmp/kubeconfig` and field selector
+`metadata.name!=trustable-svc`. Excluding `trustable-svc` prevents the forwarder
+from stealing Trustable's local ports 8910, 4096, and 5173. Wait for bounded
+readiness by proving that at least one forwarded Service name resolves to a
+loopback address. If the process exits or readiness times out, print its
+diagnostic log and abort. The same cleanup trap that owns Air must terminate
+the one `kubefwd` process and remove its temporary log. Never start one
+forwarder per service and never modify resolver configuration.
+
+2d. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT);
 start.sh installs it in the VM, so only start one if nothing is listening.
 
 3. launch air in background (hot-reloads the Go binary on :8910). Air watches

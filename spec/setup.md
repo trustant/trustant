@@ -1,4 +1,7 @@
-Write a setup.sh script that recreates, inside a supported Ubuntu development
+# Repository-root `setup.sh`
+
+This specification defines the repository-root `setup.sh`. The script recreates,
+inside a supported Ubuntu development
 target, the same environment that `image/Dockerfile` builds, so that `./run.sh`
 can be run with all MCP servers and references ready. Supported targets are the
 Ubuntu `trudev` Lima VM created by `./start.sh` and Ubuntu on WSL with local k3s,
@@ -14,15 +17,19 @@ virtiofs-mounted at its host path and is writable by this user.
 
 On WSL, run `setup.sh` manually as the Linux development user. The repository
 should live in the WSL Linux filesystem, and `/etc/rancher/k3s/k3s.yaml` must
-describe the k3s running in that same WSL instance. WSL must have systemd and
-`systemd-resolved` enabled so `cluster.local` can be routed without rewriting
-the generated Windows resolver configuration.
+describe the k3s running in that same WSL instance. WSL remains an Ubuntu
+local-k3s target, but service forwarding must be supplied explicitly with the
+same pinned `kubefwd` used by `trudev`; repository setup must not rewrite the
+Windows or Linux resolver configuration.
 
-Everything is installed for the local user — into `~/.local/bin`,
-`~/.local/lib/truacp`, and `~/.pi/agent`; no `/opt/uv/*`, no `sudo` except
-where a step needs a system package (the guest user has passwordless sudo).
-This mirrors the Dockerfile's per-user (`trustable`) stages but for the mirrored
-guest user.
+Runtime tools are installed for the local user — into `~/.local/bin`,
+`~/.local/lib/truacp`, and `~/.pi/agent` — except for the upstream Milvus CLI.
+That pinned package is a system prerequisite under `/opt/uv/tools` with entry
+points in `/usr/local/bin`; `~/.local/bin/milvus_cli` belongs exclusively to
+Trustable's per-app wrapper. `sudo` is otherwise limited to system packages and
+system prerequisites (the guest user has passwordless sudo). This mirrors the
+Dockerfile's per-user (`trustable`) stages while keeping the wrapper boundary
+identical in Lima and the image.
 
 When I say add to the PATH, add to ~/.bashrc (the VM is Ubuntu; bash login shell).
 
@@ -139,53 +146,40 @@ After writing the file, wait for `/readyz` and show the real client/API error if
 the local cluster does not become ready. Do not hide a missing executable or
 connection error behind a generic CoreDNS message.
 
-After kubeconfig is valid, read the `kube-system/kube-dns` ClusterIP (falling
-back to the `k8s-app=kube-dns` Service label) and create
-`/etc/systemd/resolved.conf.d/trustable-k3s.conf` with that DNS server routed
-only for `~cluster.local`. Restart `systemd-resolved` only when the file changes
-and require `kubernetes.default.svc.cluster.local` to resolve. Host-side
-Trustable Code and MCP processes consume service names from
-`~/.ops/config.json`; ClusterIP routing alone is insufficient without this DNS
-route.
-
-On WSL, abort with instructions to enable systemd when `systemd-resolved` is not
-active; silently skipping this step would leave MCP service hosts unresolved.
+After kubeconfig is valid, do not modify resolver configuration or restart
+resolver services. Processes outside the cluster reach service names through
+the single namespace-wide `kubefwd` process owned by repository-root `run.sh`.
+The `trudev` provisioning path installs the pinned forwarder through
+repository-root `start.sh`; WSL must provide that same executable before
+`run.sh` starts.
 
 9. check you have administrative power
 ensuring `ops admin listuser` does not return error
 
 10. check the CLI tools the image ships are available; install any that are
-missing (apt via passwordless sudo, milvus-cli via uv into ~/.local/bin):
+missing (apt via passwordless sudo, the pinned upstream Milvus CLI via uv):
 
 - psql       (postgresql-client-16)
 - redis-cli  (redis-tools)
 - rclone
-- milvus-cli (uv tool install milvus-cli, UV_TOOL_BIN_DIR=$HOME/.local/bin)
+- milvus-cli 1.2.1, installed globally with its upstream entry points under
+  `/usr/local/bin`
 
-(uv itself was ensured in step 3. There is no /opt/homebrew and no kubefwd in the
-VM — cluster services are local, so kubefwd is not used; see run.md.)
+(uv itself was ensured in step 3. There is no `/opt/homebrew` in the VM.
+`~/.local/bin/milvus_cli` is reserved for the configured Trustable wrapper
+generated at app launch; setup must not place the upstream executable there.)
 
-11. Build and verify the pinned Trustable Code runtime.
+11. Install the pinned Pi coding-agent toolchain.
 
-- Read the Bun version from the `FROM oven/bun:<version>` builder in
-  `image/Dockerfile` and install that exact version for the guest user when it
-  is missing. Ensure `unzip` is installed before invoking the Bun installer.
-- Require the initialized `trustable-code` submodule and read its current Git
-  revision plus a content fingerprint of tracked and untracked working-tree
-  changes.
-- Rebuild when the installed revision/fingerprint differs, the reported
-  OpenCode version differs from `$OPENCODE_VERSION`, or the binary lacks the
-  literal `TRUSTABLE_RUNTIME_CONFIG` runtime contract.
-- Mirror the Docker build: run `HUSKY=0 bun install --frozen-lockfile`, then
-  `bun run script/build.ts --single --skip-install` in
-  `trustable-code/packages/opencode`.
-- Verify the built version and runtime marker, atomically install the binary as
-  `~/.local/bin/opencode`, and record the revision plus working-tree fingerprint
-  under `~/.local/share/trustable-code/ref`. This lets Lima validate an
-  uncommitted Trustable Code fix without reusing a stale binary.
+- Read literal npm install specifications from `trustable-acp/pi.version`,
+  ignoring comments and blank lines.
+- Reject any entry without an explicit version separator; setup must never
+  resolve a floating Pi CLI or extension.
+- Install the complete list globally under `~/.local` and verify `pi` is on
+  `PATH`.
 
-Do not use `https://opencode.ai/install`: upstream can report the same version
-without containing the Trustable runtime contract.
+Do not install OpenCode, use `https://opencode.ai/install`, or replace the
+checked-in Trustable ACP adapter with a public unpinned package.
 
 12. install in ~/.local/bin the mcp servers for browser, openserverless, redis,
 milvus, postgres, mongodb, and s3 using the same procedure in image/Dockerfile

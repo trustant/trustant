@@ -91,8 +91,9 @@ There is no `opencode.json`, OpenCode runtime manifest, or per-app model file.
 
 Pi reaches MCP servers through `pi-mcp-adapter`. `.mcp.json` is fully regenerated
 on every launch. `openserverless` and `browser` are always present;
-`agentireact` is conditional on `AgentiReact()` in the Vite config; service MCP
-servers are conditional on their blocks in `~/.ops/config.json`.
+`agentireact` is conditional on the supported `@agentic-react/vite` import plus
+`AgenticReact()` invocation in the Vite config; service MCP servers are
+conditional on their blocks in `~/.ops/config.json`.
 
 `setup.sh` must register `pi-mcp-adapter` and `pi-web-access` with `pi install`.
 A global npm installation alone does not activate a Pi extension. The adapter
@@ -101,6 +102,14 @@ exposes a single `mcp` proxy, but every generated server uses
 Instructions still require `mcp({})` plus `.mcp.json.mcpServers` inspection
 before reporting binding availability because tool discovery and process
 connectivity are separate facts.
+
+The optional `agentireact` server is generated only when `vite.config.js` or
+`vite.config.ts` contains executable configuration that both references the
+`@agentic-react/vite` package and invokes `AgenticReact()`. Detection ignores
+comment-only or string-only text, the obsolete `AgentiReact()` spelling, and
+wrong packages. Its standard Pi entry is HTTP/eager at
+`http://localhost:5173/mcp`; adding the plugin during a live session requires
+an app relaunch so launch can regenerate `.mcp.json`.
 
 Pi still knows its built-in providers, and pi-acp currently advertises that
 full catalog even when Pi model cycling is scoped. Trustable therefore writes

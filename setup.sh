@@ -302,13 +302,27 @@ ok "local k3s API is ready"
 # or restart systemd services. DNS policy belongs to the VM/k3s image; changing
 # it here makes a repository setup unexpectedly mutate the host environment.
 
+# start.sh owns installation for trudev; setup validates the same prerequisite
+# explicitly so WSL/local-k3s fails before run.sh can leave a partial dev loop.
+KUBEFWD_VERSION="1.25.16"
+command -v kubefwd &>/dev/null \
+  || fail "kubefwd ${KUBEFWD_VERSION} is required (trudev: run start.sh on macOS; WSL: install the pinned Linux release)"
+KUBEFWD_INSTALLED_VERSION="$(
+  kubefwd version 2>/dev/null \
+    | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
+)"
+[[ "$KUBEFWD_INSTALLED_VERSION" == "$KUBEFWD_VERSION" ]] \
+  || fail "kubefwd version mismatch: expected ${KUBEFWD_VERSION}, got ${KUBEFWD_INSTALLED_VERSION:-unknown}"
+ok "kubefwd ${KUBEFWD_VERSION} is available"
+
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
 ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
 # --- 10. Ensure the image's CLI tools are available (install any missing) ---
-# No /opt/homebrew and no kubefwd in the VM — cluster services are local.
+# The upstream Milvus CLI lives globally. WHY: ~/.local/bin/milvus_cli is the
+# per-app auto-connect wrapper and must never remain a uv-managed symlink.
 echo "--- Checking CLI tools (psql, redis-cli, rclone, milvus-cli) ---"
 APT_MISSING=()
 command -v psql      &>/dev/null || APT_MISSING+=(postgresql-client-16)
@@ -321,11 +335,27 @@ if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
 fi
 ok "psql, redis-cli, rclone available"
 
-if ! command -v milvus_cli &>/dev/null && ! command -v milvus-cli &>/dev/null; then
-  warn "milvus-cli not found, installing via uv..."
-  env UV_TOOL_BIN_DIR="$LOCAL_BIN" uv tool install milvus-cli || fail "uv tool install milvus-cli failed"
+MILVUS_CLI_VERSION="1.2.1"
+UV_BIN="$(command -v uv)"
+MILVUS_CLI_INSTALLED_VERSION="$(
+  sudo env UV_TOOL_DIR=/opt/uv/tools "$UV_BIN" tool list 2>/dev/null \
+    | awk '$1 == "milvus-cli" { sub(/^v/, "", $2); print $2; exit }'
+)"
+if [[ "$MILVUS_CLI_INSTALLED_VERSION" != "$MILVUS_CLI_VERSION" ]] ||
+   [[ ! -x /usr/local/bin/milvus_client ]]; then
+  warn "installing global milvus-cli ${MILVUS_CLI_VERSION}..."
+  sudo env \
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_TOOL_DIR=/opt/uv/tools \
+    UV_CACHE_DIR=/opt/uv/cache \
+    UV_PYTHON_PREFERENCE=only-system \
+    UV_LINK_MODE=hardlink \
+    "$UV_BIN" tool install --force --python /usr/bin/python3 "milvus-cli==${MILVUS_CLI_VERSION}" \
+    || fail "global milvus-cli ${MILVUS_CLI_VERSION} install failed"
 fi
-ok "milvus-cli available"
+[[ -x /usr/local/bin/milvus_client ]] \
+  || fail "global milvus_client entry point missing at /usr/local/bin/milvus_client"
+ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 
 # --- 11. Install the pi coding-agent toolchain (pinned by trustable-acp/pi.version) ---
 # Same pin file the image stages beside the standalone TruACP setup.sh. Format:

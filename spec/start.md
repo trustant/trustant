@@ -1,4 +1,7 @@
-Write a start.sh that provisions a local Trustable VM with Lima and wires it up
+# Repository-root `start.sh`
+
+This specification defines the repository-root `start.sh`. It provisions a
+local Trustable VM with Lima and wires it up
 so the rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
 ~/Library/Application Support/Trustable/ — the same place the macOS app writes.
 
@@ -58,13 +61,13 @@ only pin the UID when it isn't already taken by another account.
 
 ## k3s API cert (tls-san)
 
-setup.sh extracts k3s.yaml and rewrites `server: https://127.0.0.1:6443` ->
-`https://<ip>:6443` into ~/.ops/tmp/kubeconfig. But k3s's serving cert lists only
-the node IP (eth0/vzNAT) + 127.0.0.1 — NOT the lima0 IP the host connects to — so
-host-side kubectl/ops would fail TLS verification (cert valid for <node-ip>, not
-<lima0-ip>). Add the lima0 IP to k3s's tls-san (write /etc/rancher/k3s/config.yaml,
-drop the serving cert + dynamic-cert.json, restart k3s to reissue). Idempotent:
-skip if the live cert already covers the IP. No change needed in setup.sh.
+The in-VM setup keeps the local k3s kubeconfig on `127.0.0.1`, but host-side
+tools may use the host-reachable lima0 address. k3s's serving cert lists only
+the node IP (eth0/vzNAT) plus 127.0.0.1 by default, not lima0, so those
+host-side clients would fail TLS verification. Add the lima0 IP to k3s's
+tls-san (write `/etc/rancher/k3s/config.yaml`, drop the serving cert plus
+`dynamic-cert.json`, restart k3s to reissue). Idempotent: skip if the live cert
+already covers the IP. No change is needed in setup.sh.
 
 ## Write the support files
 
@@ -112,6 +115,17 @@ OLLAMA_ENDPOINT. Apple's vz gives the Linux guest no GPU passthrough, so this is
 CPU-only; that's fine because the app mostly uses cloud models. Idempotent: skip
 the install when ollama is already present at the pinned version. Runs on every
 start (in the finish path), so an existing VM gets ollama too.
+
+## Pinned kubefwd in the VM
+
+Install `kubefwd` 1.25.16 as `/usr/local/bin/kubefwd` on every finish path, so
+both new and reused `trudev` VMs satisfy repository-root `run.sh`. Select the
+official Linux archive for `x86_64` or `arm64`, verify its pinned SHA-256 before
+installation, install atomically with mode `0755`, and verify the installed
+version. Unsupported architectures, checksum failures, missing binaries, or
+version mismatches abort provisioning with an actionable error. This
+provisioning must not modify resolver configuration; `run.sh` owns the
+forwarder's process lifetime.
 
 ## Re-running when the VM already exists
 
