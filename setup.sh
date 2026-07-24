@@ -325,17 +325,21 @@ ok "Admin access confirmed"
 # --- 10. Ensure the image's CLI tools are available (install any missing) ---
 # The upstream Milvus CLI lives globally. WHY: ~/.local/bin/milvus_cli is the
 # per-app auto-connect wrapper and must never remain a uv-managed symlink.
-echo "--- Checking CLI tools (psql, redis-cli, rclone, milvus-cli) ---"
+echo "--- Checking CLI tools (psql, redis-cli, rclone, lsof, milvus-cli) ---"
 APT_MISSING=()
 command -v psql      &>/dev/null || APT_MISSING+=(postgresql-client-16)
 command -v redis-cli &>/dev/null || APT_MISSING+=(redis-tools)
 command -v rclone    &>/dev/null || APT_MISSING+=(rclone)
+# Port recovery is part of the shared launch lifecycle. WHY: the production
+# image and a clean VM must both reclaim an orphaned TruACP/Vite listener rather
+# than depend on lsof happening to exist in a developer's base environment.
+command -v lsof      &>/dev/null || APT_MISSING+=(lsof)
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
   sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
-ok "psql, redis-cli, rclone available"
+ok "psql, redis-cli, rclone, lsof available"
 
 MILVUS_CLI_VERSION="1.2.1"
 UV_BIN="$(command -v uv)"

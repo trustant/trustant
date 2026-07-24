@@ -686,7 +686,10 @@ images:
     arch: "x86_64"
 cpus: 4
 memory: "8GiB"
-disk: "40GiB"
+# Trustable keeps the full k3s service stack and imports multi-layer development
+# images locally; 60 GiB restores headroom over the DiskPressure-prone 40 GiB
+# default without imposing the larger 100 GiB allocation on every new VM.
+disk: "60GiB"
 networks:
   - vzNAT: true
 mountType: virtiofs

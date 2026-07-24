@@ -41,6 +41,30 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	}
 }
 
+func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
+	setupContent, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(setupContent)
+	for _, required := range []string{
+		`command -v lsof`,
+		`APT_MISSING+=(lsof)`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh must install the launch port-recovery dependency: missing %q", required)
+		}
+	}
+
+	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	if !strings.Contains(string(dockerContent), "vim lsof libatomic1") {
+		t.Fatal("production image must contain lsof for orphaned TruACP/Vite listener recovery")
+	}
+}
+
 func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
 	content, err := os.ReadFile("setup.sh")
 	if err != nil {
@@ -87,6 +111,20 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 		if !strings.Contains(start, required) {
 			t.Fatalf("start.sh is missing portable TruACP source setup fragment %q", required)
 		}
+	}
+}
+
+func TestStartAllocatesBuildCapableLimaDisk(t *testing.T) {
+	content, err := os.ReadFile("start.sh")
+	if err != nil {
+		t.Fatalf("read start.sh: %s", err)
+	}
+	start := string(content)
+	if !strings.Contains(start, `disk: "60GiB"`) {
+		t.Fatal("start.sh must leave enough disk headroom for k3s and repeated Trustable image imports")
+	}
+	if strings.Contains(start, `disk: "40GiB"`) {
+		t.Fatal("start.sh must not recreate trudev with the DiskPressure-prone 40 GiB allocation")
 	}
 }
 

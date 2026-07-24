@@ -15,6 +15,11 @@ also run it manually via `./ssh.sh ./setup.sh` or from a login shell in the VM
 (`limactl shell trudev`). It is idempotent — re-runs just verify. The repo is
 virtiofs-mounted at its host path and is writable by this user.
 
+`start.sh` allocates 60 GiB to a new `trudev` instance. This is the minimum
+supported development capacity for the local k3s service images, containerd
+snapshots, and repeated Trustable image imports without the known 40 GiB
+DiskPressure failure. Existing larger instances are left unchanged.
+
 On WSL, run `setup.sh` manually as the Linux development user. The repository
 should live in the WSL Linux filesystem, and `/etc/rancher/k3s/k3s.yaml` must
 describe the k3s running in that same WSL instance. WSL remains an Ubuntu
@@ -164,6 +169,7 @@ missing (apt via passwordless sudo, the pinned upstream Milvus CLI via uv):
 - psql       (postgresql-client-16)
 - redis-cli  (redis-tools)
 - rclone
+- lsof, required by Trustable's orphaned TruACP/Vite listener recovery
 - milvus-cli 1.2.1, installed globally with its upstream entry points under
   `/usr/local/bin`
 

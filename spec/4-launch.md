@@ -16,6 +16,25 @@ When invoking this api it should check the folder
 { "error": <error> }
 ```
 
+## serialize the shared runtime lifecycle
+
+Launch, `DELETE /api/launch`, and `/api/redeploy` share one lifecycle lock
+because every application uses the same truacp port 4096, opsdevel port 5173,
+`pgid`, and `current` files. A second browser tab or repeated Edit click must
+wait for the in-flight operation instead of racing its deploy and port checks.
+
+After acquiring the lock, a duplicate launch of the same application returns
+the existing 4096/5173 response without redeploying when all of the following
+are true:
+
+- `current` names the requested application;
+- `pgid` identifies a live Trustable-owned process group;
+- both truacp and opsdevel accept loopback connections.
+
+Do not reuse a runtime based on a listening port alone. If any ownership or
+health condition fails, perform the normal teardown/relaunch path so unrelated
+or incomplete listeners are reclaimed.
+
 ## terminate leftover processes
 
 If a `<workbenchdir>/pgid` file exists, forcefully terminate the process
@@ -33,6 +52,10 @@ without a matching running session is left over from a previous launch).
 
 The "check ports" step below applies the same port reclaim as a last-resort
 fallback before returning a "port not available" error.
+
+`lsof` is a declared runtime dependency in both the development setup and the
+production image; orphan recovery must not depend on it being accidentally
+present in one base environment.
 
 ## clone to workbench
 
@@ -125,6 +148,12 @@ configure flow (see [pi.md](pi.md)). Launch does not mutate or repair global Pi
 state; users without `pi.default` must complete Configure before opening an app.
 Both `applist.html` and the launch API enforce this guard so a stale/direct tab
 is routed back to `configure.html?setup=1`.
+
+The server preflight may restore those global JSON files from
+`<WorkspaceDir>/.trustable/pi-agent-config/`, or reconstruct a missing initial
+snapshot from an already-selected workspace configuration after a pod image
+replacement. This happens before serving launch requests and does not make
+launch a configuration writer.
 
 The removed OpenCode generator is not retained as an unreachable compatibility
 path: the Go binary does not embed a session-enforcement JavaScript plugin and

@@ -617,6 +617,125 @@ func writePiJSONFile(path string, content map[string]interface{}, mode os.FileMo
 	return nil
 }
 
+type piGlobalConfigFile struct {
+	name string
+	mode os.FileMode
+}
+
+var piGlobalConfigFiles = []piGlobalConfigFile{
+	{name: "models.json", mode: 0600},
+	{name: "settings.json", mode: 0644},
+	{name: "auth.json", mode: 0600},
+}
+
+// piPersistentConfigDir keeps only Pi's small managed JSON files on the
+// workspace volume. WHY: the npm extension tree is supplied by each image and
+// must be allowed to upgrade, while models/auth/settings must survive replacing
+// the pod's otherwise ephemeral home directory.
+func piPersistentConfigDir() string {
+	if strings.TrimSpace(WorkspaceDir) == "" {
+		return ""
+	}
+	return filepath.Join(WorkspaceDir, ".trustable", "pi-agent-config")
+}
+
+func readPiJSONFileStrict(path string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	parsed := make(map[string]interface{})
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	return parsed, nil
+}
+
+// persistPiGlobalConfig snapshots the successfully written live configuration.
+// The containing directory is private because auth.json contains the real key.
+func persistPiGlobalConfig(liveDir string) error {
+	persistentDir := piPersistentConfigDir()
+	if persistentDir == "" {
+		return nil
+	}
+	liveAbs, _ := filepath.Abs(liveDir)
+	persistentAbs, _ := filepath.Abs(persistentDir)
+	if liveAbs == persistentAbs {
+		return nil
+	}
+	if err := os.MkdirAll(persistentDir, 0700); err != nil {
+		return fmt.Errorf("failed to create persistent pi config directory: %w", err)
+	}
+	if err := os.Chmod(persistentDir, 0700); err != nil {
+		return fmt.Errorf("failed to secure persistent pi config directory: %w", err)
+	}
+	for _, file := range piGlobalConfigFiles {
+		content, err := readPiJSONFileStrict(filepath.Join(liveDir, file.name))
+		if err != nil {
+			return fmt.Errorf("failed to snapshot pi %s: %w", file.name, err)
+		}
+		if err := writePiJSONFile(filepath.Join(persistentDir, file.name), content, file.mode); err != nil {
+			return fmt.Errorf("failed to persist pi %s: %w", file.name, err)
+		}
+	}
+	return nil
+}
+
+// restorePiGlobalConfigAtStartup overlays the durable JSON snapshot onto the
+// fresh image's Pi directory, preserving the image's current package registry.
+// On the first upgraded boot there is no snapshot yet, so the already-persisted
+// Trustable provider selection is materialized once without changing it or
+// performing a new network probe.
+func restorePiGlobalConfigAtStartup() error {
+	liveDir, err := piAgentDir()
+	if err != nil {
+		return err
+	}
+	persistentDir := piPersistentConfigDir()
+	restored := 0
+	if persistentDir != "" {
+		for _, file := range piGlobalConfigFiles {
+			persistentPath := filepath.Join(persistentDir, file.name)
+			persistent, readErr := readPiJSONFileStrict(persistentPath)
+			if readErr != nil {
+				if os.IsNotExist(readErr) {
+					continue
+				}
+				log.Printf("Warning: ignoring invalid persistent Pi %s: %s", file.name, readErr)
+				continue
+			}
+			live := readPiJSONFile(filepath.Join(liveDir, file.name))
+			imagePackages, imageHasPackages := live["packages"]
+			for key, value := range persistent {
+				live[key] = value
+			}
+			// setup.sh owns the installed extension set. WHY: a persisted
+			// settings file from an older pod must not pin stale image packages.
+			if file.name == "settings.json" && imageHasPackages {
+				live["packages"] = imagePackages
+			}
+			if err := writePiJSONFile(filepath.Join(liveDir, file.name), live, file.mode); err != nil {
+				return fmt.Errorf("failed to restore pi %s: %w", file.name, err)
+			}
+			restored++
+		}
+	}
+
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration for pi restore: %w", err)
+	}
+	if piDefaultModel(cfg) != "" {
+		// Re-render the selected managed provider so a first upgrade can recover
+		// from workspace state and a later image cannot retain stale limits.
+		return writePiGlobalConfig(cfg)
+	}
+	if restored > 0 {
+		log.Printf("Restored %d Pi configuration files; no managed default is selected", restored)
+	}
+	return nil
+}
+
 // piDefaultModel reads the only model selector supported by Pi. Legacy
 // opencode configuration is intentionally ignored: issue #51 defines a hard
 // cutover so first-run recovery happens through Configure instead of migration.
@@ -778,7 +897,10 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 		apiKey = "dummy"
 	}
 	auth[providerName] = map[string]interface{}{"type": "api_key", "key": apiKey}
-	return writePiJSONFile(authPath, auth, 0600)
+	if err := writePiJSONFile(authPath, auth, 0600); err != nil {
+		return err
+	}
+	return persistPiGlobalConfig(dir)
 }
 
 // handleConfigure handles GET /api/configure - pulls models and materializes Pi's global config, streaming progress.

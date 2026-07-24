@@ -128,6 +128,15 @@ func runPreflight() error {
 		log.Printf("Warning: config migration failed: %v", err)
 	}
 
+	// Restore Pi's managed JSON before an application can launch. WHY: the
+	// workspace volume survives a pod replacement, while ~/.pi/agent itself is
+	// rebuilt from the image so the pinned extension packages can be upgraded.
+	if err := restorePiGlobalConfigAtStartup(); err != nil {
+		log.Printf("Warning: Pi configuration restore failed: %v", err)
+	} else {
+		log.Println("✓ Pi configuration restore complete")
+	}
+
 	// Step 3: Check SSH key
 	log.Println("[3/3] Checking SSH key...")
 	checkSSHKey()

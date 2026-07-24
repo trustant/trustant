@@ -203,6 +203,9 @@ show an error if it is not in this format. Let:
 You can click the button `edit` to open an app
 - show a launching dialog with the message `Launching `<name`
 - invoke GET /api/launch/<name> to start it with a visual indicator you are waiting
+- repeated Edit requests from the same or different browser tabs are safe: the
+  server serializes the shared runtime lifecycle and reuses an already healthy
+  runtime for the same application instead of returning a false 4096 conflict
 - if there is an error, show the error and a button "continue"
 - if it is ok, save in cookies:
   - the LEFT and RIGHT urls

@@ -69,6 +69,20 @@ pass the connectivity probe. App launch never writes or repairs global Pi
 configuration: Edit is an app operation, while Configure is the single owner of
 runtime settings and credentials.
 
+After a successful Configure write, Trustable snapshots only these three JSON
+files under `<WorkspaceDir>/.trustable/pi-agent-config/`, with a private
+directory and the same per-file modes. The npm extension tree is deliberately
+not persisted: every replacement image must supply the versions pinned by that
+image rather than inherit packages from an older pod.
+
+At server preflight, Trustable overlays the durable JSON snapshot onto the fresh
+image's Pi directory while preserving the current image's `settings.packages`.
+For the first upgrade from an image that did not create a snapshot, preflight
+may materialize the already-selected provider from the durable
+`trustable.json`. This is state recovery, not a second configuration owner: it
+does not change provider/model selection, run a model probe, or run from app
+launch. A missing `pi.default` still requires the explicit Configure flow.
+
 The selected model is stored as `pi.default` in `trustable.json`. There is no
 secondary/small model. Legacy `opencode.default` and `opencode.small` fields are
 ignored rather than migrated; an existing installation without `pi.default`

@@ -59,6 +59,9 @@ same-name tool installed from an older source instead of accepting
 package-name-only “already installed” output. The
 upstream Milvus CLI is pinned and installed globally under `/usr/local/bin`;
 `~/.local/bin/milvus_cli` remains reserved for the per-app configured wrapper.
+Both environments install `lsof` explicitly because the shared TruACP/Vite
+lifecycle uses it to reclaim listeners left without a valid process-group
+marker; image behavior must not depend on an undeclared base-package accident.
 
 For the macOS Lima flow, `start.sh` initializes `mcp`, `trustable-acp`, and its
 nested `pi-acp` fork recursively on the host before starting the guest. It checks
@@ -68,6 +71,12 @@ worktree's `.git` file may point outside the single mounted directory, so
 to nested submodule Git metadata. The same `setup.sh` supports Ubuntu under
 Lima and WSL with local k3s without requiring guest access to Git metadata or
 changing guest system services.
+
+New `trudev` instances use a 60 GiB virtual disk. The local k3s service stack,
+containerd snapshots, and repeated Trustable image imports exceed the safe
+kubelet eviction margin of the former 40 GiB disk during normal development.
+Existing instances may be enlarged further in place and are not reduced by
+`start.sh`; recreating one must not regress to the smaller allocation.
 
 `start.sh` also creates the Lima-only `apihost-proxy` on port 8080. It rewrites
 browser-visible `<label>.<lima-ip>.nip.io` hosts to the corresponding

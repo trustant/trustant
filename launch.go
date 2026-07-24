@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/template"
 	"time"
@@ -30,6 +31,23 @@ const (
 	// upstream Milvus CLI through PATH can recurse or follow a stale uv symlink.
 	globalMilvusCLIPath = "/usr/local/bin/milvus_cli"
 )
+
+var runtimeLifecycleMu sync.Mutex
+
+// lockRuntimeLifecycle serializes launch, stop, and redeploy operations because
+// all applications share TruACP :4096, Vite :5173, and one process-group marker.
+// Browser tabs can submit overlapping requests; allowing them to proceed in
+// parallel lets a late request mistake the runtime just started by an earlier
+// request for an orphan and either kill it or report a false port conflict.
+func lockRuntimeLifecycle(operation string) func() {
+	log.Printf("Runtime lifecycle: waiting for %s", operation)
+	runtimeLifecycleMu.Lock()
+	log.Printf("Runtime lifecycle: acquired for %s", operation)
+	return func() {
+		log.Printf("Runtime lifecycle: released for %s", operation)
+		runtimeLifecycleMu.Unlock()
+	}
+}
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
@@ -532,6 +550,31 @@ func readCurrentApp() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
+func processGroupAlive(pgid int) bool {
+	if pgid <= 0 {
+		return false
+	}
+	err := syscall.Kill(-pgid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// managedRuntimeHealthyForApp identifies only a Trustable-owned runtime: the
+// durable current/pgid markers must agree with the requested app, the process
+// group must still exist, and both shared listeners must answer. Port checks
+// alone are deliberately insufficient because an unrelated listener must be
+// reclaimed instead of being reused as a successful launch.
+func managedRuntimeHealthyForApp(app string, leftPort, rightPort int) bool {
+	current, err := readCurrentApp()
+	if err != nil || current != app {
+		return false
+	}
+	pgid, err := readPgid()
+	if err != nil || !processGroupAlive(pgid) {
+		return false
+	}
+	return isPortListening(leftPort) && isPortListening(rightPort)
+}
+
 // canonicalWorkbenchPath returns the path OpenCode uses to store project and
 // session state. In the pod /home/trustable/workbench may be a symlink into the
 // persistent workspace volume, so resolve the parent even before the app
@@ -863,6 +906,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", app)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("App folder not found: %s/workspace/%s", WorkspaceDir, app)})
+		return
+	}
+
+	// A second tab can reach this point only after the first launch releases the
+	// lifecycle lock. Reuse its healthy process group instead of redeploying the
+	// same app and treating the legitimate :4096 listener as a port collision.
+	if managedRuntimeHealthyForApp(app, truacpPort, opsdevelPort) {
+		log.Printf("Runtime for %s is already healthy; reusing ports %d and %d", app, truacpPort, opsdevelPort)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"left":         truacpPort,
+			"right":        opsdevelPort,
+			"skills_added": false,
+		})
 		return
 	}
 
@@ -1328,6 +1384,9 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unlock := lockRuntimeLifecycle("redeploy " + name)
+	defer unlock()
+
 	req := struct{ Name string }{Name: name}
 
 	workbenchPath, err := canonicalWorkbenchPath(req.Name)
@@ -1485,8 +1544,12 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "App name is required"})
 			return
 		}
+		unlock := lockRuntimeLifecycle("launch " + app)
+		defer unlock()
 		handleLaunchGet(w, r, app)
 	case http.MethodDelete:
+		unlock := lockRuntimeLifecycle("stop")
+		defer unlock()
 		handleLaunchDelete(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

@@ -1799,6 +1799,126 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	}
 }
 
+func TestPiGlobalConfigSurvivesPodHomeReplacement(t *testing.T) {
+	root := t.TempDir()
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = filepath.Join(root, "workspace")
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	cfg := &trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://api.example.test/v1",
+		APIKey:   "aip_persistent_secret",
+		Models: map[string]*ModelLimits{
+			"qwen3-coder-next": {MaxToken: 240000, MaxOutput: 120000},
+		},
+		Pi: &piConfig{Default: "qwen3-coder-next"},
+	}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		t.Fatalf("save workspace config: %s", err)
+	}
+
+	firstHome := filepath.Join(root, "first-home", ".pi", "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", firstHome)
+	if err := writePiJSONFile(filepath.Join(firstHome, "settings.json"), map[string]interface{}{
+		"packages": []string{"npm:old-image-extension@1.0.0"},
+		"theme":    "user-choice",
+	}, 0644); err != nil {
+		t.Fatalf("seed first image settings: %s", err)
+	}
+	if err := writePiGlobalConfig(cfg); err != nil {
+		t.Fatalf("write initial Pi config: %s", err)
+	}
+
+	persistentDir := piPersistentConfigDir()
+	for _, file := range piGlobalConfigFiles {
+		info, err := os.Stat(filepath.Join(persistentDir, file.name))
+		if err != nil {
+			t.Fatalf("persistent %s missing: %s", file.name, err)
+		}
+		if info.Mode().Perm() != file.mode {
+			t.Fatalf("persistent %s mode = %o, want %o", file.name, info.Mode().Perm(), file.mode)
+		}
+	}
+	if info, err := os.Stat(persistentDir); err != nil || info.Mode().Perm() != 0700 {
+		t.Fatalf("persistent Pi directory must be private, info=%v err=%v", info, err)
+	}
+
+	// Simulate a replacement image: its home is fresh and carries a newer
+	// package registration, while the workspace volume remains mounted.
+	secondHome := filepath.Join(root, "second-home", ".pi", "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", secondHome)
+	if err := writePiJSONFile(filepath.Join(secondHome, "settings.json"), map[string]interface{}{
+		"packages":    []string{"npm:new-image-extension@2.0.0"},
+		"runtimeOnly": true,
+	}, 0644); err != nil {
+		t.Fatalf("seed replacement image settings: %s", err)
+	}
+	if err := restorePiGlobalConfigAtStartup(); err != nil {
+		t.Fatalf("restore Pi config: %s", err)
+	}
+
+	settings := readPiJSONFile(filepath.Join(secondHome, "settings.json"))
+	if settings["defaultProvider"] != piTrustableProviderName || settings["defaultModel"] != "qwen3-coder-next" {
+		t.Fatalf("managed Pi selection was not restored: %#v", settings)
+	}
+	if settings["theme"] != "user-choice" || settings["runtimeOnly"] != true {
+		t.Fatalf("unrelated persisted/runtime settings were not merged: %#v", settings)
+	}
+	packages, ok := settings["packages"].([]interface{})
+	if !ok || len(packages) != 1 || packages[0] != "npm:new-image-extension@2.0.0" {
+		t.Fatalf("replacement image package registry must win: %#v", settings["packages"])
+	}
+	auth := readPiJSONFile(filepath.Join(secondHome, "auth.json"))
+	providerAuth, ok := auth[piTrustableProviderName].(map[string]interface{})
+	if !ok || providerAuth["key"] != cfg.APIKey {
+		t.Fatal("provider credential was not restored into the replacement home")
+	}
+	if _, err := os.Stat(filepath.Join(secondHome, "models.json")); err != nil {
+		t.Fatalf("models.json was not restored: %s", err)
+	}
+}
+
+func TestPiGlobalConfigBootstrapsSnapshotForExistingWorkspace(t *testing.T) {
+	root := t.TempDir()
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = filepath.Join(root, "workspace")
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	cfg := &trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://api.example.test/v1",
+		APIKey:   "aip_existing_workspace",
+		Models: map[string]*ModelLimits{
+			"qwen3-coder-next": {MaxToken: 240000, MaxOutput: 120000},
+		},
+		Pi: &piConfig{Default: "qwen3-coder-next"},
+	}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		t.Fatalf("save existing workspace config: %s", err)
+	}
+
+	freshHome := filepath.Join(root, "fresh-image", ".pi", "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", freshHome)
+	if err := writePiJSONFile(filepath.Join(freshHome, "settings.json"), map[string]interface{}{
+		"packages": []string{"npm:pi-mcp-adapter@2.11.0"},
+	}, 0644); err != nil {
+		t.Fatalf("seed fresh image settings: %s", err)
+	}
+	if err := restorePiGlobalConfigAtStartup(); err != nil {
+		t.Fatalf("bootstrap Pi config from workspace: %s", err)
+	}
+
+	for _, file := range piGlobalConfigFiles {
+		if _, err := os.Stat(filepath.Join(freshHome, file.name)); err != nil {
+			t.Fatalf("live %s was not bootstrapped: %s", file.name, err)
+		}
+		if _, err := os.Stat(filepath.Join(piPersistentConfigDir(), file.name)); err != nil {
+			t.Fatalf("persistent %s snapshot was not created: %s", file.name, err)
+		}
+	}
+}
+
 func TestBuildPiModelsPreservesExplicitReasoningCapabilities(t *testing.T) {
 	enabled := true
 	disabled := false

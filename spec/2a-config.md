@@ -355,6 +355,19 @@ writes or repairs global Pi configuration and never creates `opencode.json`.
 Project-local MCP and instruction assets are described in
 [4-launch.md](4-launch.md).
 
+After the live files are written, the same JSON content is persisted under
+`<WorkspaceDir>/.trustable/pi-agent-config/`. Only `models.json`,
+`settings.json`, and `auth.json` are persisted; Pi's npm package directory
+continues to come from the current image/setup.
+
+During server preflight, a valid durable snapshot is restored into the fresh
+runtime directory and merged with the current image's package registration.
+When upgrading an existing workspace that predates the snapshot, preflight may
+recreate the three native files from the provider, model, limits, endpoint, and
+credential already stored in the workspace `trustable.json`. This recovery does
+not probe the provider or alter the saved selection. If `pi.default` is absent,
+preflight does not invent one and the normal Configure guard remains mandatory.
+
 # Manage configuration: GET /api/configuration
 
 Returns the merged configuration (base + workspace overrides) as JSON.

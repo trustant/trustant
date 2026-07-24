@@ -43,7 +43,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN \
     apt update && \
     apt install -y --no-install-recommends \
-        locales ca-certificates git sudo curl jq less vim libatomic1 \
+        locales ca-certificates git sudo curl jq less vim lsof libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
         python-is-python3 python3-pip python3-pytest python3-dotenv \
         postgresql-client-16 redis-tools rclone  && \
