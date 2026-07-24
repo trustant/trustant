@@ -12,9 +12,13 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 		t.Fatalf("read launch.go: %s", err)
 	}
 	source := string(data)
+	// WHY: launch must derive MCPs and companion wrappers from the same
+	// post-login config snapshot; the old helper re-read config independently.
 	for _, required := range []string{
 		`exec.Command("truacp", "--port", strconv.Itoa(leftPort), "--dir", workbenchPath)`,
-		`generateProjectAssetsForApp(app)`,
+		`serviceConfig, err := loadOpsConfig()`,
+		`generateProjectAssetsInDir(workbenchPath, buildMCPFromOpsConfig(serviceConfig))`,
+		`setupServiceToolingFromConfig(serviceConfig)`,
 		`if piDefaultModel(cfg) == ""`,
 		`"PI_SKIP_VERSION_CHECK=1"`,
 	} {

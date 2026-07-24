@@ -3,8 +3,8 @@ Put the code in the file `launch.go`
 
 `<local.prefix>` is `/usr/bin` on Linux and `/opt/homebrew/bin/` on Mac for the
 `rclone`, `psql`, and `redis-cli` wrappers. The Milvus implementation has a
-separate invariant: the upstream `milvus_client` entry point is installed
-globally at `/usr/local/bin/milvus_client`, while the Trustable-managed
+separate invariant: the upstream `milvus_cli` entry point is installed
+globally at `/usr/local/bin/milvus_cli`, while the Trustable-managed
 auto-connect wrapper is a regular executable at `~/.local/bin/milvus_cli`.
 
 # GET /api/launch/<name>
@@ -421,15 +421,15 @@ if __name__ == "__main__":
 with:
 
 {{.PythonVenv}} = interpreter from the first line of the exact global entry
-point `/usr/local/bin/milvus_client`
+point `/usr/local/bin/milvus_cli`
 {{.Host}} = <config.milvus.host>
 {{.Port}} = <config.milvus.port>
 {{.Token}} = <config.milvus.token>
 {{.DbName}} = <config.milvus.db.name>
 
-The generator must never search for `milvus_client` or `milvus_cli` through
+The generator must never search for `milvus_cli` through
 `PATH`: `~/.local/bin` is first and would rediscover the wrapper itself. A
-missing or unreadable `/usr/local/bin/milvus_client` is a launch configuration
+missing or unreadable `/usr/local/bin/milvus_cli` is a launch configuration
 error. If `~/.local/bin/milvus_cli` is an existing symlink, replace the link
 itself with an atomic rename; never follow it and overwrite the upstream
 package-managed target. Wrapper-generation failures are returned by launch

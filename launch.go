@@ -28,7 +28,7 @@ const (
 	localLoopbackHost = "127.0.0.1"
 	// WHY: ~/.local/bin contains the generated wrapper itself, so resolving the
 	// upstream Milvus CLI through PATH can recurse or follow a stale uv symlink.
-	globalMilvusClientPath = "/usr/local/bin/milvus_client"
+	globalMilvusCLIPath = "/usr/local/bin/milvus_cli"
 )
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
@@ -347,13 +347,13 @@ func localBinPrefix() string {
 // re-enter ~/.local/bin; Milvus instead derives its interpreter from the exact
 // global entry point.
 func setupServiceToolingFromConfig(cfg *opsConfig) error {
-	return setupServiceToolingFromConfigWithMilvusClient(cfg, globalMilvusClientPath)
+	return setupServiceToolingFromConfigWithMilvusEntryPoint(cfg, globalMilvusCLIPath)
 }
 
-// setupServiceToolingFromConfigWithMilvusClient keeps the global implementation
-// path explicit for regression fixtures while the production call above fixes
-// it to /usr/local/bin. No caller may rediscover that entry point through PATH.
-func setupServiceToolingFromConfigWithMilvusClient(cfg *opsConfig, globalClientPath string) error {
+// setupServiceToolingFromConfigWithMilvusEntryPoint keeps the global
+// implementation path explicit for regression fixtures while the production
+// call fixes it outside ~/.local/bin. No caller may rediscover it through PATH.
+func setupServiceToolingFromConfigWithMilvusEntryPoint(cfg *opsConfig, globalClientPath string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("locate home for service tooling: %w", err)
@@ -419,7 +419,7 @@ func setupServiceToolingFromConfigWithMilvusClient(cfg *opsConfig, globalClientP
 
 // renderMilvusCliWrapper renders the embedded milvus_cli.tmpl with the milvus
 // config and the interpreter resolved from the exact globally installed
-// `milvus_client` entry point.
+// `milvus_cli` entry point.
 func renderMilvusCliWrapper(globalClientPath string, cfg *opsConfig) (string, error) {
 	pythonVenv, err := milvusPythonInterpreter(globalClientPath)
 	if err != nil {
@@ -449,12 +449,12 @@ func renderMilvusCliWrapper(globalClientPath string, cfg *opsConfig) (string, er
 }
 
 // milvusPythonInterpreter returns the interpreter from the global
-// milvus_client shebang. WHY: scanning PATH is unsafe after the generated
+// milvus_cli shebang. WHY: scanning PATH is unsafe after the generated
 // ~/.local/bin wrapper has taken precedence and can select the wrapper again.
 func milvusPythonInterpreter(globalClientPath string) (string, error) {
 	data, err := os.ReadFile(globalClientPath)
 	if err != nil {
-		return "", fmt.Errorf("read global milvus_client at %s: %w", globalClientPath, err)
+		return "", fmt.Errorf("read global milvus_cli at %s: %w", globalClientPath, err)
 	}
 	firstLine := string(data)
 	if idx := strings.IndexByte(firstLine, '\n'); idx != -1 {
@@ -462,10 +462,10 @@ func milvusPythonInterpreter(globalClientPath string) (string, error) {
 	}
 	interpreter := strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
 	if interpreter == "" || interpreter == firstLine {
-		return "", fmt.Errorf("global milvus_client at %s has no interpreter shebang", globalClientPath)
+		return "", fmt.Errorf("global milvus_cli at %s has no interpreter shebang", globalClientPath)
 	}
 	if !filepath.IsAbs(interpreter) {
-		return "", fmt.Errorf("global milvus_client at %s uses non-absolute interpreter", globalClientPath)
+		return "", fmt.Errorf("global milvus_cli at %s uses non-absolute interpreter", globalClientPath)
 	}
 	return interpreter, nil
 }

@@ -39,7 +39,7 @@ func TestWriteServiceWrapperReplacesSymlinkWithoutFollowingTarget(t *testing.T) 
 }
 
 func TestRenderMilvusCliWrapperUsesExactGlobalEntryPoint(t *testing.T) {
-	globalClient := filepath.Join(t.TempDir(), "milvus_client")
+	globalClient := filepath.Join(t.TempDir(), "milvus_cli")
 	if err := os.WriteFile(globalClient, []byte("#!/opt/uv/tools/milvus-cli/bin/python\n"), 0755); err != nil {
 		t.Fatalf("write global client: %s", err)
 	}
@@ -59,7 +59,7 @@ func TestRenderMilvusCliWrapperUsesExactGlobalEntryPoint(t *testing.T) {
 
 func TestRenderMilvusCliWrapperFailsWhenGlobalEntryPointIsMissing(t *testing.T) {
 	_, err := renderMilvusCliWrapper(filepath.Join(t.TempDir(), "missing"), &opsConfig{})
-	if err == nil || !strings.Contains(err.Error(), "read global milvus_client") {
+	if err == nil || !strings.Contains(err.Error(), "read global milvus_cli") {
 		t.Fatalf("expected explicit missing-global-client error, got %v", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestRenderMilvusCliWrapperFailsWhenGlobalEntryPointIsMissing(t *testing.T) 
 func TestServiceWrappersMatchMCPServiceEndpoints(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	globalClient := filepath.Join(t.TempDir(), "milvus_client")
+	globalClient := filepath.Join(t.TempDir(), "milvus_cli")
 	if err := os.WriteFile(globalClient, []byte("#!/opt/uv/tools/milvus-cli/bin/python\n"), 0755); err != nil {
 		t.Fatalf("write global Milvus client: %s", err)
 	}
@@ -91,7 +91,7 @@ func TestServiceWrappersMatchMCPServiceEndpoints(t *testing.T) {
 	cfg.Milvus.Token = "demo:milvus-token"
 	cfg.Milvus.DB.Name = "demo"
 
-	if err := setupServiceToolingFromConfigWithMilvusClient(cfg, globalClient); err != nil {
+	if err := setupServiceToolingFromConfigWithMilvusEntryPoint(cfg, globalClient); err != nil {
 		t.Fatalf("setup service tooling: %s", err)
 	}
 	mcp := buildMCPFromOpsConfig(cfg)
@@ -164,7 +164,7 @@ func TestServiceToolingFailureDoesNotExposeMilvusToken(t *testing.T) {
 	cfg := &opsConfig{}
 	cfg.Milvus.Host = "milvus"
 	cfg.Milvus.Token = "private-token-must-not-leak"
-	err := setupServiceToolingFromConfigWithMilvusClient(cfg, filepath.Join(t.TempDir(), "missing"))
+	err := setupServiceToolingFromConfigWithMilvusEntryPoint(cfg, filepath.Join(t.TempDir(), "missing"))
 	if err == nil {
 		t.Fatal("missing global Milvus entry point must fail tooling setup")
 	}

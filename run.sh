@@ -81,7 +81,10 @@ done
 # cannot leave kubefwd or Air behind.
 AIR_PID=""
 KUBEFWD_PID=""
+KUBEFWD_SUDO_PID=""
+KUBEFWD_PID_FILE=""
 KUBEFWD_LOG=""
+KUBEFWD_RUNTIME_DIR=""
 
 # 6. wait until ^c and terminate everything
 cleanup() {
@@ -89,17 +92,36 @@ cleanup() {
     if [[ -n "$AIR_PID" ]]; then
         kill "$AIR_PID" 2>/dev/null
     fi
-    if [[ -n "$KUBEFWD_PID" ]]; then
-        # WHY: kubefwd runs through sudo to manage loopback addresses and
-        # /etc/hosts, so teardown must target that tracked privileged process
-        # rather than a broad pkill that could stop another development run.
-        sudo -n kill "$KUBEFWD_PID" 2>/dev/null || kill "$KUBEFWD_PID" 2>/dev/null
+    if [[ "$KUBEFWD_PID" =~ ^[0-9]+$ ]]; then
+        # WHY: $! belongs to sudo, not to the privileged kubefwd child. Signal
+        # the recorded child directly so it restores /etc/hosts and releases
+        # forwarded sockets before an immediate development restart.
+        sudo -n kill -INT "$KUBEFWD_PID" 2>/dev/null || true
+        for _ in $(seq 1 50); do
+            sudo -n kill -0 "$KUBEFWD_PID" 2>/dev/null || break
+            sleep 0.1
+        done
+        if sudo -n kill -0 "$KUBEFWD_PID" 2>/dev/null; then
+            sudo -n kill -TERM "$KUBEFWD_PID" 2>/dev/null || true
+        fi
+    elif [[ -n "$KUBEFWD_SUDO_PID" ]]; then
+        # WHY: an error before the child publishes its PID must still release
+        # the sudo supervisor instead of making EXIT cleanup wait forever.
+        kill -INT "$KUBEFWD_SUDO_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$KUBEFWD_SUDO_PID" ]]; then
+        for _ in $(seq 1 50); do
+            kill -0 "$KUBEFWD_SUDO_PID" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill -TERM "$KUBEFWD_SUDO_PID" 2>/dev/null || true
+        wait "$KUBEFWD_SUDO_PID" 2>/dev/null || true
     fi
     for port in 8910 5173 4096; do
         lsof -ti :"$port" | xargs kill 2>/dev/null
     done
     wait 2>/dev/null
-    [[ -z "$KUBEFWD_LOG" ]] || rm -f "$KUBEFWD_LOG"
+    [[ -z "$KUBEFWD_RUNTIME_DIR" ]] || rm -rf "$KUBEFWD_RUNTIME_DIR"
     echo "Done."
 }
 
@@ -144,16 +166,40 @@ if [[ -z "$FORWARD_PROBE_SERVICE" ]]; then
     echo "no nuvolaris service is available for kubefwd readiness (trustable-svc is intentionally excluded)" >&2
     exit 1
 fi
-KUBEFWD_LOG="$(mktemp -t trustable-kubefwd.XXXXXX.log)"
-sudo -n kubefwd svc \
+KUBEFWD_RUNTIME_DIR="$(mktemp -d -t trustable-kubefwd.XXXXXX)"
+KUBEFWD_LOG="$KUBEFWD_RUNTIME_DIR/kubefwd.log"
+KUBEFWD_PID_FILE="$KUBEFWD_RUNTIME_DIR/kubefwd.pid"
+: >"$KUBEFWD_LOG"
+# WHY: sudo is only a supervisor here. The root shell records its own PID and
+# then execs kubefwd, preserving that PID as the process run.sh must supervise.
+# The PID file starts absent inside a private directory: Linux can reject root
+# writes to a user-created regular file directly under sticky /tmp.
+sudo -n sh -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' sh \
+    "$KUBEFWD_PID_FILE" kubefwd svc \
     -f 'metadata.name!=trustable-svc' \
     --kubeconfig "$KUBECONFIG_FILE" \
     -n nuvolaris >"$KUBEFWD_LOG" 2>&1 &
-KUBEFWD_PID=$!
+KUBEFWD_SUDO_PID=$!
+
+for _ in $(seq 1 50); do
+    [[ -s "$KUBEFWD_PID_FILE" ]] && break
+    if ! kill -0 "$KUBEFWD_SUDO_PID" 2>/dev/null; then
+        echo "kubefwd supervisor exited before recording its child PID:" >&2
+        tail -n 80 "$KUBEFWD_LOG" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
+KUBEFWD_PID="$(cat "$KUBEFWD_PID_FILE" 2>/dev/null || true)"
+if [[ ! "$KUBEFWD_PID" =~ ^[0-9]+$ ]]; then
+    echo "kubefwd did not publish a valid child PID:" >&2
+    tail -n 80 "$KUBEFWD_LOG" >&2
+    exit 1
+fi
 
 KUBEFWD_READY=false
 for _ in $(seq 1 60); do
-    if ! kill -0 "$KUBEFWD_PID" 2>/dev/null; then
+    if ! sudo -n kill -0 "$KUBEFWD_PID" 2>/dev/null; then
         echo "kubefwd exited before it became ready:" >&2
         tail -n 80 "$KUBEFWD_LOG" >&2
         exit 1

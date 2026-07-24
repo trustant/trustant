@@ -342,7 +342,7 @@ MILVUS_CLI_INSTALLED_VERSION="$(
     | awk '$1 == "milvus-cli" { sub(/^v/, "", $2); print $2; exit }'
 )"
 if [[ "$MILVUS_CLI_INSTALLED_VERSION" != "$MILVUS_CLI_VERSION" ]] ||
-   [[ ! -x /usr/local/bin/milvus_client ]]; then
+   [[ ! -x /usr/local/bin/milvus_cli ]]; then
   warn "installing global milvus-cli ${MILVUS_CLI_VERSION}..."
   sudo env \
     UV_TOOL_BIN_DIR=/usr/local/bin \
@@ -353,8 +353,8 @@ if [[ "$MILVUS_CLI_INSTALLED_VERSION" != "$MILVUS_CLI_VERSION" ]] ||
     "$UV_BIN" tool install --force --python /usr/bin/python3 "milvus-cli==${MILVUS_CLI_VERSION}" \
     || fail "global milvus-cli ${MILVUS_CLI_VERSION} install failed"
 fi
-[[ -x /usr/local/bin/milvus_client ]] \
-  || fail "global milvus_client entry point missing at /usr/local/bin/milvus_client"
+[[ -x /usr/local/bin/milvus_cli ]] \
+  || fail "global milvus_cli entry point missing at /usr/local/bin/milvus_cli"
 ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 
 # --- 11. Install the pi coding-agent toolchain (pinned by trustable-acp/pi.version) ---

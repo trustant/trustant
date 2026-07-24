@@ -31,8 +31,13 @@ from stealing Trustable's local ports 8910, 4096, and 5173. Wait for bounded
 readiness by proving that at least one forwarded Service name resolves to a
 loopback address. If the process exits or readiness times out, print its
 diagnostic log and abort. The same cleanup trap that owns Air must terminate
-the one `kubefwd` process and remove its temporary log. Never start one
-forwarder per service and never modify resolver configuration.
+the one `kubefwd` process and remove its temporary log. Because `kubefwd`
+requires `sudo`, `run.sh` records the PID of the privileged child created
+behind the `sudo` supervisor, sends that exact child `SIGINT`, waits for it to
+restore `/etc/hosts` and release forwarded sockets, and only then returns.
+Tracking or killing only `$!` (the `sudo` wrapper) is invalid because it can
+leave cleanup racing with an immediate restart. Never start one forwarder per
+service and never modify resolver configuration.
 
 2d. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT);
 start.sh installs it in the VM, so only start one if nothing is listening.

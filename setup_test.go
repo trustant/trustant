@@ -164,7 +164,11 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 		`-n nuvolaris`,
 		`getent ahostsv4 "$FORWARD_PROBE_SERVICE"`,
 		`grep -q '^127\.'`,
-		`sudo -n kill "$KUBEFWD_PID"`,
+		`KUBEFWD_PID_FILE=`,
+		`printf "%s\n" "$$"`,
+		`exec "$@"`,
+		`sudo -n kill -INT "$KUBEFWD_PID"`,
+		`wait "$KUBEFWD_SUDO_PID"`,
 		`tail -n 80 "$KUBEFWD_LOG"`,
 	} {
 		if !strings.Contains(run, required) {
@@ -183,7 +187,7 @@ func TestSetupInstallsGlobalPinnedMilvusCli(t *testing.T) {
 		`MILVUS_CLI_VERSION="1.2.1"`,
 		`UV_TOOL_BIN_DIR=/usr/local/bin`,
 		`"milvus-cli==${MILVUS_CLI_VERSION}"`,
-		`/usr/local/bin/milvus_client`,
+		`/usr/local/bin/milvus_cli`,
 	} {
 		if !strings.Contains(setup, required) {
 			t.Fatalf("setup.sh is missing global Milvus CLI fragment %q", required)
