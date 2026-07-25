@@ -273,6 +273,12 @@ Every Pi package must be pinned in `trustable-acp/pi.version`. Run
 installs the pinned agents/adapters, and creates `~/.local/bin/truacp`. Verify
 that `pi`, `pi-acp`, and `truacp` resolve from the guest PATH. Do not install an
 OpenCode runtime or `@opencode-ai/plugin`: issue #51 is a hard Pi cutover.
+After registering the pinned `pi-mcp-adapter@2.11.0`, the same installer applies
+its version-guarded Streamable HTTP session-recovery transform even when
+`pi install` was skipped as already registered. The transform must validate all
+source targets before writing, remain idempotent, reconnect and refresh
+tools/resources after an expired server session, and retry a tool call at most
+once. A version or source-layout mismatch is a setup failure.
 The same setup installs the reviewed issue #57 extension at
 `~/.local/lib/truacp/extensions/trustable-runtime.ts`. A missing extension is
 a setup failure because managed Trustable must not start an unguarded Pi

@@ -122,6 +122,11 @@ Version 2 revalidates the host contract inside Pi and:
   action/wiring/source batch; a compatible idempotent no-op does not. Watcher
   status, checker, HTTP, and browser verification remain blocked until the
   required redeploy succeeds, while source and wiring work may continue;
+- recovers the pinned MCP adapter after that redeploy restarts the co-located
+  Vite/Agentic React server. A Streamable HTTP `Session not found` failure
+  closes only the stale adapter connection, reconnects and refreshes discovered
+  tools/resources, then retries the original tool call exactly once. Other
+  failures and a failed replacement/retry are returned without another retry;
 - blocks raw `ops action`/`wsk action`, direct service CLIs, manual action
   scaffolding/generated-wrapper manipulation, and ad-hoc dependency installs
   that would repair only the current managed VM;
@@ -197,6 +202,9 @@ Tests must cover:
 - a real `action_new` result requiring one successful host redeploy before
   verification, while an idempotent no-op does not; successful, failed, and
   incomplete `/api/redeploy` SSE responses retain protocol-level status;
+- deterministic, idempotent installation of the pinned adapter recovery across
+  proxy, direct-tool, and MCP UI calls, with exactly one retry for an expired
+  Streamable HTTP session and fail-closed source/version drift;
 - a healthy run exceeding 300 provider turns is not truncated, while repeated
   prose inside one streamed response is terminated deterministically;
 - watcher output is bounded, private, redacted by `trustable_runtime_status`,

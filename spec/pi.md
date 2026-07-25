@@ -139,6 +139,16 @@ plus `mcp({server:"<name>"})` per server; the adapter's successful
 `mcp({connect:"<name>"})` form proves both proxy reachability and discovery for
 that server, so successful connects for every required server are equivalent.
 
+The pinned `pi-mcp-adapter@2.11.0` receives a deterministic setup-time recovery
+patch. If a co-located Streamable HTTP server restarts and rejects the cached
+session ID, the manager closes that stale connection, initializes a replacement
+connection (refreshing tools and resources), and retries the original tool call
+exactly once. Proxy, direct-tool, and MCP UI calls all use this manager path.
+Other failures are returned unchanged, and a failed replacement or retry is not
+retried again. Setup validates the installed version and every source target
+before atomically replacing files, remains idempotent, and fails closed when the
+pinned package layout changes.
+
 The optional `agentireact` server is generated only when `vite.config.js` or
 `vite.config.ts` contains executable configuration that both references the
 `@agentic-react/vite` package and invokes `AgenticReact()`. Detection ignores
