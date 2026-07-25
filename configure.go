@@ -1171,14 +1171,23 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 	if mcp == nil {
 		mcp = make(map[string]interface{})
 	}
+	// WHY: application .env files are owned by Trustable's user-facing
+	// configuration flow. The agent-side MCP must not receive a writable
+	// secret-store path that could mutate or synchronize those files.
 	mcp["openserverless"] = map[string]interface{}{
 		"type":    "local",
 		"command": []string{"openserverless-mcp"},
-		"environment": map[string]string{
-			"OPENSERVERLESS_SECRETS_FILE": appSecretStorePath(filepath.Base(canonicalProjectDir)),
-		},
 	}
 	mcp["browser"] = browserMCPConfig(projectDir)
+	// WHY: Agentic React exposes selection context, not deterministic source
+	// validation. Keep a separate read-only React server in every workbench so
+	// route/auth/type failures are reported before browser verification.
+	mcp["react"] = map[string]interface{}{
+		"type":    "local",
+		"command": []string{"trustable-react-mcp"},
+		"enabled": true,
+		"timeout": 30_000,
+	}
 	if appUsesAgenticReact(projectDir) {
 		mcp["agentireact"] = map[string]interface{}{
 			"type": "remote",
@@ -2083,21 +2092,6 @@ func isServiceRuntimeEnvKey(name string) bool {
 	return name == "MONGODB_URI"
 }
 
-var appSecretEnvNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-
-func appSecretStorePath(appName string) string {
-	return filepath.Join(WorkspaceDir, ".trustable", "secrets", filepath.Base(appName)+".env")
-}
-
-func isManagedAppEnvKey(name string) bool {
-	switch name {
-	case "OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS":
-		return true
-	default:
-		return false
-	}
-}
-
 // generateAppEnvFiles writes .env and .env.production for an app in its workbench directory
 func generateAppEnvFiles(appName string) error {
 	cfg, err := loadTrustableConfig()
@@ -2128,16 +2122,6 @@ func generateAppEnvFiles(appName string) error {
 	// injected only into the OpenCode/ops process environment at launch time.
 	for k, v := range appCfg.Development {
 		if isServiceRuntimeEnvKey(k) {
-			continue
-		}
-		devVars[k] = v
-	}
-
-	// MCP-managed application secrets live outside the git checkout on the
-	// durable workspace volume. Merge only valid app keys and never allow this
-	// store to replace Trustable's managed identity/routing variables.
-	for k, v := range parseEnvFile(appSecretStorePath(appName)) {
-		if !appSecretEnvNamePattern.MatchString(k) || v == "" || isManagedAppEnvKey(k) || isServiceRuntimeEnvKey(k) {
 			continue
 		}
 		devVars[k] = v

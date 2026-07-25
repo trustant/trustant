@@ -82,6 +82,9 @@ Then set up the workbench:
 
 - Generate `.env` and `.env.production` in `<workbenchdir>/<name>` from the merged config using `generateAppEnvFiles(<name>)`.
 The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global env defaults, and per-app development overrides. The `.env.production` contains per-app production values.
+- These are Trustable-owned generated artifacts. Agents and MCP servers may
+  not read, create, edit, import, synchronize, or regenerate them; only the
+  user-facing Trustable configuration flow changes their source values.
 - If `<workbenchdir>/<name>/package.json` exists, run `npm install` in `<workbenchdir>/<name>`
 
 When the workbench already exists (reuse path), also regenerate the `.env` files
@@ -176,10 +179,26 @@ What launch writes into `<workbenchdir>/<app>/` is:
 - `.openserverless-contract.md` — the short critical action/DB recovery
   contract.
 
+After these files exist, launch writes the credential-free issue #57 runtime
+manifest described in [trustable-pi-runtime.md](trustable-pi-runtime.md). Its
+required server names come from the exact generated `.mcp.json`, its workspace
+is the canonical active checkout, and its browser-visible `browserUrl` is
+derived from the incoming `trustable.<domain>[:port]` request by replacing only
+the `trustable` label with `vite`. It must not use `OPS_APIHOST`, `localhost`, or
+an inferred deployment hostname for that browser-facing field. The separate
+`developmentUrl` remains `http://localhost:5173`, which Browser MCP may use only
+after matching that canonical current workbench.
+The same version-2 manifest declares the private host-owned
+`ops ide devel` log under `~/.config/trustable/runtime/<app>/`. Launch creates
+it with mode `0600` before managed Pi starts; app content cannot supply or
+modify the path.
+
 Plus, once per Trustable user in `~/.local/bin`: `check_openserverless_actions.sh`,
 `check_trustable_frontend.sh`, and `check_trustable_app.sh`, all executable and
 not duplicated into every app repo. The generated app contract tells the agent to
-run the OpenServerless checker with the current app path before deploy.
+run the OpenServerless checker with the current app path for source-contract
+validation. During managed Edit it runs after canonical watcher evidence and
+does not act as an archive/deploy gate.
 
 There is no `lsp` configuration: pi has no language-server config surface, so
 `typescript-language-server` and `pylsp` are no longer configured or supervised
@@ -240,25 +259,45 @@ unconditionally, independent of `~/.ops/config.json`:
 "openserverless": {
   "type": "stdio",
   "lifecycle": "eager",
-  "command": "openserverless-mcp",
-  "env": {
-    "OPENSERVERLESS_SECRETS_FILE": "<WorkspaceDir>/.trustable/secrets/<app>.env"
-  }
+  "command": "openserverless-mcp"
 }
 ```
 
-The `pi` CLI and pi extensions (`pi-mcp-adapter`, `pi-web-access`) are pinned in
+The entry deliberately has no writable persistent-secret-store environment.
+Application env values remain owned by the Trustable configuration UI; the
+agent reports a missing variable instead of synthesizing or synchronizing it.
+
+Pi extensions (`pi-mcp-adapter`, `pi-web-access`) are pinned in
 [trustable-acp/pi.version](../trustable-acp/pi.version), one
-`<module>@<version>` npm install spec per line. `pi-acp` is built from the
-separately pinned nested Trustable fork under `trustable-acp/pi-acp`; setup must
-never replace it with the public npm adapter. An unpinned manifest entry aborts
-the install.
+`<module>@<version>` npm install spec per line. The `pi` executable/core and
+`pi-acp` are built from separately pinned nested Trustable forks under
+`trustable-acp/pi` and `trustable-acp/pi-acp`; setup must never replace either
+with a public npm runtime. An unpinned manifest entry aborts the install.
 
 The runtime image installs `openserverless-mcp` from the local `mcp` submodule,
 not from a direct `github:apache/openserverless-mcp` npm reference. The image
 build stages that submodule into the Docker build context and includes the
 submodule commit in the base-image hash, so changing the MCP pointer forces the
 base image to rebuild.
+
+# always add the deterministic React MCP server:
+
+This read-only server statically validates the current React/Vite workbench.
+It resolves its root exclusively from the version-2 Trustable runtime manifest
+and exposes `react_project_inspect`, `react_validate_routes`,
+`react_validate_auth_flow`, and aggregate `react_validate`:
+
+```
+"react": {
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "trustable-react-mcp"
+}
+```
+
+It is independent from Agentic React. After a frontend mutation, managed Pi
+must run aggregate `react_validate` and resolve error findings before Browser
+MCP verification.
 
 # if the app uses Agentic React add the agentireact MCP server:
 
@@ -378,6 +417,20 @@ The `action-add-redis` / `action_add_redis` connector injects `ctx.REDIS` and
 must require editable action modules to build every Redis key from
 `ctx.REDIS_PREFIX` plus an app-local suffix. Naked Redis keys are invalid
 because Nuvolaris Redis ACLs only allow the configured user prefix.
+The checker must also fail an editable module that uses `ctx.REDIS` when the
+generated wrapper lacks the Redis connector, directing complete authentication
+surfaces to `auth_setup` and unrelated single endpoints to `action_add_redis`.
+
+Generated authentication guidance uses Redis-backed opaque sessions. Every
+login, registration, `me`/session, protected-resource, and logout action must
+be created before one `auth-setup` / `auth_setup` call receives the complete
+token, protected/session, and logout endpoint sets. That tool atomically adds
+Redis wiring without reading or writing `.env`; `action-add-redis` /
+`action_add_redis` remains the single-endpoint connector for unrelated Redis
+use. Session tokens are cryptographically random and opaque; the
+token-to-identity mapping lives in Redis with a bounded TTL, every key uses
+`ctx.REDIS_PREFIX`, and logout deletes the mapping. JWT/application-secret
+authentication is not the generated app contract.
 
 # if config.milvus is defined and not empty add:
 
@@ -537,6 +590,11 @@ Execute `ops ide deploy` in `<workbenchdir>/<app>`.
 
 If it terminates with 0 continue otherwise return error.
 
+This is the one initial launch-time deploy and occurs before `ops ide devel`
+starts. Once launch starts the development watcher, assistants must not invoke
+another `ops ide deploy`: the watcher owns live action packaging/deployment and
+the managed Pi extension blocks a concurrent deploy command.
+
 ## check ports
 
 Assume `truacp` port will be 4096 (this is where truacp listens; `pi-acp`
@@ -567,13 +625,22 @@ block and preserves app-local notes below it. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
 
 `.mcp.json` is written in the standard `mcpServers` form (see "MCP servers"
-above) and contains `openserverless`, `browser`, the optional
+above) and contains `openserverless`, `browser`, `react`, the optional
 `agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` whose config
 block is present. It is the **only** MCP surface: pi reads it via the
 `pi-mcp-adapter` extension and Claude-format clients read it natively. There is
 no second agent-specific MCP file; any internal legacy-shaped data is translated
 only at this write boundary. All listed servers are generated with eager
 lifecycle so the session starts with their real connected/error state.
+
+Before spawning TruACP, launch must also validate the installed issue #57
+extension, initialize the private rotating watcher log, and atomically publish
+the versioned host manifest. It then appends
+`TRUSTABLE_MANAGED_RUNTIME=1`, `TRUSTABLE_RUNTIME_CONFIG`, and
+`TRUSTABLE_PI_EXTENSION_PATH` only to the TruACP process environment. Missing
+or inconsistent inputs abort launch; these values must never enter generated
+application env files or maps. Standalone TruACP does not receive this managed
+contract.
 
 The companion `rclone`, `psql`, `redis-cli`, and `milvus_cli` wrappers and the
 service MCP entries are generated from the same post-login `~/.ops/config.json`
@@ -582,11 +649,13 @@ same `service` host and `port`; VM reachability is supplied by the one
 namespace-wide `kubefwd` owned by repository-root `run.sh`. The production pod
 uses native Kubernetes Service DNS and never starts that VM-only forwarder.
 
-The checker must accept sibling `.zip` files created by `ops ide deploy`, such
-as `packages/v1/contacts.zip`. It must fail on ZIP files created inside action
-source directories, missing sibling deploy archives, and action source files
-newer than their deploy archive. These failures require `ops ide deploy`; ZIP
-files must never be repaired manually.
+The checker must always reject ZIP files created inside action source
+directories and accept generated sibling `.zip` files such as
+`packages/v1/contacts.zip`. Outside managed live mode, missing sibling deploy
+archives and action source files newer than their archive remain deploy-workflow
+errors. With `TRUSTABLE_MANAGED_RUNTIME=1`, it deliberately skips those two
+archive-state checks because `trustable_runtime_status` and real HTTP behavior
+are authoritative; Pi must never inspect or repair ZIP files manually.
 It must not flag standard generated `__main__.py` PostgreSQL wiring as business
 logic merely because the wrapper imports `psycopg`, reads `POSTGRES_URL`, and
 assigns `ctx.POSTGRESQL`.
@@ -617,12 +686,10 @@ The generated `permission` deny rules (`ops action` shell commands, edits to
 machine are gone. The checkers remain advisory: they can catch implementation
 drift after the fact and cannot block an ordinary code or deploy tool call.
 
-The current issue #58 runtime baseline does not install a deterministic Pi
-execution-policy extension. The complete host/extension contract, including
-the secret boundary and workflow competencies, is owned by issue #57. Launch
-must not supply the removed `TRUSTABLE_PI_EXTENSION` placeholder before that
-contract and its regression tests are implemented. See "Guardrails" in
-[pi.md](pi.md).
+Issue #57 installs a deterministic Pi execution-policy extension and the owned
+Pi core. Launch supplies only the typed manifest and installed extension path;
+the removed `TRUSTABLE_PI_EXTENSION` placeholder remains forbidden. See
+"Guardrails" in [pi.md](pi.md).
 
 > [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg) still depicts the
 > removed OpenCode guardrail state machine and no longer reflects the
@@ -668,13 +735,25 @@ Write the process group in `<workbenchdir>/pgid`
 
 Write the app name in `<workbenchdir>/current`
 
-Execute `ops ide devel`  in <directory> using the same process group as truacp
+Execute `ops ide devel` in <directory> using the same process group as truacp.
+Mirror stdout and stderr to the normal Trustable console and the private,
+two-generation bounded watcher log declared by the manifest.
 
 Check the command does not terminate within .5 seconds.
 
 If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`, and return error
 
 Wait that both the processes are up and running and ports are listening.
+
+From this point until the app runtime stops, `ops ide devel` is the sole live
+deploy owner. Pi reads its redacted authoritative tail through
+`trustable_runtime_status`, then runs the action checker once for
+source-contract validation and verifies real HTTP routes. Managed live checker
+mode ignores sibling ZIP existence/freshness, and the Pi extension blocks
+direct shell inspection or polling of `packages/**/*.zip`, masked checker
+pipelines, and a second checker call without a relevant source or
+OpenServerless-wiring mutation. Pi does not run `ops ide deploy`, another
+watcher, repeated checker calls, or infer state from archive paths.
 
 truacp owns all session/cwd state internally, so there is no session POST and no
 `X-Opencode-Directory` header. Browser-visible traffic reaches truacp through
@@ -707,6 +786,19 @@ Do NOT remove the `<workbenchdir>/<name>` directory (it persists for reuse on ne
 # GET /api/redeploy?name=<app>
 
 This endpoint redeploys actions and restarts the `ops ide devel` process without restarting truacp. It streams progress via Server-Sent Events (SSE).
+
+This Trustable-owned endpoint is the safe full-redeploy path because it stops
+the watcher before running `ops ide deploy` and restarts it afterward. It is
+not equivalent to a Pi shell call that races the active watcher.
+
+The managed Pi extension exposes this same operation as
+`trustable_runtime_redeploy`, using the co-located
+`http://127.0.0.1:8910/api/redeploy` endpoint. After one or more successful
+OpenServerless `action_new` creations, Pi calls it once after the coherent
+action/wiring/source batch and before watcher status, checker, HTTP, or browser
+verification. The extension treats an SSE `error`, non-success HTTP response,
+timeout, or missing `done` event as a tool failure and keeps redeploy required.
+An idempotent `action_new` no-op does not trigger this requirement.
 
 Response content type: `text/event-stream`
 

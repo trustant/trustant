@@ -244,6 +244,12 @@ This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which wa
 - When app config is saved (`POST /api/appconfig/<name>`)
 - When global config is saved (`POST /api/configuration`)
 
+The Trustable configuration UI and these server-side generators are the only
+owners of application env files. Coding agents and MCP servers must treat
+`.env` and `.env.production` as immutable: they may not read, create, edit,
+import, synchronize, or regenerate them. A missing application value is
+reported to the user, who may add it through the Trustable app config UI.
+
 New variables must not be added to generated app `.env` / `.env.production`,
 the per-app config `development` / `production` maps, or env-generation code
 unless the user explicitly authorizes that exact variable in the current
@@ -267,15 +273,7 @@ use generated service bindings directly.
 
 3. Per-app `development` overrides
 
-4. Application secrets created through the OpenServerless MCP are stored
-   outside the git checkout at
-   `<WorkspaceDir>/.trustable/secrets/<app>.env`. The generated development
-   `.env` merges valid uppercase names from that file, but the secret store
-   cannot override `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
-   `OPS_SKILLS`, or service-only runtime credentials. Values are never written
-   to Pi configuration, `.mcp.json`, assistant output, or `.env.production`.
-
-5. Service runtime bindings from official OpenServerless config are not written
+4. Service runtime bindings from official OpenServerless config are not written
    to `.env`. When `~/.ops/config.json` exposes an official MongoDB capability,
    Trustable may pass the resolved URI as `MONGODB_URI` only in the process
    environment of TruACP/Pi, `ops ide deploy`, and `ops ide devel`, so

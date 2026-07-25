@@ -81,15 +81,18 @@ RUN \
 
 COPY openserverless-mcp /tmp/openserverless-mcp
 COPY trustable-browser-mcp /tmp/trustable-browser-mcp
+COPY trustable-react-mcp /tmp/trustable-react-mcp
 RUN \
     npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.9.0 ;\
     cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
     npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
     cd /tmp/trustable-browser-mcp && npm pack --pack-destination /tmp ;\
     npm install -g /tmp/trustable-browser-mcp-*.tgz ;\
+    cd /tmp/trustable-react-mcp && npm pack --pack-destination /tmp ;\
+    npm install -g /tmp/trustable-react-mcp-*.tgz ;\
     npx --yes playwright@1.56.1 install --with-deps chromium ;\
     cd / ;\
-    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-browser-mcp /tmp/trustable-browser-mcp-*.tgz ;\
+    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-browser-mcp /tmp/trustable-browser-mcp-*.tgz /tmp/trustable-react-mcp /tmp/trustable-react-mcp-*.tgz ;\
     rm -rf /var/lib/apt/lists/* ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
@@ -123,13 +126,15 @@ RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
 # TruACP serves the coding UI on :4096 and starts pi-acp/Pi. image.sh builds the
 # self-contained JavaScript bundle and pi-acp package before Docker runs and
-# stages only these four runtime inputs; source and node_modules must never
-# enter an image layer. The planned issue #57 execution-policy extension is
-# intentionally absent until its complete runtime contract is implemented.
+# stages only the runtime artifacts; source and node_modules must never enter an
+# image layer. The separately loaded policy file is pinned with this artifact
+# set so managed Pi cannot start without the issue #57 host contract.
 COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
 COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
 COPY --chown=trustable:trustable truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
+COPY --chown=trustable:trustable truacp-runtime/pi-packages /tmp/truacp/pi-packages
 COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
+COPY --chown=trustable:trustable truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts
 RUN \
     cd /tmp/truacp ;\
     sh setup.sh ;\

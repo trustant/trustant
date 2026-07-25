@@ -466,6 +466,20 @@ BROWSER_MCP_PACKAGE=$(find "$BROWSER_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-
   || fail "installing trustable-browser-mcp failed"
 rm -rf "$BROWSER_MCP_PACK_DIR"
 command -v trustable-browser-mcp &>/dev/null || fail "trustable-browser-mcp is not in PATH"
+
+# Install the deterministic React analyzer separately from Agentic React. WHY:
+# the latter captures UI selection context and cannot validate router/auth AST
+# invariants required before the bounded Browser MCP flow.
+[[ -f react-mcp/package.json ]] || fail "react-mcp source is missing"
+REACT_MCP_PACK_DIR=$(mktemp -d)
+( cd react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing trustable-react-mcp failed"
+REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-react-mcp-*.tgz' -print -quit)
+[[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustable-react-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$REACT_MCP_PACKAGE" ) \
+  || fail "installing trustable-react-mcp failed"
+rm -rf "$REACT_MCP_PACK_DIR"
+command -v trustable-react-mcp &>/dev/null || fail "trustable-react-mcp is not in PATH"
 env PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
   npx --yes playwright@1.56.1 install --with-deps chromium \
   || fail "installing Playwright Chromium failed"
@@ -482,7 +496,7 @@ if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
 fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
 
-ok "MCP servers (browser, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
+ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
 
 # --- 13. Build and install truacp (the ACP server that fronts `pi`) ---
 # truacp serves its own React UI on :4096 and spawns the `pi` coding agent over

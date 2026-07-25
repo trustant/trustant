@@ -8,6 +8,14 @@ ERRORS=0
 WARNINGS=0
 package_python_sources=()
 package_action_modules=()
+MANAGED_LIVE_MODE=0
+
+# WHY: in Trustable Edit, ops ide devel owns packaging asynchronously and its
+# private log is the deployment authority. Treating sibling ZIP timestamps as
+# a source contract made Pi poll derived artifacts and race the watcher.
+if [ "${TRUSTABLE_MANAGED_RUNTIME:-0}" = "1" ]; then
+  MANAGED_LIVE_MODE=1
+fi
 
 cd "$ROOT" || {
   echo "ERROR cannot enter $ROOT"
@@ -50,7 +58,7 @@ if [ -d packages ]; then
     \( -type f -name '*.py' -print \) 2>/dev/null | sort)
 
   while IFS= read -r archive; do
-    error "$archive" "Action ZIP files must not be created or edited inside an action source directory. Remove it and run ops ide deploy; generated deploy archives live beside the action directory."
+    error "$archive" "Action ZIP files must not be created or edited inside an action source directory. Remove it; generated deploy archives are owned by the active deploy workflow."
   done < <(find packages -mindepth 3 -maxdepth 3 -type f -name '*.zip' 2>/dev/null | sort)
 
   declare -A action_dirs_without_wrapper=()
@@ -71,11 +79,13 @@ if [ -d packages ]; then
 
   while IFS= read -r wrapper; do
     action_dir="$(dirname "$wrapper")"
-    deploy_archive="${action_dir}.zip"
-    if [ ! -f "$deploy_archive" ]; then
-      error "$action_dir" "Deploy archive is missing. Run ops ide deploy after creating or changing an action."
-    elif find "$action_dir" -maxdepth 1 -type f ! -name '*.zip' -newer "$deploy_archive" -print -quit 2>/dev/null | grep -q .; then
-      error "$action_dir" "Action source is newer than its deploy archive. Run ops ide deploy before setup or completion."
+    if [ "$MANAGED_LIVE_MODE" -ne 1 ]; then
+      deploy_archive="${action_dir}.zip"
+      if [ ! -f "$deploy_archive" ]; then
+        error "$action_dir" "Deploy archive is missing. Run the declared deploy workflow after creating or changing an action."
+      elif find "$action_dir" -maxdepth 1 -type f ! -name '*.zip' -newer "$deploy_archive" -print -quit 2>/dev/null | grep -q .; then
+        error "$action_dir" "Action source is newer than its deploy archive. Run the declared deploy workflow before setup or completion."
+      fi
     fi
 
     if grep -Eq '^[[:space:]]*def[[:space:]]+main[[:space:]]*\(' "$wrapper" &&
@@ -104,6 +114,13 @@ if [ -d packages ]; then
     fi
     action_dir="$(dirname "$module")"
     wrapper="$action_dir/__main__.py"
+    # WHY: trulongrun3 implemented Redis session checks in business modules,
+    # but several generated wrappers never received Redis wiring. Source-only
+    # auth logic is unusable when ctx.REDIS is absent at runtime.
+    if grep -Eq 'ctx\.REDIS(_PREFIX)?([^A-Za-z0-9_]|$)' "$module" &&
+      { [ ! -f "$wrapper" ] || ! grep -Eq 'init_redis|ctx\.REDIS(_PREFIX)?([^A-Za-z0-9_]|$)' "$wrapper"; }; then
+      error "$module" "Action module uses ctx.REDIS but its generated wrapper has no Redis connector. Call auth_setup with the complete authentication endpoint set, or action_add_redis for one non-authentication endpoint; never edit __main__.py manually."
+    fi
     if grep -Eq 'MONGODB_URI|MONGO_URL|MONGO_CONNECTION_STRING|MDB_CONNECTION_STRING' "$module" &&
       { [ ! -f "$wrapper" ] || ! grep -Eq 'init_mongo|init_mongodb|MONGODB|MONGO_|MDB_' "$wrapper"; }; then
       error "$module" "MongoDB runtime environment was guessed in action code, but no generated MongoDB action binding was detected. MCP MongoDB visibility is diagnostic only; report MongoDB as non configurato unless an official runtime binding exists."

@@ -7,8 +7,11 @@ Authoritative Trustable instruction sources:
 
 1. `.openserverless-contract.md` for the short OpenServerless/action recovery
    contract.
-2. `opencode.md` for the full Trustable app assistant guide.
+2. The Trustable-managed guidance embedded in this `AGENTS.md`.
 3. `.mcp.json` for the MCP servers generated for this workbench.
+
+There is no project-local `opencode.md`. `CLAUDE.md` mirrors the same managed
+guidance for Claude-compatible agents and is not an independent authority.
 
 Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
 `.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
@@ -18,14 +21,20 @@ files above.
 
 Before touching actions, databases, setup, deploy, or service state, read
 `.openserverless-contract.md`. If it is missing, say so and fall back to
-`opencode.md`.
+the Trustable-managed guidance in this file.
 
 Pi exposes every configured server through one lazy `mcp` proxy tool. Before
-reporting which service bindings exist, call `mcp({})` and inspect the keys in
-`.mcp.json.mcpServers`; do not infer absence from a missing server-specific tool
-name or from the fact that no MCP subprocess has started yet. In particular,
-MongoDB is configured when `.mcp.json.mcpServers.mongodb` exists. Never print or
-copy its connection-string environment value.
+the first shell command, file mutation, or application MCP operation, complete
+the mandatory capability bootstrap: inspect every server in
+`.mcp.json.mcpServers` with `mcp({server: "<name>"})` or
+`mcp({connect: "<name>"})`. The compatible status-first sequence calls
+`mcp({})` before the per-server `server` calls; a successful `connect` already
+proves both proxy reachability and that server's tool discovery. Use the exact
+tool names and argument schemas returned by those calls; do not infer them from
+memory or prose. Do not infer absence from a missing server-specific tool name
+or from the fact that no MCP subprocess has started yet. In particular,
+MongoDB is configured when `.mcp.json.mcpServers.mongodb` exists. Never print
+or copy its connection-string environment value.
 
 The optional `agentireact` server is valid only when the app's
 `vite.config.js` or `vite.config.ts` imports/references
@@ -34,8 +43,19 @@ launch; comments or strings are not an opt-in. After adding or removing the
 plugin, relaunch the app before relying on
 `.mcp.json.mcpServers.agentireact`.
 
-Service MCP servers are diagnostics for the agent, not automatic runtime
-bindings for action code. Do not use `MDB_MCP_CONNECTION_STRING` in app source;
+The always-present `react` server is the deterministic, read-only source
+validator for React/Vite code. After changing `src/`, call
+`react_project_inspect` when project shape is uncertain and then call
+`react_validate`. Resolve every error finding before Browser MCP verification.
+`agentireact` remains optional selection context and does not replace this
+validation.
+
+Service MCP servers are read-only discovery and verification aids during
+application generation, not automatic runtime bindings for action code. Never
+use `postgres_execute_sql` or another service-MCP mutation to create schema,
+seed records, repair live state, or complete a feature; put durable changes in
+idempotent setup or public OpenServerless actions. Do not use
+`MDB_MCP_CONNECTION_STRING` in app source;
 do not invent `MONGODB_URI`, `MONGO_URL`, or `MDB_CONNECTION_STRING` runtime
 env vars. If `action_add_mongodb` is available, use it to generate the wrapper
 and then use `ctx.MONGODB_CLIENT` or `ctx.MONGODB`. If MongoDB has no official
@@ -51,6 +71,12 @@ with `put_object`, `get_object` plus byte comparison, and `delete_object` in a
 Pi has shell access in the Trustable environment. Run bounded checks yourself
 instead of asking the user to run shell commands.
 
+When the same tool strategy fails three times with equivalent inputs and no
+successful relevant source or wiring mutation, stop repeating it. Read the MCP
+or watcher evidence and change the hypothesis or inputs. There is no global
+step or turn budget: healthy long runs may continue while they make concrete
+progress.
+
 Pi has no Trustable session-enforcement or completion plugin. After compaction,
 re-read the active user request and relevant project files before continuing;
 do not call legacy `trustable_*` tools. For reported browser bugs, reproduce the
@@ -58,18 +84,33 @@ exact symptom with the browser MCP before editing when the browser is available.
 After source changes, run the fixed user-visible flow again. Sound fixes must
 show active audio state.
 
-For any frontend change, run the project typecheck before the build. After a
-successful build or deploy, immediately open the exact changed route with the
-Browser MCP, inspect page diagnostics, and exercise the visible flow. Repeat
-that browser verification after later frontend mutations. Do not clear caches
-or reinstall dependencies unless the failure specifically indicates stale or
-missing dependencies.
+For any frontend change, run the deterministic `react_validate` MCP tool, then
+the project typecheck and build when they are available. Resolve its route,
+authentication, accessibility, and TypeScript errors before opening the exact
+changed route with the Browser MCP. Inspect page diagnostics and exercise the
+visible flow. Repeat both React validation and browser verification after later
+frontend mutations. Do not clear caches or reinstall dependencies unless the
+failure specifically indicates stale or missing dependencies.
 
-After any OpenServerless action tool call or change under `packages/`, run
-`timeout 120 ops ide deploy` before setup, runtime verification, or completion.
-If a setup action changed, run `timeout 120 ops ide setup` only after deploy
-succeeds. Never create, edit, move, or delete action ZIP files manually; they
-are deploy artifacts generated beside action directories by `ops ide deploy`.
+In a live Trustable Edit session, the existing `ops ide devel` watcher is the
+sole owner of action packaging and deployment. After a coherent action change,
+use `trustable_runtime_status`, run the checker once, and perform real HTTP
+validation. After one or more successful `action_new` creations, first finish
+the coherent action/wiring/source batch and call
+`trustable_runtime_redeploy` exactly once. It is the same safe full-redeploy
+workflow as the Trustable UI; watcher status, checker, HTTP, and browser
+verification remain blocked until it succeeds. A compatible idempotent
+`action_new` no-op does not require redeploy. In this managed live mode, the
+checker validates source and contract invariants without using sibling ZIP
+existence or freshness as a deployment gate.
+Never run `ops ide deploy` or start another `ops ide devel` process yourself.
+If a setup action changed, run `timeout 120 ops ide setup` only after the
+watcher log shows a successful action update and source checks pass. Never
+create, edit, move, delete, list, search, stat, or poll action ZIP files; they
+are watcher-owned implementation artifacts. If watcher status reports an
+error or no progress, use that exact evidence to repair the source/tool
+sequence or report the managed failure. Do not rerun the checker without a
+relevant change, retry a manual deploy, or increase timeouts.
 Never hide failures from deploy, setup, login, checkers, or frontend builds
 with `|| true`, `|| echo`, or `head`/`tail` pipelines.
 Never kill Trustable-managed processes or start `vite`, `npm run dev`, or
@@ -78,7 +119,8 @@ Never kill Trustable-managed processes or start `vite`, `npm run dev`, or
 Use the generated browser MCP to reproduce frontend behavior instead of
 guessing from source alone. `browser_open` in `development` mode targets only
 the Trustable-managed `http://localhost:5173`. Use `deployed` mode only after
-`ops ide deploy` for the derived `vite.<domain>` ingress check.
+the managed watcher has deployed the current sources, for the derived
+`vite.<domain>` ingress check.
 
 When the app uses React Router `HashRouter`, use `Link`, `NavLink`, `Navigate`,
 or `useNavigate` with logical paths such as `/login`. React Router adds the hash
@@ -107,14 +149,25 @@ before navigating. Do not write only to `localStorage`: the protected-route
 guard must observe the authenticated state in the same render cycle, without a
 manual reload.
 
-For token authentication, call `auth_setup` with every token-issuing endpoint
-and every endpoint that validates the token. Use `secret_status`,
-`secret_ensure`, or `secret_bind` for focused secret work; never read or edit
-`.env`, and never edit generated wrappers directly. Secret tool failures are
-real failures: do not continue with a partially bound endpoint set. Action
-modules must use only the shared `ctx.<SECRET>` value and must never fall back
-to `os.getenv()` defaults or hardcoded keys. Rerun `auth_setup` after adding a
-protected action.
+Application `.env` and `.env.production` files are immutable agent boundaries.
+Never read, create, edit, import, synchronize, or regenerate them. Only the
+user may change application environment values through Trustable's
+configuration interface. If a required value is absent, report its name and
+stop that path without generating a replacement.
+
+Authentication for application pages uses Redis-backed opaque sessions, not
+JWT or an application signing secret. Generate a cryptographically random
+opaque token at login or registration, store only its server-side
+token-to-identity mapping in Redis with a bounded TTL, and return only the
+opaque token to the browser. Create the complete authentication endpoint set
+first, then call `auth_setup` once with every token-issuing, `me`/session,
+protected-resource, and logout endpoint. It atomically adds Redis wiring to the
+whole set without reading or writing `.env`; use `action_add_redis` only when
+adding Redis to one non-authentication endpoint.
+Build every session key from `ctx.REDIS_PREFIX`; validate and refresh/expire
+the Redis session as designed on every protected request, derive identity from
+that record, and delete it on logout. Never accept a browser-supplied user id
+as authentication.
 
 `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
 Trustable-managed orchestration variables, not application secrets or action
@@ -124,7 +177,7 @@ must not contain `#--param OPS_APIHOST "$OPS_APIHOST"`, use
 uses relative `/api/my/...` URLs; server-side action logic uses generated
 service bindings directly.
 
-Persist only an opaque app session token as authoritative browser state. On a
+Persist only the opaque Redis session token as authoritative browser state. On a
 full reload, keep an explicit auth loading state and validate that token through
 a backend `me`/session endpoint before protected routes render. The backend
 derives identity from the validated token. A cached localStorage user/profile

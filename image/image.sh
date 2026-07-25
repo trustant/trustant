@@ -9,11 +9,14 @@ DOCKERFILE="Dockerfile"
 SEPARATOR='###---###'
 MCP_CONTEXT_DIR="openserverless-mcp"
 BROWSER_CONTEXT_DIR="trustable-browser-mcp"
+REACT_CONTEXT_DIR="trustable-react-mcp"
 TRUACP_ARTIFACT_DIR="truacp-runtime"
 
 cleanup() {
     rm -f Dockerfile.base Dockerfile.current
-    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$TRUACP_ARTIFACT_DIR"
+    # WHY: every staged local MCP must be ephemeral build context. Leaving the
+    # React source behind can make a later image build hash stale local files.
+    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$REACT_CONTEXT_DIR" "$TRUACP_ARTIFACT_DIR"
 }
 trap cleanup EXIT
 
@@ -62,8 +65,8 @@ detect_platforms() {
 PLATFORMS=$(detect_platforms)
 echo "Building for platforms: $PLATFORMS"
 git submodule update --init ../mcp
-# WHY: trustable-acp owns a pinned pi-acp fork. Recursive initialization is
-# required so image builds cannot silently fall back to an npm adapter.
+# WHY: trustable-acp owns pinned Pi and pi-acp forks. Recursive initialization
+# is required so image builds cannot silently fall back to npm runtimes.
 git submodule update --init --recursive ../trustable-acp
 
 if [ ! -f ../mcp/package.json ]; then
@@ -83,10 +86,9 @@ if [ ! -f ../trustable-acp/package.json ]; then
 fi
 TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
 echo "Using trustable-acp submodule: $TRUACP_REF"
-# WHY: the issue #58 runtime baseline contains only TruACP and its pinned
-# adapters. The broader deterministic Pi policy belongs to issue #57 and must
-# not be required by image packaging before that extension is implemented.
-for required in setup.sh pi.version package-lock.json; do
+# WHY: the managed runtime must package the issue #57 policy extension beside
+# the exact TruACP and pi-acp versions that negotiate its typed launch path.
+for required in setup.sh pi.version package-lock.json extensions/trustable-runtime.ts; do
     if [ ! -f "../trustable-acp/$required" ]; then
         echo "Error: ../trustable-acp/$required is missing." >&2
         exit 1
@@ -95,6 +97,12 @@ done
 for required in package.json package-lock.json; do
     if [ ! -f "../trustable-acp/pi-acp/$required" ]; then
         echo "Error: nested trustable-acp/pi-acp/$required is missing." >&2
+        exit 1
+    fi
+done
+for required in package.json package-lock.json scripts/local-release.mjs; do
+    if [ ! -f "../trustable-acp/pi/$required" ]; then
+        echo "Error: nested trustable-acp/pi/$required is missing." >&2
         exit 1
     fi
 done
@@ -119,6 +127,8 @@ mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
 cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
 cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
 cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
+mkdir -p "$TRUACP_ARTIFACT_DIR/extensions"
+cp ../trustable-acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"
 TRUACP_ARTIFACT_ABS="$PWD/$TRUACP_ARTIFACT_DIR"
 (
     cd ../trustable-acp/pi-acp
@@ -133,6 +143,35 @@ if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
     exit 1
 fi
 mv "$1" "$TRUACP_ARTIFACT_DIR/pi-acp-package.tgz"
+
+# Build the owned Pi monorepo into the five package tarballs consumed by the
+# same setup.sh path in both VM and image modes. WHY: installing the public
+# coding-agent package here would pass the build while dropping the core loop
+# protection tested from source.
+PI_RELEASE_DIR=$(mktemp -d)
+(
+    cd ../trustable-acp/pi
+    # WHY: repository lifecycle hooks (notably Husky) need Git administration
+    # paths that are intentionally absent from portable VM/image build inputs.
+    # The explicit local-release command below owns the actual package build.
+    npm ci --ignore-scripts
+    # WHY: an image build must not silently refresh model catalogs from a
+    # network service after the source revision has been reviewed.
+    PI_LOCAL_RELEASE_USE_CHECKED_IN_MODELS=1 node scripts/local-release.mjs \
+        --out "$PI_RELEASE_DIR" \
+        --force \
+        --skip-check \
+        --skip-test \
+        --skip-install
+)
+mkdir -p "$TRUACP_ARTIFACT_DIR/pi-packages"
+cp "$PI_RELEASE_DIR"/tarballs/*.tgz "$TRUACP_ARTIFACT_DIR/pi-packages/"
+rm -rf "$PI_RELEASE_DIR"
+set -- "$TRUACP_ARTIFACT_DIR"/pi-packages/*.tgz
+if [ "$#" -ne 5 ]; then
+    echo "Error: nested Trustable Pi build did not produce exactly five package archives." >&2
+    exit 1
+fi
 TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using staged TruACP artifact hash: $TRUACP_HASH"
 
@@ -145,6 +184,16 @@ mkdir -p "$BROWSER_CONTEXT_DIR"
 tar -C ../browser-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$BROWSER_CONTEXT_DIR"
 BROWSER_HASH="$(find "$BROWSER_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using trustable-browser-mcp source hash: $BROWSER_HASH"
+
+if [ ! -f ../react-mcp/package.json ]; then
+    echo "Error: ../react-mcp/package.json is missing." >&2
+    exit 1
+fi
+rm -rf "$REACT_CONTEXT_DIR"
+mkdir -p "$REACT_CONTEXT_DIR"
+tar -C ../react-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$REACT_CONTEXT_DIR"
+REACT_HASH="$(find "$REACT_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
+echo "Using trustable-react-mcp source hash: $REACT_HASH"
 
 # Split the Dockerfile at the separator
 SEPARATOR_LINE=$(grep -n "^${SEPARATOR}$" "$DOCKERFILE" | cut -d: -f1)
@@ -161,6 +210,7 @@ BASE_HASH=$({
     sha256sum Dockerfile.base
     printf 'openserverless-mcp=%s\n' "$MCP_REF"
     printf 'trustable-browser-mcp=%s\n' "$BROWSER_HASH"
+    printf 'trustable-react-mcp=%s\n' "$REACT_HASH"
     printf 'trustable-acp=%s:%s\n' "$TRUACP_REF" "$TRUACP_HASH"
 } | sha256sum | cut -c1-12)
 BASE_TAG="base-${BASE_HASH}"

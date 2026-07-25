@@ -19,19 +19,22 @@ binary for linux/amd64 and linux/arm64, builds the Docker image through
 
 `image/image.sh` builds the base image from the part of `image/Dockerfile`
 before the `###---###` separator. It stages `openserverless-mcp` from the pinned
-`mcp` submodule, the local browser MCP source, and four TruACP runtime artifacts:
-`setup.sh`, `pi.version`, `dist-bin/truacp.cjs`, and
-`pi-acp-package.tgz`. Before staging, it recursively initializes TruACP's pinned
+`mcp` submodule, the local browser and deterministic React MCP sources, and the
+TruACP runtime artifacts:
+`setup.sh`, `pi.version`, `dist-bin/truacp.cjs`,
+`pi-acp-package.tgz`, and `extensions/trustable-runtime.ts`. Before staging, it
+recursively initializes TruACP's pinned
 `pi-acp` fork, runs its tests/build/package step, and builds the TruACP bundle.
 The complete sources and `node_modules` must never enter the Docker build context
 or an image layer. The base-image hash includes the base Dockerfile and all
 staged runtime identities/content hashes, so any runtime, adapter, or
 browser-tool change rebuilds the base image used by Trustable.
 
-The deterministic Pi execution-policy extension planned by issue #57 is not
-part of the current issue #58 runtime baseline. Image packaging must not require
-or stage the former `trustable-guardrails.ts` placeholder before the complete
-host/extension contract is implemented and tested by that work.
+The issue #57 extension is a separately loaded, versioned runtime artifact. It
+must be staged beside the matching TruACP bundle and pinned `pi-acp` package.
+The image must not restore the former `trustable-guardrails.ts` placeholder or
+claim policy capabilities beyond those documented in
+[trustable-pi-runtime.md](trustable-pi-runtime.md).
 
 `trustable-acp` is tracked as a Git submodule from
 `https://github.com/trustable-ai/trustable-acp.git`, following `main` while the
@@ -44,7 +47,7 @@ built or installed.
 
 The Lima `setup.sh` development path mirrors the image: it builds the checked-out
 TruACP source, installs the pinned Pi toolchain, builds the same nested
-`pi-acp` fork, packages the local OpenServerless/browser MCP sources, and
+`pi-acp` fork, packages the local OpenServerless/browser/React MCP sources, and
 installs pinned Playwright Chromium with its Linux runtime dependencies. It
 installs the Milvus MCP from the exact
 `MILVUS_MCP_REPO`/`MILVUS_MCP_REF` declared in `image/Dockerfile`; the checked-in
@@ -70,7 +73,10 @@ worktree's `.git` file may point outside the single mounted directory, so
 `setup.sh` consumes ordinary mounted files and must never require guest access
 to nested submodule Git metadata. The same `setup.sh` supports Ubuntu under
 Lima and WSL with local k3s without requiring guest access to Git metadata or
-changing guest system services.
+changing guest system services. Nested Pi dependency hydration therefore uses
+`npm ci --ignore-scripts`: its explicit local-release command owns the package
+build, while repository-only lifecycle hooks such as Husky are neither needed
+nor allowed to follow host-only worktree administration paths.
 
 New `trudev` instances use a 60 GiB virtual disk. The local k3s service stack,
 containerd snapshots, and repeated Trustable image imports exceed the safe

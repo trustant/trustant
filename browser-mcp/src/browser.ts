@@ -82,7 +82,10 @@ export async function resolveManagedDevelopmentOrigin(
   } catch (error) {
     throw new Error(`Trustable browser could not read runtime manifest ${source}: ${error instanceof Error ? error.message : String(error)}`)
   }
-  if (manifest.version !== 1 || !Array.isArray(manifest.workbenches)) {
+  // WHY: version 2 adds host-owned watcher evidence for Pi while preserving
+  // the browser workbench/developmentUrl fields. Accept only the coordinated
+  // contract so a partially upgraded runtime fails before using shared :5173.
+  if (manifest.version !== 2 || !Array.isArray(manifest.workbenches)) {
     throw new Error(`Trustable browser received an invalid runtime manifest: ${source}`)
   }
 

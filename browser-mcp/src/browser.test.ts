@@ -35,7 +35,7 @@ test("managed development target is bound to the current runtime workbench", asy
   await mkdir(other, { recursive: true })
   const runtimeConfig = join(root, "opencode-runtime.json")
   await writeFile(runtimeConfig, JSON.stringify({
-    version: 1,
+    version: 2,
     workbenches: [{
       app: "trutest1",
       workspace: current,
@@ -48,6 +48,19 @@ test("managed development target is bound to the current runtime workbench", asy
     resolveManagedDevelopmentOrigin(runtimeConfig, other),
     /runtime manifest belongs to a different application.*do not use another app page as verification evidence/i,
   )
+})
+
+test("managed browser rejects stale version-1 runtime manifests", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "trustable-browser-runtime-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const current = join(root, "workbench", "trutest1")
+  await mkdir(current, { recursive: true })
+  const runtimeConfig = join(root, "runtime.json")
+  await writeFile(runtimeConfig, JSON.stringify({
+    version: 1,
+    workbenches: [{ app: "trutest1", workspace: current, developmentUrl: "http://localhost:5173" }],
+  }))
+  await assert.rejects(resolveManagedDevelopmentOrigin(runtimeConfig, current), /invalid runtime manifest/)
 })
 
 test("browser observes navigation, console, and failed requests", async (t) => {

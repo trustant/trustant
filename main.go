@@ -25,6 +25,9 @@ var openserverlessContractMd string
 //go:embed app-agents.md
 var appAgentsMd string
 
+// The checker is embedded rather than copied from the host. WHY: every app
+// must receive the exact source-contract checker matching this Trustable
+// binary, including its managed-live behavior that does not poll deploy ZIPs.
 //go:embed check_openserverless_actions.sh
 var openserverlessCheckerSh string
 

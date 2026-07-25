@@ -239,10 +239,13 @@ The VM development packages also include `python3-pytest` and
 `python3-dotenv`, matching generated application tests without requiring the
 assistant to modify the system Python environment during a session.
 
-Pack `browser-mcp/` and install the resulting `trustable-browser-mcp` package
-plus `tsx` under `~/.local`. Install Playwright `1.56.1` Chromium and its system
-dependencies with `PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright`. Setup must
-verify that `trustable-browser-mcp` resolves on PATH before completing.
+Pack `browser-mcp/` and install the resulting `trustable-browser-mcp` package,
+then pack `react-mcp/` and install the resulting `trustable-react-mcp` package
+plus `tsx` under `~/.local`. The React MCP is a read-only deterministic
+validator and is separate from optional Agentic React. Install Playwright
+`1.56.1` Chromium and its system dependencies with
+`PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright`. Setup must verify that both
+managed MCP commands resolve on PATH before completing.
 
 The S3 MCP is downloaded as a release binary and installed behind the repo's
 Python wrapper (image/mcp-s3), exactly as the Dockerfile does: the release binary
@@ -270,6 +273,11 @@ Every Pi package must be pinned in `trustable-acp/pi.version`. Run
 installs the pinned agents/adapters, and creates `~/.local/bin/truacp`. Verify
 that `pi`, `pi-acp`, and `truacp` resolve from the guest PATH. Do not install an
 OpenCode runtime or `@opencode-ai/plugin`: issue #51 is a hard Pi cutover.
+The same setup installs the reviewed issue #57 extension at
+`~/.local/lib/truacp/extensions/trustable-runtime.ts`. A missing extension is
+a setup failure because managed Trustable must not start an unguarded Pi
+session. Standalone TruACP does not load this extension unless the host selects
+it through the typed launch contract.
 
 This is the "references ready" prerequisite. Ensure the ~/.bashrc PATH matches the
 image ordering, including the Go bin dir (GOBIN/GOPATH-bin) so a fresh login shell
@@ -277,7 +285,8 @@ image ordering, including the Go bin dir (GOBIN/GOPATH-bin) so a fresh login she
 
 ~/.local/bin:~/.ops/linux-<arch>/bin:<go-bin>:/usr/local/bin:/usr/bin:/bin
 
-Note (no action needed): the per-app opencode.md and .openserverless-contract.md
-are written at launch by the Go binary, and skills come from OPS_SKILLS (default
-trustable-ai/skills) cloned at launch by skills.go — setup does nothing for these,
-but they are covered when an app is launched.
+Note (no action needed): per-app `AGENTS.md`, its `CLAUDE.md` compatibility
+mirror, `.openserverless-contract.md`, and `.mcp.json` are written at launch by
+the Go binary. There is no project-local `opencode.md`. Skills come from
+OPS_SKILLS (default `trustable-ai/skills`) cloned at launch by `skills.go`;
+setup does nothing for these, but they are covered when an app is launched.

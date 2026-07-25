@@ -361,7 +361,7 @@ func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
 	}
 }
 
-func TestGeneratedAppEnvIncludesPersistentSecretsWithoutOverridingManagedValues(t *testing.T) {
+func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
 	origWorkspace := WorkspaceDir
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() {
@@ -409,14 +409,16 @@ func TestGeneratedAppEnvIncludesPersistentSecretsWithoutOverridingManagedValues(
 	if err := os.MkdirAll(filepath.Join(WorkbenchDir, "truapp"), 0755); err != nil {
 		t.Fatalf("mkdir workbench: %s", err)
 	}
-	secretPath := appSecretStorePath("truapp")
-	if err := os.MkdirAll(filepath.Dir(secretPath), 0700); err != nil {
-		t.Fatalf("mkdir app secret store: %s", err)
+	// WHY: older builds created this durable MCP-owned store. Env generation
+	// must ignore it so an agent cannot mutate application configuration behind
+	// the user-facing Trustable editor.
+	legacySecretPath := filepath.Join(WorkspaceDir, ".trustable", "secrets", "truapp.env")
+	if err := os.MkdirAll(filepath.Dir(legacySecretPath), 0700); err != nil {
+		t.Fatalf("mkdir legacy app secret store: %s", err)
 	}
-	if err := os.WriteFile(secretPath, []byte("JWT_SECRET=persistent-test-value\nOPS_PASSWORD=must-not-win\nMONGODB_URI=must-not-leak\n"), 0600); err != nil {
-		t.Fatalf("write app secret store: %s", err)
+	if err := os.WriteFile(legacySecretPath, []byte("JWT_SECRET=must-not-be-imported\n"), 0600); err != nil {
+		t.Fatalf("write legacy app secret store: %s", err)
 	}
-
 	if err := generateAppEnvFiles("truapp"); err != nil {
 		t.Fatalf("generate env: %s", err)
 	}
@@ -428,11 +430,11 @@ func TestGeneratedAppEnvIncludesPersistentSecretsWithoutOverridingManagedValues(
 	if got := env["CUSTOM"]; got != "dev" {
 		t.Fatalf("expected ordinary development env to remain, got %q", got)
 	}
-	if got := env["JWT_SECRET"]; got != "persistent-test-value" {
-		t.Fatalf("expected persistent app secret in generated env, got %q", got)
+	if got := env["JWT_SECRET"]; got != "" {
+		t.Fatalf("legacy MCP secret store must not feed generated app env, got %q", got)
 	}
 	if got := env["OPS_PASSWORD"]; got != "secret" {
-		t.Fatalf("persistent secrets must not override managed OPS_PASSWORD, got %q", got)
+		t.Fatalf("expected Trustable-managed OPS_PASSWORD, got %q", got)
 	}
 
 	runtimeEnv := appServiceRuntimeEnv([]string{"BASE=1"})
@@ -549,9 +551,8 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	if cOss["lifecycle"] != "eager" {
 		t.Fatalf("openserverless must connect when the Pi session starts: %#v", cOss)
 	}
-	cOssEnv, ok := cOss["env"].(map[string]interface{})
-	if !ok || cOssEnv["OPENSERVERLESS_SECRETS_FILE"] != appSecretStorePath(app) {
-		t.Fatalf(".mcp.json persistent secret store missing: %#v", cOss)
+	if _, ok := cOss["env"]; ok {
+		t.Fatalf("openserverless MCP must not receive a writable app secret store: %#v", cOss)
 	}
 	cBrowser, ok := claude.MCPServers["browser"]
 	if !ok || cBrowser["type"] != "stdio" || cBrowser["command"] != "trustable-browser-mcp" {
@@ -973,6 +974,43 @@ def init_redis(args, ctx):
 	}
 }
 
+func TestOpenServerlessCheckerRejectsRedisModuleWithoutWrapperConnector(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "me")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+## build-context ##
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def redis_key(ctx, name):
+    return f"{getattr(ctx, 'REDIS_PREFIX', '') or ''}{name}"
+
+def main(args, ctx=None):
+    return {"session": ctx.REDIS.get(redis_key(ctx, "session:token"))}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "me.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject missing Redis wrapper connector, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "generated wrapper has no Redis connector") ||
+		!strings.Contains(string(out), "auth_setup") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
 func TestOpenServerlessCheckerAllowsRedisKeysWithPrefix(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
@@ -1372,6 +1410,48 @@ func TestOpenServerlessCheckerRequiresDeployAfterActionChange(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "Action source is newer than its deploy archive") {
 		t.Fatalf("checker should require ops ide deploy, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerManagedLiveModeIgnoresDeployArchiveState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	for _, name := range []string{"missing", "stale"} {
+		actionDir := filepath.Join(dir, "packages", "v1", name)
+		if err := os.MkdirAll(actionDir, 0755); err != nil {
+			t.Fatalf("mkdir action %s: %s", name, err)
+		}
+		wrapper := filepath.Join(actionDir, "__main__.py")
+		module := filepath.Join(actionDir, name+".py")
+		if err := os.WriteFile(wrapper, []byte("#--kind python:default\nfrom "+name+" import main\n"), 0644); err != nil {
+			t.Fatalf("write wrapper %s: %s", name, err)
+		}
+		if err := os.WriteFile(module, []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+			t.Fatalf("write module %s: %s", name, err)
+		}
+		if name == "stale" {
+			archive := writeActionDeployArtifact(t, actionDir)
+			changedAt := time.Now().Add(2 * time.Second)
+			if err := os.Chtimes(module, changedAt, changedAt); err != nil {
+				t.Fatalf("set changed source time: %s", err)
+			}
+			if err := os.Chtimes(archive, time.Now(), time.Now()); err != nil {
+				t.Fatalf("reset deploy artifact time: %s", err)
+			}
+		}
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	cmd.Env = append(os.Environ(), "TRUSTABLE_MANAGED_RUNTIME=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("managed live checker should validate source without ZIP freshness, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if strings.Contains(string(out), "Deploy archive is missing") ||
+		strings.Contains(string(out), "newer than its deploy archive") {
+		t.Fatalf("managed live checker must not use archive state, got=%s", strings.TrimSpace(string(out)))
 	}
 }
 
@@ -2088,6 +2168,41 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 	if string(agents) != string(claude) || !strings.Contains(string(agents), trustableAgentsBegin) {
 		t.Fatal("managed AGENTS.md/CLAUDE.md are not aligned")
 	}
+	contract, _ := os.ReadFile(filepath.Join(projectDir, ".openserverless-contract.md"))
+	// WHY: generated guidance previously raced the already-running watcher by
+	// requiring Pi to start a second deploy after every action tool call.
+	for name, content := range map[string]string{
+		"AGENTS.md":                   string(agents),
+		".openserverless-contract.md": string(contract),
+	} {
+		if !strings.Contains(content, "sole owner") ||
+			!strings.Contains(content, "`ops ide deploy`") ||
+			!strings.Contains(content, "another `ops ide devel`") {
+			t.Fatalf("%s must preserve managed watcher ownership: %s", name, content)
+		}
+		if !strings.Contains(content, "Redis") ||
+			!strings.Contains(content, "opaque") ||
+			!strings.Contains(content, "auth_setup") ||
+			!strings.Contains(content, ".env") ||
+			!strings.Contains(content, "Only the") ||
+			!strings.Contains(content, "user may change application") {
+			t.Fatalf("%s must preserve user-owned env and Redis session guidance: %s", name, content)
+		}
+	}
+	// WHY: a previous long run repaired only the live service through
+	// postgres_execute_sql. Generated instructions must keep writes in
+	// reproducible setup/public actions instead.
+	if !strings.Contains(string(agents), "read-only discovery and verification") ||
+		!strings.Contains(string(agents), "postgres_execute_sql") {
+		t.Fatalf("managed guidance must forbid direct service-MCP repairs: %s", agents)
+	}
+	if !strings.Contains(string(agents), "react_validate") {
+		t.Fatalf("managed guidance must require deterministic React validation: %s", agents)
+	}
+	if !strings.Contains(string(agents), "There is no project-local `opencode.md`") ||
+		strings.Contains(string(contract), "this file, `opencode.md`") {
+		t.Fatalf("generated sources must not claim an absent opencode.md: agents=%s contract=%s", agents, contract)
+	}
 
 	var config struct {
 		Servers map[string]map[string]interface{} `json:"mcpServers"`
@@ -2096,7 +2211,7 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("parse .mcp.json: %s", err)
 	}
-	for _, name := range []string{"openserverless", "browser", "redis"} {
+	for _, name := range []string{"openserverless", "browser", "react", "redis"} {
 		if _, ok := config.Servers[name]; !ok {
 			t.Fatalf("%s missing from .mcp.json: %#v", name, config.Servers)
 		}
@@ -2105,7 +2220,8 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 		}
 	}
 	if config.Servers["openserverless"]["command"] != "openserverless-mcp" ||
-		config.Servers["browser"]["command"] != "trustable-browser-mcp" {
+		config.Servers["browser"]["command"] != "trustable-browser-mcp" ||
+		config.Servers["react"]["command"] != "trustable-react-mcp" {
 		t.Fatalf("unexpected managed MCP commands: %#v", config.Servers)
 	}
 }

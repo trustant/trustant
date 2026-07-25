@@ -2,14 +2,28 @@
 
 > **PARTLY HISTORICAL.** The bounded browser MCP, its target restrictions and
 > strict locator contract remain relevant and are exposed to Pi through the
-> generated `.mcp.json`. References below to OpenCode sessions,
-> `TRUSTABLE_RUNTIME_CONFIG`, runtime-manifest ownership and automatic evidence
-> gates describe the removed OpenCode plugin integration and are not enforced by
-> TruACP/Pi. See [pi.md](pi.md) and [4-launch.md](4-launch.md) for current wiring.
+> generated `.mcp.json`. The versioned `TRUSTABLE_RUNTIME_CONFIG` workbench
+> binding is active again through issue #57; references below to OpenCode
+> sessions and automatic evidence gates remain historical. See
+> [pi.md](pi.md), [4-launch.md](4-launch.md), and
+> [trustable-pi-runtime.md](trustable-pi-runtime.md) for current wiring.
 
 Trustable provides a bounded Playwright browser to the OpenCode session through
 the generated `browser` MCP entry. It is an app-development diagnostic tool,
 not a general web browser.
+
+For React/Vite workbenches, managed Pi must first run the always-generated
+read-only `react` MCP aggregate `react_validate` after the latest frontend
+mutation. Browser verification remains responsible for the visible runtime
+flow only after deterministic route/auth/TypeScript findings are resolved.
+The optional Agentic React MCP is selection context and does not satisfy this
+gate.
+
+The React auth validator must reject browser-side JWT interpretation, including
+`jwtDecode`/equivalent helpers and manual base64 payload decoding, even when the
+component is named `Session` and contains no literal login route. Trustable app
+session tokens are opaque Redis keys; identity is recovered only through the
+backend `me`/session endpoint.
 
 The strict locator and observable-audio contract is exposed by browser MCP
 version `0.3.0`.
@@ -24,9 +38,18 @@ version `0.3.0`.
   workbench. If another application launch has replaced the runtime manifest,
   it rejects the page instead of treating that application's shared port 5173
   as verification evidence.
+  The parser requires host-manifest version `2`; the added private watcher-log
+  field is consumed by Pi's runtime tool, while Browser MCP continues to use
+  only the canonical workbench and classified development URL. A partially
+  upgraded version-1 runtime fails closed before navigation.
+- The same selected workbench carries a separate browser-visible `browserUrl`.
+  Pi receives both classified surfaces in its mandatory host context;
+  development-mode Browser MCP navigation remains on local port 5173 and never
+  substitutes the external URL.
 - `deployed` resolves only to `<protocol>://vite.<configured-apihost>`. OpenCode
-  may use it only after `ops ide deploy`, when browser/ingress verification is
-  relevant.
+  may use it only after the Trustable-managed watcher has deployed the current
+  sources, when browser/ingress verification is relevant. Pi must not start a
+  concurrent manual deploy to satisfy this precondition.
 - Callers provide only an app-local path. The MCP does not accept arbitrary
   origins, `OPS_APIHOST` replacements, or user-supplied infrastructure URLs.
 

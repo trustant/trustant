@@ -6,6 +6,24 @@
 > `CLAUDE.md` files used by TruACP/Pi. References below to the OpenCode runtime,
 > plugin, session gates and generated OpenCode files are not active behaviour.
 > See [pi.md](pi.md) and [4-launch.md](4-launch.md) for the current contract.
+>
+> The active projection embeds the full managed block directly in `AGENTS.md`
+> and mirrors it in `CLAUDE.md`. Generated guidance must identify the managed
+> `AGENTS.md` block, `.openserverless-contract.md`, and `.mcp.json` as its only
+> separate project sources; it must explicitly say that project-local
+> `opencode.md` does not exist. Immutable workbench, browser-origin, and MCP
+> requirements come from the host-owned issue #57 runtime manifest described in
+> [trustable-pi-runtime.md](trustable-pi-runtime.md).
+>
+> The active Pi projection also supersedes every historical instruction below
+> that tells an assistant to run `ops ide deploy`. Launch performs one initial
+> deploy before starting `ops ide devel`; during a live Edit session that
+> managed watcher is the sole deploy owner. Pi reads its canonical log, runs
+> the action checker once for source-contract validation, and performs real
+> HTTP checks. Managed live checker mode ignores sibling ZIP
+> existence/freshness. The issue #57 extension blocks manual
+> `ops ide deploy`, additional `ops ide devel`, and direct shell inspection or
+> polling of `packages/**/*.zip`.
 
 This file specifies the `opencode.md` guidance embedded into the Trustable
 binary and written into every launched app as
@@ -307,7 +325,7 @@ The guidance must tell assistants how to choose the backend shape:
 - use a private `setup` action for idempotent initialization;
 - use S3 for object/file data;
 - use PostgreSQL for relational data;
-- use Redis for cache/ephemeral state;
+- use Redis for cache, ephemeral state, and authenticated app sessions;
 - use MongoDB for document data only when the official MongoDB capability is
   configured;
 - use Milvus for vector search;
@@ -337,6 +355,10 @@ the matching exposed tool:
 - `action-add-postgresql` / `action_add_postgresql`: add PostgreSQL service
   wiring.
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
+- `auth-setup` / `auth_setup`: after every authentication endpoint exists,
+  atomically add Redis wiring to the complete token-issuing,
+  protected/session, and logout endpoint sets. It never reads or writes
+  `.env`, and it must not configure JWT or an application signing secret.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
 - `secret-unbind` / `secret_unbind`: atomically remove an obsolete generated
   secret binding without reading or deleting the value. This is the supported
@@ -426,6 +448,11 @@ Required MCP/service guidance:
   only the derived deployed Vite origin and an artifact directory outside the
   app repo; development navigation is fixed inside the MCP to
   `http://localhost:5173`.
+- `react` is always present and runs `trustable-react-mcp`. It resolves only
+  the manifest-selected workbench and exposes read-only project inspection,
+  route/auth validation, and aggregate TypeScript/React validation. After
+  frontend mutations, assistants must resolve aggregate `react_validate`
+  errors before Browser MCP verification.
 - `agentireact` is present only when `vite.config.js` or `vite.config.ts`
   imports/references `@agentic-react/vite` and invokes `AgenticReact()` in
   executable config code; it is an HTTP MCP server at
@@ -461,6 +488,10 @@ action package. Assistants must build every Redis action key from
 `redis_key(ctx, name)`. The guidance must forbid naked Redis keys passed
 directly to `ctx.REDIS.get/set/delete/hset/hget/lpush/sadd/expire/...`, because
 Nuvolaris Redis ACLs allow only the configured user prefix.
+The checker must also reject any editable module that uses `ctx.REDIS` or
+`ctx.REDIS_PREFIX` when its generated wrapper lacks the Redis connector.
+Authentication recovery must point to `auth_setup` with the complete endpoint
+set; unrelated single-endpoint Redis use points to `action_add_redis`.
 
 The guidance must say that service MCP servers are assistant-side diagnostics,
 not automatic runtime bindings. A successful service MCP call does not prove
@@ -507,16 +538,31 @@ names when inspecting PostgreSQL. For schemas, use `postgres_list_schemas`. For
 tables/views in a schema, use `postgres_list_objects`. It must explicitly forbid
 generic invented names such as `list_schemas`.
 
-The embedded guidance must document `secret_status`, `secret_ensure`,
-`secret_bind`, and `auth_setup`. For token authentication, assistants must use
-`auth_setup` with every token-issuing endpoint and every token-validating
-endpoint, including `me`/session and protected resources, and rerun it when a
-protected endpoint is added. Missing secrets and invalid endpoint sets are MCP
-errors and must not be treated as completed warnings. Assistants must not read
-or edit generated `.env` files, or edit action wrappers to bypass those errors. Editable
-action modules must use the shared `ctx.<SECRET>` value, fail closed when it is
-absent, and never use an `os.getenv()` default, app-name-derived key, or other
-hardcoded fallback for signing or verification.
+The embedded guidance must declare application `.env` and `.env.production`
+immutable to agents and MCP servers. Only the user-facing Trustable
+configuration interface may change their source values. Assistants must not
+read, create, edit, import, synchronize, regenerate, or automatically populate
+those files; they report a missing variable to the user.
+
+For authenticated pages, the guidance must require Redis-backed opaque
+sessions rather than JWT/application-secret authentication. After every login,
+registration, `me`/session, protected-resource, and logout action exists, the
+assistant calls `auth-setup` / `auth_setup` once with the complete endpoint
+sets. The tool atomically adds Redis wiring to all of them and never reads or
+writes `.env`; `action-add-redis` / `action_add_redis` remains the
+single-endpoint connector for non-authentication Redis use.
+Login/registration creates a cryptographically random token, Redis stores its
+token-to-identity mapping with a bounded TTL under a `ctx.REDIS_PREFIX` key,
+protected actions validate that record and derive identity from it, and logout
+deletes it. The browser stores only the opaque token.
+
+The managed Pi extension must allow this Redis-only `auth_setup` tool while
+blocking the obsolete environment-mutating `secret_ensure`. It must also block
+direct writes to generated `packages/**/__main__.py` wrappers and
+`packages/**/*.zip` artifacts, and block mutating service-MCP calls such as
+`postgres_execute_sql`. Read-only service discovery and verification remain
+available. Schema, seed, and application writes must be reproducible through
+setup or public OpenServerless actions.
 
 The embedded guidance must say that S3 app verification uses the OpenServerless
 action path created with `action-add-s3`, generated action wiring, configured
@@ -757,6 +803,10 @@ When an app has login or registration, the embedded guidance must say:
 - after login, the frontend should store only the returned session/token/user
   data it needs and derive authenticated UI state from that data or from a
   bounded `me` check;
+- the browser must treat the session token as opaque. The deterministic React
+  validator must reject `jwtDecode`, equivalent JWT libraries, and manual
+  base64 claim decoding even when no component or route is literally named
+  login; identity comes from the backend `me`/session endpoint;
 - successful login and registration must update the live authentication
   provider/store before protected-route navigation; writing token/user data
   only to browser storage is insufficient because the current render remains
@@ -766,6 +816,9 @@ When an app has login or registration, the embedded guidance must say:
   the user must not be sent through a second manual login before reaching the
   protected area;
 - protected navigation must include an explicit logout path;
+- login, registration, `me`/session, every protected action, and logout must
+  share the Redis opaque-session contract and generated Redis wiring. JWT or
+  an application signing secret is not an alternative;
 - every form control must have a stable `id`/`name` and an associated label
   (`label htmlFor` matching the input `id`). Repeated placeholders are not
   semantic names. If a browser locator is ambiguous, assistants must fix the
