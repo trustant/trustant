@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import test from "node:test"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
-import { TrustableBrowser, resolveBrowserTarget, resolveManagedDevelopmentOrigin } from "./browser.ts"
+import { captureHasEvidence, SerialTaskQueue, TrustableBrowser, resolveBrowserTarget, resolveManagedDevelopmentOrigin } from "./browser.ts"
 
 async function listen(server: ReturnType<typeof createServer>) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -24,6 +24,36 @@ test("target resolution keeps development on localhost and deployed on configure
   )
   assert.throws(() => resolveBrowserTarget("deployed", "/", "http://example.com"), /vite/)
   assert.throws(() => resolveBrowserTarget("development", "https://example.com"), /app-local path/)
+})
+
+test("persistent browser queue preserves call order and rejects empty evidence", async () => {
+  const queue = new SerialTaskQueue()
+  const order: string[] = []
+  const first = queue.run(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    order.push("first")
+  })
+  const second = queue.run(async () => {
+    order.push("second")
+  })
+  await Promise.all([first, second])
+  assert.deepEqual(order, ["first", "second"])
+
+  const empty = {
+    url: "about:blank",
+    title: "",
+    aria: "",
+    text: "",
+    console: [],
+    network: [],
+    controls: [],
+    audio: { contexts: [], media: [], active: false },
+  }
+  assert.equal(captureHasEvidence(empty, 128), false)
+  assert.equal(
+    captureHasEvidence({ ...empty, url: "http://localhost:5173/", text: "Ready" }, 128),
+    true,
+  )
 })
 
 test("managed development target is bound to the current runtime workbench", async (t) => {

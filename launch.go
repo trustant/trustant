@@ -304,6 +304,7 @@ type trustablePiRuntimeWorkbench struct {
 	DevelopmentURL     string   `json:"developmentUrl"`
 	BrowserURL         string   `json:"browserUrl"`
 	RequiredMCPServers []string `json:"requiredMcpServers"`
+	MCPConfig          string   `json:"mcpConfig"`
 	WatcherLog         string   `json:"watcherLog"`
 }
 
@@ -436,6 +437,43 @@ func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog str
 		servers = append(servers, name)
 	}
 	sort.Strings(servers)
+	privateMCPConfig, err := managedMCPConfigPath(canonicalProjectDir)
+	if err != nil {
+		return "", err
+	}
+	privateMCPConfig, err = filepath.Abs(privateMCPConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to make private MCP config absolute: %w", err)
+	}
+	privateMCPInfo, err := os.Stat(privateMCPConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect private MCP config: %w", err)
+	}
+	if !privateMCPInfo.Mode().IsRegular() || privateMCPInfo.Mode().Perm() != 0600 {
+		return "", errors.New("private MCP config must be a mode-0600 regular file")
+	}
+	if rel, err := filepath.Rel(canonicalProjectDir, privateMCPConfig); err != nil ||
+		(rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+		return "", errors.New("private MCP config must remain outside the workbench")
+	}
+	privateData, err := os.ReadFile(privateMCPConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to read private MCP config: %w", err)
+	}
+	var privateConfig struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(privateData, &privateConfig); err != nil {
+		return "", fmt.Errorf("failed to parse private MCP config: %w", err)
+	}
+	for _, name := range servers {
+		if _, ok := privateConfig.MCPServers[name]; !ok {
+			return "", fmt.Errorf("private MCP config is missing server %q", name)
+		}
+	}
+	if len(privateConfig.MCPServers) != len(servers) {
+		return "", errors.New("private MCP config server set does not match the credential-free config")
+	}
 
 	manifest := trustablePiRuntimeManifest{
 		Version: trustablePiRuntimeManifestVersion,
@@ -447,6 +485,7 @@ func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog str
 			DevelopmentURL:     "http://localhost:5173",
 			BrowserURL:         browserURL,
 			RequiredMCPServers: servers,
+			MCPConfig:          privateMCPConfig,
 			WatcherLog:         canonicalWatcherLog,
 		}},
 	}

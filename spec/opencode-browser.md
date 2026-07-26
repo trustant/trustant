@@ -25,8 +25,10 @@ component is named `Session` and contains no literal login route. Trustable app
 session tokens are opaque Redis keys; identity is recovered only through the
 backend `me`/session endpoint.
 
-The strict locator and observable-audio contract is exposed by browser MCP
-version `0.3.0`.
+The strict locator and observable-audio contract was introduced in Browser MCP
+`0.3.0`. Version `0.4.0` additionally serializes every call through one
+persistent stdio-owned browser session, rejects blank/about:blank captures as
+stale evidence, and closes Playwright deterministically with its ACP runtime.
 
 ## Targets
 
@@ -81,6 +83,10 @@ The server exposes a deliberately small persistent browser surface:
 
 There is no arbitrary JavaScript evaluation tool. Snapshot and diagnostic
 output is bounded so the browser does not recreate Issue98 context pressure.
+All operations are serialized in registration order. Snapshot, interaction,
+diagnostics, and capture therefore share one page/context and cannot return a
+response belonging to a later one-shot process. A capture succeeds only when
+both non-empty image bytes and non-blank page evidence are present.
 The isolated headless context locks `window.__AGENTIC_REACT_CONFIG__` with the
 selection toolkit disabled before application scripts execute. Snapshot control
 collection also excludes hidden controls and descendants of Agentic React

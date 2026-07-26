@@ -8,7 +8,8 @@ Authoritative Trustable instruction sources:
 1. `.openserverless-contract.md` for the short OpenServerless/action recovery
    contract.
 2. The Trustable-managed guidance embedded in this `AGENTS.md`.
-3. `.mcp.json` for the MCP servers generated for this workbench.
+3. `.mcp.json` for the credential-free MCP server names and launch descriptors
+   generated for this workbench.
 
 There is no project-local `opencode.md`. `CLAUDE.md` mirrors the same managed
 guidance for Claude-compatible agents and is not an independent authority.
@@ -23,18 +24,21 @@ Before touching actions, databases, setup, deploy, or service state, read
 `.openserverless-contract.md`. If it is missing, say so and fall back to
 the Trustable-managed guidance in this file.
 
+Trustable owns MCP discovery and process lifecycle. `.mcp.json` contains no
+service credentials and may be inspected only for server names and non-secret
+metadata. Never search for, read, print, copy, or infer the host-private MCP
+configuration, and never launch a managed MCP server manually from a shell.
+
 Pi exposes every configured server through one lazy `mcp` proxy tool. Before
 the first shell command, file mutation, or application MCP operation, complete
-the mandatory capability bootstrap: inspect every server in
-`.mcp.json.mcpServers` with `mcp({server: "<name>"})` or
-`mcp({connect: "<name>"})`. The compatible status-first sequence calls
-`mcp({})` before the per-server `server` calls; a successful `connect` already
-proves both proxy reachability and that server's tool discovery. Use the exact
-tool names and argument schemas returned by those calls; do not infer them from
-memory or prose. Do not infer absence from a missing server-specific tool name
-or from the fact that no MCP subprocess has started yet. In particular,
-MongoDB is configured when `.mcp.json.mcpServers.mongodb` exists. Never print
-or copy its connection-string environment value.
+the mandatory capability bootstrap with `mcp({server: "<name>"})` or
+`mcp({connect: "<name>"})` for every name in `.mcp.json.mcpServers`. Codex and
+Claude receive the same host-selected servers as native MCP tools and must use
+those tools directly instead of starting server commands. Use the exact tool
+names and argument schemas exposed by the active agent. A successful Pi
+`connect` proves both proxy reachability and that server's tool discovery.
+MongoDB is configured when the credential-free server list contains `mongodb`;
+its private connection environment must never enter model output.
 
 The optional `agentireact` server is valid only when the app's
 `vite.config.js` or `vite.config.ts` imports/references

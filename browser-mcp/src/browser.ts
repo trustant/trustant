@@ -32,6 +32,26 @@ export interface BrowserSnapshot {
   audio: BrowserAudioStatus
 }
 
+export class SerialTaskQueue {
+  private tail: Promise<void> = Promise.resolve()
+
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.tail.then(operation, operation)
+    this.tail = result.then(() => undefined, () => undefined)
+    return result
+  }
+}
+
+export function captureHasEvidence(snapshot: BrowserSnapshot, imageBytes: number): boolean {
+  if (imageBytes <= 0 || !snapshot.url || snapshot.url === "about:blank") return false
+  return Boolean(
+    snapshot.title.trim()
+    || snapshot.aria.trim()
+    || snapshot.text.trim()
+    || snapshot.controls.length,
+  )
+}
+
 interface RuntimeWorkbench {
   app: string
   workspace: string
@@ -400,8 +420,15 @@ export class TrustableBrowser {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
     const screenshotPath = join(this.artifactDir, `${safe}-${timestamp}.png`)
     const snapshotPath = join(this.artifactDir, `${safe}-${timestamp}.json`)
-    await page.screenshot({ path: screenshotPath, fullPage: true })
-    await writeFile(snapshotPath, `${JSON.stringify(await this.snapshot(), null, 2)}\n`, { mode: 0o600 })
+    const image = await page.screenshot({ path: screenshotPath, fullPage: true })
+    const snapshot = await this.snapshot()
+    // WHY: a newly restarted or stale one-shot browser can produce a valid PNG
+    // of about:blank. Treat that as missing evidence instead of a successful
+    // verification artifact.
+    if (!captureHasEvidence(snapshot, image.byteLength)) {
+      throw new Error("browser capture produced empty or stale evidence; open the target in this persistent session and retry once")
+    }
+    await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 })
     return `${screenshotPath}\n${snapshotPath}`
   }
 

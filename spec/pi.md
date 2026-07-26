@@ -106,9 +106,11 @@ the Pi configuration has already been saved.
 
 ## Per-app project assets
 
-Launch writes these files to `<workbench>/<app>` after `ops ide login`:
+Launch writes these model-readable files to `<workbench>/<app>` after
+`ops ide login`:
 
-- `.mcp.json` in the standard `mcpServers` schema;
+- `.mcp.json` in the standard `mcpServers` schema, containing server names and
+  credential-free launch descriptors only;
 - `AGENTS.md` and an identical `CLAUDE.md`, with a replaceable
   Trustable-managed block and preserved app-local notes;
 - `.openserverless-contract.md`.
@@ -116,8 +118,14 @@ Launch writes these files to `<workbench>/<app>` after `ops ide login`:
 It also installs the three Trustable checker scripts under `~/.local/bin`.
 There is no `opencode.json`, OpenCode runtime manifest, or per-app model file.
 
-Pi reaches MCP servers through `pi-mcp-adapter`. `.mcp.json` is fully regenerated
-on every launch. `openserverless`, `browser`, and the deterministic read-only
+The complete MCP process configuration is atomically regenerated outside the
+workbench under `~/.config/trustable/runtime/<app>/mcp.json`, mode `0600`.
+Service credentials exist only there and are injected into the corresponding
+server process. Credential-bearing entries in `.mcp.json` invoke the fixed
+`trustable-mcp-launch <server>` host launcher; the launcher resolves the current
+workbench through the versioned runtime manifest and never prints its private
+configuration. Pi reaches those entries through `pi-mcp-adapter`. `.mcp.json`
+is fully regenerated on every launch. `openserverless`, `browser`, and the deterministic read-only
 `react` validator are always present;
 `agentireact` is conditional on the supported `@agentic-react/vite` import plus
 `AgenticReact()` invocation in the Vite config; service MCP servers are
@@ -146,6 +154,13 @@ of every `.mcp.json.mcpServers` entry. The compatible sequence is `mcp({})`
 plus `mcp({server:"<name>"})` per server; the adapter's successful
 `mcp({connect:"<name>"})` form proves both proxy reachability and discovery for
 that server, so successful connects for every required server are equivalent.
+
+Codex and Claude receive the exact same host-selected private server set through
+the ACP `session/new`, `session/load`, `session/resume`, and `session/fork`
+`mcpServers` field. Pi receives an empty ACP list because its pinned adapter owns
+the proxy. TruACP keeps only one initialized agent process at a time, so an
+agent switch deterministically closes that agent's persistent MCP children.
+Managed agents never need to launch MCP commands manually.
 
 The pinned `pi-mcp-adapter@2.11.0` receives a deterministic setup-time recovery
 patch. If a co-located Streamable HTTP server restarts and rejects the cached

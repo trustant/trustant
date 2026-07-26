@@ -3,10 +3,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
-import { TrustableBrowser } from "./browser.ts"
+import { SerialTaskQueue, TrustableBrowser } from "./browser.ts"
 
 const browser = new TrustableBrowser()
-const server = new McpServer({ name: "trustable-browser-mcp", version: "0.3.0" })
+const queue = new SerialTaskQueue()
+const server = new McpServer({ name: "trustable-browser-mcp", version: "0.4.0" })
 
 function text(value: unknown) {
   return { content: [{ type: "text" as const, text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }] }
@@ -18,12 +19,12 @@ server.registerTool("browser_open", {
     mode: z.enum(["development", "deployed"]),
     path: z.string().optional().describe("App-local path beginning with /. Hash routes such as /#/login are supported."),
   },
-}, async ({ mode, path }) => text(await browser.open(mode, path)))
+}, async ({ mode, path }) => queue.run(async () => text(await browser.open(mode, path))))
 
 server.registerTool("browser_snapshot", {
   description: "Read the current URL, title, accessibility snapshot, visible text, stable control refs, audio state, console warnings/errors, and failed HTTP requests without changing the page.",
   inputSchema: {},
-}, async () => text(await browser.snapshot()))
+}, async () => queue.run(async () => text(await browser.snapshot())))
 
 server.registerTool("browser_interact", {
   description: "Perform one bounded browser interaction, then return a fresh structured snapshot. Prefer a ref from the latest snapshot, then role, label, placeholder, or text over CSS. For kind=role, pass role plus the accessible-name target. As a shorthand, target may be a role such as button, or an accessible name whose role is inferred from the action. Locators remain strict: when multiple elements match, retry with the explicit zero-based index reported by the error.",
@@ -35,33 +36,34 @@ server.registerTool("browser_interact", {
     value: z.string().optional().describe("Text for fill or key name for press."),
     index: z.number().int().nonnegative().optional().describe("Zero-based match index. Required only when the locator is ambiguous."),
   },
-}, async ({ action, kind, target, role, value, index }) => text(await browser.interact(action, { kind, target, role, value, index })))
+}, async ({ action, kind, target, role, value, index }) => queue.run(async () => text(await browser.interact(action, { kind, target, role, value, index }))))
 
 server.registerTool("browser_diagnostics", {
   description: "Return the current URL, audio state, collected console warnings/errors, page errors, failed requests, and HTTP responses with status >= 400.",
   inputSchema: {},
-}, async () => text(await browser.diagnostics()))
+}, async () => queue.run(async () => text(await browser.diagnostics())))
 
 server.registerTool("browser_capture", {
   description: "Save a full-page screenshot and structured JSON snapshot for tester evidence. Returns pod-local artifact paths.",
   inputSchema: { name: z.string().optional() },
-}, async ({ name }) => text(await browser.capture(name)))
+}, async ({ name }) => queue.run(async () => text(await browser.capture(name))))
 
 server.registerTool("browser_close", {
   description: "Close the bounded browser session and discard its isolated browser state.",
   inputSchema: {},
-}, async () => {
+}, async () => queue.run(async () => {
   await browser.close()
   return text("Browser session closed.")
-})
+}))
 
-process.on("SIGINT", async () => {
-  await browser.close()
-  process.exit(0)
-})
-process.on("SIGTERM", async () => {
-  await browser.close()
-  process.exit(0)
-})
+let stopping = false
+async function stop(signal: NodeJS.Signals) {
+  if (stopping) return
+  stopping = true
+  await queue.run(() => browser.close())
+  process.exit(signal === "SIGINT" ? 130 : 143)
+}
+process.on("SIGINT", () => void stop("SIGINT"))
+process.on("SIGTERM", () => void stop("SIGTERM"))
 
 await server.connect(new StdioServerTransport())

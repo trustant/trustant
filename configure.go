@@ -1152,9 +1152,10 @@ func writeManagedAppAgents(projectDir string) error {
 }
 
 // generateProjectAssetsInDir writes only agent-neutral project assets. The MCP
-// map uses Trustable's launcher representation and is translated into the
-// standard mcpServers schema read by pi-mcp-adapter and compatible ACP agents;
-// keeping that conversion here avoids reviving an OpenCode project config.
+// map uses Trustable's launcher representation and is split into a
+// credential-free workbench config plus a private host config. WHY: every agent
+// needs the same server names, but model-readable discovery must never carry
+// service credentials or credential-bearing URIs.
 func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) error {
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
@@ -1178,13 +1179,20 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 		"type":    "local",
 		"command": []string{"openserverless-mcp"},
 	}
-	mcp["browser"] = browserMCPConfig(projectDir)
+	runtimeConfigPath, err := trustablePiRuntimeManifestPath()
+	if err != nil {
+		return err
+	}
+	mcp["browser"] = browserMCPConfig(projectDir, runtimeConfigPath)
 	// WHY: Agentic React exposes selection context, not deterministic source
 	// validation. Keep a separate read-only React server in every workbench so
 	// route/auth/type failures are reported before browser verification.
 	mcp["react"] = map[string]interface{}{
 		"type":    "local",
 		"command": []string{"trustable-react-mcp"},
+		"environment": map[string]string{
+			"TRUSTABLE_RUNTIME_CONFIG": runtimeConfigPath,
+		},
 		"enabled": true,
 		"timeout": 30_000,
 	}
@@ -1194,8 +1202,8 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 			"url":  "http://localhost:5173/mcp",
 		}
 	}
-	if err := writeClaudeMCPConfig(projectDir, mcp); err != nil {
-		return fmt.Errorf("failed to write .mcp.json: %w", err)
+	if _, err := writeManagedMCPConfigs(projectDir, mcp); err != nil {
+		return fmt.Errorf("failed to write managed MCP configs: %w", err)
 	}
 	log.Printf("  - Written to %s", filepath.Join(projectDir, ".mcp.json"))
 
@@ -1242,9 +1250,12 @@ func browserExternalOrigin() string {
 	return (&url.URL{Scheme: parsed.Scheme, Host: host}).String()
 }
 
-func browserMCPConfig(projectDir string) map[string]interface{} {
+func browserMCPConfig(projectDir string, runtimeConfigPaths ...string) map[string]interface{} {
 	environment := map[string]string{
 		"TRUSTABLE_BROWSER_ARTIFACT_DIR": filepath.Join(WorkspaceDir, ".trustable", "browser", filepath.Base(projectDir)),
+	}
+	if len(runtimeConfigPaths) > 0 && runtimeConfigPaths[0] != "" {
+		environment["TRUSTABLE_RUNTIME_CONFIG"] = runtimeConfigPaths[0]
 	}
 	if origin := browserExternalOrigin(); origin != "" {
 		environment["TRUSTABLE_BROWSER_EXTERNAL_ORIGIN"] = origin
@@ -1509,8 +1520,8 @@ func appUsesAgenticReact(projectDir string) bool {
 	return false
 }
 
-// writeClaudeMCPConfig writes <projectDir>/.mcp.json in the shared mcpServers
-// format, translated from Trustable's launcher map (see spec/4-launch.md):
+// standardMCPServers translates Trustable's launcher map to the shared
+// mcpServers format (see spec/4-launch.md):
 //   - type "local" (command array + optional environment) -> stdio (command
 //     string + args + env)
 //   - type "remote" (url) -> http (url)
@@ -1518,7 +1529,7 @@ func appUsesAgenticReact(projectDir string) bool {
 // Launcher-only fields (enabled, timeout) are dropped. Every translated server
 // is eager so Pi reports real connection state at session start instead of
 // discovering service failures only after the first model-issued tool call.
-func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
+func standardMCPServers(mcp map[string]interface{}) map[string]interface{} {
 	servers := make(map[string]interface{})
 	for name, raw := range mcp {
 		server, ok := raw.(map[string]interface{})
@@ -1555,12 +1566,207 @@ func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 			servers[name] = entry
 		}
 	}
+	return servers
+}
 
-	data, err := json.MarshalIndent(map[string]interface{}{"mcpServers": servers}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal .mcp.json: %w", err)
+var managedMCPConfigPathOverride string
+var managedMCPLauncherInstallPathOverride string
+
+func managedMCPConfigPath(projectDir string) (string, error) {
+	if managedMCPConfigPathOverride != "" {
+		return managedMCPConfigPathOverride, nil
 	}
-	return os.WriteFile(filepath.Join(projectDir, ".mcp.json"), data, 0644)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home for managed MCP config: %w", err)
+	}
+	return filepath.Join(
+		home,
+		".config",
+		"trustable",
+		"runtime",
+		filepath.Base(projectDir),
+		"mcp.json",
+	), nil
+}
+
+func managedMCPLauncherInstallPath() (string, error) {
+	return localBinInstallPath(
+		managedMCPLauncherInstallPathOverride,
+		"trustable-mcp-launch",
+	)
+}
+
+const managedMCPLauncherJS = `#!/usr/bin/env node
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
+
+function fail(message) {
+  process.stderr.write("trustable-mcp-launch: " + message + "\n");
+  process.exit(1);
+}
+function within(root, target) {
+  const rel = path.relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+const serverName = process.argv[2] || "";
+if (!/^[a-zA-Z0-9_-]+$/.test(serverName)) fail("invalid server name");
+const manifestPath = process.env.TRUSTABLE_RUNTIME_CONFIG || "";
+if (!path.isAbsolute(manifestPath)) fail("managed runtime is unavailable");
+
+let manifest;
+try {
+  manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+} catch {
+  fail("managed runtime is unavailable");
+}
+const cwd = fs.realpathSync(process.cwd());
+const matches = Array.isArray(manifest.workbenches)
+  ? manifest.workbenches.filter((item) => {
+      if (!item || !path.isAbsolute(item.workspace)) return false;
+      return within(fs.realpathSync(item.workspace), cwd);
+    })
+  : [];
+if (matches.length !== 1) fail("runtime does not select this workbench");
+const selected = matches[0];
+if (!path.isAbsolute(selected.mcpConfig)) fail("private MCP config is unavailable");
+
+let privatePath;
+let config;
+try {
+  privatePath = fs.realpathSync(selected.mcpConfig);
+  const info = fs.statSync(privatePath);
+  if (!info.isFile() || (info.mode & 0o077) !== 0) fail("private MCP config is not protected");
+  if (within(fs.realpathSync(selected.workspace), privatePath)) fail("private MCP config escaped its host boundary");
+  config = JSON.parse(fs.readFileSync(privatePath, "utf8"));
+} catch (error) {
+  if (error && error.message && error.message.startsWith("private MCP")) fail(error.message);
+  fail("private MCP config is unavailable");
+}
+const server = config && config.mcpServers && config.mcpServers[serverName];
+if (!server || server.type !== "stdio" || typeof server.command !== "string") {
+  fail("requested server is not a managed stdio server");
+}
+const args = Array.isArray(server.args) && server.args.every((item) => typeof item === "string")
+  ? server.args
+  : [];
+const extraEnv = server.env && typeof server.env === "object" && !Array.isArray(server.env)
+  ? Object.fromEntries(Object.entries(server.env).filter((entry) => typeof entry[1] === "string"))
+  : {};
+const child = spawn(server.command, args, {
+  cwd,
+  env: { ...process.env, ...extraEnv },
+  stdio: "inherit",
+});
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => child.kill(signal));
+}
+child.on("error", () => fail("managed MCP server failed to start"));
+child.on("exit", (code, signal) => {
+  if (signal) process.exit(signal === "SIGINT" ? 130 : 143);
+  process.exit(code === null ? 1 : code);
+});
+`
+
+func writeJSONAtomic(path string, value interface{}, mode os.FileMode) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	if mode == 0600 {
+		if err := os.Chmod(filepath.Dir(path), 0700); err != nil {
+			return err
+		}
+	}
+	temporaryPath := path + ".tmp"
+	defer os.Remove(temporaryPath)
+	if err := os.WriteFile(temporaryPath, data, mode); err != nil {
+		return err
+	}
+	if err := os.Chmod(temporaryPath, mode); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
+}
+
+func credentialBearingMCPServer(name string) bool {
+	switch name {
+	case "s3", "postgres", "redis", "milvus", "mongodb":
+		return true
+	default:
+		return false
+	}
+}
+
+// writeManagedMCPConfigs keeps the complete launch contract in one private
+// host-owned file and publishes only credential-free launch descriptors in the
+// workbench. Pi uses the launcher for secret-bearing stdio servers; ACP-native
+// agents receive the private entries directly from TruACP.
+func writeManagedMCPConfigs(projectDir string, mcp map[string]interface{}) (string, error) {
+	fullServers := standardMCPServers(mcp)
+	privatePath, err := managedMCPConfigPath(projectDir)
+	if err != nil {
+		return "", err
+	}
+	if err := writeJSONAtomic(
+		privatePath,
+		map[string]interface{}{"mcpServers": fullServers},
+		0600,
+	); err != nil {
+		return "", fmt.Errorf("failed to write private MCP config: %w", err)
+	}
+
+	launcherPath, err := managedMCPLauncherInstallPath()
+	if err != nil {
+		return "", err
+	}
+	if _, err := ensureEmbeddedExecutable(
+		launcherPath,
+		"Trustable managed MCP launcher",
+		managedMCPLauncherJS,
+	); err != nil {
+		return "", err
+	}
+
+	publicServers := make(map[string]interface{}, len(fullServers))
+	for name, raw := range fullServers {
+		if credentialBearingMCPServer(name) {
+			publicServers[name] = map[string]interface{}{
+				"type":      "stdio",
+				"command":   "trustable-mcp-launch",
+				"args":      []string{name},
+				"lifecycle": "eager",
+			}
+			continue
+		}
+		publicServers[name] = raw
+	}
+	if err := writeJSONAtomic(
+		filepath.Join(projectDir, ".mcp.json"),
+		map[string]interface{}{"mcpServers": publicServers},
+		0644,
+	); err != nil {
+		return "", fmt.Errorf("failed to write credential-free MCP config: %w", err)
+	}
+	return privatePath, nil
+}
+
+// writeClaudeMCPConfig remains as a test/source compatibility helper. The
+// managed launch path uses writeManagedMCPConfigs so credentials never enter
+// the workbench.
+func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
+	return writeJSONAtomic(
+		filepath.Join(projectDir, ".mcp.json"),
+		map[string]interface{}{"mcpServers": standardMCPServers(mcp)},
+		0644,
+	)
 }
 
 // toStringSlice coerces a []string or []interface{} (as produced by JSON

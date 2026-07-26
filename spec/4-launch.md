@@ -165,11 +165,11 @@ hard cutover observable in both shipped code and dependency metadata.
 
 What launch writes into `<workbenchdir>/<app>/` is:
 
-- `.mcp.json` — the standard MCP config (`mcpServers` map), built from
-  `~/.ops/config.json` plus the always-present managed servers. This is the
-  single MCP surface; pi reads it via the `pi-mcp-adapter` extension. It is
+- `.mcp.json` — the credential-free standard MCP discovery config
+  (`mcpServers` map), built from `~/.ops/config.json` plus the always-present
+  managed servers. Pi reads it via the `pi-mcp-adapter` extension. It is
   **fully regenerated** on every launch, so a stale managed value (e.g. an old
-  postgres `DATABASE_URI`) is never carried forward and hand-edits are
+  server name is never carried forward and hand-edits are
   discarded. Every entry uses `lifecycle: "eager"` so its initial connection is
   attempted when the Pi session starts;
 - `AGENTS.md` and `CLAUDE.md` — the Trustable-managed instruction block. The
@@ -192,6 +192,13 @@ The same version-2 manifest declares the private host-owned
 `ops ide devel` log under `~/.config/trustable/runtime/<app>/`. Launch creates
 it with mode `0600` before managed Pi starts; app content cannot supply or
 modify the path.
+It also declares the private mode-`0600`
+`~/.config/trustable/runtime/<app>/mcp.json`. That file contains the complete
+process configuration and is never written in the checkout. Credential-bearing
+workbench entries use `trustable-mcp-launch <server>`; non-secret server names,
+commands, and runtime paths remain inspectable. The launcher selects only the
+manifest-matched workbench/server and injects private values directly into the
+child process.
 
 Plus, once per Trustable user in `~/.local/bin`: `check_openserverless_actions.sh`,
 `check_trustable_frontend.sh`, and `check_trustable_app.sh`, all executable and
@@ -226,7 +233,11 @@ and sound behavior instead of relying on source inspection.
 
 ## MCP servers
 
-`.mcp.json` is emitted in the standard form below. The implementation may reuse
+The private MCP config is emitted in the standard form below. The
+credential-free `.mcp.json` uses the same names, but service entries containing
+credentials replace their command with
+`trustable-mcp-launch <server>` and omit secret arguments/environment. The
+implementation may reuse
 the established service-config builder internally and translate its entries at
 the final write boundary. Launcher-only fields (`enabled`, `timeout`,
 `type: "local"`/`"remote"`, command arrays, and `environment`) must never appear
@@ -624,13 +635,13 @@ rules. If an app already has either file, Trustable updates only its managed
 block and preserves app-local notes below it. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
 
-`.mcp.json` is written in the standard `mcpServers` form (see "MCP servers"
+`.mcp.json` is written in credential-free standard `mcpServers` form (see "MCP servers"
 above) and contains `openserverless`, `browser`, `react`, the optional
 `agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` whose config
-block is present. It is the **only** MCP surface: pi reads it via the
-`pi-mcp-adapter` extension and Claude-format clients read it natively. There is
-no second agent-specific MCP file; any internal legacy-shaped data is translated
-only at this write boundary. All listed servers are generated with eager
+block is present. Pi reads it via the `pi-mcp-adapter` extension. The complete
+second file is host-private rather than agent-specific: TruACP translates it to
+ACP `mcpServers` for Codex and Claude, while the Pi launcher consumes it without
+adding values to model context. All listed servers are generated with eager
 lifecycle so the session starts with their real connected/error state.
 
 Before spawning TruACP, launch must also validate the installed issue #57

@@ -58,6 +58,15 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, ".mcp.json"), mcpConfig, 0644); err != nil {
 		t.Fatal(err)
 	}
+	privateMCPConfig := filepath.Join(root, "runtime", "example", "mcp.json")
+	managedMCPConfigPathOverride = privateMCPConfig
+	t.Cleanup(func() { managedMCPConfigPathOverride = "" })
+	if err := os.MkdirAll(filepath.Dir(privateMCPConfig), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privateMCPConfig, mcpConfig, 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	manifestPath := filepath.Join(root, "config", "pi-runtime.json")
 	trustablePiRuntimeManifestPathOverride = manifestPath
@@ -103,6 +112,7 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 			DevelopmentURL:     "http://localhost:5173",
 			BrowserURL:         "http://vite.192.168.64.9.nip.io:8910",
 			RequiredMCPServers: []string{"browser", "openserverless", "redis"},
+			MCPConfig:          privateMCPConfig,
 			WatcherLog:         watcherLog,
 		}},
 	}

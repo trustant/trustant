@@ -28,6 +28,7 @@ credential-free manifest outside the application checkout:
       "developmentUrl": "http://localhost:5173",
       "browserUrl": "http://vite.192.168.64.9.nip.io:8910",
       "requiredMcpServers": ["browser", "openserverless", "postgres"],
+      "mcpConfig": "/home/user/.config/trustable/runtime/example/mcp.json",
       "watcherLog": "/home/user/.config/trustable/runtime/example/ops-ide-devel.log"
     }
   ]
@@ -43,6 +44,10 @@ credential-free manifest outside the application checkout:
 - `requiredMcpServers` is the sorted set of server names in the generated
   `.mcp.json`, including the always-present deterministic `react` validator
   and conditional servers such as `agentireact`.
+- `mcpConfig` is a mode-`0600`, host-owned file outside the workbench. It
+  contains the complete stdio/HTTP process contract and credentials; its server
+  names must exactly match `requiredMcpServers`. The workbench `.mcp.json`
+  contains only credential-free descriptors.
 - `watcherLog` is the canonical private log written by the host-owned
   `ops ide devel` process. It remains outside the workbench, is mode `0600`,
   rotates at a bounded size, and is never supplied by browser or app content.
@@ -71,10 +76,27 @@ tool only adds Redis wiring and never reads or writes `.env`.
 ## Host and adapter validation
 
 Managed TruACP validates the manifest, selected working directory, exact
-`.mcp.json`, and extension file before creating a Pi session. It then uses the
+credential-free `.mcp.json`, private MCP config, and extension file before
+creating a session. It passes the private MCP entries over ACP to Codex and
+Claude, while Pi retains its adapter proxy and resolves credential-bearing
+stdio entries through `trustable-mcp-launch`. It then uses the
 versioned `_meta.trustable.piLaunch` contract to pass the extension path to the
 pinned `pi-acp` fork. Raw browser requests and generic agent configuration
 cannot inject extension paths or arbitrary Pi argv.
+
+TruACP strips host policy/config paths and service credentials from the base
+environment inherited by Codex and Claude. MCP credentials are present only in
+the environment/arguments of the selected MCP subprocess. Known credential
+values plus credential-bearing keys and URIs are recursively redacted from
+WebSocket events, direct-shell REST output, and therefore persisted session
+history. Pi's extension blocks reads and shell inspection of the private MCP
+config; generated instructions forbid direct MCP startup for every agent.
+
+Exactly one initialized ACP agent is retained. Switching agents disconnects the
+previous process tree before the replacement starts, preventing competing
+Browser MCP owners. Browser MCP serializes every operation on one stdio
+connection, rejects blank/about:blank captures as stale evidence, and closes
+its Playwright context deterministically on runtime termination.
 
 Standalone TruACP remains unchanged. Once `TRUSTABLE_MANAGED_RUNTIME=1` is set,
 missing, malformed, stale, or mismatched inputs are fatal: managed mode must not
@@ -189,6 +211,9 @@ Tests must cover:
 
 - browser-origin to Vite-origin derivation;
 - private atomic manifest generation from the exact `.mcp.json`;
+- private atomic MCP generation, credential-free `.mcp.json`, exact server-set
+  parity, ACP delivery to Codex/Claude, Pi proxy isolation, and sentinel-secret
+  scans across model-visible output;
 - missing extension or MCP config failing before launch;
 - managed manifest/workbench/MCP validation in TruACP and inside Pi;
 - typed extension metadata and rejection of session cwd escape;
@@ -218,6 +243,9 @@ Tests must cover:
   prose inside one streamed response is terminated deterministically;
 - watcher output is bounded, private, redacted by `trustable_runtime_status`,
   and available in both initial launch and explicit redeploy paths.
+- concurrent Browser MCP operations are ordered through one persistent process;
+  empty/stale captures fail explicitly and agent switching closes the previous
+  browser owner.
 
 ## Upstream extension boundary (#71)
 
