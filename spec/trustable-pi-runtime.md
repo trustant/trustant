@@ -209,3 +209,13 @@ Tests must cover:
   prose inside one streamed response is terminated deterministically;
 - watcher output is bounded, private, redacted by `trustable_runtime_status`,
   and available in both initial launch and explicit redeploy paths.
+
+## Upstream extension boundary (#71)
+
+This section supersedes the earlier requirement to own a Pi core fork. The
+runtime is the exact upstream Pi `0.82.0` package set with checked-in SRI values.
+Trustable's repeated-stream guard runs in the managed extension: after four
+occurrences of a normalized 32-word window within one assistant text stream it
+calls `ctx.abort()` and rewrites `message_end` with an explicit provider-loop
+error. State resets at the next assistant response; healthy runs beyond 300
+turns are not limited.

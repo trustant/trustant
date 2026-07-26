@@ -131,8 +131,8 @@ RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 # set so managed Pi cannot start without the issue #57 host contract.
 COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
 COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
+COPY --chown=trustable:trustable truacp-runtime/pi.integrity /tmp/truacp/pi.integrity
 COPY --chown=trustable:trustable truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
-COPY --chown=trustable:trustable truacp-runtime/pi-packages /tmp/truacp/pi-packages
 COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
 COPY --chown=trustable:trustable truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts
 RUN \

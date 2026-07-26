@@ -252,3 +252,17 @@ There is still no global step/turn budget.
 Context-continuity state and completion evidence remain subsequent issue #57
 increments. The complete versioned contract and acceptance matrix are
 specified in [trustable-pi-runtime.md](trustable-pi-runtime.md).
+
+## Upstream runtime ownership (#71)
+
+This section supersedes earlier fork-source packaging language. Trustable pins
+all five upstream Pi packages at `0.82.0` in `trustable-acp/pi.version` and pins
+their reviewed SHA-512 values in `trustable-acp/pi.integrity`. Setup and image
+builds must fail on any version or integrity mismatch and must not require a Pi
+source submodule or cached `pi-packages` tarballs. The Trustable `pi-acp` fork
+remains a separate pinned component.
+
+The managed repeated-stream invariant is implemented by
+`trustable-acp/extensions/trustable-runtime.ts` through upstream Pi's
+`message_update`, `message_end`, and `ctx.abort()` extension API. Detection is
+scoped to one assistant response and does not impose a turn or step budget.

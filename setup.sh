@@ -370,6 +370,8 @@ ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 echo "--- Installing the pi coding-agent toolchain ---"
 PI_VERSIONS_FILE="trustable-acp/pi.version"
 [[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
+PI_INTEGRITY_FILE="trustable-acp/pi.integrity"
+[[ -f "$PI_INTEGRITY_FILE" ]] || fail "$PI_INTEGRITY_FILE not found — it pins the reviewed upstream Pi artifacts"
 
 command -v npm &>/dev/null || fail "npm is required to install the pi toolchain"
 
@@ -388,6 +390,20 @@ for pkg in "${PI_PACKAGES[@]}"; do
     *) fail "$PI_VERSIONS_FILE: '$pkg' has no version — every entry must be pinned as <module>@<version>" ;;
   esac
 done
+
+while IFS= read -r integrity_line; do
+  integrity_line="$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"$integrity_line")"
+  [[ -n "$integrity_line" ]] || continue
+  read -r spec expected_integrity extra <<<"$integrity_line"
+  [[ -n "$spec" && -n "$expected_integrity" && -z "$extra" ]] \
+    || fail "$PI_INTEGRITY_FILE contains an invalid entry: $integrity_line"
+  printf '%s\n' "${PI_PACKAGES[@]}" | grep -Fqx "$spec" \
+    || fail "$PI_INTEGRITY_FILE pins $spec, but pi.version does not install it"
+  actual_integrity="$(npm view "$spec" dist.integrity)" \
+    || fail "could not read registry integrity for $spec"
+  [[ "$actual_integrity" == "$expected_integrity" ]] \
+    || fail "integrity mismatch for $spec (expected $expected_integrity, received $actual_integrity)"
+done <"$PI_INTEGRITY_FILE"
 
 echo "Packages pinned by $PI_VERSIONS_FILE:"
 for pkg in "${PI_PACKAGES[@]}"; do
@@ -508,7 +524,8 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 # builds separately stage the resulting portable JavaScript bundle.
 #
 # trustable-acp/setup.sh owns this step: it (re)installs the pinned agents and
-# adapters from pi.version, builds the nested Trustable pi-acp fork, then,
+# integrity-verified upstream Pi packages from pi.version, builds the nested
+# Trustable pi-acp fork, then,
 # because a package.json is present in the working directory, builds and installs
 # the ~/.local/bin/truacp launcher. It MUST be run from inside trustable-acp/:
 # the build/install phases key off a package.json in the *current* directory, so
