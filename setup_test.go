@@ -57,7 +57,7 @@ func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
 		`export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"`,
 		`npm config set prefix "$NPM_GLOBAL_PREFIX" --location=user`,
 		`export PATH="$NPM_GLOBAL_BIN:$PATH"`,
-		`if ! grep -qF "$IMAGE_PATH" "$HOME/.bashrc"`,
+		`if ! grep -qF "$IMAGE_PATH" "$shell_rc"`,
 		`IMAGE_PATH="\$HOME/.local/bin:${NPM_GLOBAL_BIN}:`,
 	} {
 		if !strings.Contains(setup, required) {
@@ -86,6 +86,67 @@ func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
 	}
 	if strings.Contains(acpSetup, ".npm-global") {
 		t.Fatal("trustable-acp/setup.sh must not define a competing persistent npm-prefix default")
+	}
+}
+
+// The Pi CLI is built from the pinned nested Trustable fork by
+// trustable-acp/setup.sh, not by the pi.version npm install. Asserting `pi` on
+// PATH before that build ran aborts a clean VM setup ~120 lines early, so the
+// guard must sit after the nested installer.
+func TestSetupChecksPiOnlyAfterNestedForkBuildsIt(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+
+	nestedBuildAt := strings.Index(setup, `(cd trustable-acp && ./setup.sh)`)
+	if nestedBuildAt < 0 {
+		t.Fatal("setup.sh must build the nested trustable-acp installer")
+	}
+	piCheckAt := strings.Index(setup, `command -v pi &>/dev/null`)
+	if piCheckAt < 0 {
+		t.Fatal("setup.sh must verify the pi CLI is installed")
+	}
+	if piCheckAt < nestedBuildAt {
+		t.Fatal("setup.sh must check for pi only after trustable-acp/setup.sh builds it")
+	}
+
+	versions, err := os.ReadFile(filepath.Join("trustable-acp", "pi.version"))
+	if err != nil {
+		t.Fatalf("read trustable-acp/pi.version: %s", err)
+	}
+	for _, line := range strings.Split(string(versions), "\n") {
+		spec := strings.TrimSpace(line)
+		if i := strings.Index(spec, "#"); i >= 0 {
+			spec = strings.TrimSpace(spec[:i])
+		}
+		if strings.HasPrefix(spec, "pi@") {
+			t.Fatal("pi.version pins an npm pi package; the Pi CLI must come from the nested Trustable fork")
+		}
+	}
+}
+
+// Ubuntu's stock ~/.bashrc returns early for non-interactive shells, so a PATH
+// line appended only there never runs under `bash -lc`. ~/.profile is what
+// actually carries the toolchain into a login shell.
+func TestSetupWritesImagePathToProfileNotOnlyBashrc(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+	for _, required := range []string{
+		`for shell_rc in "$HOME/.profile" "$HOME/.bashrc"`,
+		`grep -qF "$IMAGE_PATH" "$shell_rc"`,
+		`echo "export PATH=\"$IMAGE_PATH\"" >> "$shell_rc"`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing login-shell PATH fragment %q", required)
+		}
+	}
+	if strings.Contains(setup, `echo "export PATH=\"$IMAGE_PATH\"" >> "$HOME/.bashrc"`) {
+		t.Fatal("setup.sh must not write the image PATH to ~/.bashrc alone")
 	}
 }
 

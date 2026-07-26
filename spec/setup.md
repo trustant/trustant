@@ -39,7 +39,13 @@ installation never uses `sudo`. This mirrors the Dockerfile's per-user
 (`trustable`) stages while keeping the wrapper boundary identical in Lima and
 the image.
 
-When I say add to the PATH, add to ~/.bashrc (the VM is Ubuntu; bash login shell).
+When I say add to the PATH, persist it for the bash login shell (the VM is
+Ubuntu). Write the canonical PATH line to **both `~/.profile` and `~/.bashrc`**:
+Ubuntu's stock `~/.bashrc` returns early for non-interactive shells, so a line
+appended only there is dead code under `bash -lc` and `ssh <host> <cmd>` — the
+failure mode where `pi`/`claude`/`codex` are installed yet "not found".
+`~/.profile` is read by login shells regardless of interactivity; `~/.bashrc`
+keeps the same ordering for interactive non-login shells.
 
 If a check fails, abort and warn the user.
 
@@ -129,8 +135,9 @@ After npm is available and before any global npm installation, repository-root
 - export `NPM_CONFIG_PREFIX=<prefix>` and prepend `<prefix>/bin` to the current
   setup process PATH;
 - persist the prefix with `npm config set ... --location=user`;
-- persist the PATH through the canonical `~/.bashrc` PATH line. Repeated setup
-  runs must not duplicate that line.
+- persist the PATH through the canonical PATH line written to both `~/.profile`
+  and `~/.bashrc`. Repeated setup runs must not duplicate that line in either
+  file.
 
 An explicitly configured prefix that is relative, owned by another user, or
 not writable without privilege is incompatible and falls back with a warning to
@@ -219,7 +226,12 @@ an account and never reads a developer machine's normal `~/.config/gh`.
 - Reject any entry without an explicit version separator; setup must never
   resolve a floating Pi CLI or extension.
 - Install the complete list globally under the selected user-owned npm prefix
-  and verify `pi` is on `PATH`.
+  and verify the agent CLIs it provides (`claude`, `codex`) are on `PATH`.
+- Do **not** verify `pi` here. `pi.version` pins the agents, the ACP adapters,
+  and the Pi *extensions*; the Pi CLI itself is built from the pinned nested
+  Trustable fork by `trustable-acp/setup.sh` in step 13, so a `pi` check at this
+  point aborts a clean VM setup before anything can provide it. The `pi`,
+  `pi-acp`, and `truacp` checks belong to step 13.
 
 Do not install OpenCode, use `https://opencode.ai/install`, or replace the
 checked-in Trustable ACP adapter with a public unpinned package.
@@ -320,10 +332,10 @@ a setup failure because managed Trustable must not start an unguarded Pi
 session. Standalone TruACP does not load this extension unless the host selects
 it through the typed launch contract.
 
-This is the "references ready" prerequisite. Ensure the ~/.bashrc PATH matches
-the image ordering, including the selected npm prefix bin and the Go bin dir
-(GOBIN/GOPATH-bin), so a fresh login shell finds npm-installed commands and
-air. Because a user can invoke `run.sh` immediately after `setup.sh` from the
+This is the "references ready" prerequisite. Ensure the persisted PATH (written
+to both `~/.profile` and `~/.bashrc`, see above) matches the image ordering,
+including the selected npm prefix bin and the Go bin dir (GOBIN/GOPATH-bin), so
+a fresh login shell finds npm-installed commands and air. Because a user can invoke `run.sh` immediately after `setup.sh` from the
 same shell, `run.sh` must also recover the persisted npm prefix itself, prepend
 `~/.local/bin:<npm-prefix>/bin`, and fail before launch unless both `pi` and
 `pi-acp` resolve:
