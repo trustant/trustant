@@ -320,10 +320,13 @@ a setup failure because managed Trustable must not start an unguarded Pi
 session. Standalone TruACP does not load this extension unless the host selects
 it through the typed launch contract.
 
-This is the "references ready" prerequisite. Ensure the ~/.bashrc PATH matches the
-image ordering, including the selected npm prefix bin and the Go bin dir
-(GOBIN/GOPATH-bin), so a fresh login shell (as run.sh uses) finds npm-installed
-commands and air:
+This is the "references ready" prerequisite. Ensure the ~/.bashrc PATH matches
+the image ordering, including the selected npm prefix bin and the Go bin dir
+(GOBIN/GOPATH-bin), so a fresh login shell finds npm-installed commands and
+air. Because a user can invoke `run.sh` immediately after `setup.sh` from the
+same shell, `run.sh` must also recover the persisted npm prefix itself, prepend
+`~/.local/bin:<npm-prefix>/bin`, and fail before launch unless both `pi` and
+`pi-acp` resolve:
 
 ~/.local/bin:<npm-prefix>/bin:~/.ops/linux-<arch>/bin:<go-bin>:/usr/local/bin:/usr/bin:/bin
 

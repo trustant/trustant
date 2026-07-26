@@ -241,6 +241,25 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	}
 }
 
+func TestRunRestoresSelectedNPMGlobalPrefix(t *testing.T) {
+	content, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatalf("read run.sh: %s", err)
+	}
+	run := string(content)
+	for _, required := range []string{
+		`NPM_GLOBAL_PREFIX="${NPM_CONFIG_PREFIX:-$(npm config get prefix`,
+		`export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"`,
+		`export PATH="$HOME/.local/bin:$NPM_GLOBAL_PREFIX/bin:$PATH"`,
+		`for runtime_command in pi pi-acp`,
+		`is missing from the configured npm prefix`,
+	} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("run.sh is missing npm runtime PATH fragment %q", required)
+		}
+	}
+}
+
 func TestStartInstallsPinnedKubefwdForSupportedArchitectures(t *testing.T) {
 	content, err := os.ReadFile("start.sh")
 	if err != nil {

@@ -3,6 +3,15 @@
 This specification defines the repository-root `run.sh`, which invokes the app
 with Air inside the `trudev` VM (see [setup.md](setup.md)):
 
+Before any managed runtime starts, the in-VM path must be rebuilt from the
+setup-owned npm prefix (`NPM_CONFIG_PREFIX` when exported, otherwise the
+persisted `npm config get prefix`). `~/.local/bin` remains first and the selected
+`<npm-prefix>/bin` follows it, so `truacp`, `pi-acp`, and `pi` resolve even when
+`run.sh` is launched from the same non-interactive shell that just completed
+`setup.sh` and has not reloaded `~/.bashrc`. A missing npm runtime, invalid
+prefix, missing `pi`, or missing `pi-acp` is an immediate prerequisite failure,
+not a deferred browser-side `ACP connection closed`.
+
 0. on macOS (uname == Darwin) everything lives in the VM, not the host — run.sh
 is the single entrypoint and owns the whole lifecycle:
   a. `./start.sh` — provision/boot the trudev VM AND run setup.sh in it (both

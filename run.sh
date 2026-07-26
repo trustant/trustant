@@ -52,6 +52,24 @@ fi
 
 source ./.env
 
+# setup.sh persists the selected user-owned npm prefix, but running this script
+# from the same non-interactive shell does not reload ~/.bashrc. Reconstruct the
+# setup-owned PATH here so TruACP can spawn the pinned pi-acp and Pi binaries on
+# the first run after setup as well as after a fresh login.
+command -v npm &>/dev/null \
+    || { echo "npm is missing — run ./setup.sh first" >&2; exit 1; }
+NPM_GLOBAL_PREFIX="${NPM_CONFIG_PREFIX:-$(npm config get prefix 2>/dev/null || true)}"
+if [[ -z "$NPM_GLOBAL_PREFIX" || "$NPM_GLOBAL_PREFIX" != /* ]]; then
+    echo "npm global prefix is invalid — run ./setup.sh first" >&2
+    exit 1
+fi
+export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"
+export PATH="$HOME/.local/bin:$NPM_GLOBAL_PREFIX/bin:$PATH"
+for runtime_command in pi pi-acp; do
+    command -v "$runtime_command" &>/dev/null \
+        || { echo "$runtime_command is missing from the configured npm prefix $NPM_GLOBAL_PREFIX — run ./setup.sh first" >&2; exit 1; }
+done
+
 # Put the Go dirs on PATH so `go` and `air` are found even in a non-interactive
 # shell (Ubuntu's .bashrc returns early when non-interactive, so the PATH lines
 # setup.sh appends there never run here). First source g's env if present to get
