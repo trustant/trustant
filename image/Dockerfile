@@ -1,17 +1,19 @@
 ARG OLLAMA_VERSION=0.30.6
-ARG OPENCODE_VERSION=1.17.13
 ARG OPS_BRANCH=bestia
 ARG OPS_REPO=https://github.com/nuvolaris/bestia
+# WHY: VM setup reads these exact values too, so image and development installs
+# cannot drift back to the upstream Milvus MCP or a floating branch.
+ARG MILVUS_MCP_REPO=https://github.com/trustable-ai/mcp-server-milvus.git
+ARG MILVUS_MCP_REF=a7e624f3057a0d739528bca3ed92504943224ceb
 
 ########################################################## loader
 FROM ubuntu:24.04 AS loader
 ARG TARGETARCH
 ARG OLLAMA_VERSION
-ARG OPENCODE_VERSION
 ARG OPS_BRANCH
 ARG OPS_REPO
 
-# install ollama and opencode
+# install ollama
 USER root
 
 RUN apt-get update && apt-get install -y curl zstd
@@ -19,34 +21,31 @@ RUN apt-get update && apt-get install -y curl zstd
 RUN curl -fsSL https://ollama.com/install.sh >ollama.sh
 RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
 
-RUN curl -fsSL https://opencode.ai/install >opencode.sh
-RUN bash opencode.sh --version ${OPENCODE_VERSION}
-
 RUN \
     echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
-    echo "OPENCODE_VERSION=${OPENCODE_VERSION}" >>/etc/environment ;\
     echo "OPS_REPO=${OPS_REPO}" >>/etc/environment ;\
     echo "OPS_BRANCH=${OPS_BRANCH}" >>/etc/environment
 
 ########################################################## stage1-root
 FROM ubuntu:24.04 AS stage1-root
 ARG TARGETARCH
+ARG MILVUS_MCP_REPO
+ARG MILVUS_MCP_REF
 USER root
 
 # collecting
 COPY --from=loader /etc/environment /etc/environment
 COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
 COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
-COPY --from=loader /root/.opencode/bin/opencode /usr/local/bin/opencode
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN \
     apt update && \
     apt install -y --no-install-recommends \
-        locales ca-certificates git sudo curl jq less vim libatomic1 \
+        locales ca-certificates git sudo curl jq less vim lsof libatomic1 \
         tini openssh-server supervisor iputils-ping inetutils-telnet ripgrep \
-        python-is-python3  python3-pip \
+        python-is-python3 python3-pip python3-pytest python3-dotenv \
         postgresql-client-16 redis-tools rclone  && \
     curl -fsSL https://deb.nodesource.com/setup_24.x | bash ;\
     apt update && apt -y install nodejs ;\
@@ -58,16 +57,19 @@ RUN \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 
+# Keep the upstream Milvus CLI pinned in /usr/local/bin. WHY: app launch replaces
+# ~/.local/bin/milvus_cli with a configured wrapper and must not follow a
+# floating package or overwrite the package-managed implementation.
 # installing lsp: ts py, mcp: postgres, redis, milvus, mongodb, cli: milvus
 RUN \
     curl -LsSf https://astral.sh/uv/install.sh | \
     env UV_INSTALL_DIR="/usr/bin" INSTALLER_NO_MODIFY_PATH=1 sh ;\
     for tool in \
-        milvus-cli \
+        milvus-cli==1.2.1 \
         'python-lsp-server[yapf]' \
         postgres-mcp==0.3.0 \
         redis-mcp-server==0.5.0 \
-        git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3 ;\
+        "git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}" ;\
     do env \
         UV_TOOL_BIN_DIR=/usr/local/bin \
         UV_TOOL_DIR=/opt/uv/tools \
@@ -79,15 +81,18 @@ RUN \
 
 COPY openserverless-mcp /tmp/openserverless-mcp
 COPY trustable-browser-mcp /tmp/trustable-browser-mcp
+COPY trustable-react-mcp /tmp/trustable-react-mcp
 RUN \
-    npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.13.0 ;\
+    npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.9.0 ;\
     cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
     npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
     cd /tmp/trustable-browser-mcp && npm pack --pack-destination /tmp ;\
     npm install -g /tmp/trustable-browser-mcp-*.tgz ;\
+    cd /tmp/trustable-react-mcp && npm pack --pack-destination /tmp ;\
+    npm install -g /tmp/trustable-react-mcp-*.tgz ;\
     npx --yes playwright@1.56.1 install --with-deps chromium ;\
     cd / ;\
-    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-browser-mcp /tmp/trustable-browser-mcp-*.tgz ;\
+    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-browser-mcp /tmp/trustable-browser-mcp-*.tgz /tmp/trustable-react-mcp /tmp/trustable-react-mcp-*.tgz ;\
     rm -rf /var/lib/apt/lists/* ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
@@ -119,13 +124,23 @@ RUN \
 
 RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 
-# opencode
+# TruACP serves the coding UI on :4096 and starts pi-acp/Pi. image.sh builds the
+# self-contained JavaScript bundle and pi-acp package before Docker runs and
+# stages only the runtime artifacts; source and node_modules must never enter an
+# image layer. The separately loaded policy file is pinned with this artifact
+# set so managed Pi cannot start without the issue #57 host contract.
+COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
+COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
+COPY --chown=trustable:trustable truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
+COPY --chown=trustable:trustable truacp-runtime/pi-packages /tmp/truacp/pi-packages
+COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
+COPY --chown=trustable:trustable truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts
 RUN \
-    mkdir -p "$HOME/.config/opencode" ;\
-    cd "$HOME/.config/opencode" ;\
-    npm init -y >/dev/null ;\
-    npm install  "@opencode-ai/plugin@$(/usr/local/bin/opencode --version)" ;\
-    test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin"
+    cd /tmp/truacp ;\
+    sh setup.sh ;\
+    test -x "$HOME/.local/bin/truacp" ;\
+    test -x "$HOME/.local/bin/trustable-acp" ;\
+    rm -rf /tmp/truacp
 
 # workspace
 RUN \

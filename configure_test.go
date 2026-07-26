@@ -2,6 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,85 +33,17 @@ func isolateOpenServerlessCheckerInstall(t *testing.T) string {
 	origCheckerPath := openServerlessCheckerInstallPathOverride
 	origFrontendPath := frontendCheckerInstallPathOverride
 	origAppPath := appCheckerInstallPathOverride
-	origPluginPath := guardrailPluginInstallPathOverride
 	root := t.TempDir()
 	checkerInstallPath := filepath.Join(root, "bin", "check_openserverless_actions.sh")
 	openServerlessCheckerInstallPathOverride = checkerInstallPath
 	frontendCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_frontend.sh")
 	appCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_app.sh")
-	guardrailPluginInstallPathOverride = filepath.Join(root, "config", "opencode", "plugins", "trustable-guardrails.js")
 	t.Cleanup(func() {
 		openServerlessCheckerInstallPathOverride = origCheckerPath
 		frontendCheckerInstallPathOverride = origFrontendPath
 		appCheckerInstallPathOverride = origAppPath
-		guardrailPluginInstallPathOverride = origPluginPath
 	})
 	return checkerInstallPath
-}
-
-func TestManagedOllamaDetectionRequiresGeneratedModelMarker(t *testing.T) {
-	customOllama := map[string]interface{}{
-		"options": map[string]interface{}{
-			"baseURL": "http://localhost:11434/v1",
-		},
-		"models": map[string]interface{}{
-			"gemma4:latest": map[string]interface{}{
-				"name": "Gemma4",
-			},
-		},
-	}
-	if isTrustableManagedOpenCodeProvider("ollama", customOllama) {
-		t.Fatal("custom ollama provider without generated marker should be preserved")
-	}
-
-	generatedOllama := map[string]interface{}{
-		"options": map[string]interface{}{
-			"baseURL": "http://localhost:11434/v1",
-		},
-		"models": map[string]interface{}{
-			"qwen3.5:cloud": map[string]interface{}{
-				"variants": map[string]interface{}{
-					"disabled_variant": map[string]interface{}{
-						"disabled": true,
-					},
-				},
-			},
-		},
-	}
-	if !isTrustableManagedOpenCodeProvider("ollama", generatedOllama) {
-		t.Fatal("generated ollama provider should be removed")
-	}
-}
-
-func TestDisabledProvidersForCustomConfigKeepsCustomProviderSelectable(t *testing.T) {
-	filtered := disabledProvidersForCustomConfig(
-		[]string{"openai", "ollama", "ollama2", "opencode"},
-		map[string]interface{}{
-			"openai":  map[string]interface{}{},
-			"ollama2": map[string]interface{}{},
-		},
-	)
-
-	for _, disabled := range filtered {
-		if disabled == "openai" || disabled == "ollama2" {
-			t.Fatalf("custom provider %q should not remain disabled: %#v", disabled, filtered)
-		}
-	}
-	if len(filtered) != 2 || filtered[0] != "ollama" || filtered[1] != "opencode" {
-		t.Fatalf("unexpected disabled providers after filtering: %#v", filtered)
-	}
-}
-
-func TestDefaultOpenCodeLSPConfigIncludesPython(t *testing.T) {
-	lsp := defaultOpenCodeLSPConfig()
-	python, ok := lsp["python"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("python LSP config missing: %#v", lsp)
-	}
-	command, ok := python["command"].([]string)
-	if !ok || len(command) != 1 || command[0] != "pylsp" {
-		t.Fatalf("unexpected python LSP command: %#v", python["command"])
-	}
 }
 
 func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *testing.T) {
@@ -130,7 +66,7 @@ func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *tes
 	}
 }
 
-func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
+func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 	cases := []string{
 		"Qwen3-Embedding-8B",
 		"bestia/embedding:952mb",
@@ -141,8 +77,8 @@ func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
 		"gte-Qwen2",
 	}
 	for _, model := range cases {
-		if ok, reason := modelAllowedForOpenCode("bestia", model, nil); ok || reason == "" {
-			t.Fatalf("%s should be blocked for OpenCode, ok=%v reason=%q", model, ok, reason)
+		if ok, reason := modelAllowedForPi("bestia", model, nil); ok || reason == "" {
+			t.Fatalf("%s should be blocked for Pi, ok=%v reason=%q", model, ok, reason)
 		}
 	}
 
@@ -153,52 +89,162 @@ func TestModelAllowedForOpenCodeBlocksNonAgentModels(t *testing.T) {
 		"gpt-oss-20b",
 	}
 	for _, model := range allowed {
-		if ok, reason := modelAllowedForOpenCode("bestia", model, nil); !ok {
-			t.Fatalf("%s should be allowed for OpenCode, reason=%q", model, reason)
+		if ok, reason := modelAllowedForPi("bestia", model, nil); !ok {
+			t.Fatalf("%s should be allowed for Pi, reason=%q", model, reason)
 		}
 	}
 }
 
-func TestModelAllowedForOpenCodeHonorsCatalogMetadata(t *testing.T) {
+func TestModelAllowedForPiHonorsCatalogMetadata(t *testing.T) {
 	disabled := false
-	if ok, reason := modelAllowedForOpenCode("trustable", "qwen3.6-27b", &ModelLimits{
+	if ok, reason := modelAllowedForPi("trustable", "qwen3.6-27b", &ModelLimits{
 		Enabled: &disabled,
 		Reason:  "temporarily unavailable",
 	}); ok || reason != "temporarily unavailable" {
 		t.Fatalf("disabled catalog model should be blocked with reason, ok=%v reason=%q", ok, reason)
 	}
 
-	if ok, reason := modelAllowedForOpenCode("trustable", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
+	if ok, reason := modelAllowedForPi("trustable", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
 		t.Fatalf("coding role should allow model, reason=%q", reason)
 	}
-	if ok, reason := modelAllowedForOpenCode("trustable", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
+	if ok, reason := modelAllowedForPi("trustable", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
 		t.Fatalf("embedding role should block model, ok=%v reason=%q", ok, reason)
 	}
 }
 
-func TestValidateOpenCodeModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
+func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 	cfg := &trustableConfig{
 		Provider: "bestia",
 		Models: map[string]*ModelLimits{
 			"bestia/embedding:952mb": {MaxInput: 8192},
 			"qwen3.6:35b":            {MaxInput: 131072},
 		},
-		Opencode: &opencodeConfig{Default: "bestia/embedding:952mb", Small: "qwen3.6:35b"},
+		Pi: &piConfig{Default: "bestia/embedding:952mb"},
 	}
-	err := validateOpenCodeModelSelection(cfg)
+	err := validatePiModelSelection(cfg)
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
 		t.Fatalf("expected disallowed model validation error, got %v", err)
 	}
 }
 
-func TestValidateOpenCodeModelSelectionAllowsDeferredDiscovery(t *testing.T) {
+func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
 	cfg := &trustableConfig{
 		Provider: "bestia",
 		Models:   map[string]*ModelLimits{},
-		Opencode: &opencodeConfig{Default: "", Small: ""},
+		Pi:       &piConfig{Default: ""},
 	}
-	if err := validateOpenCodeModelSelection(cfg); err != nil {
+	if err := validatePiModelSelection(cfg); err != nil {
 		t.Fatalf("empty provider-choice config should be allowed before discovery: %s", err)
+	}
+}
+
+func TestValidatePiModelSelectionRejectsIncompleteTrustableCatalog(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *trustableConfig
+	}{
+		{
+			name: "empty catalog and selection",
+			cfg: &trustableConfig{
+				Provider: "trustable",
+				Models:   map[string]*ModelLimits{},
+				Pi:       &piConfig{Default: ""},
+			},
+		},
+		{
+			name: "catalog without selection",
+			cfg: &trustableConfig{
+				Provider: "trustable",
+				Models: map[string]*ModelLimits{
+					"qwen3-coder-next": {MaxToken: 131072},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validatePiModelSelection(tt.cfg); err == nil {
+				t.Fatal("incomplete Trustable catalog must be rejected before it reaches testmodel")
+			}
+		})
+	}
+}
+
+func TestTrustableConfigDoesNotMigrateLegacyOpenCodeSelection(t *testing.T) {
+	// Issue #51 requires an explicit first-run Pi selection; accepting this old
+	// object would hide the cutover and could silently choose the wrong model.
+	var cfg trustableConfig
+	if err := json.Unmarshal([]byte(`{
+		"provider": "trustable",
+		"opencode": {"default": "legacy-default", "small": "legacy-small"}
+	}`), &cfg); err != nil {
+		t.Fatalf("unmarshal legacy configuration: %s", err)
+	}
+	if cfg.Pi != nil || piDefaultModel(&cfg) != "" {
+		t.Fatalf("legacy opencode selection must not populate Pi: %#v", cfg.Pi)
+	}
+}
+
+func TestConfigurePiTestFailureLinePreservesOllamaAuthentication(t *testing.T) {
+	got := configurePiTestFailureLine(testModelResult{
+		AuthRequired: true,
+		Warning:      "Unauthorized",
+	})
+	if got != configureAuthRequiredPrefix+"Unauthorized" {
+		t.Fatalf("authentication failure lost its stream marker: %q", got)
+	}
+
+	got = configurePiTestFailureLine(testModelResult{Warning: "upstream unavailable"})
+	if got != "ERROR: Pi model test failed: upstream unavailable" {
+		t.Fatalf("ordinary failure should remain a generic error: %q", got)
+	}
+}
+
+func TestConfigureStreamsOllamaAuthenticationBeforeWritingPiConfig(t *testing.T) {
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"data":[{"id":"qwen3.5:cloud"}]}`)
+		case "/api/pull":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"status":"success"}`)
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"error":"Unauthorized"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	originalWorkspace, originalEndpoint := WorkspaceDir, OllamaEndpoint
+	WorkspaceDir, OllamaEndpoint = t.TempDir(), ollama.URL
+	t.Cleanup(func() {
+		WorkspaceDir, OllamaEndpoint = originalWorkspace, originalEndpoint
+	})
+	if err := saveWorkspaceConfig(&trustableConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		APIKey:   "dummy",
+		Models: map[string]*ModelLimits{
+			"qwen3.5:cloud": {MaxToken: 131072, MaxOutput: 32768},
+		},
+		Pi:  &piConfig{Default: "qwen3.5:cloud"},
+		Git: &GitConfig{},
+	}); err != nil {
+		t.Fatalf("save test configuration: %s", err)
+	}
+
+	response := httptest.NewRecorder()
+	handleConfigure(response, httptest.NewRequest(http.MethodGet, "/api/configure", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, configureAuthRequiredPrefix+"Unauthorized") {
+		t.Fatalf("configure stream did not preserve Ollama authentication: %q", body)
+	}
+	if strings.Contains(body, "ERROR: Pi model test failed") {
+		t.Fatalf("Ollama authentication was collapsed into a generic error: %q", body)
 	}
 }
 
@@ -315,7 +361,7 @@ func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
 	}
 }
 
-func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
+func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
 	origWorkspace := WorkspaceDir
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() {
@@ -363,7 +409,16 @@ func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(WorkbenchDir, "truapp"), 0755); err != nil {
 		t.Fatalf("mkdir workbench: %s", err)
 	}
-
+	// WHY: older builds created this durable MCP-owned store. Env generation
+	// must ignore it so an agent cannot mutate application configuration behind
+	// the user-facing Trustable editor.
+	legacySecretPath := filepath.Join(WorkspaceDir, ".trustable", "secrets", "truapp.env")
+	if err := os.MkdirAll(filepath.Dir(legacySecretPath), 0700); err != nil {
+		t.Fatalf("mkdir legacy app secret store: %s", err)
+	}
+	if err := os.WriteFile(legacySecretPath, []byte("JWT_SECRET=must-not-be-imported\n"), 0600); err != nil {
+		t.Fatalf("write legacy app secret store: %s", err)
+	}
 	if err := generateAppEnvFiles("truapp"); err != nil {
 		t.Fatalf("generate env: %s", err)
 	}
@@ -374,6 +429,12 @@ func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 	}
 	if got := env["CUSTOM"]; got != "dev" {
 		t.Fatalf("expected ordinary development env to remain, got %q", got)
+	}
+	if got := env["JWT_SECRET"]; got != "" {
+		t.Fatalf("legacy MCP secret store must not feed generated app env, got %q", got)
+	}
+	if got := env["OPS_PASSWORD"]; got != "secret" {
+		t.Fatalf("expected Trustable-managed OPS_PASSWORD, got %q", got)
 	}
 
 	runtimeEnv := appServiceRuntimeEnv([]string{"BASE=1"})
@@ -388,17 +449,17 @@ func TestMongoDBURIStaysOutOfGeneratedAppEnvFiles(t *testing.T) {
 	}
 }
 
-// The opencode.json is a single, self-contained file fully regenerated in the
-// app's workbench project folder on every launch: provider + model defaults +
-// lsp, instructions pointing at the project's own contract/opencode.md, the
-// AGENTS.md guard that shadows CLAUDE.md, the checker script, and the
-// openserverless MCP server wired in. There is no merge — any pre-existing
-// content in the file (custom providers/lsp/mcp, stale managed entries) is
-// discarded so the result always reflects the current config.
-func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
+// Project generation follows the Pi/ACP contract even when the workbench path
+// is a symlink: standard instructions, MCP config, contract, and checkers are
+// generated without creating or rewriting an OpenCode configuration.
+func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	durableWorkbench := t.TempDir()
+	canonicalDurableWorkbench, err := filepath.EvalSymlinks(durableWorkbench)
+	if err != nil {
+		t.Fatalf("resolve durable workbench: %v", err)
+	}
 	workbenchAliasParent := t.TempDir()
 	WorkbenchDir = filepath.Join(workbenchAliasParent, "workbench")
 	if err := os.Symlink(durableWorkbench, WorkbenchDir); err != nil {
@@ -412,93 +473,28 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
 
-	// Seed an existing project file with custom + stale entries that must NOT
-	// survive the full regeneration.
-	seed := map[string]interface{}{
-		"provider": map[string]interface{}{
-			"custom-provider": map[string]interface{}{"options": map[string]interface{}{}},
-		},
-		"lsp": map[string]interface{}{
-			"custom-lsp": map[string]interface{}{"command": []string{"my-lsp"}},
-		},
-		"mcp": map[string]interface{}{
-			"postgres": map[string]interface{}{
-				"type":        "local",
-				"command":     []string{"postgres-mcp", "--access-mode=unrestricted"},
-				"environment": map[string]interface{}{"DATABASE_URI": "postgres://stale:stale@old/db"},
-			},
-		},
-	}
-	seedData, _ := json.Marshal(seed)
+	// A stale file may remain in an older app checkout. The Pi asset generator
+	// must ignore it rather than treating it as current runtime configuration.
+	seedData := []byte(`{"legacy":true}`)
 	if err := os.WriteFile(filepath.Join(appDir, "opencode.json"), seedData, 0644); err != nil {
 		t.Fatalf("seed project config: %s", err)
 	}
 
-	cfg := &trustableConfig{
-		Provider: "ollama",
-		BaseURL:  "http://localhost:11434/v1",
-		APIKey:   "dummy",
-		Models:   map[string]*ModelLimits{"qwen3:latest": {MaxToken: 131072, MaxOutput: 32768}},
-		Opencode: &opencodeConfig{Default: "qwen3:latest", Small: "qwen3:latest"},
-	}
-
-	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	if err := generateProjectAssetsForApp(app); err != nil {
+		t.Fatalf("generateProjectAssetsForApp: %s", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(appDir, "opencode.json"))
 	if err != nil {
-		t.Fatalf("read project config: %s", err)
+		t.Fatalf("read legacy project config: %s", err)
 	}
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("parse project config: %s", err)
+	if string(data) != string(seedData) {
+		t.Fatalf("legacy opencode.json must not be rewritten, got %s", data)
 	}
+	wantContract := filepath.Join(canonicalDurableWorkbench, app, ".openserverless-contract.md")
 
-	// Full config: provider + model + lsp present.
-	if got["model"] != "ollama/qwen3:latest" {
-		t.Fatalf("unexpected model: %#v", got["model"])
-	}
-	providers, ok := got["provider"].(map[string]interface{})
-	if !ok || providers["ollama"] == nil {
-		t.Fatalf("generated provider missing: %#v", got["provider"])
-	}
-	// No merge: the seeded custom provider/lsp must be gone.
-	if _, present := providers["custom-provider"]; present {
-		t.Fatalf("custom provider should be discarded by full regeneration: %#v", providers)
-	}
-	lsp, ok := got["lsp"].(map[string]interface{})
-	if !ok || lsp["typescript"] == nil || lsp["python"] == nil {
-		t.Fatalf("generated lsp missing: %#v", got["lsp"])
-	}
-	if _, present := lsp["custom-lsp"]; present {
-		t.Fatalf("custom lsp should be discarded by full regeneration: %#v", lsp)
-	}
-	permission, ok := got["permission"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("generated permission config missing: %#v", got["permission"])
-	}
-	editPerm, ok := permission["edit"].(map[string]interface{})
-	if !ok || editPerm["packages/**/__main__.py"] != "deny" || editPerm["packages/**/*.zip"] != "deny" {
-		t.Fatalf("generated edit guardrails missing: %#v", permission["edit"])
-	}
-	bashPerm, ok := permission["bash"].(map[string]interface{})
-	if !ok || bashPerm["ops action"] != "deny" || bashPerm["ops action *"] != "deny" {
-		t.Fatalf("generated bash guardrails missing: %#v", permission["bash"])
-	}
-
-	// instructions must point first at the project's own OpenServerless
-	// contract, then at opencode.md.
-	instr, ok := got["instructions"].([]interface{})
-	wantContract := filepath.Join(durableWorkbench, app, ".openserverless-contract.md")
-	wantMd := filepath.Join(durableWorkbench, app, "opencode.md")
-	if !ok || len(instr) != 2 || instr[0] != wantContract || instr[1] != wantMd {
-		t.Fatalf("instructions should reference %s then %s, got %#v", wantContract, wantMd, got["instructions"])
-	}
-
-	// AGENTS.md, the contract, and opencode.md must be written in the project dir,
-	// not under ~/.config. The checker is installed once in the configured bin
-	// path and is executable; it is not duplicated into every app repo.
+	// AGENTS.md, CLAUDE.md, and the contract belong in the project directory.
+	// Checkers remain user-local executables and are not copied into app repos.
 	agentsData, err := os.ReadFile(filepath.Join(appDir, "AGENTS.md"))
 	if err != nil {
 		t.Fatalf("AGENTS.md not written to project dir: %s", err)
@@ -512,8 +508,8 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if _, err := os.Stat(wantContract); err != nil {
 		t.Fatalf(".openserverless-contract.md not written to project dir: %s", err)
 	}
-	if _, err := os.Stat(wantMd); err != nil {
-		t.Fatalf("opencode.md not written to project dir: %s", err)
+	if _, err := os.Stat(filepath.Join(appDir, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md not written to project dir: %s", err)
 	}
 	if _, err := os.Stat(filepath.Join(appDir, "scripts", "check_openserverless_actions.sh")); !os.IsNotExist(err) {
 		t.Fatalf("checker should not be copied into app repo, stat err=%v", err)
@@ -534,45 +530,7 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 			t.Fatalf("Trustable checker should be executable at %s, mode=%s", path, info.Mode())
 		}
 	}
-	pluginData, err := os.ReadFile(guardrailPluginInstallPathOverride)
-	if err != nil {
-		t.Fatalf("OpenCode guardrail plugin not installed: %s", err)
-	}
-	if !strings.Contains(string(pluginData), "session.compacted") ||
-		!strings.Contains(string(pluginData), "trustable_completion_check") {
-		t.Fatalf("OpenCode guardrail plugin missing enforcement hooks")
-	}
-	// The action tools are provided by the openserverless MCP server, which must
-	// always be wired into the mcp section.
-	mcp, ok := got["mcp"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("mcp section missing: %#v", got["mcp"])
-	}
-	oss, ok := mcp["openserverless"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("openserverless MCP server missing: %#v", mcp)
-	}
-	if cmd, ok := oss["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "openserverless-mcp" {
-		t.Fatalf("unexpected openserverless command: %#v", oss["command"])
-	}
-	browser, ok := mcp["browser"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("browser MCP server missing: %#v", mcp)
-	}
-	if cmd, ok := browser["command"].([]interface{}); !ok || len(cmd) != 1 || cmd[0] != "trustable-browser-mcp" {
-		t.Fatalf("unexpected browser command: %#v", browser["command"])
-	}
-	// No merge: if a postgres MCP is present it must be the freshly generated one,
-	// never the stale seeded DATABASE_URI.
-	if pg, present := mcp["postgres"].(map[string]interface{}); present {
-		env, _ := pg["environment"].(map[string]interface{})
-		if uri, _ := env["DATABASE_URI"].(string); uri == "postgres://stale:stale@old/db" {
-			t.Fatalf("stale seeded postgres DATABASE_URI survived full regeneration: %#v", pg)
-		}
-	}
-
-	// A Claude-format .mcp.json must be emitted with the same servers, translated
-	// to the mcpServers/stdio schema.
+	// The shared .mcp.json is the sole project-local MCP configuration.
 	mcpData, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
 	if err != nil {
 		t.Fatalf(".mcp.json not written to project dir: %s", err)
@@ -590,9 +548,18 @@ func TestGenerateOpencodeConfigInProjectDir(t *testing.T) {
 	if cOss["type"] != "stdio" || cOss["command"] != "openserverless-mcp" {
 		t.Fatalf("unexpected .mcp.json openserverless entry: %#v", cOss)
 	}
+	if cOss["lifecycle"] != "eager" {
+		t.Fatalf("openserverless must connect when the Pi session starts: %#v", cOss)
+	}
+	if _, ok := cOss["env"]; ok {
+		t.Fatalf("openserverless MCP must not receive a writable app secret store: %#v", cOss)
+	}
 	cBrowser, ok := claude.MCPServers["browser"]
 	if !ok || cBrowser["type"] != "stdio" || cBrowser["command"] != "trustable-browser-mcp" {
 		t.Fatalf("unexpected .mcp.json browser entry: %#v", cBrowser)
+	}
+	if cBrowser["lifecycle"] != "eager" {
+		t.Fatalf("browser must connect when the Pi session starts: %#v", cBrowser)
 	}
 }
 
@@ -612,9 +579,9 @@ func TestManagedAppAgentsPreservesExistingNotesWithoutDuplication(t *testing.T) 
 	}
 }
 
-// When vite.config.* contains AgentiReact(), the agentireact remote MCP server
-// is added to opencode.json and translated to an http server in .mcp.json.
-func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T) {
+// When a supported Vite config imports and invokes Agentic React, the standard
+// project MCP config includes the Vite-served endpoint as eager HTTP for Pi.
+func TestGenerateProjectAssetsAddsAgenticReactWhenViteConfigOptsIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
@@ -625,39 +592,15 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
-	vite := "import AgentiReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgentiReact()] }\n"
+	vite := "import { AgenticReact } from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n"
 	if err := os.WriteFile(filepath.Join(appDir, "vite.config.ts"), []byte(vite), 0644); err != nil {
 		t.Fatalf("write vite config: %s", err)
 	}
 
-	cfg := &trustableConfig{
-		Provider: "ollama",
-		BaseURL:  "http://localhost:11434/v1",
-		APIKey:   "dummy",
-		Opencode: &opencodeConfig{Default: "qwen3:latest", Small: "qwen3:latest"},
-	}
-	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	if err := generateProjectAssetsForApp(app); err != nil {
+		t.Fatalf("generateProjectAssetsForApp: %s", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(appDir, "opencode.json"))
-	if err != nil {
-		t.Fatalf("read opencode.json: %s", err)
-	}
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("parse opencode.json: %s", err)
-	}
-	mcp, _ := got["mcp"].(map[string]interface{})
-	ar, ok := mcp["agentireact"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("agentireact MCP server missing: %#v", mcp)
-	}
-	if ar["type"] != "remote" || ar["url"] != "http://localhost:5173/mcp" {
-		t.Fatalf("unexpected agentireact entry: %#v", ar)
-	}
-
-	// In .mcp.json (Claude format), remote -> http.
 	mcpData, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
 	if err != nil {
 		t.Fatalf("read .mcp.json: %s", err)
@@ -675,6 +618,93 @@ func TestGenerateOpencodeConfigAddsAgentiReactWhenViteConfigOptsIn(t *testing.T)
 	if cAR["type"] != "http" || cAR["url"] != "http://localhost:5173/mcp" {
 		t.Fatalf("unexpected .mcp.json agentireact entry: %#v", cAR)
 	}
+	if cAR["lifecycle"] != "eager" {
+		t.Fatalf("remote MCP servers must connect when the Pi session starts: %#v", cAR)
+	}
+	if _, present := cAR["enabled"]; present {
+		t.Fatalf("launcher-only enabled field leaked into .mcp.json: %#v", cAR)
+	}
+}
+
+func TestAppUsesAgenticReactRequiresRealImportAndInvocation(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		source   string
+		want     bool
+	}{
+		{
+			name:     "typescript named import",
+			filename: "vite.config.ts",
+			source:   "import { AgenticReact } from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n",
+			want:     true,
+		},
+		{
+			name:     "javascript default import with whitespace",
+			filename: "vite.config.js",
+			source:   "import AgenticReact from \"@agentic-react/vite\";\nexport default { plugins: [AgenticReact ( )] };\n",
+			want:     true,
+		},
+		{
+			name:     "multiline named import",
+			filename: "vite.config.ts",
+			source:   "import {\n  AgenticReact,\n} from '@agentic-react/vite'\nexport default { plugins: [AgenticReact()] }\n",
+			want:     true,
+		},
+		{
+			name:     "missing import",
+			filename: "vite.config.ts",
+			source:   "export default { plugins: [AgenticReact()] }\n",
+		},
+		{
+			name:     "missing invocation",
+			filename: "vite.config.ts",
+			source:   "import { AgenticReact } from '@agentic-react/vite'\nexport default { plugins: [] }\n",
+		},
+		{
+			name:     "obsolete spelling",
+			filename: "vite.config.ts",
+			source:   "import AgentiReact from '@agentic-react/vite'\nexport default { plugins: [AgentiReact()] }\n",
+		},
+		{
+			name:     "wrong package",
+			filename: "vite.config.ts",
+			source:   "import AgenticReact from 'vite-plugin-agentireact'\nexport default { plugins: [AgenticReact()] }\n",
+		},
+		{
+			name:     "comment only",
+			filename: "vite.config.ts",
+			source:   "// import { AgenticReact } from '@agentic-react/vite'\n/* AgenticReact() */\nexport default {}\n",
+		},
+		{
+			name:     "template string only",
+			filename: "vite.config.ts",
+			source:   "const example = `\nimport { AgenticReact } from '@agentic-react/vite'\nAgenticReact()\n`\nexport default {}\n",
+		},
+		{
+			name:     "invocation string only",
+			filename: "vite.config.ts",
+			source:   "import { AgenticReact } from '@agentic-react/vite'\nconst example = 'AgenticReact()'\nexport default {}\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, tc.filename), []byte(tc.source), 0644); err != nil {
+				t.Fatalf("write Vite config: %s", err)
+			}
+			if got := appUsesAgenticReact(dir); got != tc.want {
+				t.Fatalf("appUsesAgenticReact()=%v, want %v for %s", got, tc.want, tc.source)
+			}
+		})
+	}
+
+	t.Run("missing config", func(t *testing.T) {
+		if appUsesAgenticReact(t.TempDir()) {
+			t.Fatal("missing Vite config must not enable Agentic React")
+		}
+	})
 }
 
 func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
@@ -698,6 +728,70 @@ func TestOpenServerlessCheckerPassesValidActionShape(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("checker should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsManagedRuntimeParameters(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack-status")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+#--param OPS_APIHOST "$OPS_APIHOST"
+import stack_status
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "stack_status.py"), []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject Trustable-managed action parameters, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "Trustable-managed runtime variables must not be bound into actions") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerIgnoresVendoredPythonDependencies(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "cache")
+	if err := os.MkdirAll(filepath.Join(actionDir, "virtualenv", "lib", "python3.12", "site-packages", "redis"), 0755); err != nil {
+		t.Fatalf("mkdir action dependencies: %s", err)
+	}
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte("from cache import main\n"), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := "def main(args, ctx=None):\n    return {'ok': True}\n"
+	if err := os.WriteFile(filepath.Join(actionDir, "cache.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	vendored := "def get(key):\n    return REDIS.get(key)\n"
+	if err := os.WriteFile(filepath.Join(actionDir, "virtualenv", "lib", "python3.12", "site-packages", "redis", "client.py"), []byte(vendored), 0644); err != nil {
+		t.Fatalf("write vendored module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should ignore vendored dependencies, err=%s output=%s", err, strings.TrimSpace(string(out)))
 	}
 	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
 		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
@@ -731,6 +825,50 @@ def main(args, ctx=None):
 		t.Fatalf("checker should reject MongoDB implemented with Milvus, output=%s", strings.TrimSpace(string(out)))
 	}
 	if !strings.Contains(string(out), "Do not use Milvus/vector tooling as a MongoDB substitute") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerAllowsIndependentMongoDBAndMilvusChecks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "monitor")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `from monitor import main
+
+def init_mongodb(args, ctx):
+    ctx.MONGODB_CLIENT = object()
+
+def init_milvus(args, ctx):
+    ctx.MILVUS = object()
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def check_mongodb(ctx):
+    return ctx.MONGODB_CLIENT.admin.command("ping")
+
+def check_milvus(ctx):
+    return ctx.MILVUS.list_collections()
+
+def main(args, ctx=None):
+    return {"mongodb": check_mongodb(ctx), "milvus": check_milvus(ctx)}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "monitor.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should allow independent MongoDB and Milvus checks, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "OpenServerless action contract check passed") {
 		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
 	}
 }
@@ -836,6 +974,43 @@ def init_redis(args, ctx):
 	}
 }
 
+func TestOpenServerlessCheckerRejectsRedisModuleWithoutWrapperConnector(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "me")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+## build-context ##
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def redis_key(ctx, name):
+    return f"{getattr(ctx, 'REDIS_PREFIX', '') or ''}{name}"
+
+def main(args, ctx=None):
+    return {"session": ctx.REDIS.get(redis_key(ctx, "session:token"))}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "me.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject missing Redis wrapper connector, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "generated wrapper has no Redis connector") ||
+		!strings.Contains(string(out), "auth_setup") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
 func TestOpenServerlessCheckerAllowsRedisKeysWithPrefix(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
@@ -871,6 +1046,121 @@ def main(args, ctx=None):
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("checker should allow prefixed Redis keys, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsS3ListBuckets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_s3(args, ctx):
+    ctx.S3_CLIENT = object()
+    ctx.S3_DATA = "app-data"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    return {"buckets": ctx.S3_CLIENT.list_buckets()}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject S3 list_buckets, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "S3 action code must never call list_buckets()") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerRejectsS3ReadWriteClaimWithoutRealOperations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_s3(args, ctx):
+    ctx.S3_CLIENT = object()
+    ctx.S3_DATA = "app-data"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    ctx.S3_CLIENT.head_bucket(Bucket=ctx.S3_DATA)
+    return {"connected": True, "read_write": "OK"}
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("checker should reject an unproved S3 read/write claim, output=%s", strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "S3 read/write status requires a real ctx.S3_DATA check") {
+		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerAllowsRealS3ReadWriteVerification(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	actionDir := filepath.Join(dir, "packages", "v1", "stack")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatalf("mkdir action: %s", err)
+	}
+	wrapper := `#--kind python:default
+#--web true
+def init_s3(args, ctx):
+    ctx.S3_CLIENT = object()
+    ctx.S3_DATA = "app-data"
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "__main__.py"), []byte(wrapper), 0644); err != nil {
+		t.Fatalf("write wrapper: %s", err)
+	}
+	module := `def main(args, ctx=None):
+    expected = b"trustable-s3-ok"
+    key = "trustable-check/unique.txt"
+    try:
+        ctx.S3_CLIENT.put_object(Bucket=ctx.S3_DATA, Key=key, Body=expected)
+        actual = ctx.S3_CLIENT.get_object(Bucket=ctx.S3_DATA, Key=key)["Body"].read()
+        if actual != expected:
+            raise RuntimeError("S3 read-back mismatch")
+        return {"connected": True, "read_write": "OK"}
+    finally:
+        ctx.S3_CLIENT.delete_object(Bucket=ctx.S3_DATA, Key=key)
+`
+	if err := os.WriteFile(filepath.Join(actionDir, "stack.py"), []byte(module), 0644); err != nil {
+		t.Fatalf("write module: %s", err)
+	}
+	writeActionDeployArtifact(t, actionDir)
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("checker should allow a real S3 read/write check, err=%s output=%s", err, strings.TrimSpace(string(out)))
 	}
 }
 
@@ -1120,6 +1410,48 @@ func TestOpenServerlessCheckerRequiresDeployAfterActionChange(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "Action source is newer than its deploy archive") {
 		t.Fatalf("checker should require ops ide deploy, got=%s", strings.TrimSpace(string(out)))
+	}
+}
+
+func TestOpenServerlessCheckerManagedLiveModeIgnoresDeployArchiveState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".openserverless-contract.md"), []byte("contract\n"), 0644); err != nil {
+		t.Fatalf("write contract: %s", err)
+	}
+	for _, name := range []string{"missing", "stale"} {
+		actionDir := filepath.Join(dir, "packages", "v1", name)
+		if err := os.MkdirAll(actionDir, 0755); err != nil {
+			t.Fatalf("mkdir action %s: %s", name, err)
+		}
+		wrapper := filepath.Join(actionDir, "__main__.py")
+		module := filepath.Join(actionDir, name+".py")
+		if err := os.WriteFile(wrapper, []byte("#--kind python:default\nfrom "+name+" import main\n"), 0644); err != nil {
+			t.Fatalf("write wrapper %s: %s", name, err)
+		}
+		if err := os.WriteFile(module, []byte("def main(args, ctx=None):\n    return {'ok': True}\n"), 0644); err != nil {
+			t.Fatalf("write module %s: %s", name, err)
+		}
+		if name == "stale" {
+			archive := writeActionDeployArtifact(t, actionDir)
+			changedAt := time.Now().Add(2 * time.Second)
+			if err := os.Chtimes(module, changedAt, changedAt); err != nil {
+				t.Fatalf("set changed source time: %s", err)
+			}
+			if err := os.Chtimes(archive, time.Now(), time.Now()); err != nil {
+				t.Fatalf("reset deploy artifact time: %s", err)
+			}
+		}
+	}
+
+	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
+	cmd.Env = append(os.Environ(), "TRUSTABLE_MANAGED_RUNTIME=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("managed live checker should validate source without ZIP freshness, err=%s output=%s", err, strings.TrimSpace(string(out)))
+	}
+	if strings.Contains(string(out), "Deploy archive is missing") ||
+		strings.Contains(string(out), "newer than its deploy archive") {
+		t.Fatalf("managed live checker must not use archive state, got=%s", strings.TrimSpace(string(out)))
 	}
 }
 
@@ -1424,8 +1756,9 @@ func TestFrontendCheckerAcceptsCachedProfileAfterBackendSessionValidation(t *tes
 	}
 }
 
-// Without an AgentiReact() opt-in, no agentireact server is added.
-func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
+// Without an AgenticReact() opt-in, the standard MCP config stays limited to
+// the managed service and browser servers.
+func TestGenerateProjectAssetsSkipsAgenticReactWithoutOptIn(t *testing.T) {
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() { WorkbenchDir = origWorkbench })
 	WorkbenchDir = t.TempDir()
@@ -1436,61 +1769,459 @@ func TestGenerateOpencodeConfigSkipsAgentiReactWithoutOptIn(t *testing.T) {
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		t.Fatalf("mkdir app dir: %s", err)
 	}
-	// A vite config that does NOT use AgentiReact.
+	// A Vite config that does not use Agentic React.
 	if err := os.WriteFile(filepath.Join(appDir, "vite.config.js"), []byte("export default {}\n"), 0644); err != nil {
 		t.Fatalf("write vite config: %s", err)
 	}
 
-	cfg := &trustableConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1", APIKey: "dummy"}
-	if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		t.Fatalf("generateOpencodeConfigForApp: %s", err)
+	if err := generateProjectAssetsForApp(app); err != nil {
+		t.Fatalf("generateProjectAssetsForApp: %s", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(appDir, "opencode.json"))
-	var got map[string]interface{}
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("parse opencode.json: %s", err)
+	data, err := os.ReadFile(filepath.Join(appDir, ".mcp.json"))
+	if err != nil {
+		t.Fatalf("read .mcp.json: %s", err)
 	}
-	mcp, _ := got["mcp"].(map[string]interface{})
-	if _, present := mcp["agentireact"]; present {
-		t.Fatalf("agentireact should be absent without opt-in: %#v", mcp)
+	var config struct {
+		Servers map[string]map[string]interface{} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse .mcp.json: %s", err)
+	}
+	if _, present := config.Servers["agentireact"]; present {
+		t.Fatalf("agentireact should be absent without opt-in: %#v", config.Servers)
 	}
 }
 
-func TestNormalizeOpenCodeAgentColorMapsLegacyNames(t *testing.T) {
-	cases := map[string]string{
-		"blue":      "primary",
-		"purple":    "secondary",
-		"green":     "success",
-		"yellow":    "warning",
-		"red":       "error",
-		"cyan":      "info",
-		"primary":   "primary",
-		"#1a2B3c":   "#1a2B3c",
-		"not-valid": "primary",
+func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", dir)
+
+	cfg := &trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://api.example.test/v1",
+		APIKey:   "aip_secret",
+		Models: map[string]*ModelLimits{
+			"qwen3-coder:480b": {MaxToken: 131072, MaxOutput: 32768},
+			"nomic-embed-text": {Roles: []string{"embedding"}},
+		},
+		Pi: &piConfig{Default: "qwen3-coder:480b"},
 	}
-	for input, want := range cases {
-		if got := normalizeOpenCodeAgentColor(input); got != want {
-			t.Fatalf("normalizeOpenCodeAgentColor(%q) = %q, want %q", input, got, want)
+	if err := writePiGlobalConfig(cfg); err != nil {
+		t.Fatalf("writePiGlobalConfig: %s", err)
+	}
+
+	var models struct {
+		Providers map[string]struct {
+			BaseURL string `json:"baseUrl"`
+			API     string `json:"api"`
+			APIKey  string `json:"apiKey"`
+			Models  []struct {
+				ID               string             `json:"id"`
+				ContextWindow    int                `json:"contextWindow"`
+				MaxTokens        int                `json:"maxTokens"`
+				Reasoning        bool               `json:"reasoning"`
+				ThinkingLevelMap map[string]*string `json:"thinkingLevelMap"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "models.json"))
+	if err != nil {
+		t.Fatalf("read models.json: %s", err)
+	}
+	if err := json.Unmarshal(data, &models); err != nil {
+		t.Fatalf("parse models.json: %s", err)
+	}
+	provider := models.Providers[piTrustableProviderName]
+	if provider.BaseURL != cfg.BaseURL || provider.API != "openai-completions" || provider.APIKey != piAPIKeyRef {
+		t.Fatalf("unexpected Pi provider: %#v", provider)
+	}
+	if len(provider.Models) != 1 || provider.Models[0].ID != "qwen3-coder:480b" {
+		t.Fatalf("non-coding model was not filtered: %#v", provider.Models)
+	}
+	if provider.Models[0].ContextWindow != 131072 || provider.Models[0].MaxTokens != 32768 {
+		t.Fatalf("unexpected model limits: %#v", provider.Models[0])
+	}
+	if !provider.Models[0].Reasoning {
+		t.Fatalf("Trustable Cloud coding model did not receive the high-effort baseline: %#v", provider.Models[0])
+	}
+	if provider.Models[0].ThinkingLevelMap != nil {
+		t.Fatalf("xhigh must remain opt-in when the catalog has no level map: %#v", provider.Models[0])
+	}
+
+	for _, name := range []string{"models.json", "auth.json"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("stat %s: %s", name, err)
+		}
+		if info.Mode().Perm() != 0600 {
+			t.Fatalf("%s mode = %o, want 600", name, info.Mode().Perm())
+		}
+	}
+	var settings map[string]interface{}
+	data, _ = os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("parse settings.json: %s", err)
+	}
+	if settings["defaultProvider"] != piTrustableProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
+		t.Fatalf("unexpected Pi settings: %#v", settings)
+	}
+	enabledModels, ok := settings["enabledModels"].([]interface{})
+	if !ok || len(enabledModels) != 1 || enabledModels[0] != piTrustableProviderName+"/*" {
+		t.Fatalf("Pi model scope must contain only Trustable models: %#v", settings)
+	}
+	var auth map[string]map[string]string
+	data, _ = os.ReadFile(filepath.Join(dir, "auth.json"))
+	if err := json.Unmarshal(data, &auth); err != nil {
+		t.Fatalf("parse auth.json: %s", err)
+	}
+	if auth[piTrustableProviderName]["key"] != cfg.APIKey {
+		t.Fatalf("Pi auth key was not written")
+	}
+}
+
+func TestPiGlobalConfigSurvivesPodHomeReplacement(t *testing.T) {
+	root := t.TempDir()
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = filepath.Join(root, "workspace")
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	cfg := &trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://api.example.test/v1",
+		APIKey:   "aip_persistent_secret",
+		Models: map[string]*ModelLimits{
+			"qwen3-coder-next": {MaxToken: 240000, MaxOutput: 120000},
+		},
+		Pi: &piConfig{Default: "qwen3-coder-next"},
+	}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		t.Fatalf("save workspace config: %s", err)
+	}
+
+	firstHome := filepath.Join(root, "first-home", ".pi", "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", firstHome)
+	if err := writePiJSONFile(filepath.Join(firstHome, "settings.json"), map[string]interface{}{
+		"packages": []string{"npm:old-image-extension@1.0.0"},
+		"theme":    "user-choice",
+	}, 0644); err != nil {
+		t.Fatalf("seed first image settings: %s", err)
+	}
+	if err := writePiGlobalConfig(cfg); err != nil {
+		t.Fatalf("write initial Pi config: %s", err)
+	}
+
+	persistentDir := piPersistentConfigDir()
+	for _, file := range piGlobalConfigFiles {
+		info, err := os.Stat(filepath.Join(persistentDir, file.name))
+		if err != nil {
+			t.Fatalf("persistent %s missing: %s", file.name, err)
+		}
+		if info.Mode().Perm() != file.mode {
+			t.Fatalf("persistent %s mode = %o, want %o", file.name, info.Mode().Perm(), file.mode)
+		}
+	}
+	if info, err := os.Stat(persistentDir); err != nil || info.Mode().Perm() != 0700 {
+		t.Fatalf("persistent Pi directory must be private, info=%v err=%v", info, err)
+	}
+
+	// Simulate a replacement image: its home is fresh and carries a newer
+	// package registration, while the workspace volume remains mounted.
+	secondHome := filepath.Join(root, "second-home", ".pi", "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", secondHome)
+	if err := writePiJSONFile(filepath.Join(secondHome, "settings.json"), map[string]interface{}{
+		"packages":    []string{"npm:new-image-extension@2.0.0"},
+		"runtimeOnly": true,
+	}, 0644); err != nil {
+		t.Fatalf("seed replacement image settings: %s", err)
+	}
+	if err := restorePiGlobalConfigAtStartup(); err != nil {
+		t.Fatalf("restore Pi config: %s", err)
+	}
+
+	settings := readPiJSONFile(filepath.Join(secondHome, "settings.json"))
+	if settings["defaultProvider"] != piTrustableProviderName || settings["defaultModel"] != "qwen3-coder-next" {
+		t.Fatalf("managed Pi selection was not restored: %#v", settings)
+	}
+	if settings["theme"] != "user-choice" || settings["runtimeOnly"] != true {
+		t.Fatalf("unrelated persisted/runtime settings were not merged: %#v", settings)
+	}
+	packages, ok := settings["packages"].([]interface{})
+	if !ok || len(packages) != 1 || packages[0] != "npm:new-image-extension@2.0.0" {
+		t.Fatalf("replacement image package registry must win: %#v", settings["packages"])
+	}
+	auth := readPiJSONFile(filepath.Join(secondHome, "auth.json"))
+	providerAuth, ok := auth[piTrustableProviderName].(map[string]interface{})
+	if !ok || providerAuth["key"] != cfg.APIKey {
+		t.Fatal("provider credential was not restored into the replacement home")
+	}
+	if _, err := os.Stat(filepath.Join(secondHome, "models.json")); err != nil {
+		t.Fatalf("models.json was not restored: %s", err)
+	}
+}
+
+func TestPiGlobalConfigBootstrapsSnapshotForExistingWorkspace(t *testing.T) {
+	root := t.TempDir()
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = filepath.Join(root, "workspace")
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	cfg := &trustableConfig{
+		Provider: "trustable",
+		BaseURL:  "https://api.example.test/v1",
+		APIKey:   "aip_existing_workspace",
+		Models: map[string]*ModelLimits{
+			"qwen3-coder-next": {MaxToken: 240000, MaxOutput: 120000},
+		},
+		Pi: &piConfig{Default: "qwen3-coder-next"},
+	}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		t.Fatalf("save existing workspace config: %s", err)
+	}
+
+	freshHome := filepath.Join(root, "fresh-image", ".pi", "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", freshHome)
+	if err := writePiJSONFile(filepath.Join(freshHome, "settings.json"), map[string]interface{}{
+		"packages": []string{"npm:pi-mcp-adapter@2.11.0"},
+	}, 0644); err != nil {
+		t.Fatalf("seed fresh image settings: %s", err)
+	}
+	if err := restorePiGlobalConfigAtStartup(); err != nil {
+		t.Fatalf("bootstrap Pi config from workspace: %s", err)
+	}
+
+	for _, file := range piGlobalConfigFiles {
+		if _, err := os.Stat(filepath.Join(freshHome, file.name)); err != nil {
+			t.Fatalf("live %s was not bootstrapped: %s", file.name, err)
+		}
+		if _, err := os.Stat(filepath.Join(piPersistentConfigDir(), file.name)); err != nil {
+			t.Fatalf("persistent %s snapshot was not created: %s", file.name, err)
 		}
 	}
 }
 
-func TestOpenCodeProjectIDIsStablePerApp(t *testing.T) {
-	first := openCodeProjectID("truorderingestion")
-	second := openCodeProjectID("truorderingestion")
-	other := openCodeProjectID("truk8s")
-	if first != second {
-		t.Fatalf("openCodeProjectID should be stable: %q != %q", first, second)
+func TestBuildPiModelsPreservesExplicitReasoningCapabilities(t *testing.T) {
+	enabled := true
+	disabled := false
+	xhigh := "xhigh"
+	cfg := &trustableConfig{
+		Provider: "ollama",
+		Models: map[string]*ModelLimits{
+			"custom-reasoning-model": {
+				Reasoning: &enabled,
+				Roles:     []string{"coding"},
+				ThinkingLevelMap: map[string]*string{
+					"xhigh":       &xhigh,
+					"medium":      nil,
+					"unsupported": &xhigh,
+				},
+			},
+			"custom-disabled-model": {
+				Reasoning: &disabled,
+				Roles:     []string{"coding"},
+			},
+		},
+		Pi: &piConfig{Default: "custom-reasoning-model"},
 	}
-	if first == other {
-		t.Fatalf("openCodeProjectID should differ per app: %q", first)
+
+	models := buildPiModels(cfg)
+	byID := make(map[string]map[string]interface{}, len(models))
+	for _, model := range models {
+		byID[model["id"].(string)] = model
 	}
-	if len(first) != 40 {
-		t.Fatalf("openCodeProjectID length = %d, want 40", len(first))
+
+	reasoning := byID["custom-reasoning-model"]
+	if reasoning["reasoning"] != true {
+		t.Fatalf("explicit reasoning capability was lost: %#v", reasoning)
 	}
-	for _, ch := range first {
-		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
-			t.Fatalf("openCodeProjectID contains non-hex character %q in %q", ch, first)
+	levelMap, ok := reasoning["thinkingLevelMap"].(map[string]*string)
+	if !ok || levelMap["xhigh"] == nil || *levelMap["xhigh"] != "xhigh" {
+		t.Fatalf("explicit xhigh capability was lost: %#v", reasoning)
+	}
+	if _, present := levelMap["unsupported"]; present {
+		t.Fatalf("unknown Pi thinking level was not filtered: %#v", levelMap)
+	}
+	if value, present := levelMap["medium"]; !present || value != nil {
+		t.Fatalf("explicitly unsupported standard level was not preserved: %#v", levelMap)
+	}
+
+	nonReasoning := byID["custom-disabled-model"]
+	if nonReasoning["reasoning"] != false {
+		t.Fatalf("explicit reasoning=false was not preserved: %#v", nonReasoning)
+	}
+	if _, present := nonReasoning["thinkingLevelMap"]; present {
+		t.Fatalf("disabled reasoning model must not carry a level map: %#v", nonReasoning)
+	}
+}
+
+func TestPiProviderNameForConfigMatchesEndpointOrigin(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *trustableConfig
+		want string
+	}{
+		{name: "missing config", cfg: nil, want: piLocalProviderName},
+		{
+			name: "trustable status catalog",
+			cfg:  &trustableConfig{Provider: "trustable"},
+			want: piTrustableProviderName,
+		},
+		{
+			name: "embedded ollama status catalog",
+			cfg:  &trustableConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1"},
+			want: piOllamaProviderName,
+		},
+		{
+			name: "user supplied ollama host",
+			cfg:  &trustableConfig{Provider: "ollama", BaseURL: "http://192.168.1.50:11434/v1"},
+			want: piLocalProviderName,
+		},
+		{
+			name: "bestia direct endpoint",
+			cfg:  &trustableConfig{Provider: "bestia", BaseURL: "http://bestia:11434/v1"},
+			want: piLocalProviderName,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := piProviderNameForConfig(tt.cfg); got != tt.want {
+				t.Fatalf("piProviderNameForConfig() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPostConfigurationWritesPiConfigOnlyAfterSuccessfulProbe(t *testing.T) {
+	piDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", piDir)
+	origWorkspace := WorkspaceDir
+	WorkspaceDir = t.TempDir()
+	t.Cleanup(func() { WorkspaceDir = origWorkspace })
+
+	answerOK := false
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !answerOK {
+			http.Error(w, `{"error":"model not found"}`, http.StatusNotFound)
+			return
 		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hi"}}]}`)
+	}))
+	t.Cleanup(stub.Close)
+
+	post := func() *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{
+			"provider": "trustable",
+			"base_url": %q,
+			"api_key": "aip_secret",
+			"models": {"qwen3-coder:480b": {"maxToken": 131072, "maxOutput": 32768}},
+			"pi": {"default": "qwen3-coder:480b"}
+		}`, stub.URL)
+		req := httptest.NewRequest(http.MethodPost, "/api/configuration", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		handleConfiguration(rec, req)
+		return rec
+	}
+
+	if rec := post(); rec.Code != http.StatusOK {
+		t.Fatalf("save should succeed when the probe fails, got %d: %s", rec.Code, rec.Body)
+	}
+	if _, err := os.Stat(filepath.Join(piDir, "models.json")); !os.IsNotExist(err) {
+		t.Fatalf("failed probe must not write Pi config, stat err=%v", err)
+	}
+
+	answerOK = true
+	if rec := post(); rec.Code != http.StatusOK {
+		t.Fatalf("save failed: %d: %s", rec.Code, rec.Body)
+	}
+	for _, name := range []string{"models.json", "settings.json", "auth.json"} {
+		if _, err := os.Stat(filepath.Join(piDir, name)); err != nil {
+			t.Fatalf("%s not written after successful probe: %s", name, err)
+		}
+	}
+}
+
+func TestGenerateProjectAssetsForTruACP(t *testing.T) {
+	projectDir := t.TempDir()
+	isolateOpenServerlessCheckerInstall(t)
+	t.Setenv("HOME", t.TempDir())
+
+	if err := generateProjectAssetsInDir(projectDir, map[string]interface{}{
+		"redis": map[string]interface{}{
+			"type":        "local",
+			"command":     []string{"redis-mcp-server", "--url", "redis://local"},
+			"environment": map[string]string{"REDIS_PREFIX": "demo:"},
+		},
+	}); err != nil {
+		t.Fatalf("generateProjectAssetsInDir: %s", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, "opencode.json")); !os.IsNotExist(err) {
+		t.Fatalf("opencode.json must not be generated for TruACP, stat err=%v", err)
+	}
+	for _, name := range []string{"AGENTS.md", "CLAUDE.md", ".openserverless-contract.md", ".mcp.json"} {
+		if _, err := os.Stat(filepath.Join(projectDir, name)); err != nil {
+			t.Fatalf("%s missing: %s", name, err)
+		}
+	}
+	agents, _ := os.ReadFile(filepath.Join(projectDir, "AGENTS.md"))
+	claude, _ := os.ReadFile(filepath.Join(projectDir, "CLAUDE.md"))
+	if string(agents) != string(claude) || !strings.Contains(string(agents), trustableAgentsBegin) {
+		t.Fatal("managed AGENTS.md/CLAUDE.md are not aligned")
+	}
+	contract, _ := os.ReadFile(filepath.Join(projectDir, ".openserverless-contract.md"))
+	// WHY: generated guidance previously raced the already-running watcher by
+	// requiring Pi to start a second deploy after every action tool call.
+	for name, content := range map[string]string{
+		"AGENTS.md":                   string(agents),
+		".openserverless-contract.md": string(contract),
+	} {
+		if !strings.Contains(content, "sole owner") ||
+			!strings.Contains(content, "`ops ide deploy`") ||
+			!strings.Contains(content, "another `ops ide devel`") {
+			t.Fatalf("%s must preserve managed watcher ownership: %s", name, content)
+		}
+		if !strings.Contains(content, "Redis") ||
+			!strings.Contains(content, "opaque") ||
+			!strings.Contains(content, "auth_setup") ||
+			!strings.Contains(content, ".env") ||
+			!strings.Contains(content, "Only the") ||
+			!strings.Contains(content, "user may change application") {
+			t.Fatalf("%s must preserve user-owned env and Redis session guidance: %s", name, content)
+		}
+	}
+	// WHY: a previous long run repaired only the live service through
+	// postgres_execute_sql. Generated instructions must keep writes in
+	// reproducible setup/public actions instead.
+	if !strings.Contains(string(agents), "read-only discovery and verification") ||
+		!strings.Contains(string(agents), "postgres_execute_sql") {
+		t.Fatalf("managed guidance must forbid direct service-MCP repairs: %s", agents)
+	}
+	if !strings.Contains(string(agents), "react_validate") {
+		t.Fatalf("managed guidance must require deterministic React validation: %s", agents)
+	}
+	if !strings.Contains(string(agents), "There is no project-local `opencode.md`") ||
+		strings.Contains(string(contract), "this file, `opencode.md`") {
+		t.Fatalf("generated sources must not claim an absent opencode.md: agents=%s contract=%s", agents, contract)
+	}
+
+	var config struct {
+		Servers map[string]map[string]interface{} `json:"mcpServers"`
+	}
+	data, _ := os.ReadFile(filepath.Join(projectDir, ".mcp.json"))
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse .mcp.json: %s", err)
+	}
+	for _, name := range []string{"openserverless", "browser", "react", "redis"} {
+		if _, ok := config.Servers[name]; !ok {
+			t.Fatalf("%s missing from .mcp.json: %#v", name, config.Servers)
+		}
+		if config.Servers[name]["lifecycle"] != "eager" {
+			t.Fatalf("%s must use eager MCP lifecycle: %#v", name, config.Servers[name])
+		}
+	}
+	if config.Servers["openserverless"]["command"] != "openserverless-mcp" ||
+		config.Servers["browser"]["command"] != "trustable-browser-mcp" ||
+		config.Servers["react"]["command"] != "trustable-react-mcp" {
+		t.Fatalf("unexpected managed MCP commands: %#v", config.Servers)
 	}
 }

@@ -72,15 +72,23 @@ Operators bumping `default` or `small` should also bump `modelsVersion` for the 
 
 Map of **model id** → per-model object. The id is what clients pass as `"model"` in `/v1/chat/completions` etc. Iteration order is **not** guaranteed (JSON object semantics); sort client-side if you need a stable order.
 
-Each per-model object has up to three integer fields:
+Each per-model object has three optional integer limits plus optional policy and
+Pi reasoning-capability fields:
 
 | Field | Meaning |
 |---|---|
 | `maxToken`  | Total tokens the upstream model accepts (prompt + completion + any system tokens). |
 | `maxInput`  | Max tokens the upstream will accept in the prompt. |
 | `maxOutput` | Max tokens the upstream will return. |
+| `reasoning` | Whether the model supports Pi reasoning controls. |
+| `thinkingLevelMap` | Optional Pi level map. `null` hides a level; `xhigh` is supported only when its entry is present and non-null. |
+| `enabled` / `recommended` / `roles` / `reason` | Optional coding-agent selection policy consumed by Trustable. |
 
-**All three are optional.** Fields that are `0` in the config are omitted from the response (via `omitempty`). A `trustable` model typically has all three; an `ollama` (self-hosted) model often declares only `maxInput`.
+**All fields are optional.** Integer fields that are `0` in the config are
+omitted from the response (via `omitempty`). A `trustable` model typically has
+all three limits; an `ollama` (self-hosted) model often declares only
+`maxInput`. Capability fields are declarations, not guesses: clients must not
+infer `xhigh` from `reasoning: true`.
 
 These are **hints**, not enforcement. The proxy doesn't reject oversized requests on the basis of these values — it forwards to upstream and lets upstream do the rejection. Clients use them to size their own requests (e.g. truncate before sending).
 

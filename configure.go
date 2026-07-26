@@ -20,23 +20,26 @@ import (
 	"unicode"
 )
 
-// opencodeConfig holds the opencode model settings
-type opencodeConfig struct {
+// piConfig holds the single coding model selected for Pi. Pi has no secondary
+// "small model" role, so keeping a second field would create configuration that
+// the runtime cannot consume.
+type piConfig struct {
 	Default string `json:"default"`
-	Small   string `json:"small"`
 }
 
 // ModelLimits is the per-model hint block from /api/v2/status and what we
 // persist in trustable.json under the active provider's `models` map.
 // All three fields are optional (omitempty); zero values are dropped.
 type ModelLimits struct {
-	MaxToken    int      `json:"maxToken,omitempty"`
-	MaxInput    int      `json:"maxInput,omitempty"`
-	MaxOutput   int      `json:"maxOutput,omitempty"`
-	Enabled     *bool    `json:"enabled,omitempty"`
-	Recommended bool     `json:"recommended,omitempty"`
-	Roles       []string `json:"roles,omitempty"`
-	Reason      string   `json:"reason,omitempty"`
+	MaxToken         int                `json:"maxToken,omitempty"`
+	MaxInput         int                `json:"maxInput,omitempty"`
+	MaxOutput        int                `json:"maxOutput,omitempty"`
+	Reasoning        *bool              `json:"reasoning,omitempty"`
+	ThinkingLevelMap map[string]*string `json:"thinkingLevelMap,omitempty"`
+	Enabled          *bool              `json:"enabled,omitempty"`
+	Recommended      bool               `json:"recommended,omitempty"`
+	Roles            []string           `json:"roles,omitempty"`
+	Reason           string             `json:"reason,omitempty"`
 }
 
 // UnmarshalJSON accepts the new object form AND the legacy "256K" string form
@@ -89,11 +92,12 @@ type trustableConfig struct {
 	// ModelVersions is keyed by provider name ("ollama", "trustable", ...) and
 	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
 	// On every splash boot and every applist load the frontend compares the
-	// live value against this map; a mismatch (or differing default/small)
-	// routes the user through configure.html?reselect=1.
+	// live value against this map; only a version mismatch routes the user
+	// through configure.html?reselect=1. A different Pi default is a valid user
+	// choice and must not be treated as catalog drift.
 	ModelVersions map[string]int          `json:"model_versions,omitempty"`
 	Models        map[string]*ModelLimits `json:"models,omitempty"`
-	Opencode      *opencodeConfig         `json:"opencode,omitempty"`
+	Pi            *piConfig               `json:"pi,omitempty"`
 	Git           *GitConfig              `json:"git,omitempty"`
 	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
 	Current       string                  `json:"current,omitempty"`
@@ -245,8 +249,8 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 		result.Models = merged
 	}
 
-	if override.Opencode != nil {
-		result.Opencode = override.Opencode
+	if override.Pi != nil {
+		result.Pi = override.Pi
 	}
 
 	if override.Git != nil {
@@ -312,6 +316,8 @@ func modelLimitsEqual(a, b map[string]*ModelLimits) bool {
 		if av.MaxToken != bv.MaxToken ||
 			av.MaxInput != bv.MaxInput ||
 			av.MaxOutput != bv.MaxOutput ||
+			!boolPtrEqual(av.Reasoning, bv.Reasoning) ||
+			!stringPtrMapsEqual(av.ThinkingLevelMap, bv.ThinkingLevelMap) ||
 			!boolPtrEqual(av.Enabled, bv.Enabled) ||
 			av.Recommended != bv.Recommended ||
 			av.Reason != bv.Reason ||
@@ -327,6 +333,28 @@ func boolPtrEqual(a, b *bool) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+func stringPtrMapsEqual(a, b map[string]*string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, av := range a {
+		bv, ok := b[key]
+		if !ok {
+			return false
+		}
+		if av == nil || bv == nil {
+			if av != nil || bv != nil {
+				return false
+			}
+			continue
+		}
+		if *av != *bv {
+			return false
+		}
+	}
+	return true
 }
 
 func stringSlicesEqual(a, b []string) bool {
@@ -372,7 +400,7 @@ func modelHasRole(limits *ModelLimits, roles ...string) bool {
 	return false
 }
 
-func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (bool, string) {
+func modelAllowedForPi(provider, modelID string, limits *ModelLimits) (bool, string) {
 	name := strings.ToLower(strings.TrimSpace(modelID))
 	if name == "" {
 		return false, "model id is empty"
@@ -387,6 +415,9 @@ func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (boo
 	if modelHasRole(limits, "embedding", "embed", "rerank", "vector") {
 		return false, "not a chat/coding model"
 	}
+	// Catalogs may still use the historical "opencode" role. It describes model
+	// capability rather than a runtime dependency, so accept it during the Pi
+	// cutover while all newly emitted configuration remains Pi-native.
 	if modelHasRole(limits, "opencode", "agent", "coding", "chat") {
 		return true, ""
 	}
@@ -408,354 +439,52 @@ func modelAllowedForOpenCode(provider, modelID string, limits *ModelLimits) (boo
 	}
 	for _, part := range blockedNameParts {
 		if strings.Contains(name, part) {
-			return false, "not suitable for OpenCode agent work"
+			return false, "not suitable for Pi agent work"
 		}
 	}
 
 	if match := modelParamSizePattern.FindStringSubmatch(name); len(match) >= 3 {
 		params, err := strconv.ParseFloat(match[2], 64)
 		if err == nil && params > 0 && params < 20 {
-			return false, "model is below the recommended 20B minimum for OpenCode agent work"
+			return false, "model is below the recommended 20B minimum for Pi agent work"
 		}
 	}
 
 	return true, ""
 }
 
-func validateOpenCodeModelSelection(cfg *trustableConfig) error {
-	if cfg == nil || cfg.Opencode == nil {
+func validatePiModelSelection(cfg *trustableConfig) error {
+	if cfg == nil {
 		return nil
 	}
 	models := cfg.Models
-	defaultModel := strings.TrimSpace(cfg.Opencode.Default)
-	smallModel := strings.TrimSpace(cfg.Opencode.Small)
+	defaultModel := ""
+	if cfg.Pi != nil {
+		defaultModel = strings.TrimSpace(cfg.Pi.Default)
+	}
 
 	// Provider choice flows for BestIA / own-host Ollama intentionally persist
 	// an empty model set first; configure.html discovers models in the next step.
-	if len(models) == 0 && defaultModel == "" && smallModel == "" {
+	if len(models) == 0 && defaultModel == "" {
+		// Trustable Cloud is catalog-backed and has no deferred discovery page.
+		// Rejecting its empty state here prevents a partial status response or
+		// legacy payload from being saved and failing later in testmodel.
+		if cfg.Provider == "trustable" {
+			return fmt.Errorf("Trustable model catalog is empty")
+		}
 		return nil
 	}
-	for label, selected := range map[string]string{
-		"default": defaultModel,
-		"small":   smallModel,
-	} {
-		if selected == "" {
-			return fmt.Errorf("opencode.%s model must be selected", label)
-		}
-		limits, ok := models[selected]
-		if !ok {
-			return fmt.Errorf("opencode.%s model %q is not in the configured model list", label, selected)
-		}
-		if ok, reason := modelAllowedForOpenCode(cfg.Provider, selected, limits); !ok {
-			return fmt.Errorf("opencode.%s model %q is not allowed: %s", label, selected, reason)
-		}
+	if defaultModel == "" {
+		return fmt.Errorf("pi.default model must be selected")
+	}
+	limits, ok := models[defaultModel]
+	if !ok {
+		return fmt.Errorf("pi.default model %q is not in the configured model list", defaultModel)
+	}
+	if ok, reason := modelAllowedForPi(cfg.Provider, defaultModel, limits); !ok {
+		return fmt.Errorf("pi.default model %q is not allowed: %s", defaultModel, reason)
 	}
 	return nil
-}
-
-// ollamaShowResponse is the response from /api/show
-type ollamaShowResponse struct {
-	Capabilities []string `json:"capabilities"`
-}
-
-// getModelCapabilities queries Ollama for a model's capabilities. The root
-// argument is the Ollama HTTP root (e.g. "http://192.168.1.10:11434"); pass
-// the empty string to use OllamaEndpoint (the embedded server).
-func getModelCapabilities(modelName, root string) ([]string, error) {
-	if root == "" {
-		root = OllamaEndpoint
-	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	reqBody, _ := json.Marshal(map[string]string{"name": modelName})
-	resp, err := client.Post(root+"/api/show", "application/json", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("model %s: %s", modelName, strings.TrimSpace(string(body)))
-	}
-
-	var result ollamaShowResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	return result.Capabilities, nil
-}
-
-// containsCapability checks if a capability list contains a specific capability
-func containsCapability(caps []string, cap string) bool {
-	for _, c := range caps {
-		if c == cap {
-			return true
-		}
-	}
-	return false
-}
-
-func providerBaseURL(providerConfig interface{}) string {
-	config, ok := providerConfig.(map[string]interface{})
-	if !ok {
-		return ""
-	}
-	options, ok := config["options"].(map[string]interface{})
-	if !ok {
-		return ""
-	}
-	baseURL, _ := options["baseURL"].(string)
-	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
-}
-
-func isManagedVLLMProvider(providerName string, providerConfig interface{}) bool {
-	if providerName != "vllm" {
-		return false
-	}
-	baseURL := providerBaseURL(providerConfig)
-	return strings.Contains(baseURL, "localhost:8910/vllm") ||
-		strings.Contains(baseURL, "127.0.0.1:8910/vllm") ||
-		strings.Contains(baseURL, "http://vllm:8000")
-}
-
-func hasGeneratedOllamaModelVariant(providerConfig interface{}) bool {
-	config, ok := providerConfig.(map[string]interface{})
-	if !ok {
-		return false
-	}
-	models, ok := config["models"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-	for _, modelConfig := range models {
-		model, ok := modelConfig.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		variants, ok := model["variants"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if _, generated := variants["disabled_variant"]; generated {
-			return true
-		}
-	}
-	return false
-}
-
-func isTrustableManagedOpenCodeProvider(providerName string, providerConfig interface{}) bool {
-	baseURL := providerBaseURL(providerConfig)
-	switch providerName {
-	case "ollama":
-		isLocalManagedURL := baseURL == strings.TrimRight(OpenAIBaseUrl, "/") ||
-			baseURL == "http://ollama:11434/v1" ||
-			baseURL == "http://localhost:11434/v1" ||
-			baseURL == "http://127.0.0.1:11434/v1"
-		return isLocalManagedURL && hasGeneratedOllamaModelVariant(providerConfig)
-	case "trustable":
-		// Always Trustable-managed: any prior `trustable` provider entry
-		// must be regenerated when switching providers.
-		return true
-	case "vllm":
-		return isManagedVLLMProvider(providerName, providerConfig)
-	default:
-		return false
-	}
-}
-
-func dropGeneratedOpenCodeKey(key string) bool {
-	switch key {
-	case "enabled_providers", "tools", "agent", "compaction":
-		return true
-	default:
-		return false
-	}
-}
-
-func defaultOpenCodeLSPConfig() map[string]interface{} {
-	return map[string]interface{}{
-		"typescript": map[string]interface{}{
-			"command":    []string{"typescript-language-server", "--stdio"},
-			"extensions": []string{".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"},
-		},
-		"python": map[string]interface{}{
-			"command":    []string{"pylsp"},
-			"extensions": []string{".py"},
-		},
-	}
-}
-
-func defaultOpenCodePermissionConfig() map[string]interface{} {
-	return map[string]interface{}{
-		"edit": map[string]string{
-			"*":                       "allow",
-			"packages/**/__main__.py": "deny",
-			"packages/**/*.zip":       "deny",
-		},
-		"bash": map[string]string{
-			"*":            "allow",
-			"ops action":   "deny",
-			"ops action *": "deny",
-		},
-	}
-}
-
-func defaultDisabledOpenCodeProviders() []string {
-	return []string{
-		"302ai",
-		"abacus",
-		"aihubmix",
-		"alibaba",
-		"alibaba-cn",
-		"alibaba-coding-plan",
-		"alibaba-coding-plan-cn",
-		"amazon-bedrock",
-		"anthropic",
-		"azure",
-		"azure-cognitive-services",
-		"bailing",
-		"baseten",
-		"berget",
-		"cerebras",
-		"chutes",
-		"clarifai",
-		"cloudferro-sherlock",
-		"cloudflare-ai-gateway",
-		"cloudflare-workers-ai",
-		"cohere",
-		"cortecs",
-		"deepinfra",
-		"deepseek",
-		"dinference",
-		"drun",
-		"evroc",
-		"fastrouter",
-		"firmware",
-		"fireworks-ai",
-		"friendli",
-		"github-copilot",
-		"github-models",
-		"gitlab",
-		"google",
-		"google-vertex",
-		"google-vertex-anthropic",
-		"groq",
-		"helicone",
-		"hpc-ai",
-		"huggingface",
-		"iflowcn",
-		"inception",
-		"inference",
-		"io-net",
-		"jiekou",
-		"kilo",
-		"kimi-for-coding",
-		"kuae-cloud-coding-plan",
-		"llama",
-		"llmgateway",
-		"lmstudio",
-		"lucidquery",
-		"meganova",
-		"minimax",
-		"minimax-cn",
-		"minimax-cn-coding-plan",
-		"minimax-coding-plan",
-		"mistral",
-		"mixlayer",
-		"moark",
-		"modelscope",
-		"moonshotai",
-		"moonshotai-cn",
-		"morph",
-		"nano-gpt",
-		"nebius",
-		"nova",
-		"novita-ai",
-		"nvidia",
-		"ollama",
-		"ollama-cloud",
-		"ollama2",
-		"ollama_docker",
-		"opencode",
-		"opencode-go",
-		"openai",
-		"openrouter",
-		"ovhcloud",
-		"perplexity",
-		"perplexity-agent",
-		"poe",
-		"privatemode-ai",
-		"qihang-ai",
-		"qiniu-ai",
-		"requesty",
-		"sap-ai-core",
-		"scaleway",
-		"siliconflow",
-		"siliconflow-cn",
-		"stackit",
-		"stepfun",
-		"submodel",
-		"synthetic",
-		"tencent-coding-plan",
-		"the-grid-ai",
-		"togetherai",
-		"upstage",
-		"v0",
-		"venice",
-		"vercel",
-		"vivgrid",
-		"vllm",
-		"vultr",
-		"wandb",
-		"xiaomi",
-		"xiaomi-token-plan-ams",
-		"xiaomi-token-plan-cn",
-		"xiaomi-token-plan-sgp",
-		"xai",
-		"zai",
-		"zai-coding-plan",
-		"zenmux",
-		"zhipuai",
-		"zhipuai-coding-plan",
-	}
-}
-
-func mergeDisabledOpenCodeProviders(existing interface{}, defaults []string) []string {
-	seen := make(map[string]bool, len(defaults))
-	merged := make([]string, 0, len(defaults))
-	appendProvider := func(value string) {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			return
-		}
-		seen[value] = true
-		merged = append(merged, value)
-	}
-	for _, provider := range defaults {
-		appendProvider(provider)
-	}
-	if existingList, ok := existing.([]interface{}); ok {
-		for _, value := range existingList {
-			if provider, ok := value.(string); ok {
-				appendProvider(provider)
-			}
-		}
-	}
-	return merged
-}
-
-func disabledProvidersForCustomConfig(disabled []string, providers map[string]interface{}) []string {
-	if len(providers) == 0 {
-		return disabled
-	}
-	filtered := make([]string, 0, len(disabled))
-	for _, provider := range disabled {
-		if _, custom := providers[provider]; custom {
-			continue
-		}
-		filtered = append(filtered, provider)
-	}
-	return filtered
 }
 
 // numberWithExtPattern matches a number followed by a size suffix like "480b", "1.7b", "123b"
@@ -810,7 +539,371 @@ func resolveOllamaRoot(cfg *trustableConfig) (root string, isOwnHost bool) {
 	return stripped, true
 }
 
-// handleConfigure handles GET /api/configure - pulls models and generates opencode config, streaming progress
+const (
+	piLocalProviderName     = "local"
+	piOllamaProviderName    = "ollama"
+	piTrustableProviderName = "trustable"
+	// Pi resolves this reference through auth.json, keeping the real secret out
+	// of the model catalog regardless of the selected provider origin.
+	piAPIKeyRef = "$OPENAI_API_KEY"
+)
+
+// piProviderNameForConfig keeps Pi's provider prefix aligned with the source
+// boundary shown to users: status-backed catalogs retain their product name,
+// while user-supplied/direct endpoints share the neutral "local" namespace.
+func piProviderNameForConfig(cfg *trustableConfig) string {
+	if cfg == nil {
+		return piLocalProviderName
+	}
+	switch cfg.Provider {
+	case "trustable":
+		return piTrustableProviderName
+	case "ollama":
+		_, ownHost := resolveOllamaRoot(cfg)
+		if !ownHost {
+			return piOllamaProviderName
+		}
+	}
+	return piLocalProviderName
+}
+
+// piAgentDir follows Pi's native directory contract while allowing tests and
+// packaged runtimes to relocate the state without inventing another config tree.
+func piAgentDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR")); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home dir for pi config: %w", err)
+	}
+	return filepath.Join(home, ".pi", "agent"), nil
+}
+
+// readPiJSONFile is deliberately merge-friendly: a fresh or damaged optional
+// file is treated as empty, while valid unrelated user-owned keys are preserved.
+func readPiJSONFile(path string) map[string]interface{} {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Warning: failed to read %s: %s", path, err)
+		}
+		return make(map[string]interface{})
+	}
+	parsed := make(map[string]interface{})
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		log.Printf("Warning: ignoring unparseable %s: %s", path, err)
+		return make(map[string]interface{})
+	}
+	return parsed
+}
+
+// writePiJSONFile reapplies the requested mode after every write because Pi's
+// auth file contains a real credential whereas settings.json is non-secret.
+func writePiJSONFile(path string, content map[string]interface{}, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create pi config directory: %w", err)
+	}
+	data, err := json.MarshalIndent(content, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), mode); err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("failed to chmod %s: %w", path, err)
+	}
+	return nil
+}
+
+type piGlobalConfigFile struct {
+	name string
+	mode os.FileMode
+}
+
+var piGlobalConfigFiles = []piGlobalConfigFile{
+	{name: "models.json", mode: 0600},
+	{name: "settings.json", mode: 0644},
+	{name: "auth.json", mode: 0600},
+}
+
+// piPersistentConfigDir keeps only Pi's small managed JSON files on the
+// workspace volume. WHY: the npm extension tree is supplied by each image and
+// must be allowed to upgrade, while models/auth/settings must survive replacing
+// the pod's otherwise ephemeral home directory.
+func piPersistentConfigDir() string {
+	if strings.TrimSpace(WorkspaceDir) == "" {
+		return ""
+	}
+	return filepath.Join(WorkspaceDir, ".trustable", "pi-agent-config")
+}
+
+func readPiJSONFileStrict(path string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	parsed := make(map[string]interface{})
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	return parsed, nil
+}
+
+// persistPiGlobalConfig snapshots the successfully written live configuration.
+// The containing directory is private because auth.json contains the real key.
+func persistPiGlobalConfig(liveDir string) error {
+	persistentDir := piPersistentConfigDir()
+	if persistentDir == "" {
+		return nil
+	}
+	liveAbs, _ := filepath.Abs(liveDir)
+	persistentAbs, _ := filepath.Abs(persistentDir)
+	if liveAbs == persistentAbs {
+		return nil
+	}
+	if err := os.MkdirAll(persistentDir, 0700); err != nil {
+		return fmt.Errorf("failed to create persistent pi config directory: %w", err)
+	}
+	if err := os.Chmod(persistentDir, 0700); err != nil {
+		return fmt.Errorf("failed to secure persistent pi config directory: %w", err)
+	}
+	for _, file := range piGlobalConfigFiles {
+		content, err := readPiJSONFileStrict(filepath.Join(liveDir, file.name))
+		if err != nil {
+			return fmt.Errorf("failed to snapshot pi %s: %w", file.name, err)
+		}
+		if err := writePiJSONFile(filepath.Join(persistentDir, file.name), content, file.mode); err != nil {
+			return fmt.Errorf("failed to persist pi %s: %w", file.name, err)
+		}
+	}
+	return nil
+}
+
+// restorePiGlobalConfigAtStartup overlays the durable JSON snapshot onto the
+// fresh image's Pi directory, preserving the image's current package registry.
+// On the first upgraded boot there is no snapshot yet, so the already-persisted
+// Trustable provider selection is materialized once without changing it or
+// performing a new network probe.
+func restorePiGlobalConfigAtStartup() error {
+	liveDir, err := piAgentDir()
+	if err != nil {
+		return err
+	}
+	persistentDir := piPersistentConfigDir()
+	restored := 0
+	if persistentDir != "" {
+		for _, file := range piGlobalConfigFiles {
+			persistentPath := filepath.Join(persistentDir, file.name)
+			persistent, readErr := readPiJSONFileStrict(persistentPath)
+			if readErr != nil {
+				if os.IsNotExist(readErr) {
+					continue
+				}
+				log.Printf("Warning: ignoring invalid persistent Pi %s: %s", file.name, readErr)
+				continue
+			}
+			live := readPiJSONFile(filepath.Join(liveDir, file.name))
+			imagePackages, imageHasPackages := live["packages"]
+			for key, value := range persistent {
+				live[key] = value
+			}
+			// setup.sh owns the installed extension set. WHY: a persisted
+			// settings file from an older pod must not pin stale image packages.
+			if file.name == "settings.json" && imageHasPackages {
+				live["packages"] = imagePackages
+			}
+			if err := writePiJSONFile(filepath.Join(liveDir, file.name), live, file.mode); err != nil {
+				return fmt.Errorf("failed to restore pi %s: %w", file.name, err)
+			}
+			restored++
+		}
+	}
+
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration for pi restore: %w", err)
+	}
+	if piDefaultModel(cfg) != "" {
+		// Re-render the selected managed provider so a first upgrade can recover
+		// from workspace state and a later image cannot retain stale limits.
+		return writePiGlobalConfig(cfg)
+	}
+	if restored > 0 {
+		log.Printf("Restored %d Pi configuration files; no managed default is selected", restored)
+	}
+	return nil
+}
+
+// piDefaultModel reads the only model selector supported by Pi. Legacy
+// opencode configuration is intentionally ignored: issue #51 defines a hard
+// cutover so first-run recovery happens through Configure instead of migration.
+func piDefaultModel(cfg *trustableConfig) string {
+	if cfg == nil || cfg.Pi == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Pi.Default)
+}
+
+var piThinkingLevels = map[string]struct{}{
+	"off": {}, "minimal": {}, "low": {}, "medium": {},
+	"high": {}, "xhigh": {}, "max": {},
+}
+
+// piReasoningConfig translates only capabilities that Pi can enforce. Trustable
+// Cloud supplies the high-effort compatibility baseline; extended levels remain
+// model declarations so the UI cannot claim xhigh while Pi clamps it to high.
+func piReasoningConfig(provider string, limits *ModelLimits) (bool, map[string]*string) {
+	reasoning := provider == piTrustableProviderName
+	if limits != nil && limits.Reasoning != nil {
+		reasoning = *limits.Reasoning
+	}
+	if !reasoning || limits == nil || len(limits.ThinkingLevelMap) == 0 {
+		return reasoning, nil
+	}
+	levelMap := make(map[string]*string)
+	for level, value := range limits.ThinkingLevelMap {
+		if _, allowed := piThinkingLevels[level]; !allowed {
+			continue
+		}
+		levelMap[level] = value
+	}
+	if len(levelMap) == 0 {
+		return reasoning, nil
+	}
+	return reasoning, levelMap
+}
+
+// buildPiModels converts Trustable's catalog into Pi's native shape, retaining
+// only coding-capable models and conservative limits when metadata is incomplete.
+func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
+	ids := make([]string, 0, len(cfg.Models)+1)
+	for modelID := range cfg.Models {
+		ids = append(ids, modelID)
+	}
+	defaultModel := piDefaultModel(cfg)
+	if defaultModel != "" {
+		if _, found := cfg.Models[defaultModel]; !found {
+			ids = append(ids, defaultModel)
+		}
+	}
+	sort.Strings(ids)
+
+	models := make([]map[string]interface{}, 0, len(ids))
+	for _, modelID := range ids {
+		limits := cfg.Models[modelID]
+		if ok, reason := modelAllowedForPi(cfg.Provider, modelID, limits); !ok {
+			log.Printf("Skipping Pi model %s: %s", modelID, reason)
+			continue
+		}
+		contextWindow, maxTokens := 32768, 32768
+		if limits != nil {
+			if limits.MaxToken > 0 {
+				contextWindow = limits.MaxToken
+			} else if limits.MaxInput > 0 {
+				contextWindow = limits.MaxInput
+			}
+			if limits.MaxOutput > 0 {
+				maxTokens = limits.MaxOutput
+			}
+		}
+		reasoning, thinkingLevelMap := piReasoningConfig(cfg.Provider, limits)
+		model := map[string]interface{}{
+			"id":            modelID,
+			"name":          modelDisplayName(modelID),
+			"contextWindow": contextWindow,
+			"maxTokens":     maxTokens,
+			"reasoning":     reasoning,
+		}
+		if len(thinkingLevelMap) > 0 {
+			model["thinkingLevelMap"] = thinkingLevelMap
+		}
+		models = append(models, model)
+	}
+	return models
+}
+
+// piBaseURL normalizes every provider to the OpenAI-compatible API consumed by
+// Pi; Ollama needs an explicit /v1 suffix while cloud endpoints already include it.
+func piBaseURL(cfg *trustableConfig) string {
+	if cfg.Provider == "ollama" {
+		root, _ := resolveOllamaRoot(cfg)
+		return strings.TrimRight(root, "/") + "/v1"
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if baseURL == "" {
+		return "http://localhost:11434/v1"
+	}
+	return baseURL
+}
+
+// writePiGlobalConfig materializes Trustable's selected provider in Pi's
+// native config. It intentionally preserves unrelated Pi providers/settings.
+// Configure owns this global write; app launch only emits project-local assets.
+func writePiGlobalConfig(cfg *trustableConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("configuration not loaded")
+	}
+	defaultModel := piDefaultModel(cfg)
+	if defaultModel == "" {
+		return fmt.Errorf("no default coding model selected; open Configure first")
+	}
+	models := buildPiModels(cfg)
+	if len(models) == 0 {
+		return fmt.Errorf("no configured model is suitable for Pi")
+	}
+	providerName := piProviderNameForConfig(cfg)
+	dir, err := piAgentDir()
+	if err != nil {
+		return err
+	}
+
+	modelsPath := filepath.Join(dir, "models.json")
+	modelsConfig := readPiJSONFile(modelsPath)
+	providers, _ := modelsConfig["providers"].(map[string]interface{})
+	if providers == nil {
+		providers = make(map[string]interface{})
+	}
+	providers[providerName] = map[string]interface{}{
+		"baseUrl": piBaseURL(cfg),
+		"api":     "openai-completions",
+		// Do not put cfg.APIKey here: models.json is configuration, while the
+		// matching secret is written to auth.json below.
+		"apiKey": piAPIKeyRef,
+		"models": models,
+	}
+	modelsConfig["providers"] = providers
+	if err := writePiJSONFile(modelsPath, modelsConfig, 0600); err != nil {
+		return err
+	}
+
+	settingsPath := filepath.Join(dir, "settings.json")
+	settings := readPiJSONFile(settingsPath)
+	settings["defaultProvider"] = providerName
+	settings["defaultModel"] = defaultModel
+	// Pi knows built-in providers even when Trustable configures only its own.
+	// Scope model cycling to the active managed prefix so stale or built-in
+	// providers cannot become active through Pi's selector or shortcuts.
+	settings["enabledModels"] = []string{providerName + "/*"}
+	if err := writePiJSONFile(settingsPath, settings, 0644); err != nil {
+		return err
+	}
+
+	authPath := filepath.Join(dir, "auth.json")
+	auth := readPiJSONFile(authPath)
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if apiKey == "" {
+		apiKey = "dummy"
+	}
+	auth[providerName] = map[string]interface{}{"type": "api_key", "key": apiKey}
+	if err := writePiJSONFile(authPath, auth, 0600); err != nil {
+		return err
+	}
+	return persistPiGlobalConfig(dir)
+}
+
+// handleConfigure handles GET /api/configure - pulls models and materializes Pi's global config, streaming progress.
 func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
 		return
@@ -946,117 +1039,57 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The opencode.json is no longer generated here: it is a single,
-	// self-contained file written into each app's workbench project folder at
-	// launch time (see generateOpencodeConfigForApp / spec/4-launch.md). The
-	// global configure flow only verifies connectivity and pulls models.
-	sendMsg("OK: opencode.json is generated per-app at launch")
+	// Provider-choice setup also enters through this streamed endpoint. Probe
+	// after any Ollama pull, then write the same Pi-native files as POST
+	// /api/configuration. This prevents a failed provider choice from replacing
+	// a previously working global Pi configuration. Authentication failures use
+	// a distinct stream marker: treating them as generic ERROR lines prevents
+	// the browser from opening the managed Ollama Cloud sign-in flow.
+	if piDefaultModel(cfg) != "" {
+		test := runTestModel(cfg)
+		if !test.OK {
+			sendMsg(configurePiTestFailureLine(test))
+			return
+		}
+		if err := writePiGlobalConfig(cfg); err != nil {
+			sendMsg("ERROR: Failed to write Pi configuration: " + err.Error())
+			return
+		}
+		sendMsg("OK: Pi global configuration written")
+	} else {
+		sendMsg("OK: Models ready; choose the Pi model in Configure")
+	}
 
 	sendMsg("DONE")
 }
 
-// buildModelProvider constructs the Trustable-managed OpenCode provider entry
-// for the active provider: one model per cfg.Models key, baseURL/apiKey from
-// the top-level cfg.BaseURL / cfg.APIKey. In Ollama mode capabilities
-// (tool_call, reasoning) are discovered via Ollama's /api/show; in Trustable
-// mode they default to {tool_call: true, reasoning: false} (the user can
-// override later via the OpenCode UI).
-func buildModelProvider(cfg *trustableConfig) map[string]interface{} {
-	ollamaRoot, _ := resolveOllamaRoot(cfg)
-	models := make(map[string]interface{})
-	for modelID, limits := range cfg.Models {
-		if ok, reason := modelAllowedForOpenCode(cfg.Provider, modelID, limits); !ok {
-			log.Printf("  - Skipping OpenCode model %s: %s", modelID, reason)
-			continue
-		}
-		ctx, out := 0, 0
-		if limits != nil {
-			if limits.MaxToken > 0 {
-				ctx = limits.MaxToken
-			} else if limits.MaxInput > 0 {
-				ctx = limits.MaxInput
-			}
-			if limits.MaxOutput > 0 {
-				out = limits.MaxOutput
-			}
-		}
-		if ctx == 0 {
-			ctx = 32768
-		}
-		if out == 0 {
-			out = 32768
-		}
+const configureAuthRequiredPrefix = "AUTH_REQUIRED: "
 
-		toolCall := false
-		reasoning := false
-		if cfg.Provider == "ollama" {
-			if caps, err := getModelCapabilities(modelID, ollamaRoot); err == nil {
-				toolCall = containsCapability(caps, "tools")
-				reasoning = containsCapability(caps, "thinking")
-			} else {
-				log.Printf("  - Warning: could not fetch capabilities for %s: %s", modelID, err)
-			}
-		} else {
-			toolCall = true
-		}
-
-		models[modelID] = map[string]interface{}{
-			"name":        modelDisplayName(modelID),
-			"tool_call":   toolCall,
-			"reasoning":   reasoning,
-			"temperature": true,
-			"limit": map[string]interface{}{
-				"context": ctx,
-				"output":  out,
-			},
-			"options": map[string]interface{}{
-				"maxTokens": 8192,
-			},
-			"variants": map[string]interface{}{
-				"fast": map[string]interface{}{
-					"options": map[string]interface{}{"maxTokens": 2048},
-				},
-				"deep": map[string]interface{}{
-					"options": map[string]interface{}{"maxTokens": 16000},
-				},
-				"disabled_variant": map[string]interface{}{
-					"disabled": true,
-				},
-			},
-		}
+// configurePiTestFailureLine preserves the structured authentication outcome
+// across /api/configure's text stream. The splash page can then pause, complete
+// `ollama signin`, and rerun this same gate so Pi config is written only after
+// the selected cloud model is genuinely usable.
+func configurePiTestFailureLine(test testModelResult) string {
+	msg := test.Error
+	if msg == "" {
+		msg = test.Warning
 	}
-
-	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
-	if baseURL == "" {
-		baseURL = "http://localhost:11434/v1"
+	if msg == "" {
+		msg = "connection test failed"
 	}
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	if apiKey == "" {
-		apiKey = "dummy"
+	if test.AuthRequired {
+		return configureAuthRequiredPrefix + msg
 	}
-
-	return map[string]interface{}{
-		"options": map[string]interface{}{
-			"baseURL": baseURL,
-			"apiKey":  apiKey,
-		},
-		"models": models,
-	}
+	return "ERROR: Pi model test failed: " + msg
 }
 
-// generateOpencodeConfigForApp generates the complete OpenCode config for an app
-// directly in its workbench project folder. Per spec/4-launch.md there is a
-// single, self-contained <workbench>/<app>/opencode.json — there is no global
-// ~/.config/opencode/opencode.json. It holds the provider, model defaults,
-// disabled_providers, instructions, lsp, and the mcp servers built from
-// ~/.ops/config.json. The OpenServerless contract and opencode.md are written
-// alongside it in the project folder and referenced by absolute path where
-// OpenCode expects instruction files. The checker is installed once in the
-// user's local bin and invoked with the project path.
-func generateOpencodeConfigForApp(cfg *trustableConfig, appName string) error {
+// generateProjectAssetsForApp writes the runtime assets consumed by Pi and
+// other ACP agents without generating an OpenCode configuration. Provider and
+// model configuration is global under ~/.pi/agent; project-local state is the
+// standard .mcp.json plus managed instructions, contract, and checkers.
+func generateProjectAssetsForApp(appName string) error {
 	projectDir := filepath.Join(WorkbenchDir, appName)
-	mcp := buildLaunchMCPConfig()
-	return generateOpencodeConfigInDir(cfg, projectDir, mcp)
+	return generateProjectAssetsInDir(projectDir, buildLaunchMCPConfig())
 }
 
 const (
@@ -1065,7 +1098,10 @@ const (
 )
 
 func managedAppAgentsContent() string {
-	return trustableAgentsBegin + "\n" + strings.TrimSpace(appAgentsMd) + "\n" + trustableAgentsEnd + "\n"
+	// opencode.md keeps its historical filename for compatibility, but its
+	// product guidance is agent-neutral and must reach Pi through standard files.
+	body := strings.TrimSpace(appAgentsMd) + "\n\n" + strings.TrimSpace(opencodeMd)
+	return trustableAgentsBegin + "\n" + body + "\n" + trustableAgentsEnd + "\n"
 }
 
 func mergeManagedAppAgents(existing string) string {
@@ -1091,38 +1127,35 @@ func mergeManagedAppAgents(existing string) string {
 	return managed + "\n## App-local notes\n\n" + existing + "\n"
 }
 
-func writeManagedAppAgents(projectDir string) error {
-	agentsPath := filepath.Join(projectDir, "AGENTS.md")
-	existingBytes, err := os.ReadFile(agentsPath)
+// writeManagedInstructionFile replaces only the marked Trustable section, so
+// reruns can refresh policy without destroying an application's local notes.
+func writeManagedInstructionFile(projectDir, filename string) error {
+	path := filepath.Join(projectDir, filename)
+	existingBytes, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read %s: %w", agentsPath, err)
+		return fmt.Errorf("failed to read %s: %w", path, err)
 	}
 	content := mergeManagedAppAgents(string(existingBytes))
-	if err := os.WriteFile(agentsPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", agentsPath, err)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	return nil
 }
 
-// generateOpencodeConfigInDir writes the full opencode.json plus generated
-// OpenServerless guidance into projectDir. The file is fully regenerated on
-// every launch; custom provider/lsp/mcp entries from a previous opencode.json
-// are not preserved. The action tools are provided by the openserverless MCP
-// server wired into the mcp section, not copied as plugins.
-func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp map[string]interface{}) error {
-	providers := make(map[string]interface{})
-
-	// The OpenCode provider key tracks the active trustable provider:
-	// "ollama", "trustable", or "bestia". Default to "ollama" if unset.
-	providerKey := cfg.Provider
-	if providerKey != "ollama" && providerKey != "trustable" && providerKey != "bestia" {
-		providerKey = "ollama"
+// writeManagedAppAgents emits both standard discovery names because Pi reads
+// AGENTS.md while Claude-compatible ACP agents conventionally read CLAUDE.md.
+func writeManagedAppAgents(projectDir string) error {
+	if err := writeManagedInstructionFile(projectDir, "AGENTS.md"); err != nil {
+		return err
 	}
+	return writeManagedInstructionFile(projectDir, "CLAUDE.md")
+}
 
-	// Always generate the Trustable-managed provider entry.
-	modelProvider := buildModelProvider(cfg)
-	providers[providerKey] = modelProvider
-
+// generateProjectAssetsInDir writes only agent-neutral project assets. The MCP
+// map uses Trustable's launcher representation and is translated into the
+// standard mcpServers schema read by pi-mcp-adapter and compatible ACP agents;
+// keeping that conversion here avoids reviving an OpenCode project config.
+func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) error {
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
@@ -1135,95 +1168,48 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		return fmt.Errorf("failed to make canonical project directory absolute: %w", err)
 	}
 
-	contractPath := filepath.Join(canonicalProjectDir, ".openserverless-contract.md")
-	mdPath := filepath.Join(canonicalProjectDir, "opencode.md")
-	guardrailPluginPath, err := ensureOpenCodeGuardrailPluginInstalled()
-	if err != nil {
-		return err
-	}
-
-	config := map[string]interface{}{
-		"$schema":            "https://opencode.ai/config.json",
-		"disabled_providers": defaultDisabledOpenCodeProviders(),
-		"instructions":       []string{contractPath, mdPath},
-		"provider":           providers,
-		"lsp":                defaultOpenCodeLSPConfig(),
-		"permission":         defaultOpenCodePermissionConfig(),
-	}
-	// The mcp section is built from ~/.ops/config.json (nil when no service
-	// blocks are configured); custom mcp entries from an existing opencode.json
-	// are preserved by the merge below. The openserverless MCP server is always
-	// added: it replaces the old embedded tools/ plugins, exposing the
-	// OpenServerless action tools (action_new/invoke/requirements + connectors)
-	// over MCP.
 	if mcp == nil {
 		mcp = make(map[string]interface{})
 	}
+	// WHY: application .env files are owned by Trustable's user-facing
+	// configuration flow. The agent-side MCP must not receive a writable
+	// secret-store path that could mutate or synchronize those files.
 	mcp["openserverless"] = map[string]interface{}{
 		"type":    "local",
 		"command": []string{"openserverless-mcp"},
-		"enabled": true,
 	}
 	mcp["browser"] = browserMCPConfig(projectDir)
-	// When the app's Vite config uses AgentiReact(), the running dev server
-	// (opsdevel on :5173) exposes an MCP endpoint over HTTP; wire it in as a
-	// remote server (see spec/4-launch.md).
-	if appUsesAgentiReact(projectDir) {
+	// WHY: Agentic React exposes selection context, not deterministic source
+	// validation. Keep a separate read-only React server in every workbench so
+	// route/auth/type failures are reported before browser verification.
+	mcp["react"] = map[string]interface{}{
+		"type":    "local",
+		"command": []string{"trustable-react-mcp"},
+		"enabled": true,
+		"timeout": 30_000,
+	}
+	if appUsesAgenticReact(projectDir) {
 		mcp["agentireact"] = map[string]interface{}{
-			"type":    "remote",
-			"url":     "http://localhost:5173/mcp",
-			"enabled": true,
+			"type": "remote",
+			"url":  "http://localhost:5173/mcp",
 		}
 	}
-	config["mcp"] = mcp
-
-	// Always set top-level model/small_model from trustable.json opencode config.
-	if cfg.Opencode != nil {
-		if cfg.Opencode.Default != "" {
-			config["model"] = providerKey + "/" + cfg.Opencode.Default
-		}
-		if cfg.Opencode.Small != "" {
-			config["small_model"] = providerKey + "/" + cfg.Opencode.Small
-		}
+	if err := writeClaudeMCPConfig(projectDir, mcp); err != nil {
+		return fmt.Errorf("failed to write .mcp.json: %w", err)
 	}
+	log.Printf("  - Written to %s", filepath.Join(projectDir, ".mcp.json"))
 
-	// opencode.json and its mcp servers are fully regenerated from trustable.json
-	// and ~/.ops/config.json on every launch — no merge with any existing file.
-	// This guarantees the managed providers/lsp/mcp (e.g. the postgres MCP's
-	// DATABASE_URI) always reflect the current config and never carry forward a
-	// stale value. Any hand-edits to the project opencode.json are discarded.
-	configPath := filepath.Join(projectDir, "opencode.json")
-	if disabledProviders, ok := config["disabled_providers"].([]string); ok {
-		config["disabled_providers"] = disabledProvidersForCustomConfig(disabledProviders, providers)
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", configPath, err)
-	}
-
-	log.Printf("  - Written to %s", configPath)
-
-	// Write the app-local AGENTS.md guard, short OpenServerless contract, and
-	// longer opencode.md instructions alongside the config in the project dir.
 	if err := writeManagedAppAgents(projectDir); err != nil {
 		return err
 	}
 	log.Printf("  - Written to %s", filepath.Join(projectDir, "AGENTS.md"))
+	log.Printf("  - Written to %s", filepath.Join(projectDir, "CLAUDE.md"))
 
+	contractPath := filepath.Join(canonicalProjectDir, ".openserverless-contract.md")
 	if err := os.WriteFile(contractPath, []byte(openserverlessContractMd), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", contractPath, err)
 	}
 	log.Printf("  - Written to %s", contractPath)
-
-	if err := os.WriteFile(mdPath, []byte(opencodeMd), 0644); err != nil {
-		return fmt.Errorf("failed to write %s: %w", mdPath, err)
-	}
-	log.Printf("  - Written to %s", mdPath)
 
 	checkerPath, err := ensureOpenServerlessCheckerInstalled()
 	if err != nil {
@@ -1240,22 +1226,6 @@ func generateOpencodeConfigInDir(cfg *trustableConfig, projectDir string, mcp ma
 		return err
 	}
 	log.Printf("  - Completion checker available at %s", appCheckerPath)
-	log.Printf("  - OpenCode Trustable guardrail plugin available at %s", guardrailPluginPath)
-
-	// The action tools are no longer copied into the project dir as embedded
-	// @opencode-ai/plugin scripts; they are now provided by the openserverless
-	// MCP server wired into the mcp section above.
-
-	// Also emit a Claude-format .mcp.json carrying the same MCP servers, so
-	// Claude-format clients see the same tools (see spec/4-launch.md).
-	if finalMCP, ok := config["mcp"].(map[string]interface{}); ok {
-		if err := writeClaudeMCPConfig(projectDir, finalMCP); err != nil {
-			log.Printf("  - Warning: failed to write .mcp.json: %s", err)
-		} else {
-			log.Printf("  - Written to %s", filepath.Join(projectDir, ".mcp.json"))
-		}
-	}
-
 	return nil
 }
 
@@ -1291,7 +1261,6 @@ func browserMCPConfig(projectDir string) map[string]interface{} {
 var openServerlessCheckerInstallPathOverride string
 var frontendCheckerInstallPathOverride string
 var appCheckerInstallPathOverride string
-var guardrailPluginInstallPathOverride string
 
 func openServerlessCheckerInstallPath() (string, error) {
 	if openServerlessCheckerInstallPathOverride != "" {
@@ -1369,58 +1338,186 @@ func ensureAppCheckerInstalled() (string, error) {
 	return ensureEmbeddedExecutable(path, "Trustable app checker", trustableAppCheckerSh)
 }
 
-func guardrailPluginInstallPath() (string, error) {
-	if guardrailPluginInstallPathOverride != "" {
-		return guardrailPluginInstallPathOverride, nil
+var (
+	agenticReactImportPattern = regexp.MustCompile(`(?m)^[\t ]*import[\t\r\n ]+(?:AgenticReact|\{[^}]*\bAgenticReact\b[^}]*\})[\t\r\n ]+from[\t\r\n ]+["']@agentic-react/vite["'][\t ]*;?`)
+	agenticReactCallPattern   = regexp.MustCompile(`\bAgenticReact[\t ]*\(`)
+)
+
+// stripJavaScriptComments removes line and block comments while preserving
+// quoted source. WHY: the Agentic React opt-in is a runtime capability and a
+// README/example left in vite.config must not silently add tools to Pi.
+func stripJavaScriptComments(source string) string {
+	const (
+		jsNormal = iota
+		jsSingleQuote
+		jsDoubleQuote
+		jsTemplateQuote
+		jsLineComment
+		jsBlockComment
+	)
+	state := jsNormal
+	escaped := false
+	var out strings.Builder
+	out.Grow(len(source))
+	for i := 0; i < len(source); i++ {
+		ch := source[i]
+		next := byte(0)
+		if i+1 < len(source) {
+			next = source[i+1]
+		}
+
+		switch state {
+		case jsLineComment:
+			if ch == '\n' {
+				state = jsNormal
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+		case jsBlockComment:
+			if ch == '*' && next == '/' {
+				out.WriteString("  ")
+				i++
+				state = jsNormal
+			} else if ch == '\n' {
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+		case jsTemplateQuote:
+			// Template literals can span lines and contain text that looks like
+			// a complete import. Mask their payload so examples stored in a
+			// string cannot opt the app into a live MCP dependency.
+			if ch == '\n' {
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '`' {
+				state = jsNormal
+			}
+		case jsSingleQuote, jsDoubleQuote:
+			out.WriteByte(ch)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if (state == jsSingleQuote && ch == '\'') ||
+				(state == jsDoubleQuote && ch == '"') {
+				state = jsNormal
+			}
+		default:
+			switch {
+			case ch == '/' && next == '/':
+				out.WriteString("  ")
+				i++
+				state = jsLineComment
+			case ch == '/' && next == '*':
+				out.WriteString("  ")
+				i++
+				state = jsBlockComment
+			default:
+				out.WriteByte(ch)
+				switch ch {
+				case '\'':
+					state = jsSingleQuote
+				case '"':
+					state = jsDoubleQuote
+				case '`':
+					state = jsTemplateQuote
+				}
+			}
+		}
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve home dir for OpenCode guardrail plugin: %w", err)
-	}
-	return filepath.Join(home, ".config", "opencode", "plugins", "trustable-guardrails.js"), nil
+	return out.String()
 }
 
-func ensureOpenCodeGuardrailPluginInstalled() (string, error) {
-	path, err := guardrailPluginInstallPath()
-	if err != nil {
-		return "", err
+// stripJavaScriptStrings masks quoted values in already comment-free source.
+// The import detector still sees module specifiers in the original cleaned
+// source, while the invocation detector uses this view so "AgenticReact()" in
+// an example string is not executable evidence.
+func stripJavaScriptStrings(source string) string {
+	const (
+		jsCode = iota
+		jsQuoted
+	)
+	state := jsCode
+	quote := byte(0)
+	escaped := false
+	var out strings.Builder
+	out.Grow(len(source))
+	for i := 0; i < len(source); i++ {
+		ch := source[i]
+		if state == jsQuoted {
+			if ch == '\n' {
+				out.WriteByte(ch)
+			} else {
+				out.WriteByte(' ')
+			}
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				state = jsCode
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			state = jsQuoted
+			quote = ch
+			out.WriteByte(' ')
+		default:
+			out.WriteByte(ch)
+		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", fmt.Errorf("failed to create OpenCode guardrail plugin directory: %w", err)
-	}
-	data := []byte(opencodeTrustableGuardrailsJS)
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
-		return path, nil
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to write OpenCode guardrail plugin: %w", err)
-	}
-	return path, nil
+	return out.String()
 }
 
-// appUsesAgentiReact reports whether the app's Vite config opts into AgentiReact.
-// It checks vite.config.js and vite.config.ts in projectDir for a call to
-// AgentiReact(); a missing or unreadable config means false.
-func appUsesAgentiReact(projectDir string) bool {
+// appUsesAgenticReact reports whether a supported Vite config imports the real
+// plugin and invokes AgenticReact(). WHY: matching only a misspelled call made
+// unrelated or comment-only configs receive an unreachable eager MCP server.
+func appUsesAgenticReact(projectDir string) bool {
 	for _, name := range []string{"vite.config.js", "vite.config.ts"} {
 		data, err := os.ReadFile(filepath.Join(projectDir, name))
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(data), "AgentiReact()") {
+		source := stripJavaScriptComments(string(data))
+		if agenticReactImportPattern.MatchString(source) &&
+			agenticReactCallPattern.MatchString(stripJavaScriptStrings(source)) {
 			return true
 		}
 	}
 	return false
 }
 
-// writeClaudeMCPConfig writes <projectDir>/.mcp.json in Claude Code's mcpServers
-// format, translated from the OpenCode mcp section (see spec/4-launch.md):
+// writeClaudeMCPConfig writes <projectDir>/.mcp.json in the shared mcpServers
+// format, translated from Trustable's launcher map (see spec/4-launch.md):
 //   - type "local" (command array + optional environment) -> stdio (command
 //     string + args + env)
 //   - type "remote" (url) -> http (url)
 //
-// OpenCode-only fields (enabled, timeout) are dropped.
+// Launcher-only fields (enabled, timeout) are dropped. Every translated server
+// is eager so Pi reports real connection state at session start instead of
+// discovering service failures only after the first model-issued tool call.
 func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 	servers := make(map[string]interface{})
 	for name, raw := range mcp {
@@ -1434,18 +1531,23 @@ func writeClaudeMCPConfig(projectDir string, mcp map[string]interface{}) error {
 			if url == "" {
 				continue
 			}
-			servers[name] = map[string]interface{}{"type": "http", "url": url}
+			servers[name] = map[string]interface{}{
+				"type":      "http",
+				"url":       url,
+				"lifecycle": "eager",
+			}
 		default: // "local" (or unset) -> stdio
 			// command may be []string (servers we generate) or []interface{}
-			// (custom servers carried over from a parsed opencode.json).
+			// (maps decoded from JSON-based service configuration).
 			cmd := toStringSlice(server["command"])
 			if len(cmd) == 0 {
 				continue
 			}
 			entry := map[string]interface{}{
-				"type":    "stdio",
-				"command": cmd[0],
-				"args":    cmd[1:],
+				"type":      "stdio",
+				"command":   cmd[0],
+				"args":      cmd[1:],
+				"lifecycle": "eager",
 			}
 			if env := toStringMap(server["environment"]); len(env) > 0 {
 				entry["env"] = env
@@ -1509,17 +1611,17 @@ type testModelResult struct {
 	Error        string
 }
 
-// runTestModel sends a "hello" prompt to cfg.Opencode.Small using the resolved
-// provider URL and cfg.APIKey, then classifies the response. Shared by
-// GET /api/testmodel and the testmodel step of POST /api/configuration.
+// runTestModel sends a "hello" prompt to Pi's configured default model using
+// the resolved provider URL and cfg.APIKey. Pi has no small-model role, so the
+// connectivity probe must exercise the exact model the coding session will use.
 func runTestModel(cfg *trustableConfig) testModelResult {
 	if cfg == nil {
 		return testModelResult{Error: "configuration not loaded"}
 	}
-	if cfg.Opencode == nil || strings.TrimSpace(cfg.Opencode.Small) == "" {
-		return testModelResult{Error: "opencode.small not defined in trustable.json"}
+	if cfg.Pi == nil || strings.TrimSpace(cfg.Pi.Default) == "" {
+		return testModelResult{Error: "pi.default not defined in trustable.json"}
 	}
-	model := cfg.Opencode.Small
+	model := cfg.Pi.Default
 
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	apiKey := strings.TrimSpace(cfg.APIKey)
@@ -1881,7 +1983,7 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := validateOpenCodeModelSelection(&cfg); err != nil {
+	if err := validatePiModelSelection(&cfg); err != nil {
 		http.Error(w, "Invalid model selection: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1894,20 +1996,23 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 	// Regenerate per-app .env files.
 	regenerateAllAppEnvFiles()
 
-	// opencode.json is generated per-app in the workbench project folder at
-	// launch time (see generateOpencodeConfigForApp / spec/4-launch.md), so a
-	// global config save does not write it here — the new model defaults take
-	// effect on the next launch. We still reload the merged config for the
-	// connectivity probe below.
+	// Project assets are generated per app at launch. Reload the merged config
+	// for the connectivity probe and Pi's global native configuration.
 	merged, mergedErr := loadTrustableConfig()
 	if mergedErr != nil {
 		http.Error(w, "Failed to reload merged configuration: "+mergedErr.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Connectivity probe with opencode.small. Failures here are reported
-	// as testmodel.ok=false (HTTP 200) — the save itself succeeded.
+	// Connectivity probe. Failures are reported as testmodel.ok=false (HTTP 200)
+	// and do not overwrite a previously working Pi configuration.
 	test := runTestModel(merged)
+	if test.OK {
+		if err := writePiGlobalConfig(merged); err != nil {
+			http.Error(w, "Failed to write Pi configuration: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	result := map[string]interface{}{"ok": test.OK}
 	if !test.OK {
 		msg := test.Error

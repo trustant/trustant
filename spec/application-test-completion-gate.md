@@ -1,5 +1,19 @@
 # Application test completion gate
 
+> **REMOVED — historical record only.** This entire gate was implemented by the
+> OpenCode session-enforcement plugin (`trustable_completion_check` and its
+> siblings). The plugin is gone and has no Pi replacement: Pi is reached through
+> `pi-acp`, which passes no tool flags, so no tool call can be intercepted or
+> blocked. Nothing below is enforced today. See "No tool-permission guardrail" in
+> [pi.md](pi.md).
+>
+> What survives is advisory only: the `check_trustable_app.sh` /
+> `check_openserverless_actions.sh` / `check_trustable_frontend.sh` scripts, which
+> the managed `AGENTS.md` tells the agent to run but cannot compel it to.
+>
+> The description below is retained so the behaviour can be re-specified if a
+> guardrail mechanism is reintroduced.
+
 ## Goal
 
 `trustable_completion_check` must run application tests that already exist
@@ -60,11 +74,23 @@ file in either:
 - `packages/<endpoint>/...`, alongside the action; or
 - `tests/actions/<endpoint>/...`, in the dedicated application test tree.
 
+Failure output must print the exact expected directories for every endpoint and
+must explicitly warn against flattening endpoint separators into underscores.
+For example, `v1/stackcheck` maps to `tests/actions/v1/stackcheck/`, not
+`tests/actions/v1_stackcheck/`.
+
 The test must belong to an executable suite discovered by this gate. A JS test
 without a declared `test` or `test:ci` script does not satisfy the endpoint.
 After coverage is established, the bounded runner executes the suite and its
 failure remains blocking. A successful completion clears the persisted endpoint
 list; a failed completion retains it.
+
+Integrated Trustable Code does not force an internal completion-recovery turn
+after a final answer. If the provider stops without text, the session shows a
+concise visible status. Inspecting a checker file with a read-only
+`cat ... | head` command is not classified as masked checker execution;
+executing the checker and piping its result to `head` or `tail` remains
+forbidden.
 
 Security-sensitive frontend components such as authentication, authorization,
 upload, payment, and persistence receive no framework-specific mandate when no
@@ -75,15 +101,39 @@ framework requirement.
 ## Completion behavior
 
 Application tests run after git validation, Trustable contract checks, required
-action deploy/setup, and any frontend build. Completion remains blocked until
+action deploy/setup, and any frontend typecheck and build. The gate uses the
+project `typecheck` script when present; otherwise it runs the installed local
+TypeScript compiler with `tsc -b --noEmit --incremental false` when
+`tsconfig.json` exists. This catches undefined JSX symbols that a transpile-only
+Vite build accepts without leaving `.tsbuildinfo` artifacts in the workbench.
+Completion remains blocked until
 all touched endpoints have focused tests and all executable discovered suites
-pass. The normal repeated-failure circuit breaker applies to stable test
-failures.
+pass. The gate runs at most once for the current source revision and at most
+three times for one real user request. A repeated call does not rerun the suite;
+the agent must continue the requested implementation or report the concrete
+failure, never add placeholder tests merely to satisfy or reset the gate.
 
-When session state is dirty or diagnostic reproduction is still required, the
-plugin replaces any final assistant response with the relevant gate message.
-This does not depend on completion keywords: neutral wording such as "ho
-aggiornato la pagina" cannot bypass verification.
+Legacy non-integrated OpenCode may still replace an unverified final response
+with one bounded recovery turn. Integrated Trustable Code may request exactly
+one internal continuation when source changed but the model never called
+`trustable_completion_check`; a second final response is never intercepted for
+the same request. Browser verification does not create a hidden continuation in
+the integrated runtime.
+Fallback status text emitted directly by the plugin is English, consistent
+with the rest of its control-plane messages; model-authored responses may still
+use the user's language.
+
+Every successful frontend source mutation creates browser-verification debt,
+even for feature work that did not begin as a bug report. The assistant should
+run typecheck then build, immediately inspect the exact changed route and
+runtime diagnostics through the Browser MCP, and exercise the visible flow.
+Only fresh evidence-bearing `browser_interact` output after the latest mutation
+clears that debt; `browser_open` alone is orientation, not verification.
+Evidence must come from application controls. Agentic React selection-toolkit
+controls are authoring UI, never verification evidence. The headless Browser
+MCP disables that toolkit; if a stale runtime still exposes it, the plugin marks
+the browser pass unavailable and completion falls back explicitly to typecheck,
+build, tests, and runtime diagnostics without retrying the overlay.
 
 ## Raw action shell commands
 
@@ -113,15 +163,17 @@ action lifecycle guards require them.
 
 ## Browser diagnostic budget
 
-Browser work is bounded per user turn. After twelve consecutive
-`browser_browser_interact` calls without fresh browser evidence, the plugin
-blocks more interactions and requires `browser_browser_snapshot` or
-`browser_browser_diagnostics`. Opening the target again also supplies a fresh
-snapshot. A new user message resets the counter.
+Browser work is bounded per user turn. After four consecutive
+`browser_browser_interact` calls without an observable application-state
+change, the plugin blocks more interactions and requires one
+`browser_browser_snapshot` or `browser_browser_diagnostics`. A snapshot resets
+the circuit only when its application fingerprint changes; reopening the same
+unchanged page does not bypass the limit. A new user message resets the counter.
 
 This is a diagnostic checkpoint, not a browser feature limit. It prevents long
 sessions from consuming context through repeated blind fills and clicks while
-still allowing complex flows to continue in short, observed segments.
+still allowing a normal login or registration form to complete in one short,
+observed segment.
 
 See [application-test-completion-gate.svg](application-test-completion-gate.svg)
 for the execution flow.

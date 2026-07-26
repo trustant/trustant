@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright"
 
 export type BrowserMode = "development" | "deployed"
@@ -32,6 +32,17 @@ export interface BrowserSnapshot {
   audio: BrowserAudioStatus
 }
 
+interface RuntimeWorkbench {
+  app: string
+  workspace: string
+  developmentUrl: string
+}
+
+interface RuntimeManifest {
+  version: number
+  workbenches: RuntimeWorkbench[]
+}
+
 const MAX_DIAGNOSTICS = 100
 const MAX_SNAPSHOT_TEXT = 12_000
 const COMMON_ARIA_ROLES = new Set([
@@ -48,9 +59,70 @@ function normalizedPath(path: string | undefined): string {
   return value
 }
 
-export function resolveBrowserTarget(mode: BrowserMode, path: string | undefined, externalOrigin?: string): string {
+function containsPath(root: string, target: string): boolean {
+  const value = relative(root, target)
+  return value === "" || (value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value))
+}
+
+async function canonicalPath(value: string): Promise<string> {
+  const absolute = resolve(value)
+  return realpath(absolute).catch(() => absolute)
+}
+
+export async function resolveManagedDevelopmentOrigin(
+  runtimeConfig = process.env.TRUSTABLE_RUNTIME_CONFIG || "",
+  directory = process.cwd(),
+): Promise<string | undefined> {
+  if (!runtimeConfig) return undefined
+
+  const source = resolve(runtimeConfig)
+  let manifest: RuntimeManifest
+  try {
+    manifest = JSON.parse(await readFile(source, "utf8")) as RuntimeManifest
+  } catch (error) {
+    throw new Error(`Trustable browser could not read runtime manifest ${source}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  // WHY: version 2 adds host-owned watcher evidence for Pi while preserving
+  // the browser workbench/developmentUrl fields. Accept only the coordinated
+  // contract so a partially upgraded runtime fails before using shared :5173.
+  if (manifest.version !== 2 || !Array.isArray(manifest.workbenches)) {
+    throw new Error(`Trustable browser received an invalid runtime manifest: ${source}`)
+  }
+
+  const current = await canonicalPath(directory)
+  const matches: RuntimeWorkbench[] = []
+  for (const workbench of manifest.workbenches) {
+    if (!workbench || typeof workbench.workspace !== "string" || !isAbsolute(workbench.workspace)) {
+      throw new Error(`Trustable browser runtime contains an invalid workbench path: ${String(workbench?.workspace || "")}`)
+    }
+    if (containsPath(await canonicalPath(workbench.workspace), current)) matches.push(workbench)
+  }
+  if (matches.length !== 1) {
+    throw new Error(
+      `Trustable browser blocked development verification: runtime manifest belongs to a different application than ${current}. Reopen the intended Trustable application; do not use another app page as verification evidence.`,
+    )
+  }
+
+  let origin: URL
+  try {
+    origin = new URL(matches[0].developmentUrl)
+  } catch {
+    throw new Error(`Trustable browser runtime has an invalid development URL for ${matches[0].app}`)
+  }
+  if (origin.protocol !== "http:" || origin.hostname !== "localhost" || origin.port !== "5173") {
+    throw new Error(`Trustable browser development URL must be http://localhost:5173 for ${matches[0].app}`)
+  }
+  return "http://localhost:5173/"
+}
+
+export function resolveBrowserTarget(
+  mode: BrowserMode,
+  path: string | undefined,
+  externalOrigin?: string,
+  developmentOrigin = "http://localhost:5173/",
+): string {
   const appPath = normalizedPath(path)
-  if (mode === "development") return new URL(appPath, "http://localhost:5173").toString()
+  if (mode === "development") return new URL(appPath, developmentOrigin).toString()
   if (!externalOrigin) throw new Error("deployed browser target is not configured")
 
   const origin = new URL(externalOrigin)
@@ -70,6 +142,11 @@ export class TrustableBrowser {
   constructor(
     private readonly externalOrigin = process.env.TRUSTABLE_BROWSER_EXTERNAL_ORIGIN || "",
     private readonly artifactDir = process.env.TRUSTABLE_BROWSER_ARTIFACT_DIR || "/tmp/trustable-browser",
+    private readonly runtimeConfig = process.env.TRUSTABLE_RUNTIME_CONFIG || "",
+    private readonly directory = process.cwd(),
+    private readonly testDevelopmentOrigin = process.env.NODE_ENV === "test"
+      ? process.env.TRUSTABLE_BROWSER_TEST_DEVELOPMENT_ORIGIN || ""
+      : "",
   ) {}
 
   private remember(target: string[], value: string) {
@@ -88,6 +165,12 @@ export class TrustableBrowser {
       ignoreHTTPSErrors: false,
     })
     await this.context.addInitScript({ content: `(() => {
+      Object.defineProperty(window, "__AGENTIC_REACT_CONFIG__", {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: { toolkit: { enabled: false } },
+      });
       window.__trustableAudioContexts = [];
       const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
       if (!NativeAudioContext) return;
@@ -123,7 +206,10 @@ export class TrustableBrowser {
 
   async open(mode: BrowserMode, path?: string): Promise<BrowserSnapshot> {
     const page = await this.ensurePage()
-    const target = resolveBrowserTarget(mode, path, this.externalOrigin)
+    const developmentOrigin = mode === "development"
+      ? await resolveManagedDevelopmentOrigin(this.runtimeConfig, this.directory) || this.testDevelopmentOrigin || undefined
+      : undefined
+    const target = resolveBrowserTarget(mode, path, this.externalOrigin, developmentOrigin)
     this.consoleMessages.length = 0
     this.networkFailures.length = 0
     await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60_000 })
@@ -230,7 +316,13 @@ export class TrustableBrowser {
       page.title(),
       body.ariaSnapshot({ timeout: 5_000 }).catch(() => "(aria snapshot unavailable)"),
       body.innerText({ timeout: 5_000 }).catch(() => "(body text unavailable)"),
-      page.locator("a,button,input,select,textarea,[role]").evaluateAll((elements) => elements.map((element, index) => {
+      page.locator("a,button,input,select,textarea,[role]").evaluateAll((elements) => elements.filter((element) => {
+        const node = element as HTMLElement
+        if (node.closest('[data-agentic-react-toolkit="true"]')) return false
+        if (node.closest('[data-agentic-react-tuning-modal="true"]')) return false
+        const style = getComputedStyle(node)
+        return !node.hidden && style.display !== "none" && style.visibility !== "hidden"
+      }).map((element, index) => {
         const node = element as HTMLElement
         const input = element as HTMLInputElement
         const ref = `e${index}`

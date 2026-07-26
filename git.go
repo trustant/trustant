@@ -32,6 +32,60 @@ var gitPullGeneratedFiles = map[string]bool{
 	"opencode.json":               true,
 }
 
+var gitSaveGeneratedFiles = []string{
+	".mcp.json",
+	".openserverless-contract.md",
+	"opencode.md",
+	"opencode.json",
+}
+
+func gitSaveExcludedFiles(workbenchPath string) []string {
+	files := append([]string(nil), gitSaveGeneratedFiles...)
+	if agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
+		files = append(files, "AGENTS.md")
+	}
+	return files
+}
+
+func gitIgnoredAndUntracked(workbenchPath, path string) bool {
+	ignored := exec.Command("git", "check-ignore", "--quiet", "--no-index", "--", path)
+	ignored.Dir = workbenchPath
+	if ignored.Run() != nil {
+		return false
+	}
+	tracked := exec.Command("git", "ls-files", "--error-unmatch", "--", path)
+	tracked.Dir = workbenchPath
+	return tracked.Run() != nil
+}
+
+func gitSaveAddArgs(workbenchPath string) []string {
+	args := []string{"add", "-A", "--", "."}
+	for _, path := range gitSaveExcludedFiles(workbenchPath) {
+		// An ignored untracked file is already omitted by Git. Passing it back as
+		// an explicit negative pathspec still triggers advice.addIgnoredFile and
+		// makes git add fail after it has partially updated the index.
+		if gitIgnoredAndUntracked(workbenchPath, path) {
+			continue
+		}
+		args = append(args, ":(exclude)"+path)
+	}
+	return args
+}
+
+func gitSaveDryRunAddArgs(workbenchPath string) []string {
+	args := gitSaveAddArgs(workbenchPath)
+	return append([]string{"add", "--dry-run"}, args[1:]...)
+}
+
+func gitSaveResetGeneratedArgs(workbenchPath string) []string {
+	args := []string{"reset", "--quiet", "HEAD", "--"}
+	args = append(args, gitSaveExcludedFiles(workbenchPath)...)
+	// TypeScript incremental build metadata is a local compiler artifact, not
+	// application source. Resetting it also repairs an index partially staged by
+	// an older failed Commit attempt.
+	return append(args, "*.tsbuildinfo")
+}
+
 // handleGitStatus handles GET /api/git/status/<name>
 func handleGitStatus(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
@@ -502,8 +556,19 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// git add -A
-	addCmd := exec.Command("git", "add", "-A")
+	// Preflight before touching the index. Git can otherwise stage valid paths
+	// before returning an ignored-file error for a later pathspec.
+	dryRunCmd := exec.Command("git", gitSaveDryRunAddArgs(workbenchPath)...)
+	dryRunCmd.Dir = workbenchPath
+	if output, err := dryRunCmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "git add preflight failed: " + string(output)})
+		return
+	}
+
+	// Stage app-owned files while keeping launch-generated configuration out of
+	// commits. In particular, .mcp.json can contain runtime service credentials.
+	addCmd := exec.Command("git", gitSaveAddArgs(workbenchPath)...)
 	addCmd.Dir = workbenchPath
 	if output, err := addCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -511,13 +576,25 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// git status --porcelain to check if there are changes
-	statusCmd := exec.Command("git", "status", "--porcelain")
+	// Negative pathspecs do not unstage files left in the index by an earlier
+	// interrupted Commit. Restore every generated path to HEAD before checking
+	// what will be committed.
+	resetGeneratedCmd := exec.Command("git", gitSaveResetGeneratedArgs(workbenchPath)...)
+	resetGeneratedCmd.Dir = workbenchPath
+	if output, err := resetGeneratedCmd.CombinedOutput(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "git index cleanup failed: " + string(output)})
+		return
+	}
+
+	// Check the index rather than the complete worktree: excluded generated
+	// files remain available locally but are intentionally not commit inputs.
+	statusCmd := exec.Command("git", "diff", "--cached", "--name-only")
 	statusCmd.Dir = workbenchPath
 	statusOutput, err := statusCmd.Output()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "git status failed: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "git staged status failed: " + err.Error()})
 		return
 	}
 	if strings.TrimSpace(string(statusOutput)) == "" {

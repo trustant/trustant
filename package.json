@@ -8,11 +8,9 @@
     "e2e:bestia": "./tests/e2e_bestia_app.sh",
     "e2e:ollama-cloud": "./tests/e2e_ollama_cloud_app.sh",
     "e2e:regolo": "./tests/e2e_regolo_app.sh",
-    "test:e2e-providers": "./tests/e2e_provider_common_test.sh && node --test tests/issue98-session-tree.test.mjs",
-    "test:guardrails": "node --test tests/opencode-guardrails.test.mjs"
+    "test:e2e-providers": "./tests/e2e_provider_common_test.sh && node --test tests/issue98-session-tree.test.mjs"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.17.13",
     "@playwright/test": "1.56.1"
   }
 }

@@ -1,0 +1,254 @@
+# Pi and TruACP runtime
+
+Trustable uses `pi` (`@earendil-works/pi-coding-agent`) as its coding agent.
+Trustable does not execute it directly: `truacp` serves the React UI on port
+4096, starts `pi-acp` over stdio, and `pi-acp` starts Pi in RPC mode.
+
+The browser-visible hostname remains `opencode.<domain>` for ingress and WAF
+compatibility, but it is only a plain reverse proxy to TruACP. There is no
+OpenCode process, session API, directory header, project database, or URL
+rewriting behind that hostname.
+
+## Source and version pinning
+
+`trustable-acp` is a pinned Git submodule. Pi extensions are pinned in
+`trustable-acp/pi.version`; every npm install entry must carry an explicit
+version. The customized Pi executable/core and ACP adapter are the nested
+`trustable-acp/pi` and `trustable-acp/pi-acp` submodules, each pinned to an
+exact fork revision. `setup.sh` builds the five lockstep Pi packages
+(`pi-ai`, `pi-tui`, `pi-agent-core`, `pi-storage-sqlite-node`, and
+`pi-coding-agent`) from the owned fork in source/VM mode or consumes the same
+prebuilt tarballs in the image. It never installs the public coding-agent
+package as a fallback. Dependency hydration for this nested source uses
+`npm ci --ignore-scripts`; the explicit local-release command owns package
+generation, while repository-only lifecycle hooks must not require the host
+worktree's Git administration path from inside Lima, WSL, or an image builder.
+
+## Global model configuration
+
+Pi model configuration is global under `${PI_CODING_AGENT_DIR}` or, when that
+variable is unset, `~/.pi/agent`:
+
+| File | Mode | Trustable-owned values |
+|---|---:|---|
+| `models.json` | `0600` | the active managed provider with base URL and allowed coding models |
+| `settings.json` | `0644` | `defaultProvider`, `defaultModel`, and `enabledModels` for the active prefix |
+| `auth.json` | `0600` | the real provider API key |
+
+Provider identity describes the endpoint origin: the Trustable status catalog
+uses `trustable`, the embedded/status-backed Ollama catalog uses `ollama`, and
+user-provided endpoints (including own-host Ollama) plus BestIA use `local`.
+`settings.enabledModels` contains only `<active-provider>/*`. `models.json`
+stores the literal `$OPENAI_API_KEY` reference; the real key is only in
+`auth.json`. Keyless providers use `dummy` so Pi considers the provider
+configured.
+
+TruACP resolves that reference server-side from `auth.json` for its `/models`
+probe and never returns a stored key through `/api/pi/config/get`. Trustable
+launches TruACP with `TRUSTABLE_MANAGED_RUNTIME=1`; a failed probe then directs
+the user back to Trustable's main Configure screen instead of opening TruACP's
+standalone credential form. The managed process also receives
+`PI_SKIP_VERSION_CHECK=1`: Trustable owns the pinned Pi version through
+`trustable-acp/pi.version`, so Pi must not advertise or initiate an independent
+global npm upgrade from inside an application session. The nested Trustable
+`pi-acp` fork honors both `PI_SKIP_VERSION_CHECK` and `PI_OFFLINE` natively, so
+setup does not patch installed JavaScript and does not fall back to the public
+npm adapter.
+
+Writers merge Trustable-owned keys into existing JSON and preserve unrelated Pi
+settings and providers. Invalid or missing JSON is treated as empty. Model
+entries are sorted, embedding/reranking/non-coding models are filtered, and
+limits fall back to 32768 when the catalog provides none.
+
+Pi reasoning capability is written per model. Explicit catalog values for
+`reasoning` and `thinkingLevelMap` are preserved after validating Pi's known
+level keys. For the managed `trustable` provider only, missing `reasoning`
+defaults to `true` because the Trustable Cloud proxy supports Pi's standard
+`high` reasoning-effort contract for coding models. Other providers default to
+non-reasoning unless their catalog explicitly opts in. `xhigh` is never
+inferred: it is supported only when `thinkingLevelMap.xhigh` is present and
+non-null, so Pi and TruACP cannot silently downgrade an Extra high selection.
+
+The configure flow writes these files after the selected provider and model
+pass the connectivity probe. App launch never writes or repairs global Pi
+configuration: Edit is an app operation, while Configure is the single owner of
+runtime settings and credentials.
+
+After a successful Configure write, Trustable snapshots only these three JSON
+files under `<WorkspaceDir>/.trustable/pi-agent-config/`, with a private
+directory and the same per-file modes. The npm extension tree is deliberately
+not persisted: every replacement image must supply the versions pinned by that
+image rather than inherit packages from an older pod.
+
+At server preflight, Trustable overlays the durable JSON snapshot onto the fresh
+image's Pi directory while preserving the current image's `settings.packages`.
+For the first upgrade from an image that did not create a snapshot, preflight
+may materialize the already-selected provider from the durable
+`trustable.json`. This is state recovery, not a second configuration owner: it
+does not change provider/model selection, run a model probe, or run from app
+launch. A missing `pi.default` still requires the explicit Configure flow.
+
+The selected model is stored as `pi.default` in `trustable.json`. There is no
+secondary/small model. Legacy `opencode.default` and `opencode.small` fields are
+ignored rather than migrated; an existing installation without `pi.default`
+is redirected to `configure.html?setup=1` for one explicit selection.
+Trustable serves HTML documents with `Cache-Control: no-store` so an upgraded
+browser cannot restore stale inline OpenCode redirect logic from history after
+the Pi configuration has already been saved.
+
+## Per-app project assets
+
+Launch writes these files to `<workbench>/<app>` after `ops ide login`:
+
+- `.mcp.json` in the standard `mcpServers` schema;
+- `AGENTS.md` and an identical `CLAUDE.md`, with a replaceable
+  Trustable-managed block and preserved app-local notes;
+- `.openserverless-contract.md`.
+
+It also installs the three Trustable checker scripts under `~/.local/bin`.
+There is no `opencode.json`, OpenCode runtime manifest, or per-app model file.
+
+Pi reaches MCP servers through `pi-mcp-adapter`. `.mcp.json` is fully regenerated
+on every launch. `openserverless`, `browser`, and the deterministic read-only
+`react` validator are always present;
+`agentireact` is conditional on the supported `@agentic-react/vite` import plus
+`AgenticReact()` invocation in the Vite config; service MCP servers are
+conditional on their blocks in `~/.ops/config.json`.
+
+The `react` server is separate from Agentic React. It resolves only the
+manifest-selected workbench and exposes bounded project inspection,
+route/auth-flow checks, and aggregate TypeScript/React validation. The managed
+extension requires aggregate `react_validate` after frontend mutations and
+before Browser MCP verification.
+
+The managed extension also enforces reproducible OpenServerless ownership. It
+allows the corrected Redis-only `auth_setup` tool, blocks the obsolete
+environment-mutating `secret_ensure`, rejects writes to generated
+`packages/**/__main__.py` wrappers and `packages/**/*.zip` artifacts, and
+rejects mutating PostgreSQL/Redis/MongoDB/S3/Milvus MCP calls. Service MCP
+reads remain available for discovery and verification; schema, seed, and
+application writes belong in setup or public OpenServerless actions.
+
+`setup.sh` must register `pi-mcp-adapter` and `pi-web-access` with `pi install`.
+A global npm installation alone does not activate a Pi extension. The adapter
+exposes a single `mcp` proxy, but every generated server uses
+`lifecycle: "eager"` so connection is attempted when the Pi session starts.
+Before reporting binding availability, instructions require actual inspection
+of every `.mcp.json.mcpServers` entry. The compatible sequence is `mcp({})`
+plus `mcp({server:"<name>"})` per server; the adapter's successful
+`mcp({connect:"<name>"})` form proves both proxy reachability and discovery for
+that server, so successful connects for every required server are equivalent.
+
+The pinned `pi-mcp-adapter@2.11.0` receives a deterministic setup-time recovery
+patch. If a co-located Streamable HTTP server restarts and rejects the cached
+session ID, the manager closes that stale connection, initializes a replacement
+connection (refreshing tools and resources), and retries the original tool call
+exactly once. Proxy, direct-tool, and MCP UI calls all use this manager path.
+Other failures are returned unchanged, and a failed replacement or retry is not
+retried again. Setup validates the installed version and every source target
+before atomically replacing files, remains idempotent, and fails closed when the
+pinned package layout changes.
+
+The optional `agentireact` server is generated only when `vite.config.js` or
+`vite.config.ts` contains executable configuration that both references the
+`@agentic-react/vite` package and invokes `AgenticReact()`. Detection ignores
+comment-only or string-only text, the obsolete `AgentiReact()` spelling, and
+wrong packages. Its standard Pi entry is HTTP/eager at
+`http://localhost:5173/mcp`; adding the plugin during a live session requires
+an app relaunch so launch can regenerate `.mcp.json`.
+
+Pi still knows its built-in providers, and pi-acp currently advertises that
+full catalog even when Pi model cycling is scoped. Trustable therefore writes
+`enabledModels: ["<active-provider>/*"]` for runtime selection and TruACP
+filters the header selector to the same active `local`, `ollama`, or `trustable`
+prefix.
+
+## Launch contract
+
+For a canonical workbench path `<dir>`, Trustable starts:
+
+```text
+truacp --port 4096 --dir <dir>
+```
+
+TruACP, Pi, and `ops ide devel` share one process group so Stop terminates the
+whole app runtime. TruACP owns its ACP session and working directory; Trustable
+does not bootstrap, select, or persist agent sessions itself.
+
+During that live Edit runtime, the already-running `ops ide devel` child is the
+sole owner of action packaging and deployment. Pi must not invoke
+`ops ide deploy` or start a second `ops ide devel`; the issue #57 extension
+blocks both command shapes. After one or more real `action_new` creations, Pi
+finishes the coherent action/wiring/source batch and calls
+`trustable_runtime_redeploy` once. The extension tool invokes the same
+co-located `/api/redeploy` SSE path as the Trustable UI, so the watcher is
+stopped before the full deploy and restarted afterward; an idempotent
+`action_new` no-op does not request it. Watcher status, checker, HTTP, and
+browser verification are blocked until the required redeploy succeeds.
+Trustable mirrors the restarted watcher output into a private, bounded log
+outside the workbench and declares it in the version-2 managed manifest. Pi
+then calls `trustable_runtime_status` for a redacted authoritative tail, runs
+`check_openserverless_actions.sh` once for source-contract validation, and
+validates the real `localhost:5173/api/my/...` endpoint. Managed live checker
+mode deliberately ignores sibling ZIP existence and freshness. The issue #57
+extension blocks direct shell inspection or polling of `packages/**/*.zip`,
+rejects masked checker pipelines, and permits one checker call per relevant
+source or OpenServerless-wiring revision. Pi does not diagnose the watcher
+through archive paths, repeated checker calls, process searches, or increasing
+waits.
+
+The owned Pi core also detects repeated normalized prose inside one streamed
+provider response, where ACP and turn hooks cannot intervene. It aborts only
+that pathological response. There is deliberately no global provider-step or
+turn budget: a healthy long run may exceed 300 turns.
+
+Inside a live turn, the TruACP Stop control sends ACP `session/cancel` to the
+current Pi session. The fork bounds the Pi abort request, reports explicit
+stopping/idle activity, exposes retry and compaction as control-plane status
+rather than assistant prose, and includes Pi extension commands in the command
+catalog. The UI shows activity plus elapsed time, not an invented completion
+percentage, and can create or resume Pi sessions through the ACP session APIs.
+Inactive Pi sessions can also be removed through standard ACP `session/delete`.
+The fork resolves the ID inside Pi's configured session directory and refuses
+to delete the currently loaded session; TruACP removes its secondary metadata
+only after Pi confirms the deletion.
+
+## Trustable execution policy
+
+The OpenCode session plugin and its deterministic completion/recovery state
+machine are not part of Pi. The managed instructions, OpenServerless contract,
+browser MCP, and checker scripts remain important application inputs, but prose
+alone is not an execution policy. This is an explicit runtime simplification,
+not a silent fallback to upstream OpenCode.
+The legacy JavaScript plugin source is not embedded in the Go binary,
+`@opencode-ai/plugin` is not a project dependency, and launch has no dormant
+`opencode.json` generator. Managed instructions must not tell Pi to call
+`trustable_context_recover`, `trustable_diagnostic_checkpoint`, or
+`trustable_completion_check`; verification uses the real MCP/browser tools and
+checker commands directly.
+
+Issue #57 introduces a versioned, reviewed Pi execution-policy extension rather
+than reviving the former `trustable-guardrails.ts` placeholder. Its first
+increment binds the managed process to the host-selected workbench, exact MCP
+configuration, classified local and browser-visible application URLs, and
+installed extension; it injects that immutable context before every turn and
+blocks writes outside the workbench. Managed mode fails closed when any part of
+that contract is missing.
+
+The next issue #57 increment normalizes the real `pi-mcp-adapter` proxy shape
+(`openserverless_action_new`, JSON-string `args`, and the `server`/`connect`
+discovery forms) and enforces a capability bootstrap before application work:
+the MCP proxy must be proven reachable and every required manifest server must
+be successfully discovered. A successful `connect` proves both reachability
+and discovery for that server. It blocks
+raw action/service administration, manual wrapper/scaffold generation,
+ad-hoc dependency installation, service-MCP writes, shell-based source
+mutation/destructive Git recovery, and piecemeal Redis wiring for
+authentication endpoints. Tool results drive state: after three
+semantically equivalent failures with no successful relevant source/wiring
+mutation, that strategy is rejected until the hypothesis or revision changes.
+There is still no global step/turn budget.
+
+Context-continuity state and completion evidence remain subsequent issue #57
+increments. The complete versioned contract and acceptance matrix are
+specified in [trustable-pi-runtime.md](trustable-pi-runtime.md).

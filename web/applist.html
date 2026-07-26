@@ -16,7 +16,9 @@
                 <div>
                     <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
                     <h1 class="text-3xl md:text-4xl font-light text-[color:var(--nu-ink)]">Trustable</h1>
-                    <p id="versionText" class="text-xs text-[color:var(--nu-muted)] mt-1">Version loading...</p>
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                        <span id="releaseTag" class="nu-status-pill px-2 py-1" title="Build information">Version loading...</span>
+                    </div>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 md:justify-end">
@@ -1322,6 +1324,12 @@
                 const response = await fetch(`/api/launch/${encodeURIComponent(name)}`);
                 const data = await response.json();
 
+                // The API repeats the Pi setup guard for stale/direct tabs.
+                // Route to the same explicit hard-cutover flow as page boot.
+                if (data.setup_required) {
+                    window.location.href = 'configure.html?setup=1';
+                    return;
+                }
                 if (data.error) {
                     showLaunchError(data.error);
                     return;
@@ -1330,10 +1338,8 @@
                 document.cookie = `LEFT=${encodeURIComponent(leftURL)};path=/`;
                 document.cookie = `RIGHT=${encodeURIComponent(rightURL)};path=/`;
                 document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
-                const rawDirectory = data.encdir || '';
-                document.cookie = `URLDIR=${encodeURIComponent(rawDirectory)};path=/`;
-                document.cookie = `B64DIR=${data.b64dir || ''};path=/`;
-                document.cookie = `SESSIONID=${encodeURIComponent(data.session_id || '')};path=/`;
+				// TruACP owns ACP session creation and cwd selection. Do not recreate
+				// the removed OpenCode directory/session cookies in the outer shell.
 
                 if (data.skills_added) {
                     alert('Added skills');
@@ -1414,6 +1420,20 @@
 
         // Load version and apps
         (async function() {
+            const bootParams = new URLSearchParams(window.location.search);
+            const configurationJustSaved = bootParams.get('configured') === '1';
+            if (configurationJustSaved) {
+                // Remove the one-shot marker without reloading so bookmarks
+                // and subsequent visits return to the normal catalog checks.
+                bootParams.delete('configured');
+                const cleanQuery = bootParams.toString();
+                window.history.replaceState(
+                    null,
+                    '',
+                    'applist.html' + (cleanQuery ? '?' + cleanQuery : '')
+                );
+            }
+
             // Guard: no provider configured -> send user to provider selection
             let bootProvider = '';
             let bootConfig = null;
@@ -1431,10 +1451,19 @@
                 return;
             }
 
+            // Issue #51 intentionally provides no legacy opencode migration.
+            // An existing installation must choose pi.default once before any
+            // app can be launched, making the global runtime contract explicit.
+            if (!bootConfig.pi || !String(bootConfig.pi.default || '').trim()) {
+                window.location.href = 'configure.html?setup=1';
+                return;
+            }
+
             // Status check (every applist load): show the operator message
-            // banner AND, for the active provider, detect a modelsVersion or
-            // default/small drift and route the user through
-            // configure.html?reselect=1 to confirm or change their defaults.
+            // banner AND, for the active provider, detect a modelsVersion
+            // change and route the user through configure.html?reselect=1.
+            // The catalog default is only an initial seed; it may legitimately
+            // differ from the Pi model selected by the user.
             try {
                 const sresp = await fetch('/api/status');
                 if (sresp.ok) {
@@ -1454,25 +1483,33 @@
                         const ownHostOllama = bootProvider === 'ollama' && bootBaseURL !== ''
                             && !/^http:\/\/(localhost|127\.0\.0\.1|ollama)(:|\/)/i.test(bootBaseURL);
                         const sec = sdata[bootProvider];
-                        if (!ownHostOllama && sec && sec.models) {
+                        // Configure already saved and tested this exact
+                        // selection. Suppress only the immediate reselect
+                        // redirect; a later visit performs the normal check.
+                        if (!configurationJustSaved && !ownHostOllama && sec && sec.models) {
                             const savedVer = (bootConfig.model_versions && bootConfig.model_versions[bootProvider]) || 0;
-                            const savedOpencode = bootConfig.opencode || {};
+                            const savedPi = bootConfig.pi || {};
                             const versionChanged = typeof sec.modelsVersion === 'number'
                                 && sec.modelsVersion > 0
                                 && sec.modelsVersion !== savedVer;
-                            const defaultsChanged =
-                                (sec.default && sec.default !== savedOpencode.default) ||
-                                (sec.small   && sec.small   !== savedOpencode.small);
-                            if (versionChanged || defaultsChanged) {
+                            if (versionChanged) {
                                 const newVersions = Object.assign({}, bootConfig.model_versions || {});
                                 if (typeof sec.modelsVersion === 'number') {
                                     newVersions[bootProvider] = sec.modelsVersion;
                                 }
+                                // Preserve an available user choice across a
+                                // catalog refresh; fall back only when that
+                                // model was removed from the catalog.
+                                const refreshedDefault = savedPi.default
+                                    && Object.prototype.hasOwnProperty.call(sec.models, savedPi.default)
+                                    ? savedPi.default
+                                    : (sec.default || '');
                                 const updated = Object.assign({}, bootConfig, {
                                     models: sec.models,
-                                    opencode: { default: sec.default || '', small: sec.small || '' },
+                                    pi: { default: refreshedDefault },
                                     model_versions: newVersions
                                 });
+                                delete updated.opencode;
                                 delete updated.model_version;
                                 delete updated.env;
                                 try {
@@ -1499,8 +1536,15 @@
                     document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please Update. For info email: info@nuvolaris.io</p></div>';
                     return;
                 }
-                if (data.version) {
-                    document.getElementById('versionText').textContent = String(data.version).replace(/^Trustable\s+Trustable\s+/, 'Trustable ');
+                const releaseTag = document.getElementById('releaseTag');
+                const shortVersion = String(data.version || '').replace(/^Trustable\s+/, '');
+                const stream = data.stream || data.branch || '';
+                if (shortVersion || stream) {
+                    releaseTag.textContent = [shortVersion, stream].filter(Boolean).join(' \u00b7 ');
+                    releaseTag.title = [
+                        data.branch ? 'Branch: ' + data.branch : '',
+                        data.build ? 'Build: ' + data.build : ''
+                    ].filter(Boolean).join(' | ') || 'Build information';
                 }
                 if (data.build) {
                     document.getElementById('buildText').textContent = 'Build: ' + data.build;

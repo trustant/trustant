@@ -40,11 +40,31 @@ detect_domain() {
   echo "miniops.me"
 }
 
-need kubectl
 need npm
 need node
 
-kubectl -n "$NAMESPACE" get pod "$POD" >/dev/null
+if [ "${TRUSTABLE_E2E_LOCAL:-0}" != "1" ]; then
+  need kubectl
+  kubectl -n "$NAMESPACE" get pod "$POD" >/dev/null
+else
+  need pgrep
+  need ps
+  # WHY: run.sh owns the only namespace-wide forwarder. A second test-owned
+  # kubefwd would race for loopback addresses and ports, so local E2E requires
+  # the existing process and validates its exclusion contract before testing.
+  mapfile -t KUBEFWD_PIDS < <(pgrep -x kubefwd || true)
+  if [ "${#KUBEFWD_PIDS[@]}" -ne 1 ]; then
+    echo "ERROR local E2E requires exactly one run.sh-owned kubefwd; found ${#KUBEFWD_PIDS[@]}" >&2
+    exit 1
+  fi
+  KUBEFWD_ARGS="$(ps -p "${KUBEFWD_PIDS[0]}" -o args=)"
+  if [[ "$KUBEFWD_ARGS" != *"svc"* ||
+        "$KUBEFWD_ARGS" != *"-n nuvolaris"* ||
+        "$KUBEFWD_ARGS" != *"metadata.name!=trustable-svc"* ]]; then
+    echo "ERROR local kubefwd does not match the run.sh namespace/exclusion contract" >&2
+    exit 1
+  fi
+fi
 
 export TRUSTABLE_E2E_NAMESPACE="$NAMESPACE"
 export TRUSTABLE_E2E_POD="$POD"
@@ -52,6 +72,7 @@ export TRUSTABLE_E2E_CONTAINER="$CONTAINER"
 export TRUSTABLE_E2E_DOMAIN="$(detect_domain)"
 
 echo "Trustable issue98 E2E"
+echo "  runtime:    $([ "${TRUSTABLE_E2E_LOCAL:-0}" = "1" ] && echo local || echo kubernetes)"
 echo "  domain:     $TRUSTABLE_E2E_DOMAIN"
 echo "  namespace:  $TRUSTABLE_E2E_NAMESPACE"
 echo "  pod:        $TRUSTABLE_E2E_POD"

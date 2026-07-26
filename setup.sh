@@ -4,7 +4,7 @@
 #
 # Runs as the mirrored guest user inside the Ubuntu VM created by ./start.sh
 # (invoke via `./ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
-# Everything is installed for the local user (~/.local/bin, ~/.config/opencode),
+# Everything is installed for the local user (~/.local/bin, ~/.local/lib),
 # no /opt/uv/*, no sudo except for system packages (the guest has passwordless
 # sudo). See spec/setup.md — that is the source of truth for these steps.
 #
@@ -26,6 +26,16 @@ ARCH=$(uname -m)
 case "$ARCH" in
   x86_64)        ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
+  *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
+esac
+
+[[ "$OS" == "linux" ]] || fail "setup.sh supports Ubuntu Linux in Lima or WSL, not ${OS}"
+[[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
+# shellcheck disable=SC1091
+source /etc/os-release
+case " ${ID:-} ${ID_LIKE:-} " in
+  *ubuntu*|*debian*) ;;
+  *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
 esac
 
 RC_FILES=("$HOME/.bashrc")
@@ -54,7 +64,9 @@ read_arg() {
   grep -m1 "^ARG ${var}=" image/Dockerfile | cut -d'=' -f2- | tr -d ' '
 }
 
-for v in OLLAMA_VERSION OPENCODE_VERSION OPS_BRANCH OPS_REPO; do
+# WHY: source identity is owned by the image contract even in development.
+# Reading the same pinned fork here keeps clean VM and pod installations equal.
+for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF; do
   val=$(read_arg "$v")
   [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
   export "$v=$val"
@@ -160,6 +172,16 @@ ok "uv is available"
 echo "--- Checking Go ---"
 GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
 
+# `g` persists both its own bin directory and the active Go toolchain in this
+# file. Non-interactive Lima/WSL shells do not source it automatically, so load
+# it before deciding whether either executable must be installed again.
+if [[ -s "$HOME/.g/env" ]]; then
+  set +u
+  # shellcheck disable=SC1090
+  source "$HOME/.g/env"
+  set -u
+fi
+
 if ! command -v go &>/dev/null; then
   warn "go not found, installing g (Go version manager)..."
   curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash || fail "g install failed"
@@ -235,17 +257,65 @@ WHISK_DESC=$(curl -sL "${APIHOST}/api/info" | jq -r '.description' 2>/dev/null) 
 ok "OpenWhisk reachable at ${APIHOST}"
 
 # --- 8. Extract kubeconfig for ops from the LOCAL k3s (no ssh, no IP rewrite) ---
-# The 127.0.0.1 in k3s.yaml is already correct inside the VM.
+# The 127.0.0.1 in k3s.yaml is already correct inside Lima/WSL. Select either
+# standalone kubectl or the client bundled with k3s.
 echo "--- Ensuring ops kubeconfig ---"
 KUBECONFIG_FILE="$HOME/.ops/tmp/kubeconfig"
-if KUBECONFIG="$KUBECONFIG_FILE" kubectl --raw='/readyz' &>/dev/null; then
+
+if command -v kubectl &>/dev/null; then
+  KUBECTL_CMD=(kubectl)
+elif command -v k3s &>/dev/null; then
+  KUBECTL_CMD=(k3s kubectl)
+else
+  fail "no Kubernetes client found: install kubectl or the local k3s runtime"
+fi
+kube() {
+  KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"
+}
+ok "Kubernetes client: ${KUBECTL_CMD[*]}"
+
+if kube get --raw='/readyz' &>/dev/null; then
   ok "kubeconfig already valid at $KUBECONFIG_FILE"
 else
   mkdir -p "$HOME/.ops/tmp"
+  [[ -r /etc/rancher/k3s/k3s.yaml ]] || sudo test -r /etc/rancher/k3s/k3s.yaml \
+    || fail "local k3s kubeconfig is not readable at /etc/rancher/k3s/k3s.yaml"
   sudo cat /etc/rancher/k3s/k3s.yaml > "$KUBECONFIG_FILE" || fail "failed to read /etc/rancher/k3s/k3s.yaml"
   chmod 600 "$KUBECONFIG_FILE"
   ok "kubeconfig written to $KUBECONFIG_FILE"
 fi
+
+KUBE_READY=false
+for _ in $(seq 1 30); do
+  if kube get --raw='/readyz' &>/dev/null; then
+    KUBE_READY=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$KUBE_READY" != true ]]; then
+  warn "Kubernetes API diagnostic:"
+  kube get --raw='/readyz' || true
+  fail "local k3s API did not become ready using $KUBECONFIG_FILE"
+fi
+ok "local k3s API is ready"
+
+# setup.sh validates the local k3s API but must not reconfigure the VM resolver
+# or restart systemd services. DNS policy belongs to the VM/k3s image; changing
+# it here makes a repository setup unexpectedly mutate the host environment.
+
+# start.sh owns installation for trudev; setup validates the same prerequisite
+# explicitly so WSL/local-k3s fails before run.sh can leave a partial dev loop.
+KUBEFWD_VERSION="1.25.16"
+command -v kubefwd &>/dev/null \
+  || fail "kubefwd ${KUBEFWD_VERSION} is required (trudev: run start.sh on macOS; WSL: install the pinned Linux release)"
+KUBEFWD_INSTALLED_VERSION="$(
+  kubefwd version 2>/dev/null \
+    | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
+)"
+[[ "$KUBEFWD_INSTALLED_VERSION" == "$KUBEFWD_VERSION" ]] \
+  || fail "kubefwd version mismatch: expected ${KUBEFWD_VERSION}, got ${KUBEFWD_INSTALLED_VERSION:-unknown}"
+ok "kubefwd ${KUBEFWD_VERSION} is available"
 
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
@@ -253,45 +323,87 @@ ops admin listuser &>/dev/null || fail "No administrative power (ops admin listu
 ok "Admin access confirmed"
 
 # --- 10. Ensure the image's CLI tools are available (install any missing) ---
-# No /opt/homebrew and no kubefwd in the VM — cluster services are local.
-echo "--- Checking CLI tools (psql, redis-cli, rclone, milvus-cli) ---"
+# The upstream Milvus CLI lives globally. WHY: ~/.local/bin/milvus_cli is the
+# per-app auto-connect wrapper and must never remain a uv-managed symlink.
+echo "--- Checking CLI tools (psql, redis-cli, rclone, lsof, milvus-cli) ---"
 APT_MISSING=()
 command -v psql      &>/dev/null || APT_MISSING+=(postgresql-client-16)
 command -v redis-cli &>/dev/null || APT_MISSING+=(redis-tools)
 command -v rclone    &>/dev/null || APT_MISSING+=(rclone)
+# Port recovery is part of the shared launch lifecycle. WHY: the production
+# image and a clean VM must both reclaim an orphaned TruACP/Vite listener rather
+# than depend on lsof happening to exist in a developer's base environment.
+command -v lsof      &>/dev/null || APT_MISSING+=(lsof)
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
   sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
-ok "psql, redis-cli, rclone available"
+ok "psql, redis-cli, rclone, lsof available"
 
-if ! command -v milvus_cli &>/dev/null && ! command -v milvus-cli &>/dev/null; then
-  warn "milvus-cli not found, installing via uv..."
-  env UV_TOOL_BIN_DIR="$LOCAL_BIN" uv tool install milvus-cli || fail "uv tool install milvus-cli failed"
+MILVUS_CLI_VERSION="1.2.1"
+UV_BIN="$(command -v uv)"
+MILVUS_CLI_INSTALLED_VERSION="$(
+  sudo env UV_TOOL_DIR=/opt/uv/tools "$UV_BIN" tool list 2>/dev/null \
+    | awk '$1 == "milvus-cli" { sub(/^v/, "", $2); print $2; exit }'
+)"
+if [[ "$MILVUS_CLI_INSTALLED_VERSION" != "$MILVUS_CLI_VERSION" ]] ||
+   [[ ! -x /usr/local/bin/milvus_cli ]]; then
+  warn "installing global milvus-cli ${MILVUS_CLI_VERSION}..."
+  sudo env \
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    UV_TOOL_DIR=/opt/uv/tools \
+    UV_CACHE_DIR=/opt/uv/cache \
+    UV_PYTHON_PREFERENCE=only-system \
+    UV_LINK_MODE=hardlink \
+    "$UV_BIN" tool install --force --python /usr/bin/python3 "milvus-cli==${MILVUS_CLI_VERSION}" \
+    || fail "global milvus-cli ${MILVUS_CLI_VERSION} install failed"
 fi
-ok "milvus-cli available"
+[[ -x /usr/local/bin/milvus_cli ]] \
+  || fail "global milvus_cli entry point missing at /usr/local/bin/milvus_cli"
+ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 
-# --- 11. Check opencode version matches OPENCODE_VERSION, install if needed ---
-echo "--- Checking opencode ---"
-install_opencode() {
-  curl -fsSL https://opencode.ai/install >opencode.sh
-  bash opencode.sh --version "${OPENCODE_VERSION}" || fail "opencode install failed"
-  mv "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/" || fail "moving opencode to ~/.local/bin failed"
-}
+# --- 11. Install the pi coding-agent toolchain (pinned by trustable-acp/pi.version) ---
+# Same pin file the image stages beside the standalone TruACP setup.sh. Format:
+# one literal npm install spec per line, `#` comments and blank lines ignored,
+# every entry MUST carry a version.
+echo "--- Installing the pi coding-agent toolchain ---"
+PI_VERSIONS_FILE="trustable-acp/pi.version"
+[[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
 
-if ! command -v opencode &>/dev/null; then
-  warn "opencode not found, installing ${OPENCODE_VERSION}..."
-  install_opencode
-else
-  OPENCODE_ACTUAL=$(opencode -v 2>/dev/null | tr -d ' ' || true)
-  if [[ "$OPENCODE_ACTUAL" != "$OPENCODE_VERSION" ]]; then
-    warn "opencode version is '${OPENCODE_ACTUAL}', expected '${OPENCODE_VERSION}', reinstalling..."
-    install_opencode
-  fi
-fi
-command -v opencode &>/dev/null || fail "opencode installation failed"
-ok "opencode ${OPENCODE_VERSION} is available"
+command -v npm &>/dev/null || fail "npm is required to install the pi toolchain"
+
+# Strip comments and surrounding whitespace, drop blank lines.
+mapfile -t PI_PACKAGES < <(
+  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$PI_VERSIONS_FILE" | grep -v '^$'
+)
+[[ ${#PI_PACKAGES[@]} -gt 0 ]] || fail "$PI_VERSIONS_FILE lists no packages"
+
+# Every entry must be pinned; an unpinned spec would silently install latest and
+# break reproducibility. The leading @ of a scoped name is stripped first so only
+# a real version separator counts (`@scope/name` unpinned, `@scope/name@1.2.3` pinned).
+for pkg in "${PI_PACKAGES[@]}"; do
+  case "${pkg#@}" in
+    *@*) ;;
+    *) fail "$PI_VERSIONS_FILE: '$pkg' has no version — every entry must be pinned as <module>@<version>" ;;
+  esac
+done
+
+echo "Packages pinned by $PI_VERSIONS_FILE:"
+for pkg in "${PI_PACKAGES[@]}"; do
+  printf '  %-45s %s\n' "${pkg%@*}" "${pkg##*@}"
+done
+
+# --prefix "$HOME/.local" so binaries land in ~/.local/bin (already first in
+# PATH) and packages under ~/.local/lib — never the root-owned /usr/lib. --force
+# lets a re-run overwrite bin links left by a previously-installed adapter.
+# Run from $HOME so npm's git fetch does not stumble into this repo's submodules.
+( cd "$HOME" && npm install -g --force --prefix "$HOME/.local" "${PI_PACKAGES[@]}" ) \
+  || fail "npm install of the pi toolchain failed"
+
+hash -r
+command -v pi &>/dev/null || fail "pi not on PATH after install (expected ~/.local/bin/pi)"
+ok "pi toolchain installed (${#PI_PACKAGES[@]} pinned packages)"
 
 # --- 12. Install MCP servers (openserverless, redis, milvus, postgres, mongodb, s3) ---
 # Mirrors image/Dockerfile but for the local user (~/.local/bin, no /opt/uv/*).
@@ -302,29 +414,75 @@ mkdir -p "$MCP_BIN"
 command -v uv &>/dev/null || fail "uv is required to install MCP servers"
 
 # postgres, redis, milvus MCP servers via uv tool (same pins as the Dockerfile)
+MILVUS_MCP_SPEC="git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
+MILVUS_MCP_RECEIPT="$(uv tool dir)/mcp-server-milvus/uv-receipt.toml"
 for tool in \
     postgres-mcp==0.3.0 \
     redis-mcp-server==0.5.0 \
-    'git+https://github.com/zilliztech/mcp-server-milvus.git@ca21cc71f00ad61f7a79e77af7d1dc20de549dd3' ;
+    "$MILVUS_MCP_SPEC" ;
 do
+  UV_INSTALL_ARGS=()
+  if [[ "$tool" == "$MILVUS_MCP_SPEC" ]] &&
+     { [[ ! -f "$MILVUS_MCP_RECEIPT" ]] ||
+       ! grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" ||
+       ! grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT"; }; then
+    # WHY: uv identifies tools by package name. Without --force, a VM carrying
+    # the former upstream install can remain "already installed" after the
+    # repository pin changes, even though its executable still resolves.
+    UV_INSTALL_ARGS+=(--force)
+  fi
   env \
     UV_TOOL_BIN_DIR="$MCP_BIN" \
     UV_LINK_MODE=hardlink \
-    uv tool install "$tool" || fail "uv tool install $tool failed"
+    uv tool install "${UV_INSTALL_ARGS[@]}" "$tool" || fail "uv tool install $tool failed"
 done
+grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
+  grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT" \
+  || fail "installed Milvus MCP does not match ${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
 
-# openserverless + mongodb MCP servers via npm (global, for the local user).
-# Run from $HOME so npm's git fetch does not stumble into this repo's broken
-# submodule worktree (.git/modules/...), and force the https transport so it
-# never falls back to ssh://git@github.com (which needs SSH keys).
+# OpenServerless, MongoDB, and browser MCP servers via npm. Package the checked
+# out sources so Lima/WSL runs exactly what the image build consumes; no guest
+# Git metadata is needed, which also supports host-mounted worktrees.
 command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"
-# --prefix "$HOME/.local" so binaries land in ~/.local/bin (already first in
-# PATH) and packages under ~/.local/lib — never the root-owned /usr/lib.
-( cd "$HOME" && GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf \
-    GIT_CONFIG_VALUE_0=ssh://git@github.com/ \
-    npm install -g --prefix "$HOME/.local" git+https://github.com/apache/openserverless-mcp.git mongodb-mcp-server@1.13.0 ) \
+[[ -f mcp/package.json ]] || fail "mcp submodule is not initialized (run ./start.sh on the host or: git submodule update --init mcp)"
+OPENSERVERLESS_MCP_PACK_DIR=$(mktemp -d)
+( cd mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing local openserverless-mcp failed"
+OPENSERVERLESS_MCP_PACKAGE=$(find "$OPENSERVERLESS_MCP_PACK_DIR" -maxdepth 1 -name 'openserverless-mcp-*.tgz' -print -quit)
+[[ -n "$OPENSERVERLESS_MCP_PACKAGE" ]] || fail "local openserverless-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$OPENSERVERLESS_MCP_PACKAGE" mongodb-mcp-server@1.9.0 ) \
   || fail "npm install of openserverless-mcp/mongodb-mcp-server failed"
+rm -rf "$OPENSERVERLESS_MCP_PACK_DIR"
+grep -qF 'secret-unbind' "$HOME/.local/lib/node_modules/openserverless-mcp/src/index.ts" \
+  || fail "installed openserverless-mcp does not match the checked-out source"
+
+[[ -f browser-mcp/package.json ]] || fail "browser-mcp source is missing"
+BROWSER_MCP_PACK_DIR=$(mktemp -d)
+( cd browser-mcp && npm pack --pack-destination "$BROWSER_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing trustable-browser-mcp failed"
+BROWSER_MCP_PACKAGE=$(find "$BROWSER_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-browser-mcp-*.tgz' -print -quit)
+[[ -n "$BROWSER_MCP_PACKAGE" ]] || fail "trustable-browser-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$BROWSER_MCP_PACKAGE" ) \
+  || fail "installing trustable-browser-mcp failed"
+rm -rf "$BROWSER_MCP_PACK_DIR"
+command -v trustable-browser-mcp &>/dev/null || fail "trustable-browser-mcp is not in PATH"
+
+# Install the deterministic React analyzer separately from Agentic React. WHY:
+# the latter captures UI selection context and cannot validate router/auth AST
+# invariants required before the bounded Browser MCP flow.
+[[ -f react-mcp/package.json ]] || fail "react-mcp source is missing"
+REACT_MCP_PACK_DIR=$(mktemp -d)
+( cd react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
+  || fail "packing trustable-react-mcp failed"
+REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-react-mcp-*.tgz' -print -quit)
+[[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustable-react-mcp package was not created"
+( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$REACT_MCP_PACKAGE" ) \
+  || fail "installing trustable-react-mcp failed"
+rm -rf "$REACT_MCP_PACK_DIR"
+command -v trustable-react-mcp &>/dev/null || fail "trustable-react-mcp is not in PATH"
+env PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
+  npx --yes playwright@1.56.1 install --with-deps chromium \
+  || fail "installing Playwright Chromium failed"
 
 # s3 MCP: the txn2/mcp-s3 release binary behind the repo's Python wrapper (as the
 # Dockerfile does): release -> mcp-s3-real, wrapper (image/mcp-s3) -> mcp-s3. The
@@ -338,19 +496,33 @@ if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
 fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
 
-ok "MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
+ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
 
-# --- 13. Recreate the opencode plugin and PATH (image stage2-user) ---
-echo "--- Setting up opencode plugin ---"
-mkdir -p "$HOME/.config/opencode"
-(
-  cd "$HOME/.config/opencode"
-  npm init -y >/dev/null
-  npm install "@opencode-ai/plugin@$(opencode --version)"
-) || fail "opencode plugin install failed"
-test -d "$HOME/.config/opencode/node_modules/@opencode-ai/plugin" \
-  || fail "@opencode-ai/plugin not installed"
-ok "opencode plugin installed"
+# --- 13. Build and install truacp (the ACP server that fronts `pi`) ---
+# truacp serves its own React UI on :4096 and spawns the `pi` coding agent over
+# stdio via the `pi-acp` adapter. Trustable launches it as
+# `truacp --port <n> --dir <workbench>` (see spec/4-launch.md,
+# trustable-acp/SPEC.md §10a). Its setup.sh bundles the server + embedded web UI,
+# then installs the launcher at ~/.local/bin/truacp. Development setup builds
+# inside the VM so project dependencies match that declared environment; image
+# builds separately stage the resulting portable JavaScript bundle.
+#
+# trustable-acp/setup.sh owns this step: it (re)installs the pinned agents and
+# adapters from pi.version, builds the nested Trustable pi-acp fork, then,
+# because a package.json is present in the working directory, builds and installs
+# the ~/.local/bin/truacp launcher. It MUST be run from inside trustable-acp/:
+# the build/install phases key off a package.json in the *current* directory, so
+# invoking it from here would install the agents and skip the build entirely
+# (trustable-acp/SPEC.md §10b).
+echo "--- Building truacp ---"
+[[ -f trustable-acp/package.json && -f trustable-acp/pi.version ]] \
+  || fail "trustable-acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init trustable-acp)"
+[[ -f trustable-acp/pi-acp/package.json ]] \
+  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive trustable-acp)"
+[[ -x trustable-acp/setup.sh ]] || chmod +x trustable-acp/setup.sh
+(cd trustable-acp && ./setup.sh) || fail "truacp build/install failed"
+command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
+ok "truacp installed ($(command -v truacp))"
 
 # Ensure ~/.bashrc PATH matches the image ordering, including BOTH the Go toolchain
 # dir (GOROOT/bin — where `go` itself lives, via g) and the Go install bin dir
@@ -364,7 +536,7 @@ if ! grep -qF "$IMAGE_PATH" "$HOME/.bashrc" 2>/dev/null; then
   ok "added image PATH ordering to ~/.bashrc"
 fi
 
-# Note: per-app opencode.md / .openserverless-contract.md are written at launch by
+# Note: per-app AGENTS.md / .openserverless-contract.md are written at launch by
 # the Go binary, and skills come from OPS_SKILLS (default trustable-ai/skills)
 # cloned at launch by skills.go — setup does nothing for these.
 

@@ -14,3 +14,12 @@
 [submodule "mcp"]
 	path = mcp
 	url = https://github.com/apache/openserverless-mcp.git
+[submodule "trustable-code"]
+	path = trustable-code
+	url = https://github.com/trustable-ai/trustable-code.git
+	branch = trustable-core
+	shallow = true
+[submodule "trustable-acp"]
+	path = trustable-acp
+	url = https://github.com/trustable-ai/trustable-acp.git
+	branch = main

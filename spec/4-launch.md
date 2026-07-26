@@ -1,7 +1,11 @@
 This file describes the api for launching.
 Put the code in the file `launch.go`
 
-<local.prefix> is `/usr/bin` on Linux and `/opt/homebrew/bin/` on Mac
+`<local.prefix>` is `/usr/bin` on Linux and `/opt/homebrew/bin/` on Mac for the
+`rclone`, `psql`, and `redis-cli` wrappers. The Milvus implementation has a
+separate invariant: the upstream `milvus_cli` entry point is installed
+globally at `/usr/local/bin/milvus_cli`, while the Trustable-managed
+auto-connect wrapper is a regular executable at `~/.local/bin/milvus_cli`.
 
 # GET /api/launch/<name>
 
@@ -12,13 +16,32 @@ When invoking this api it should check the folder
 { "error": <error> }
 ```
 
+## serialize the shared runtime lifecycle
+
+Launch, `DELETE /api/launch`, and `/api/redeploy` share one lifecycle lock
+because every application uses the same truacp port 4096, opsdevel port 5173,
+`pgid`, and `current` files. A second browser tab or repeated Edit click must
+wait for the in-flight operation instead of racing its deploy and port checks.
+
+After acquiring the lock, a duplicate launch of the same application returns
+the existing 4096/5173 response without redeploying when all of the following
+are true:
+
+- `current` names the requested application;
+- `pgid` identifies a live Trustable-owned process group;
+- both truacp and opsdevel accept loopback connections.
+
+Do not reuse a runtime based on a listening port alone. If any ownership or
+health condition fails, perform the normal teardown/relaunch path so unrelated
+or incomplete listeners are reclaimed.
+
 ## terminate leftover processes
 
 If a `<workbenchdir>/pgid` file exists, forcefully terminate the process
 group pointed to by that file (same teardown as `DELETE /api/launch`), then
 remove the `pgid` file.
 
-If there is **no** `pgid` file but the opencode (4096) or opsdevel (5173) port
+If there is **no** `pgid` file but the truacp (4096) or opsdevel (5173) port
 is still being listened on, an orphaned process from a previous launch is
 holding the port — reclaim each busy port by killing whatever is listening on
 it (looked up by port, e.g. via `lsof`), so the later "check ports" step does
@@ -30,19 +53,23 @@ without a matching running session is left over from a previous launch).
 The "check ports" step below applies the same port reclaim as a last-resort
 fallback before returning a "port not available" error.
 
+`lsof` is a declared runtime dependency in both the development setup and the
+production image; orphan recovery must not depend on it being accidentally
+present in one base environment.
+
 ## clone to workbench
 
-`<workbenchdir>` is exposed as the stable path used by Trustable and OpenCode,
+`<workbenchdir>` is exposed as the stable path used by Trustable and the agent,
 normally `/home/trustable/workbench`. In the pod it must survive image rebuilds
 and restarts by pointing into the persistent workspace volume
-(`/home/trustable/workspace/workbench`). This keeps OpenCode's persistent recent
+(`/home/trustable/workspace/workbench`). This keeps the agent's persistent recent
 project paths valid.
 
 At server startup, after stale process cleanup, scan
 `<workspacedir>/workspace/*` for valid local git repos. For each app whose
 `<workbenchdir>/<name>` checkout is missing, clone the durable workspace repo
 back into the workbench and regenerate `.env` files. Do not run `ops ide login`,
-`ops ide deploy`, or start Vite/OpenCode during this restore; the full per-app
+`ops ide deploy`, or start Vite/truacp during this restore; the full per-app
 runtime setup still happens only when `/api/launch/<name>` is called.
 
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
@@ -55,6 +82,9 @@ Then set up the workbench:
 
 - Generate `.env` and `.env.production` in `<workbenchdir>/<name>` from the merged config using `generateAppEnvFiles(<name>)`.
 The `.env` contains `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST` (fixed), global env defaults, and per-app development overrides. The `.env.production` contains per-app production values.
+- These are Trustable-owned generated artifacts. Agents and MCP servers may
+  not read, create, edit, import, synchronize, or regenerate them; only the
+  user-facing Trustable configuration flow changes their source values.
 - If `<workbenchdir>/<name>/package.json` exists, run `npm install` in `<workbenchdir>/<name>`
 
 When the workbench already exists (reuse path), also regenerate the `.env` files
@@ -62,20 +92,17 @@ to keep them in sync with the current config. If a restored checkout has
 `package.json` but no `node_modules`, run `npm install` during launch before the
 app runtime starts.
 
-## opencode project bookkeeping
+## agent project bookkeeping
 
-After the workbench is ready (clone or reuse), bind the workbench to a stable
-OpenCode project identity and clear stale links from previous launches:
+None. Under pi there is no project-identity bookkeeping at launch: no
+deterministic project id written into the workbench git dir, and no agent
+database to prune. Both steps existed only for OpenCode's `opencode.db` project
+registry and were removed with it.
 
-- Write a deterministic project id (`sha1("trustable:" + <name>)`, hex) into the
-  workbench's git dir as `<gitdir>/opencode`, so OpenCode always resolves this
-  app to the same project.
-- Open OpenCode's local DB at `~/.local/share/opencode/opencode.db` (if present)
-  and remove any `project_directory` row or `project.sandboxes` entry that points
-  at this workbench path but belongs to a *different* project id. This prevents an
-  old project from claiming the directory.
-
-Both steps are best-effort — failures are logged, never fatal to a launch.
+The only path resolution that remains is `canonicalWorkbenchPath`, which
+resolves `<workbenchdir>/<app>` through symlinks (the pod's
+`/home/trustable/workbench` may point into the persistent workspace volume) so
+truacp is always launched with the same absolute `--dir`.
 
 ## skills
 
@@ -112,76 +139,112 @@ editable `.env`; if an action wrapper needs `MONGODB_URI`, Trustable derives it
 from the post-login config and passes it only to the launch/deploy process
 environment.
 
-## generate an opencode.json in project directory as follows
+## generate the per-app project assets
 
-the generation must happen AFTER the ops ide login (to retrieve the config) but BEFORE launching opencode (otherwise it won't start)
+The generation must happen AFTER `ops ide login` (which refreshes
+`~/.ops/config.json`, the source of the MCP servers) and BEFORE truacp is
+started.
 
-There is a **single, self-contained** `opencode.json` written into the app's
-project directory `<workbenchdir>/<app>/opencode.json`. There is **no** global
-`~/.config/opencode/opencode.json` — it is not generated and not referenced.
-The project file holds the entire config: provider, model defaults
-(`model` / `small_model`), `disabled_providers`, `instructions`, `lsp`,
-`permission`, and the `mcp` servers built from `~/.ops/config.json`. The
-provider block, model
-defaults, and the full-regeneration rules (no merge — the file is overwritten
-every launch) are exactly those in
-[2a-config.md](2a-config.md#prepare-opencode-config), except the file is written
-to the project directory instead of `~/.config/opencode/`.
+There is **no per-app agent config file**. `opencode.json` is not written. Pi's
+model configuration is global under `~/.pi/agent/` and is produced only by the
+configure flow (see [pi.md](pi.md)). Launch does not mutate or repair global Pi
+state; users without `pi.default` must complete Configure before opening an app.
+Both `applist.html` and the launch API enforce this guard so a stale/direct tab
+is routed back to `configure.html?setup=1`.
 
-`.openserverless-contract.md` and `opencode.md` are written **alongside** the
-config in the project directory. `instructions` references the project's own
-canonical, symlink-resolved `<workbenchdir>/<app>/.openserverless-contract.md`
-first and `<workbenchdir>/<app>/opencode.md` second (not absolute `~/.config`
-paths). These paths must use the same canonical root as the OpenCode session;
-otherwise OpenCode treats its mandatory rules as external files and asks the
-user for an unnecessary permission.
-The OpenServerless action tools are no longer written as embedded plugin files;
-they are provided by the `openserverless` MCP server wired into the `mcp`
-section (see below).
+The server preflight may restore those global JSON files from
+`<WorkspaceDir>/.trustable/pi-agent-config/`, or reconstruct a missing initial
+snapshot from an already-selected workspace configuration after a pod image
+replacement. This happens before serving launch requests and does not make
+launch a configuration writer.
 
-The generated `mcp` section must also always contain the local
-`trustable-browser-mcp` server. Its environment contains a browser artifact
-directory under `$WORKSPACE_DIR/.trustable/browser/<app>` and the external
-origin derived as `<protocol>://vite.<configured-apihost>`. No browser
-credentials or generated app `.env` variables are added.
-Browser snapshots expose bounded stable control refs and observable
-AudioContext/media state so frontend verification can prove form and sound
-behavior instead of relying on source inspection. The session plugin records
-successful evidence-bearing browser interactions automatically. It unlocks a
-diagnostic fix after reproduction and clears post-change verification only
-after fresh evidence for the same task and mutation revision; sound fixes also
-require observable active audio state. The manual checkpoint remains a
-fallback and binds the latest valid interaction when its internal evidence ID
-is omitted. For a reported browser bug, at most eight read-only file discovery
-calls are allowed before a browser-only phase makes `browser_interact`
-mandatory and rejects shell, file, task, and editor tools.
+The removed OpenCode generator is not retained as an unreachable compatibility
+path: the Go binary does not embed a session-enforcement JavaScript plugin and
+the Node test package does not depend on `@opencode-ai/plugin`. This keeps the
+hard cutover observable in both shipped code and dependency metadata.
 
-The launch/config generation also installs
-`~/.local/bin/check_openserverless_actions.sh` with executable mode. This
-checker is installed once per Trustable user, not duplicated into every app
-repo. The generated app contract tells OpenCode to run it with the current app
-path before deploy.
+What launch writes into `<workbenchdir>/<app>/` is:
 
-The full file looks like (lsp + mcp shown; provider/model/instructions sections
-per the rules above):
+- `.mcp.json` — the standard MCP config (`mcpServers` map), built from
+  `~/.ops/config.json` plus the always-present managed servers. This is the
+  single MCP surface; pi reads it via the `pi-mcp-adapter` extension. It is
+  **fully regenerated** on every launch, so a stale managed value (e.g. an old
+  postgres `DATABASE_URI`) is never carried forward and hand-edits are
+  discarded. Every entry uses `lifecycle: "eager"` so its initial connection is
+  attempted when the Pi session starts;
+- `AGENTS.md` and `CLAUDE.md` — the Trustable-managed instruction block. The
+  long assistant guidance (formerly a separate `opencode.md`) is folded into the
+  managed block; `CLAUDE.md` is a full duplicate. Existing app-local notes
+  outside the markers are preserved;
+- `.openserverless-contract.md` — the short critical action/DB recovery
+  contract.
+
+After these files exist, launch writes the credential-free issue #57 runtime
+manifest described in [trustable-pi-runtime.md](trustable-pi-runtime.md). Its
+required server names come from the exact generated `.mcp.json`, its workspace
+is the canonical active checkout, and its browser-visible `browserUrl` is
+derived from the incoming `trustable.<domain>[:port]` request by replacing only
+the `trustable` label with `vite`. It must not use `OPS_APIHOST`, `localhost`, or
+an inferred deployment hostname for that browser-facing field. The separate
+`developmentUrl` remains `http://localhost:5173`, which Browser MCP may use only
+after matching that canonical current workbench.
+The same version-2 manifest declares the private host-owned
+`ops ide devel` log under `~/.config/trustable/runtime/<app>/`. Launch creates
+it with mode `0600` before managed Pi starts; app content cannot supply or
+modify the path.
+
+Plus, once per Trustable user in `~/.local/bin`: `check_openserverless_actions.sh`,
+`check_trustable_frontend.sh`, and `check_trustable_app.sh`, all executable and
+not duplicated into every app repo. The generated app contract tells the agent to
+run the OpenServerless checker with the current app path for source-contract
+validation. During managed Edit it runs after canonical watcher evidence and
+does not act as an archive/deploy gate.
+
+There is no `lsp` configuration: pi has no language-server config surface, so
+`typescript-language-server` and `pylsp` are no longer configured or supervised
+by Trustable.
+
+The OpenServerless action tools are not written as embedded plugin files; they
+are provided by the `openserverless` MCP server wired into `.mcp.json` (see
+below).
+
+`.mcp.json` must always contain the local `trustable-browser-mcp` server. Its
+environment contains a browser artifact directory under
+`$WORKSPACE_DIR/.trustable/browser/<app>` and the external origin derived as
+`<protocol>://vite.<configured-apihost>`. No browser credentials or generated app
+`.env` variables are added. Browser snapshots expose bounded stable control refs
+and observable AudioContext/media state so frontend verification can prove form
+and sound behavior instead of relying on source inspection.
+
+> Note: the evidence-gating behaviour that used to accompany the browser MCP
+> (automatic recording of evidence-bearing interactions, the
+> reproduction-before-fix unlock, the post-change verification gate, the
+> diagnostic checkpoint fallback, and the eight-read-only-call budget before a
+> browser-only phase) was implemented by the OpenCode session plugin and is
+> **gone** — see "Guardrails" in [pi.md](pi.md). The browser
+> tools themselves are unchanged.
+
+## MCP servers
+
+`.mcp.json` is emitted in the standard form below. The implementation may reuse
+the established service-config builder internally and translate its entries at
+the final write boundary. Launcher-only fields (`enabled`, `timeout`,
+`type: "local"`/`"remote"`, command arrays, and `environment`) must never appear
+in the written file.
 
 ```
 {
-  "lsp": {
-    "typescript": {
-      "command": ["typescript-language-server", "--stdio"],
-      "extensions": [".js", ".jsx", ".ts", ".tsx", ".mjs", ".mts", ".cjs", ".cts"]
-    },
-    "python": {
-      "command": ["pylsp"],
-      "extensions": [".py"]
-    }
-  },
-  "mcp": <add the servers as follows>
+  "mcpServers": {
+    "<name>": { "type": "stdio", "command": "<cmd>", "args": [...], "env": { ... }, "lifecycle": "eager" },
+    "<name>": { "type": "http",  "url": "<url>", "lifecycle": "eager" }
 }
 ```
 
-Read  <config> values ~/.ops/config.json and add the mcp servers and command line utils
+`args` and `env` are omitted when empty. `lifecycle: "eager"` is mandatory for
+every generated server; unlike `keep-alive`, it starts the initial connection
+without imposing permanent automatic reconnect behavior.
+
+Read <config> values from ~/.ops/config.json and add the mcp servers and command line utils
 as follows:
 
 # always add the openserverless MCP server:
@@ -194,16 +257,22 @@ unconditionally, independent of `~/.ops/config.json`:
 
 ```
 "openserverless": {
-  "type": "local",
-  "command": ["openserverless-mcp"],
-  "enabled": true
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "openserverless-mcp"
 }
 ```
 
-The runtime image pins OpenCode with `OPENCODE_VERSION` in `image/Dockerfile`.
-Whenever that pin changes, the image build must install
-`@opencode-ai/plugin` at the exact version returned by
-`/usr/local/bin/opencode --version`; a mismatch is a build/runtime regression.
+The entry deliberately has no writable persistent-secret-store environment.
+Application env values remain owned by the Trustable configuration UI; the
+agent reports a missing variable instead of synthesizing or synchronizing it.
+
+Pi extensions (`pi-mcp-adapter`, `pi-web-access`) are pinned in
+[trustable-acp/pi.version](../trustable-acp/pi.version), one
+`<module>@<version>` npm install spec per line. The `pi` executable/core and
+`pi-acp` are built from separately pinned nested Trustable forks under
+`trustable-acp/pi` and `trustable-acp/pi-acp`; setup must never replace either
+with a public npm runtime. An unpinned manifest entry aborts the install.
 
 The runtime image installs `openserverless-mcp` from the local `mcp` submodule,
 not from a direct `github:apache/openserverless-mcp` npm reference. The image
@@ -211,39 +280,63 @@ build stages that submodule into the Docker build context and includes the
 submodule commit in the base-image hash, so changing the MCP pointer forces the
 base image to rebuild.
 
-# if the app uses AgentiReact add the agentireact MCP server:
+# always add the deterministic React MCP server:
 
-Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
-`vite.config.js` or `vite.config.ts`). If that file exists and its contents
-contain `AgentiReact()`, the running app exposes an MCP endpoint over HTTP at
-`http://localhost:5173/mcp` (the `opsdevel` dev server on port 5173). Add a
-remote MCP server pointing at it:
+This read-only server statically validates the current React/Vite workbench.
+It resolves its root exclusively from the version-2 Trustable runtime manifest
+and exposes `react_project_inspect`, `react_validate_routes`,
+`react_validate_auth_flow`, and aggregate `react_validate`:
 
 ```
-"agentireact": {
-  "type": "remote",
-  "url": "http://localhost:5173/mcp",
-  "enabled": true
+"react": {
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "trustable-react-mcp"
 }
 ```
 
-If no `vite.config.*` exists or none contains `AgentiReact()`, skip this server.
+It is independent from Agentic React. After a frontend mutation, managed Pi
+must run aggregate `react_validate` and resolve error findings before Browser
+MCP verification.
+
+# if the app uses Agentic React add the agentireact MCP server:
+
+Check the app's Vite config — `<workbenchdir>/<app>/vite.config.*` (either
+`vite.config.js` or `vite.config.ts`). Enable this server only when executable
+config code both imports/references `@agentic-react/vite` and invokes the
+plugin as `AgenticReact()`; comments, strings, the obsolete `AgentiReact()`
+spelling, a wrong package, or only one of the two conditions are not an opt-in.
+When enabled, the running app exposes an MCP endpoint over HTTP at
+`http://localhost:5173/mcp` (the co-located `opsdevel` dev server on port
+5173). This `localhost` is intentional runtime-local connectivity, not a
+browser-visible or configured API host. Add an HTTP MCP server pointing at it:
+
+```
+"agentireact": {
+  "type": "http",
+  "lifecycle": "eager",
+  "url": "http://localhost:5173/mcp"
+}
+```
+
+If no supported Vite config exists or the complete import-plus-invocation
+contract is absent, skip this server. Detection occurs when project assets are
+regenerated at app launch; installing or removing the plugin during a live
+session requires relaunching the app before `.mcp.json` changes.
 
 # if config.s3.host is defined and not empty add:
 
 ```
 "s3": {
-  "type": "local",
-  "command": ["mcp-s3"],
-  "environment": {
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "mcp-s3",
+  "env": {
     "S3_ENDPOINT": "http://<config.s3.host>:<config.s3.port>",
     "AWS_ACCESS_KEY_ID": "<config.s3.access.key>",
     "AWS_SECRET_ACCESS_KEY": "<config.s3.secret.key>",
     "S3_USE_PATH_STYLE": "true"
-
-  },
-  "enabled": true,
-  "timeout": 30000
+  }
 }
 ```
 
@@ -270,13 +363,13 @@ exec rclone "$@"
 
 ```
 "postgres": {
-  "type": "local",
-  "command": ["postgres-mcp", "--access-mode=unrestricted"],
-  "environment": {
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "postgres-mcp",
+  "args": ["--access-mode=unrestricted"],
+  "env": {
     "DATABASE_URI": "<config.postgres.url>"
-  },
-  "enabled": true,
-  "timeout": 30000
+  }
 }
 ```
 
@@ -292,21 +385,21 @@ exec psql "<config.postgres.url>" "$@"
 
 ```
 "redis": {
-  "type": "local",
-  "command": ["redis-mcp-server",
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "redis-mcp-server",
+  "args": [
     "--host", "<config.redis.service>",
     "--port", "<config.redis.port>",
-    "--username",  '<config.redis.prefix with last char removed>',
-    "--password", '<config.redis.password>'
+    "--username", "<config.redis.prefix with last char removed>",
+    "--password", "<config.redis.password>"
   ],
-   "environment": {
+  "env": {
     "REDIS_USERNAME": "<config.redis.prefix with last char removed>",
     "REDIS_HOST": "<config.redis.service>",
     "REDIS_PORT": "<config.redis.port>",
-    "REDIS_PWD": "<config.redis.password>",
-   },
-  "enabled": true,
-  "timeout": 30000
+    "REDIS_PWD": "<config.redis.password>"
+  }
 }
 ```
 
@@ -324,22 +417,37 @@ The `action-add-redis` / `action_add_redis` connector injects `ctx.REDIS` and
 must require editable action modules to build every Redis key from
 `ctx.REDIS_PREFIX` plus an app-local suffix. Naked Redis keys are invalid
 because Nuvolaris Redis ACLs only allow the configured user prefix.
+The checker must also fail an editable module that uses `ctx.REDIS` when the
+generated wrapper lacks the Redis connector, directing complete authentication
+surfaces to `auth_setup` and unrelated single endpoints to `action_add_redis`.
+
+Generated authentication guidance uses Redis-backed opaque sessions. Every
+login, registration, `me`/session, protected-resource, and logout action must
+be created before one `auth-setup` / `auth_setup` call receives the complete
+token, protected/session, and logout endpoint sets. That tool atomically adds
+Redis wiring without reading or writing `.env`; `action-add-redis` /
+`action_add_redis` remains the single-endpoint connector for unrelated Redis
+use. Session tokens are cryptographically random and opaque; the
+token-to-identity mapping lives in Redis with a bounded TTL, every key uses
+`ctx.REDIS_PREFIX`, and logout deletes the mapping. JWT/application-secret
+authentication is not the generated app contract.
 
 # if config.milvus is defined and not empty add:
 
 ```
 "milvus": {
-  "type": "local",
-  "command": ["mcp-server-milvus", "--milvus-token", "<config.milvus.token>", "--milvus-db", "<config.milvus.db.name>", "--milvus-uri", "http://<config.milvus.host>:<config.milvus.port>"],
-  "environment": {
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "mcp-server-milvus",
+  "args": ["--milvus-token", "<config.milvus.token>", "--milvus-db", "<config.milvus.db.name>", "--milvus-uri", "http://<config.milvus.host>:<config.milvus.port>"],
+  "env": {
     "MILVUS_URI": "http://<config.milvus.host>:<config.milvus.port>"
-  },
-  "enabled": true,
-  "timeout": 30000
+  }
 },
 ```
 
-and create in ~/.local/bin/milvus_cli rendering this template:
+and create `~/.local/bin/milvus_cli` as an atomically installed regular
+executable rendering this template:
 
 ```
 #!{{.PythonVenv}}
@@ -394,11 +502,20 @@ if __name__ == "__main__":
 
 with:
 
-{{.PythonVenv}} = first line of <local.prefix>/milvus_client
+{{.PythonVenv}} = interpreter from the first line of the exact global entry
+point `/usr/local/bin/milvus_cli`
 {{.Host}} = <config.milvus.host>
 {{.Port}} = <config.milvus.port>
 {{.Token}} = <config.milvus.token>
 {{.DbName}} = <config.milvus.db.name>
+
+The generator must never search for `milvus_cli` through
+`PATH`: `~/.local/bin` is first and would rediscover the wrapper itself. A
+missing or unreadable `/usr/local/bin/milvus_cli` is a launch configuration
+error. If `~/.local/bin/milvus_cli` is an existing symlink, replace the link
+itself with an atomic rename; never follow it and overwrite the upstream
+package-managed target. Wrapper-generation failures are returned by launch
+without logging credentials.
 
 # if config.mongodb is defined and has a connection string add:
 
@@ -425,7 +542,7 @@ mapping MongoDB to Milvus/vector search.
 process. It must not be documented or used as an app action runtime variable.
 When the same official MongoDB capability is present, launch/deploy may expose
 `MONGODB_URI=<resolved mongodb connection string>` only in the internal process
-environment used by OpenCode and `ops ide deploy`/`ops ide devel`; it must not
+environment used by truacp and `ops ide deploy`/`ops ide devel`; it must not
 be written to the app `.env` or shown in the app environment editor. This is the
 action runtime binding consumed by `action-add-mongodb` / `action_add_mongodb`;
 the assistant must use that tool to generate a wrapper that reads the official
@@ -438,13 +555,12 @@ MongoDB binding.
 
 ```
 "mongodb": {
-  "type": "local",
-  "command": ["mongodb-mcp-server"],
-  "environment": {
+  "type": "stdio",
+  "lifecycle": "eager",
+  "command": "mongodb-mcp-server",
+  "env": {
     "MDB_MCP_CONNECTION_STRING": "<resolved mongodb connection string>"
-  },
-  "enabled": true,
-  "timeout": 30000
+  }
 }
 ```
 
@@ -458,7 +574,7 @@ known-invalid bucket-listing tools and normalizes `buckets: null` to `[]`.
 The wrapper must relay partial stdio reads immediately: MCP initialization
 messages are normally smaller than the relay buffer and must not wait for 8 KiB
 or end-of-file before reaching the real server.
-This prevents OpenCode sessions from failing on S3 MCP schema validation while
+This prevents agent sessions from failing on S3 MCP schema validation while
 keeping non-bucket-listing S3 diagnostics available.
 
 
@@ -474,41 +590,72 @@ Execute `ops ide deploy` in `<workbenchdir>/<app>`.
 
 If it terminates with 0 continue otherwise return error.
 
+This is the one initial launch-time deploy and occurs before `ops ide devel`
+starts. Once launch starts the development watcher, assistants must not invoke
+another `ops ide deploy`: the watcher owns live action packaging/deployment and
+the managed Pi extension blocks a concurrent deploy command.
+
 ## check ports
 
-Assume `opencode` port will be 4096.
+Assume `truacp` port will be 4096 (this is where truacp listens; `pi-acp`
+is its stdio child and does not bind a port).
 
 Assume `opsdevel`  port will be 5173.
 
-Check if ports for `opencode` and `opsdevel` are free,
+Check if ports for `truacp` and `opsdevel` are free,
 otherwise return error.
 
-## prepare opencode configuration and environment
+## prepare the agent configuration and environment
 
-Before starting opencode, (over)write the single self-contained
-`<workbenchdir>/<app>/opencode.json` in the project directory from the current
-Trustable config, as described in "generate an opencode.json" above (provider,
-model/small_model defaults, `disabled_providers`, `instructions`, `lsp`, and the
-`mcp` servers from `~/.ops/config.json`). There is no global
-`~/.config/opencode/opencode.json` — do not generate, symlink, or copy one.
+Before starting truacp, write the per-app project assets into
+`<workbenchdir>/<app>/` as described in "generate the per-app project assets"
+above: `.mcp.json`, the managed `AGENTS.md`/`CLAUDE.md`, and
+`.openserverless-contract.md`, plus the three `~/.local/bin` checkers.
 
-Note: `AGENTS.md`, `opencode.md`, and `.openserverless-contract.md` are written
-into the project directory alongside `opencode.json`. `AGENTS.md` is the
-Trustable-managed app-local rules entrypoint and must explicitly demote
-template compatibility files such as `CLAUDE.md` to non-authoritative legacy
-notes. If an app already has `AGENTS.md`, Trustable updates only its managed
-block and preserves app-local notes below it. The checker is installed once at
-`~/.local/bin/check_openserverless_actions.sh`. The `instructions` array
-references the project's own canonical, symlink-resolved
-`<workbenchdir>/<app>/.openserverless-contract.md` first and
-`<workbenchdir>/<app>/opencode.md` second, matching the OpenCode session root.
-The action tools come from the
+There is **no per-app agent config file** to write. Pi's model configuration is
+global (`~/.pi/agent/models.json`, `settings.json`, `auth.json`) and is written
+only by the configure flow. Launch must not change those files. Do not generate,
+symlink, or copy any `opencode.json`.
+
+`AGENTS.md` is the Trustable-managed app-local rules entrypoint (with the long
+assistant guidance folded into its managed block); `CLAUDE.md` is a full
+duplicate of the same managed content so Claude Code sessions pick up the same
+rules. If an app already has either file, Trustable updates only its managed
+block and preserves app-local notes below it. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
-The checker must accept sibling `.zip` files created by `ops ide deploy`, such
-as `packages/v1/contacts.zip`. It must fail on ZIP files created inside action
-source directories, missing sibling deploy archives, and action source files
-newer than their deploy archive. These failures require `ops ide deploy`; ZIP
-files must never be repaired manually.
+
+`.mcp.json` is written in the standard `mcpServers` form (see "MCP servers"
+above) and contains `openserverless`, `browser`, `react`, the optional
+`agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` whose config
+block is present. It is the **only** MCP surface: pi reads it via the
+`pi-mcp-adapter` extension and Claude-format clients read it natively. There is
+no second agent-specific MCP file; any internal legacy-shaped data is translated
+only at this write boundary. All listed servers are generated with eager
+lifecycle so the session starts with their real connected/error state.
+
+Before spawning TruACP, launch must also validate the installed issue #57
+extension, initialize the private rotating watcher log, and atomically publish
+the versioned host manifest. It then appends
+`TRUSTABLE_MANAGED_RUNTIME=1`, `TRUSTABLE_RUNTIME_CONFIG`, and
+`TRUSTABLE_PI_EXTENSION_PATH` only to the TruACP process environment. Missing
+or inconsistent inputs abort launch; these values must never enter generated
+application env files or maps. Standalone TruACP does not receive this managed
+contract.
+
+The companion `rclone`, `psql`, `redis-cli`, and `milvus_cli` wrappers and the
+service MCP entries are generated from the same post-login `~/.ops/config.json`
+object in one launch. For Redis in particular, the wrapper and MCP must use the
+same `service` host and `port`; VM reachability is supplied by the one
+namespace-wide `kubefwd` owned by repository-root `run.sh`. The production pod
+uses native Kubernetes Service DNS and never starts that VM-only forwarder.
+
+The checker must always reject ZIP files created inside action source
+directories and accept generated sibling `.zip` files such as
+`packages/v1/contacts.zip`. Outside managed live mode, missing sibling deploy
+archives and action source files newer than their archive remain deploy-workflow
+errors. With `TRUSTABLE_MANAGED_RUNTIME=1`, it deliberately skips those two
+archive-state checks because `trustable_runtime_status` and real HTTP behavior
+are authoritative; Pi must never inspect or repair ZIP files manually.
 It must not flag standard generated `__main__.py` PostgreSQL wiring as business
 logic merely because the wrapper imports `psycopg`, reads `POSTGRES_URL`, and
 assigns `ctx.POSTGRESQL`.
@@ -516,54 +663,12 @@ For setup/seed modules, bulk `INSERT INTO` logic should warn only when no
 obvious idempotency guard exists. Explicit seed markers and
 `SELECT COUNT(*) FROM ...` checks are accepted as low-noise guards.
 
-The generated OpenCode `permission` block must allow normal edits while denying
-direct assistant edits to `packages/**/__main__.py` and `packages/**/*.zip`, and
-must deny raw shell commands matching `ops action` / `ops action *`. These
-guards keep action creation/repair on the OpenServerless MCP path and keep
-deployment on
-`ops ide deploy/setup`. The checker is still authoritative for drift that a
-shell command or copied file could create: it must fail on action modules
-without generated wrappers and on hand-authored wrappers that define `main()`
-without generated action/service markers.
-
-Trustable must install the session-enforcement plugin as the auto-loaded local
-plugin `~/.config/opencode/plugins/trustable-guardrails.js`. The plugin listens for
-`session.compacted`, injects a short critical contract into every system prompt,
-and exposes `trustable_context_recover`, `trustable_diagnostic_checkpoint`, and
-`trustable_completion_check`. After compaction it automatically injects a
-bounded recovery packet with the exact active real user request, contracts,
-sanitized config, git status, and a bounded file map before tools run. The
-manual recovery tool is a fallback only if that gate explicitly remains
-active. It blocks mutations while recovery is pending, blocks
-speculative edits for a reported bug until reproduction evidence is recorded,
-opens a circuit breaker after two equal completion failures, and prevents
-unverified completion claims. Any action MCP call or source mutation under
-`packages/` marks action deployment as required. Until a successful
-`ops ide deploy` is followed by a passing action checker, the plugin blocks
-`ops ide setup` and the completion gate. A setup-action mutation additionally
-marks setup as required; deploy does not clear that state, and completion stays
-blocked until a successful `ops ide setup` runs after deploy.
-For shell tools, action detection must inspect both the command text and the
-normalized `cwd`/`workdir`/`directory` argument. A mutating command such as
-`sed -i module.py` executed from `packages/v1/action` still requires deploy;
-the same command from `packages/setup/action` also requires setup. Manual ZIP
-guards must use the same working-directory detection.
-The plugin must also reject failure-masking forms of critical commands,
-including `|| true`, `|| echo`, and `head`/`tail` pipelines applied to login,
-deploy, setup, Trustable checkers, or frontend builds.
-It must reject shell commands that kill processes or start `vite`,
-`npm run dev`, or `ops ide devel`, because those processes are owned by the
-Trustable launch lifecycle.
-
-See [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg).
-
-Trustable must also install `check_trustable_frontend.sh` and the aggregate
-`check_trustable_app.sh` once in `~/.local/bin`. The aggregate checker runs the
-existing OpenServerless checker plus high-confidence frontend checks, including
-root-relative internal anchors used with `HashRouter` and passwords placed in
-request URLs. With `HashRouter`, it must also reject `Link`, `NavLink`,
-`Navigate`, or `navigate(...)` targets beginning with `#/`; router APIs receive
-logical paths such as `/login` and add the hash themselves.
+The aggregate `check_trustable_app.sh` runs the OpenServerless checker plus
+high-confidence frontend checks, including root-relative internal anchors used
+with `HashRouter` and passwords placed in request URLs. With `HashRouter`, it
+must also reject `Link`, `NavLink`, `Navigate`, or `navigate(...)` targets
+beginning with `#/`; router APIs receive logical paths such as `/login` and add
+the hash themselves.
 It must reject hardcoded `user_id` values in frontend requests and
 bearer-authenticated requests that also send a browser-controlled `user_id`;
 protected actions derive identity from the validated token/session.
@@ -572,60 +677,56 @@ from a cached localStorage user/profile without an observable backend
 `me`/session validation. A full reload keeps an explicit loading state,
 validates the token and its expiry, and clears cached identity on failure.
 
-After generating `opencode.json`, also generate `<workbenchdir>/<app>/.mcp.json`
-in the **Claude Code** format, containing every MCP server from the generated
-opencode.json `mcp` section (including `openserverless`, `browser`, the optional
-`agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` that were added). This
-keeps the same servers available to Claude-format clients for compatibility.
+### Narrow secret-access guardrail
 
-Translate each opencode server entry to Claude's `mcpServers` schema:
+Launch installs no OpenCode permission block and no session-enforcement plugin.
+The generated `permission` deny rules (`ops action` shell commands, edits to
+`packages/**/__main__.py` and `packages/**/*.zip`) and the old
+`~/.config/opencode/plugins/trustable-guardrails.js` recovery/completion state
+machine are gone. The checkers remain advisory: they can catch implementation
+drift after the fact and cannot block an ordinary code or deploy tool call.
 
-- a `type: "local"` server with `command: [cmd, arg1, ...]` and an optional
-  `environment` map becomes a stdio server: `{ "type": "stdio", "command": cmd,
-  "args": [arg1, ...], "env": { ... } }` (omit `env` when there is no
-  environment block).
-- a `type: "remote"` server with a `url` (e.g. `agentireact`) becomes
-  `{ "type": "http", "url": "<url>" }`.
+Issue #57 installs a deterministic Pi execution-policy extension and the owned
+Pi core. Launch supplies only the typed manifest and installed extension path;
+the removed `TRUSTABLE_PI_EXTENSION` placeholder remains forbidden. See
+"Guardrails" in [pi.md](pi.md).
 
-Drop opencode-only fields (`enabled`, `timeout`). The file shape is:
+> [action-deploy-guard-flow.svg](action-deploy-guard-flow.svg) still depicts the
+> removed OpenCode guardrail state machine and no longer reflects the
+> implementation.
 
-```
-{
-  "mcpServers": {
-    "openserverless": { "type": "stdio", "command": "openserverless-mcp", "args": [] },
-    "agentireact":    { "type": "http",  "url": "http://localhost:5173/mcp" }
-  }
-}
-```
+There is also no OpenCode agent-metadata normalization: `.opencode/agent/*.md`
+`color:` frontmatter is neither read nor rewritten.
 
-Also normalize any OpenCode agent metadata under
-`<workbenchdir>/<app>/.opencode/agent/*.md`: rewrite each agent's `color:`
-frontmatter to one of OpenCode's accepted values (`primary`, `secondary`,
-`accent`, `success`, `warning`, `error`, `info`, or a `#rrggbb` hex), mapping
-common color names (e.g. `blue`→`primary`, `green`→`success`, `red`→`error`) and
-defaulting anything unrecognized to `primary`. Best-effort — failures are logged.
+Launch `truacp` (see trustable-acp/SPEC.md §10a) with the variables from the
+workbench `.env` appended to the process environment. truacp is the standalone
+ACP server that serves its own React UI on `:4096`; it spawns `pi-acp` over
+stdio, which spawns the `pi` binary. Trustable never execs the agent directly,
+and there is no launch-time session bootstrap (truacp creates the ACP session, in
+the `--dir` cwd, on the first prompt; SPEC §10e).
 
-Launch `opencode serve` with the variables from the workbench `.env` appended to
-the process environment.
+The Trustable `pi-acp` fork always owns `--mode rpc --no-themes`; a versioned,
+typed ACP launch extension may add validated extension/skill/prompt/session
+paths as discrete arguments, but never arbitrary argv or shell fragments. Pi's
+other command-line switches cannot be injected through the browser request.
 
 ## start process group
 
 Let <directory> be the canonical absolute path of `<workbenchdir>/<app>` after
 resolving symlinks. This matters in the pod because `/home/trustable/workbench`
-can point at the persistent `/home/trustable/workspace/workbench`; OpenCode
-stores sessions by the resolved worktree path, so the launch response and
-session lookup must use the same canonical value to preserve/reopen previous
-sessions.
+can point at the persistent `/home/trustable/workspace/workbench`. truacp is
+launched with `--dir <directory>`, so the agent's cwd is this resolved path.
 
-Execute  opencode changing to this directory as
+Execute truacp changing to this directory as
 
 ```
-opencode serve --port 4096 --hostname 0.0.0.0 --log-level DEBUG --print-logs
+truacp --port 4096 --dir <directory>
 ```
 
 with out and err in stdout and stderr.
 
-Get its process group.
+Get its process group. (Killing this group tears down truacp **and** the
+`pi-acp`/`pi` children it spawned.)
 
 Ensure it does not terminate within .5 seconds
 If it terminates return error
@@ -634,7 +735,9 @@ Write the process group in `<workbenchdir>/pgid`
 
 Write the app name in `<workbenchdir>/current`
 
-Execute `ops ide devel`  in <directory> using the same process group as opencode
+Execute `ops ide devel` in <directory> using the same process group as truacp.
+Mirror stdout and stderr to the normal Trustable console and the private,
+two-generation bounded watcher log declared by the manifest.
 
 Check the command does not terminate within .5 seconds.
 
@@ -642,37 +745,32 @@ If it terminates, kill the whole process group and remove  `<workbenchdir>/pgid`
 
 Wait that both the processes are up and running and ports are listening.
 
-When ok, execute a POST to the opencode session endpoint with header
-"X-Opencode-Directory: <directory>" and log the result of this invocation.
+From this point until the app runtime stops, `ops ide devel` is the sole live
+deploy owner. Pi reads its redacted authoritative tail through
+`trustable_runtime_status`, then runs the action checker once for
+source-contract validation and verifies real HTTP routes. Managed live checker
+mode ignores sibling ZIP existence/freshness, and the Pi extension blocks
+direct shell inspection or polling of `packages/**/*.zip`, masked checker
+pipelines, and a second checker call without a relevant source or
+OpenServerless-wiring mutation. Pi does not run `ops ide deploy`, another
+watcher, repeated checker calls, or infer state from archive paths.
 
-This launch bootstrap is a pod-local sidecar call and must target
-`http://127.0.0.1:4096/session/`. Browser-visible OpenCode traffic is different:
-`opencode.<domain>` must route through the Trustable ingress/proxy path on port
-8910, where the middleware scopes project and directory requests before
-proxying to the same pod-local OpenCode server.
+truacp owns all session/cwd state internally, so there is no session POST and no
+`X-Opencode-Directory` header. Browser-visible traffic reaches truacp through
+the Trustable ingress/proxy path on port 8910: `opencode.<domain>` is a plain
+reverse proxy to the pod-local truacp on `:4096` (the middleware no longer
+rewrites session/project/directory URLs).
 
 then return:
 
 `{
-  "left" : <opencode-port>,
-  "right": <opsdeve-port>,
-  "b64dir": <base64-urlsafe-encoded directory>,
-  "encdir": <absolute directory>,
-  "session_id": <id returned by the opencode session POST, or "">,
+  "left" : <truacp-port>,
+  "right": <opsdevel-port>,
   "skills_added": <true if skills were freshly added this launch>
 }`
 
-Base64-Url-Safe encode is as follows:
-btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
-
-# GET /api/opencode/sessions/<app>
-
-Validate `<app>`, resolve its canonical existing workbench directory, and list
-up to 20 persistent root sessions from the pod-local OpenCode server using the
-same directory scope and `X-Opencode-Directory` header as launch. Return the
-OpenCode session array as JSON. This endpoint powers the session picker in
-`app.html`; it does not create, delete, or replace sessions.
-
+The app UI iframe loads truacp at `opencode.<domain>/`; no base64-dir/session
+URL is constructed anymore.
 
 # DELETE /api/launch
 
@@ -687,7 +785,20 @@ Do NOT remove the `<workbenchdir>/<name>` directory (it persists for reuse on ne
 
 # GET /api/redeploy?name=<app>
 
-This endpoint redeploys actions and restarts the `ops ide devel` process without restarting opencode. It streams progress via Server-Sent Events (SSE).
+This endpoint redeploys actions and restarts the `ops ide devel` process without restarting truacp. It streams progress via Server-Sent Events (SSE).
+
+This Trustable-owned endpoint is the safe full-redeploy path because it stops
+the watcher before running `ops ide deploy` and restarts it afterward. It is
+not equivalent to a Pi shell call that races the active watcher.
+
+The managed Pi extension exposes this same operation as
+`trustable_runtime_redeploy`, using the co-located
+`http://127.0.0.1:8910/api/redeploy` endpoint. After one or more successful
+OpenServerless `action_new` creations, Pi calls it once after the coherent
+action/wiring/source batch and before watcher status, checker, HTTP, or browser
+verification. The extension treats an SSE `error`, non-success HTTP response,
+timeout, or missing `done` event as a tool failure and keeps redeploy required.
+An idempotent `action_new` no-op does not trigger this requirement.
 
 Response content type: `text/event-stream`
 
@@ -698,7 +809,7 @@ Response content type: `text/event-stream`
 
 ## Step 1: Terminate ops ide devel
 
-Find and terminate only the `ops ide devel` child process (not the entire process group — opencode must keep running):
+Find and terminate only the `ops ide devel` child process (not the entire process group — truacp must keep running):
 
 - Run `pgrep -g <pgid>` to list all PIDs in the process group
 - For each PID, check if its command line (via `ps -p <pid> -o args=`) contains `ops ide devel`, `vite`, or `5173`
@@ -727,7 +838,7 @@ Stream: `event: status` / `data: Getting action list...`
 
 ## Step 5: Start ops ide devel --fast
 
-- Execute `ops ide devel --fast` in `<workbenchdir>/<name>`, joining the existing process group (same `pgid` as opencode)
+- Execute `ops ide devel --fast` in `<workbenchdir>/<name>`, joining the existing process group (same `pgid` as truacp)
 - Redirect stdout/stderr to os.Stdout/os.Stderr
 - Check the command does not terminate within 0.5 seconds; if it does, send `event: error` and return
 

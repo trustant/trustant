@@ -26,7 +26,7 @@ wrappers, raw credentials, or guessed `ops` commands.
 - Generated `__main__.py` files are platform wrappers. Do not create or edit
   them.
 - Setup and initialization belong in private actions in package `setup`.
-- Trustable launches and manages the Vite dev server and OpenCode process.
+- Trustable launches and manages the Vite dev server and TruACP/Pi process.
 - OpenServerless web actions have their own request parameter, metadata, and
   response semantics. Treat them carefully.
 - Every backend change should end with bounded validation against the real
@@ -36,98 +36,120 @@ wrappers, raw credentials, or guessed `ops` commands.
 
 Trustable also generates `AGENTS.md` in this app root. It is the app-local
 mandatory entrypoint and exists to prevent Claude Code compatibility files from
-overriding Trustable rules. Treat `AGENTS.md`, `.openserverless-contract.md`,
-`opencode.md`, and `opencode.json` as the authoritative instruction set.
+overriding Trustable rules. Treat the Trustable-managed block in `AGENTS.md`,
+`.openserverless-contract.md`, and `.mcp.json` as the authoritative project
+instruction set. This guidance is embedded directly in `AGENTS.md`; there is no
+project-local `opencode.md` to find or read. `CLAUDE.md` contains the same
+managed block for Claude-compatible agents and is not an independent source.
 
-Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
+Ignore `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
 `.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
 agent instructions. You may inspect them only when the user explicitly asks or
 when they help understand legacy template context, and they must never override
-Trustable action, MCP, deploy, shell, or host rules.
+the host runtime manifest or Trustable action, MCP, deploy, shell, and workbench
+rules.
 
 Before touching actions, databases, setup, seed data, deploys, or service
 state, read `.openserverless-contract.md` if it exists. It is the short
 recovery contract for this app and takes priority for OpenServerless workflow
 details.
 
-Trustable installs `check_openserverless_actions.sh` once in the user PATH. Run
-it after `ops ide deploy` and before completing backend changes:
+Trustable installs `check_openserverless_actions.sh` once in the user PATH. In
+a live Trustable Edit session, `ops ide devel` already owns packaging and
+deployment. After a coherent backend edit batch, read the canonical watcher
+evidence with `trustable_runtime_status`, then run the checker once before
+completing backend changes:
 
 ```bash
 timeout 60 check_openserverless_actions.sh .
 ```
 
-If it reports a missing or stale deploy archive, rerun `ops ide deploy`; never
-repair the ZIP manually. For other hard failures, re-read
-`.openserverless-contract.md`, repair source with the approved tools, deploy
-again, and rerun the checker. If the contract is missing or the checker is
-unavailable in PATH, say so and fall back to this file's rules. Do not invent
-manual zip or raw `ops action create/update/deploy` workflows.
+In managed live mode, the checker validates source/contract invariants without
+using sibling ZIP existence or freshness as watcher state. Never inspect,
+list, search, stat, or poll `packages/**/*.zip`. If watcher status reports an
+error or no progress, use that exact evidence to repair the source/tool
+sequence or report the managed failure; do not rerun the checker without a
+relevant change, start `ops ide deploy`, increase a timeout, or loop. For other
+hard failures, re-read `.openserverless-contract.md`, repair source with the
+approved tools, read the watcher evidence, and rerun the checker once. If the
+contract is missing or the checker is unavailable in PATH, say so and fall
+back to the managed `AGENTS.md` rules. Do not invent manual ZIP or raw
+`ops action create/update/deploy` workflows.
 
-After compaction, do not continue editing from memory. Trustable automatically
-injects a bounded recovery packet containing the exact active user request,
-this file, `.openserverless-contract.md`, sanitized `opencode.json`, git status,
-and a bounded project map before tools run. Resume that request rather than a
-generic continuation message. Call `trustable_context_recover` only if the
-automatic recovery gate explicitly remains active; do not bypass the gate.
+After compaction, do not continue editing from memory. Re-read the active user
+request, this managed guidance, `.openserverless-contract.md`, git status, and
+the relevant project files before resuming. Pi has no Trustable recovery gate
+or `trustable_context_recover` tool.
 
 When the user reports a bug or says a previous fix still does not work,
 reproduce the exact symptom before editing. Use `browser_interact` for browser
-bugs; Trustable records successful browser evidence automatically. For HTTP,
-logs, or deterministic tests, call `trustable_diagnostic_checkpoint` with
-concise evidence. If the same completion failure occurs twice, the diagnostic
-circuit breaker requires fresh evidence before another source change.
+bugs when the browser MCP is available; use bounded HTTP, log, or deterministic
+tests for non-browser failures. If the same check fails repeatedly, stop
+repeating it, inspect the new evidence, and change the diagnosis before another
+source edit.
 When the symptom was reproduced in the browser, exercise the fixed flow again
-with `browser_interact` after the last source change. Trustable binds that
-evidence automatically; sound fixes must show active audio state. Backend-only
-checks do not verify a browser-visible flow.
+with `browser_interact` after the last source change; sound fixes must show
+active audio state. Backend-only checks do not verify a browser-visible flow.
 Protected views that load identity asynchronously must keep a distinct loading
 state; do not redirect merely because the initial user/profile value is null.
 
-After source changes, call `trustable_completion_check` before claiming the
-work is fixed or asking the user to try it. The completion tool runs the
-OpenServerless checker, frontend checker, git diff validation, and the frontend
-build when available.
+After source changes, run the relevant checker scripts directly, plus git diff
+validation and the frontend typecheck/build when available. Pi has no
+`trustable_completion_check`; do not search for or repeatedly call that legacy
+tool.
+
+For frontend work, run the project typecheck before the build after each
+coherent edit batch. A successful Vite build does not prove that every JSX
+symbol is defined. After the first successful build or deploy, immediately open
+the exact changed route with the Browser MCP, inspect the rendered page and
+diagnostics, and exercise the visible flow before more speculative edits. Do
+not clear caches or reinstall dependencies unless the observed failure points
+to dependency state. Repeat the browser verification after later frontend
+source changes.
 
 ## Non-Negotiable Rules
 
 - Never create a backend server. Create public or private actions instead.
 - Never create or edit generated `__main__.py` files.
-- If OpenCode denies an edit to `packages/**/__main__.py`, `packages/**/*.zip`,
-  or a raw shell command matching `ops action` / `ops action *`, treat that as
-  a Trustable guardrail: use the OpenServerless MCP action tools and
-  `ops ide deploy/setup` flow instead of trying to bypass it.
+- Do not edit `packages/**/__main__.py`, `packages/**/*.zip`, or use raw shell
+  commands matching `ops action` / `ops action *`. The managed Pi extension
+  enforces the selected workbench boundary; use the OpenServerless MCP action
+  tools and the managed watcher/setup flow because those own the generated
+  artifacts.
 - Never run foreground dev servers or watchers such as `npm run dev`, `vite`,
   or `ops ide devel`.
+- Never run `ops ide deploy` during a live Edit session. The existing
+  Trustable-managed `ops ide devel` watcher is the sole deploy owner.
 - Never kill, restart, or replace Trustable-managed processes. Diagnose the
   existing `http://localhost:5173` server and its generated proxy configuration.
 - Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
   hang.
 - Never append `|| true` or `|| echo` to deploy, setup, login, checker, or build
-  commands, and never pipe those commands through `head` or `tail`; the plugin
-  blocks output masking because it can turn a real failure into apparent success.
+  commands, and never pipe those commands through `head` or `tail`; output
+  masking can turn a real failure into apparent success.
 - Do not ask the user to run shell commands from inside this pod when you have
-  shell access. Run bounded checks yourself, including `ops ide deploy`, `curl`,
-  `npm run build`, `python3 -m compileall`, and `git diff --check`. Ask the
+  shell access. Run bounded checks yourself, including the action checker,
+  `curl`, `npm run build`, `python3 -m compileall`, and `git diff --check`. Ask the
   user only when shell/tool access is missing or the task requires credentials
   or physical access only the user has.
 - Do not build or deploy the Trustable product itself. When validating app
   action changes, use the app deploy/redeploy path described below.
 - Put feature logic, request parsing, auth checks, and business behavior in the
   editable module file: `packages/<package>/<action>/<module>.py`.
-- After every action MCP call or change under `packages/`, run
-  `timeout 120 ops ide deploy` before setup, runtime verification, or
-  completion. This includes setup actions.
-- If setup actions change, run `timeout 120 ops ide setup` only after deploy.
-- The completion gate remains blocked until required setup succeeds.
+- After every coherent action MCP/source change batch under `packages/`, wait
+  for the managed watcher and run `timeout 60 check_openserverless_actions.sh .`
+  before setup, runtime verification, or completion.
+- If setup actions change, run `timeout 120 ops ide setup` only after the
+  checker confirms current watcher-owned archives.
+- Do not claim completion until required setup succeeds.
 - Never create, edit, move, or delete action ZIP files manually. They are
-  derived sibling artifacts owned by `ops ide deploy`.
+  derived sibling artifacts owned by the managed watcher.
 - Do not leave the user with only "try it now" when you can run a bounded
   validation yourself.
 - Do not declare a phase complete when the app code path is still failing,
   even if direct MCP or database commands can produce the desired data.
-- Do not invent tool or `ops` command names. Use only tools exposed in the
-  current OpenCode tool list or generated `opencode.json`.
+- Do not invent tool or `ops` command names. Use the Pi `mcp` proxy and the
+  servers declared in generated `.mcp.json`.
 - Do not use shell redirection to create or replace source files. Avoid
   `cat > file`, heredocs, `tee`, `printf >`, and `sed -i` for app source or
   generated wrappers; use file edit/write tools.
@@ -159,10 +181,8 @@ build when available.
 - `packages/<package>/<action>/__main__.py`: generated wrapper, do not edit.
 - `packages/setup/<action>/`: private setup actions.
 - `.agents/skills/`: app-specific skills, when installed.
-- `opencode.json`: generated OpenCode config for this app.
-- `opencode.md`: this instruction file.
-- `.mcp.json`: generated Claude-compatible MCP config with the same MCP
-  servers.
+- `AGENTS.md`: this managed instruction block plus preserved app-local notes.
+- `.mcp.json`: authoritative standard MCP configuration for this workbench.
 
 ## Application Development Workflow
 
@@ -184,14 +204,14 @@ For frontend behavior, use the generated bounded browser MCP before declaring
 a UI bug fixed. Start with `browser_open` in `development` mode, which targets
 the Trustable-managed `http://localhost:5173`, then inspect URL, accessibility
 snapshot, console, and network diagnostics. Use `browser_interact` to reproduce
-the exact click/form/reload flow. Use `deployed` mode only after
-`ops ide deploy` and only when external `vite.<domain>` ingress behavior is in
-scope. Do not start another Vite server.
+the exact click/form/reload flow. Use `deployed` mode only after the managed
+watcher has deployed the current sources and only when external
+`vite.<domain>` ingress behavior is in scope. Do not start another Vite server.
 
 Use this execution loop for backend work:
 
-1. Read `.openserverless-contract.md` if present. Run the checker after deploy
-   and before completion when it exists.
+1. Read `.openserverless-contract.md` if present. Run the checker after the
+   watcher settles and before completion when it exists.
 2. Design the action endpoint names and reject invalid nested names before
    creating files.
 3. Create actions with the OpenServerless MCP action tool.
@@ -202,8 +222,9 @@ Use this execution loop for backend work:
    exists without a wrapper, stop and repair/create the action through the MCP
    action tool before continuing.
 6. Add Python libraries with `action-requirements`.
-7. Run `timeout 120 ops ide deploy` after every action change. If setup actions
-   changed, run `timeout 120 ops ide setup` after deploy. Inspect failures,
+7. Wait for the managed `ops ide devel` watcher after each coherent action
+   change batch, then run the checker. If setup actions changed, run
+   `timeout 120 ops ide setup` only after the checker passes. Inspect failures,
    then validate via the real HTTP app path.
 
 Choose the backend shape this way:
@@ -212,12 +233,13 @@ Choose the backend shape this way:
 - Use a private `setup` action for idempotent initialization.
 - Use S3 for object/file data.
 - Use PostgreSQL for relational data.
-- Use Redis for cache or ephemeral state.
+- Use Redis for cache, ephemeral state, and authenticated application sessions.
 - Use MongoDB for document data only when the official MongoDB capability is
   configured.
 - Use Milvus for vector search.
 - Do not use Milvus as a replacement for MongoDB.
-- Use AgentiReact MCP only when the app is configured with AgentiReact.
+- Use the Agentic React MCP only when the Vite config imports/references
+  `@agentic-react/vite` and invokes `AgenticReact()`.
 
 ## OpenServerless Action Tools
 
@@ -226,7 +248,8 @@ platform scaffolding. Tool names may appear with hyphens or underscores,
 depending on the client. Use the matching exposed tool:
 
 - `action-new` / `action_new`: create public or private actions and generated
-  wrappers.
+  wrappers. Repeated creation of a compatible existing action is a successful
+  check/no-op; continue without retrying it.
 - `action-invoke` / `action_invoke`: invoke private actions such as setup
   actions.
 - `action-requirements` / `action_requirements`: add Python libraries.
@@ -237,6 +260,12 @@ depending on the client. Use the matching exposed tool:
 - `action-add-redis` / `action_add_redis`: add Redis service wiring.
 - `action-add-milvus` / `action_add_milvus`: add Milvus service wiring.
 - `action-add-mongodb` / `action_add_mongodb`: add MongoDB service wiring.
+- `secret-unbind` / `secret_unbind`: remove an obsolete generated secret
+  binding atomically without reading or deleting its value. Use it to repair a
+  legacy invalid managed-variable binding; never edit `__main__.py` manually.
+  After a removal, let the managed watcher update the changed endpoint. If
+  previously deployed parameters remain, report that a Trustable-owned full
+  redeploy is required; do not race the watcher with raw deploy commands.
 
 If a tool call returns "Invalid Tool", stop and use one of the exposed tool
 names. Do not retry with guessed aliases. If a shell command reports
@@ -244,20 +273,21 @@ names. Do not retry with guessed aliases. If a shell command reports
 action tools above or inspect the available task list with bounded commands.
 
 Do not create or mutate ZIP files under `packages/`; they are generated beside
-action directories by `ops ide deploy`. Do not use `ops action deploy`; it is
-not an app workflow command. Do not use
+action directories by the managed watcher. Do not use `ops action deploy`; it
+is not an app workflow command. Do not use
 `ops action update`, `ops action create`, or raw `ops action` commands as the
 normal deploy path for edited app modules. After changing any action, including
-setup actions, run `timeout <seconds> ops ide deploy`. After changing setup
-actions, run `timeout <seconds> ops ide setup` only after deploy succeeds.
+setup actions, wait for the managed watcher and run the checker. After changing
+setup actions, run `timeout <seconds> ops ide setup` only after the checker
+confirms current archives.
 
 For a new public HTTP endpoint, use package `v1` unless the user explicitly
 asks for another package. The endpoint is reachable at
 `/api/my/<package>/<action>`.
 
 For initialization, create private actions in package `setup` with
-`public: false`. After creating or changing setup actions, run `ops ide deploy`
-and then `ops ide setup`.
+`public: false`. After creating or changing setup actions, wait for the managed
+watcher, run the checker, and then run `ops ide setup`.
 
 ## Action Endpoint Grammar
 
@@ -266,6 +296,11 @@ MCP action endpoint must therefore be only:
 
 - `action`
 - `package/action`
+
+Every package and action segment must start with a letter and contain only
+letters, numbers, and hyphens. Use flat hyphenated names such as
+`v1/employees-photo`; underscores and spaces are invalid. Never send
+`v1/employees_photo` to an action MCP tool.
 
 For browser-facing APIs, use package `v1`. Valid examples:
 
@@ -286,19 +321,31 @@ Invalid examples:
 If an API needs CRUD behavior, prefer one public action per resource, such as
 `v1/contacts` or `v1/orders`, and branch inside the editable module using
 `__ow_method` plus request data. If separate actions are clearer, keep names
-flat, such as `v1/contacts_list` or `v1/orders_create`.
+flat and hyphenated, such as `v1/contacts-list` or `v1/orders-create`.
 
 Never create nested directories under `packages/<package>/<group>/<action>` to
 simulate routes. They are not valid Trustable/OpenServerless endpoints.
 
 ## MCP Servers And Service Access
 
-`opencode.json` is generated at launch with an `mcp` section. Use available MCP
-servers and generated CLI wrappers instead of inventing connection details.
+`.mcp.json` is regenerated at launch with an `mcpServers` object. Pi exposes
+those servers through one lazy `mcp` proxy tool; use `mcp({})` to inspect server
+status and `mcp({ server: "mongodb" })` to list one server's tools. A missing
+direct tool name or an MCP process that has not started does not mean the server
+is absent. Use the generated configuration and wrappers instead of inventing
+connection details.
 
 - `openserverless`: always present; exposes action-management tools.
-- `agentireact`: present only when the app's Vite config contains
-  `AgentiReact()`; remote MCP at `http://localhost:5173/mcp`.
+- `react`: always present; read-only deterministic source validation for the
+  current React/Vite workbench. Use `react_project_inspect`,
+  `react_validate_routes`, `react_validate_auth_flow`, and the aggregate
+  `react_validate`. Resolve errors before Browser MCP verification.
+- `agentireact`: present only when `vite.config.js` or `vite.config.ts`
+  imports/references `@agentic-react/vite` and invokes `AgenticReact()` in
+  executable config code; HTTP MCP at `http://localhost:5173/mcp`. Comments,
+  strings, wrong packages, and the obsolete `AgentiReact()` spelling do not
+  enable it. Adding the plugin during a live session requires relaunching the
+  app so Trustable regenerates `.mcp.json`.
 - `s3`: present only when S3 is configured; companion CLI wrapper: `rclone`.
 - `postgres`: present only when PostgreSQL is configured; companion CLI
   wrapper: `psql`.
@@ -350,8 +397,9 @@ You may inspect `~/.ops/config.json` only to understand which services exist.
 Do not copy values from it into app code, wrapper code, logs, docs, or frontend
 configuration.
 
-The launch process also writes `.mcp.json` in Claude Code format with the same
-MCP servers. OpenCode should rely on generated `opencode.json`.
+The `mcp` proxy starts server processes lazily on first use. Never report a
+configured service as missing before checking both `mcp({})` and the keys of
+`.mcp.json.mcpServers`.
 
 Service MCP servers are diagnostic and verification aids. They must not replace
 the app's own setup actions or public API paths. Do not use `postgres_execute_sql`
@@ -365,10 +413,36 @@ When inspecting PostgreSQL through MCP, use the exact exposed tool names. For
 schemas use `postgres_list_schemas`. For tables/views in a schema use
 `postgres_list_objects`. Do not call generic names such as `list_schemas`.
 
+## Application Environment And Redis Authentication
+
+Application `.env` and `.env.production` files are immutable agent boundaries.
+Never read, create, edit, import, synchronize, or regenerate them. Only the user
+may change application environment values through Trustable's configuration
+interface. If a required variable is missing, report its name and stop that path
+without generating a value or asking a secret tool to persist one.
+
+Authenticated application pages use Redis-backed opaque sessions. Do not build
+page authentication on JWT or an application signing secret:
+
+- create every login, registration, `me`/session, protected-resource, and
+  logout action, then call `auth-setup` / `auth_setup` once with the complete
+  token, protected/session, and logout endpoint sets. It atomically adds Redis
+  wiring without reading or writing `.env`;
+- use `action-add-redis` / `action_add_redis` only for an individual
+  non-authentication endpoint that needs Redis;
+- generate a cryptographically random opaque token at login or registration;
+- store the token-to-identity mapping only in Redis with a bounded TTL;
+- construct every session key from `ctx.REDIS_PREFIX`;
+- validate the Redis record on every protected request and derive the current
+  user from it, never from a browser-supplied user id;
+- delete the Redis record during logout;
+- return and persist only the opaque token in the browser.
+
 When using Redis in an action, first add Redis wiring with
 `action-add-redis` / `action_add_redis`. The generated wrapper exposes
-`ctx.REDIS` and `ctx.REDIS_PREFIX`. Always construct keys from the prefix and an
-app-local suffix:
+`ctx.REDIS` and `ctx.REDIS_PREFIX` and adds the required Python Redis client to
+the action package. Always construct keys from the prefix and an app-local
+suffix:
 
 ```python
 def redis_key(ctx, name):
@@ -381,26 +455,57 @@ Use `ctx.REDIS.get(redis_key(ctx, "cache:item"))`,
 not use naked Redis keys such as `"stack-e2e-..."` directly with `ctx.REDIS`;
 Nuvolaris Redis ACLs only allow the configured user prefix.
 
-For S3 app verification, prefer the OpenServerless action path created with
-`action-add-s3` and the generated `ctx.S3_CLIENT` wiring. Do not use S3 MCP
-bucket listing as the proof that an app feature works; some S3 MCP servers
-cannot list buckets or can return schema-invalid bucket lists. If an S3 MCP
+Service MCP servers are read-only discovery and verification tools during
+application generation. Never use `postgres_execute_sql`, Redis/MongoDB/S3/
+Milvus mutation tools, or equivalent direct service writes to create schema,
+seed data, repair application state, or complete a feature. Put idempotent
+schema and seed behavior in setup actions and application writes in public
+OpenServerless actions so a new instance reproduces the same state.
+
+For S3 app verification, use the OpenServerless action path created with
+`action-add-s3` and the generated `ctx.S3_CLIENT` wiring. The credentials are
+scoped to `ctx.S3_DATA` and `ctx.S3_WEB`: never call
+`ctx.S3_CLIENT.list_buckets()`. Neither `head_bucket` nor bucket/object listing
+proves read/write access. A read/write check must create a unique temporary key
+in `ctx.S3_DATA` with `put_object`, retrieve it with `get_object`, compare the
+returned body bytes, and remove it with `delete_object` in a `finally` block.
+Report `read_write: OK` only after the byte comparison succeeds. If an S3 MCP
 listing tool fails, treat it as a diagnostic tool failure and continue through
-the app action path, the configured user buckets, or `rclone` when available.
+the configured app bucket/action path or `rclone` when available.
 
 ## Runtime Host Rules
 
-OpenCode runs inside the Trustable pod. Classify hosts before using them:
+Pi and TruACP run inside the Trustable environment. Classify hosts before using
+them:
 
 - `localhost:5173` is the pod-local app dev server started by `ops ide devel`.
   Use it for normal app HTTP validation from this shell.
-- `localhost:4096` is the pod-local OpenCode server.
+- `localhost:4096` is the local TruACP server.
 - `trustable.<domain>` is the browser-visible Trustable UI/API host.
 - `vite.<domain>` is the browser-visible app host through Trustable
-  proxy/ingress. Use it only after `ops ide deploy` succeeds and only when
-  external browser or ingress routing is in scope.
-- `opencode.<domain>` is the browser-visible OpenCode host.
-- `OPS_APIHOST` is the configured OpenServerless API host.
+  proxy/ingress. Use it only after managed deployment is confirmed and only
+  when external browser or ingress routing is in scope.
+- `opencode.<domain>` is the legacy browser-visible hostname that proxies
+  TruACP for ingress and WAF compatibility.
+- `OPS_APIHOST` is the configured OpenServerless API host for Trustable and
+  `ops ide` orchestration. It must never be bound into an action, exposed as
+  `ctx.OPS_APIHOST`, read by an action module, or emitted as
+  `#--param OPS_APIHOST "$OPS_APIHOST"`.
+- Do not rewrite the generated Vite `/api/my` proxy target. Trustable starts the
+  managed dev server with the current app's `OPSDEV_HOST`; browser application
+  code must continue to use relative `/api/my/...` URLs.
+
+Frontend code calls actions with relative `/api/my/<package>/<action>` URLs so
+the browser keeps its current origin. Action modules must not call sibling
+actions through `OPS_APIHOST`, browser-visible hosts, or ingress URLs. For
+multiple independent checks, let the frontend call the relative endpoints; for
+server-side aggregation, add every required generated service binding to one
+action and use its `ctx` clients directly.
+
+One action may use MongoDB and Milvus independently. Use
+`ctx.MONGODB_CLIENT` / `ctx.MONGODB` for document-database operations and
+`ctx.MILVUS` for vector operations; do not remove either legitimate check merely
+because both appear in the same business module.
 
 Do not invent pod IPs, raw service names, public domains, or replacement
 localhost URLs for app verification. For app endpoints from this shell, prefer:
@@ -655,6 +760,10 @@ When an app has login or registration:
 - After login, persist only the opaque session token needed by the frontend.
   A cached user/profile may improve rendering but is never authoritative proof
   of authentication.
+- A successful login or registration must update the live authentication
+  provider/store before navigating to a protected route. Writing token/user
+  data only to `localStorage` leaves the current React render unauthenticated
+  and commonly causes an immediate redirect back to login.
 - On every full-page load, keep an explicit authentication loading state and
   validate the persisted token through a bounded backend `me`/session endpoint
   before rendering protected routes. The backend validates expiry and derives
@@ -666,6 +775,10 @@ When an app has login or registration:
   an immediate login. Do not send the newly registered user back to a separate
   login step before entering the protected area.
 - Add an explicit logout path when protected navigation is shown.
+- Back login, registration, `me`/session, every protected action, and logout
+  with the same Redis session contract. Every one of those actions must have
+  generated Redis wiring and use `ctx.REDIS_PREFIX`; JWT and application
+  signing secrets are not an alternative.
 - Give every form control a stable `id` and `name`, and associate each label
   with `htmlFor` matching that `id`. A placeholder is not a label. When a
   browser locator matches multiple controls, fix missing form semantics when
@@ -693,8 +806,8 @@ When an app has login or registration:
   only when MongoDB is configured.
 - Private S3 data preload belongs in `setup/upload`.
 - Public web assets belong in `public/`, not in setup uploads.
-- Run `ops ide deploy` after creating or changing any action, then run
-  `ops ide setup` when setup actions changed.
+- Wait for the managed watcher and run the action checker after creating or
+  changing actions, then run `ops ide setup` when setup actions changed.
 - `ops ide setup` must succeed before setup work is complete.
 - If setup returns `Cannot start action. Check logs for details.`, immediately
   run `timeout <seconds> ops logs --last` and fix the first traceback. Do not
@@ -728,6 +841,10 @@ Examples of idempotent setup:
 - Add PostgreSQL, Redis, S3, Milvus, MongoDB, and secrets with the corresponding
   action/service tool. Do not hardcode credentials and do not manually edit
   generated wrapper code.
+- `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
+  Trustable-managed orchestration variables, not application secrets. Never
+  pass them to `action-add-secret`, `secret-bind`, `secret-ensure`, or
+  `auth-setup`; a secret tool must reject them.
 
 ## Data And Service Restrictions
 
@@ -750,10 +867,12 @@ restrictions are enforced by the platform:
 
 End backend-related work with proof:
 
-- After changing an action module, run `ops ide deploy`.
-- Run `timeout 60 check_openserverless_actions.sh .` after deploy when the
-  checker is available.
-- After changing setup actions, run `ops ide deploy` and then `ops ide setup`.
+- After changing an action module, wait for the managed watcher to settle.
+- Run `timeout 60 check_openserverless_actions.sh .` after that wait when the
+  checker is available. On stale archives, perform only one bounded wait and
+  recheck before reporting a watcher failure.
+- After changing setup actions, wait for the watcher, pass the checker, and then
+  run `ops ide setup`.
 - Validate public actions with bounded HTTP checks against
   `http://localhost:5173/api/my/<package>/<action>` from inside this pod.
 - For CRUD resources, validate the full create/list/update/delete matrix. Test
@@ -764,8 +883,8 @@ End backend-related work with proof:
   the response status and content type match the browser use case. A direct
   `window.open("/api/my/...")` target for printable HTML must not return
   `application/json`.
-- Use `vite.<domain>` only after deploy and only for explicit external
-  browser/ingress checks.
+- Use `vite.<domain>` only after managed deployment is confirmed and only for
+  explicit external browser/ingress checks.
 - `ops action invoke` by itself is not enough proof when it only prints an
   activation id such as `ok: invoked ...`; inspect the action result/logs or
   validate through the HTTP endpoint.
@@ -786,6 +905,7 @@ End backend-related work with proof:
   failure.
 - For frontend auth flows, validate both route shape and route behavior: root
   path, login path, register path, direct protected route while logged out, and
-  protected navigation after login.
+  protected navigation after login. After submitting valid credentials, assert
+  that the protected page is visibly rendered without requiring a reload.
 - If validation is impossible, state the blocker instead of asking the user to
   "try it now" with no local proof.

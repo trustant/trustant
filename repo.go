@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,11 +20,27 @@ import (
 var (
 	appVersion string
 	appBuild   string
+	appBranch  string
+	appStream  string
 	expiryDate time.Time
+	gitBranch  = currentGitBranch
 )
+
+func currentGitBranch() string {
+	output, err := exec.Command("git", "branch", "--show-current").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
 
 // parseVersion parses the embedded _build.txt content
 func parseVersion(content string) {
+	appVersion = ""
+	appBuild = ""
+	appBranch = ""
+	appStream = ""
+	expiryDate = time.Time{}
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -30,6 +48,10 @@ func parseVersion(content string) {
 			appVersion = strings.TrimSpace(strings.TrimPrefix(line, "Version:"))
 		} else if strings.HasPrefix(line, "Build:") {
 			appBuild = strings.TrimSpace(strings.TrimPrefix(line, "Build:"))
+		} else if strings.HasPrefix(line, "Branch:") {
+			appBranch = strings.TrimSpace(strings.TrimPrefix(line, "Branch:"))
+		} else if strings.HasPrefix(line, "Stream:") {
+			appStream = strings.TrimSpace(strings.TrimPrefix(line, "Stream:"))
 		} else if strings.HasPrefix(line, "Expiry:") {
 			dateStr := strings.TrimSpace(strings.TrimPrefix(line, "Expiry:"))
 			t, err := time.Parse("2006/01/02", dateStr)
@@ -40,7 +62,17 @@ func parseVersion(content string) {
 			}
 		}
 	}
-	log.Printf("Version: %s, Build: %s, Expiry: %s", appVersion, appBuild, expiryDate.Format("2006/01/02"))
+	// Development builds produced by air embed the last release metadata. When
+	// Branch/Stream are absent, show the mounted repository's active branch so
+	// the UI identifies the source tree actually being served. Release builds
+	// always carry explicit values and never need this fallback.
+	if appBranch == "" {
+		appBranch = gitBranch()
+	}
+	if appStream == "" {
+		appStream = appBranch
+	}
+	log.Printf("Version: %s, Build: %s, Branch: %s, Stream: %s, Expiry: %s", appVersion, appBuild, appBranch, appStream, expiryDate.Format("2006/01/02"))
 }
 
 // isExpired checks if the current date is past the expiration date
@@ -61,6 +93,8 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"version": fmt.Sprintf("Trustable %s", appVersion),
 		"build":   appBuild,
+		"branch":  appBranch,
+		"stream":  appStream,
 		"expire":  expiryDate.Format("2006/01/02"),
 	})
 }
@@ -82,6 +116,23 @@ type Application struct {
 	ApiHost string `json:"apihost,omitempty"`
 	OpsUser string `json:"opsuser,omitempty"`
 	OpsRepo string `json:"opsrepo,omitempty"`
+}
+
+func developmentApplicationURL(appName string) string {
+	base, err := url.Parse(developmentAPIHost())
+	if err != nil || base.Scheme == "" || base.Hostname() == "" {
+		return ""
+	}
+	host := appName + "." + base.Hostname()
+	if port := base.Port(); port != "" {
+		host = net.JoinHostPort(host, port)
+	}
+	base.Host = host
+	base.Path = "/"
+	base.RawPath = ""
+	base.RawQuery = ""
+	base.Fragment = ""
+	return base.String()
 }
 
 // Validation patterns

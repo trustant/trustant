@@ -128,6 +128,15 @@ func runPreflight() error {
 		log.Printf("Warning: config migration failed: %v", err)
 	}
 
+	// Restore Pi's managed JSON before an application can launch. WHY: the
+	// workspace volume survives a pod replacement, while ~/.pi/agent itself is
+	// rebuilt from the image so the pinned extension packages can be upgraded.
+	if err := restorePiGlobalConfigAtStartup(); err != nil {
+		log.Printf("Warning: Pi configuration restore failed: %v", err)
+	} else {
+		log.Println("✓ Pi configuration restore complete")
+	}
+
 	// Step 3: Check SSH key
 	log.Println("[3/3] Checking SSH key...")
 	checkSSHKey()
@@ -206,11 +215,9 @@ func migrateToLayeredConfig() error {
 		if modelLimitsEqual(wsCfg.Models, baseCfg.Models) {
 			wsCfg.Models = nil
 		}
-		if wsCfg.Opencode != nil && baseCfg.Opencode != nil &&
-			wsCfg.Opencode.Default == baseCfg.Opencode.Default &&
-			wsCfg.Opencode.Small == baseCfg.Opencode.Small {
-			wsCfg.Opencode = nil
-		}
+		// Do not collapse pi.default during legacy layered-config migration.
+		// Issue #51 has no OpenCode-to-Pi migration; the explicit Pi selection
+		// must remain visible in the workspace layer that Configure owns.
 	}
 
 	log.Printf("  Migrated %d app(s) to layered config", len(wsCfg.Apps))

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed web
@@ -24,6 +25,9 @@ var openserverlessContractMd string
 //go:embed app-agents.md
 var appAgentsMd string
 
+// The checker is embedded rather than copied from the host. WHY: every app
+// must receive the exact source-contract checker matching this Trustable
+// binary, including its managed-live behavior that does not poll deploy ZIPs.
 //go:embed check_openserverless_actions.sh
 var openserverlessCheckerSh string
 
@@ -33,11 +37,21 @@ var trustableFrontendCheckerSh string
 //go:embed check_trustable_app.sh
 var trustableAppCheckerSh string
 
-//go:embed opencode-trustable-guardrails.js
-var opencodeTrustableGuardrailsJS string
-
 //go:embed milvus_cli.tmpl
 var milvusCliTemplate string
+
+// noStoreHTML prevents an upgraded Trustable UI from restoring stale inline
+// configuration logic from browser history. This is especially important for
+// hard schema cutovers such as OpenCode -> Pi, where old JavaScript can create
+// a redirect loop even though the server-side configuration is already valid.
+func noStoreHTML(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func main() {
 	auth, err := newAuthManagerFromEnv()
@@ -62,9 +76,9 @@ func main() {
 	// Terminate any leftover processes from previous run (kept for backward compatibility)
 	terminateLeftoverProcesses()
 
-	// Recreate missing ephemeral checkouts from durable bare repos. OpenCode
-	// stores recent project paths persistently, so those paths must keep existing
-	// across pod rebuilds and restarts.
+	// Recreate missing ephemeral checkouts from durable bare repos. TruACP/Pi is
+	// launched with those paths as cwd, so restoring them before serving requests
+	// keeps persisted applications editable across pod rebuilds and VM restarts.
 	restoreMissingWorkbenchCheckouts()
 
 	// Parse version info
@@ -77,7 +91,6 @@ func main() {
 	http.HandleFunc("/api/upload", handleUpload)
 	http.HandleFunc("/api/launch/", handleLaunch)
 	http.HandleFunc("/api/launch", handleLaunch)
-	http.HandleFunc("/api/opencode/sessions/", handleOpenCodeSessions)
 	http.HandleFunc("/api/git", handleGit)
 	http.HandleFunc("/api/git/status/", handleGitStatus)
 	http.HandleFunc("/api/git/save", handleGitSave)
@@ -105,7 +118,7 @@ func main() {
 	if _, err := os.Stat("web"); err == nil {
 		// Serve from disk (development mode)
 		log.Println("Serving from disk: ./web")
-		http.Handle("/", http.FileServer(http.Dir("web")))
+		http.Handle("/", noStoreHTML(http.FileServer(http.Dir("web"))))
 	} else {
 		// Serve from embedded filesystem
 		log.Println("Serving from embedded filesystem")
@@ -113,7 +126,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		http.Handle("/", http.FileServer(http.FS(webFS)))
+		http.Handle("/", noStoreHTML(http.FileServer(http.FS(webFS))))
 	}
 
 	log.Println("Starting server on :8910")

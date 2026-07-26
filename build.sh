@@ -34,10 +34,14 @@ VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
 IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
 TAG="${TRUSTABLE_BUILD_TAG:-${KEY}_${VERSION}_$(date +%y.%j.%H%M)}"
+BRANCH="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+BRANCH="${BRANCH:-detached}"
+STREAM="${TRUSTABLE_BUILD_STREAM:-$BRANCH}"
 echo "New Tag: $TAG"
 
 git tag -f "$TAG"
-echo -e "Version: ${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
+printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n" \
+    "$VERSION" "$TAG" "$BRANCH" "$STREAM" "$EXPIRY" > _build.txt
 
 OPSROOT="./olaris-bestia/opsroot.json"
 jq --arg img "$IMAGE:$TAG" '.config.images.'$KEY' = $img' "$OPSROOT" > "$OPSROOT.tmp" && mv "$OPSROOT.tmp" "$OPSROOT"

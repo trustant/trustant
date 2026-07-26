@@ -6,7 +6,9 @@ import sys
 import threading
 
 
-REAL = os.environ.get("TRUSTABLE_MCP_S3_REAL", "/usr/local/bin/mcp-s3-real")
+DEFAULT_REAL = "/usr/local/bin/mcp-s3-real"
+ADJACENT_REAL = os.path.join(os.path.dirname(os.path.realpath(__file__)), "mcp-s3-real")
+REAL = os.environ.get("TRUSTABLE_MCP_S3_REAL") or (ADJACENT_REAL if os.path.exists(ADJACENT_REAL) else DEFAULT_REAL)
 BLOCKED_TOOLS = {"list_buckets", "s3_list_buckets"}
 
 

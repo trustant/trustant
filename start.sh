@@ -6,9 +6,13 @@
 #
 # Plain run:   boots a plain Ubuntu VM (vz), then installs the Trustable .deb
 #              (k3s + helpers) inside it, installs a CPU-only ollama host
-#              (localhost:11434, pinned to the image's OLLAMA_VERSION), and
-#              writes the VM ip, apihost and ssh key to the Trustable support dir.
+#              (localhost:11434, pinned to the image's OLLAMA_VERSION), writes
+#              the VM ip, apihost and ssh key to the Trustable support dir, and
+#              finally opens this folder in the VM over Remote-SSH in VS Code.
 #   ./start.sh
+#
+# No VS Code:  same as a plain run, but skips opening VS Code at the end.
+#   ./start.sh -n
 #
 # Stop:        stops the VM without deleting it, so a later ./start.sh restarts
 #              it (no reinstall).
@@ -43,6 +47,12 @@ DIST_DIR="dist"                              # host-side cache for the .deb
 # image/Dockerfile) so the VM matches the container.
 OLLAMA_VERSION="$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
 
+# Keep the release identity and both supported archive digests in source so a
+# clean VM never depends on a mutable "latest" asset.
+KUBEFWD_VERSION="1.25.16"
+KUBEFWD_SHA_AMD64="07275cad05b2427069071160125b8cb29e94dd44582f685ce6d966fa9e7fb7d7"
+KUBEFWD_SHA_ARM64="e01ade02d919be2c7e306543f0a65de2e629c254ef16b51ecb45830b0044a3e8"
+
 # The current macOS user + the folder start.sh runs from. Both are mirrored into
 # the VM: a guest user with the same name and UID owns a virtiofs mount of this
 # folder at the same path, so files edited in the VM keep the host's ownership.
@@ -50,11 +60,31 @@ HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
 
-# Ensure the k3s API serving cert covers the host-reachable lima0 IP, so the
-# kubeconfig setup.sh extracts (server: https://<ip>:6443) verifies. k3s's cert
-# only lists the node IP (eth0/vzNAT) + 127.0.0.1 by default, NOT the lima0 IP
-# the host connects to — so without this, host-side `kubectl`/`ops` fail TLS
-# verification. Idempotent: only regenerates the cert when the IP isn't a SAN yet.
+# setup.sh runs inside a VM that only mounts this worktree. A worktree's .git
+# file may point outside that mount, so source submodules must be initialized on
+# the macOS host before the guest starts; setup.sh then consumes plain files and
+# never follows host-only Git metadata.
+ensure_source_submodules() {
+  # WHY: trustable-acp may already be populated while its nested pi-acp fork is
+  # still empty. Test the leaf explicitly so a reused worktree cannot reach the
+  # VM setup with an incomplete runtime source tree.
+  if [[ ! -f "$MOUNT_DIR/mcp/package.json" ||
+        ! -f "$MOUNT_DIR/trustable-acp/package.json" ||
+        ! -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]]; then
+    echo "--- Initializing runtime source submodules on the host ---"
+    git -C "$MOUNT_DIR" submodule update --init --recursive mcp trustable-acp \
+      || fail "failed to initialize mcp/trustable-acp submodules"
+  fi
+  [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/trustable-acp/package.json" ]] || fail "trustable-acp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
+  ok "runtime source submodules are available"
+}
+
+# Ensure the k3s API serving cert covers the host-reachable lima0 IP, so any
+# host-side kubeconfig using that address verifies. The in-VM setup keeps its
+# local 127.0.0.1 endpoint; this SAN is only for host-side `kubectl`/`ops`.
+# Idempotent: only regenerates the cert when the IP isn't a SAN yet.
 ensure_tls_san() {
   local IP="$1"
   echo "--- Ensuring k3s API cert covers $IP ---"
@@ -136,6 +166,15 @@ data:
           proxy_set_header Host \$upstream_host;
           proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto \$scheme;
+          # TruACP streams session updates over /ws. HTTP/1.1 alone does not
+          # preserve an Upgrade across this extra Lima proxy hop, so forwarding
+          # the browser headers is required to avoid turning /ws into a 404 GET.
+          proxy_set_header Upgrade \$http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_buffering off;
+          proxy_request_buffering off;
+          proxy_read_timeout 600s;
+          proxy_send_timeout 600s;
           proxy_pass http://${TRAEFIK_IP}:80;
         }
       }
@@ -210,6 +249,69 @@ GUEST
   ok "ollama serving on localhost:11434 in the VM"
 }
 
+# Install the exact Linux kubefwd consumed by repository-root run.sh. WHY:
+# Trustable and its MCP children execute outside k3s in trudev, while production
+# runs inside a pod; a checked release binary gives the VM temporary service
+# reachability without mutating its permanent resolver configuration.
+ensure_kubefwd() {
+  echo "--- Ensuring kubefwd ${KUBEFWD_VERSION} in the VM ---"
+  limactl shell "$VM_NAME" sudo \
+    KUBEFWD_VERSION="$KUBEFWD_VERSION" \
+    KUBEFWD_SHA_AMD64="$KUBEFWD_SHA_AMD64" \
+    KUBEFWD_SHA_ARM64="$KUBEFWD_SHA_ARM64" \
+    bash -euo pipefail -s <<'GUEST'
+installed_version="$(
+  /usr/local/bin/kubefwd version 2>/dev/null \
+    | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
+)"
+if [ "$installed_version" = "$KUBEFWD_VERSION" ]; then
+  echo "kubefwd ${installed_version} already installed"
+  exit 0
+fi
+
+case "$(uname -m)" in
+  x86_64|amd64)
+    archive_arch="x86_64"
+    expected_sha="$KUBEFWD_SHA_AMD64"
+    ;;
+  aarch64|arm64)
+    archive_arch="arm64"
+    expected_sha="$KUBEFWD_SHA_ARM64"
+    ;;
+  *)
+    echo "unsupported kubefwd architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+archive="$tmp_dir/kubefwd.tar.gz"
+url="https://github.com/txn2/kubefwd/releases/download/v${KUBEFWD_VERSION}/kubefwd_Linux_${archive_arch}.tar.gz"
+curl -fsSL --retry 3 -o "$archive" "$url"
+printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum -c -
+tar -C "$tmp_dir" -xzf "$archive"
+[ -x "$tmp_dir/kubefwd" ] || {
+  echo "kubefwd archive did not contain an executable" >&2
+  exit 1
+}
+
+# Install then rename on the same filesystem so an interrupted update cannot
+# leave /usr/local/bin/kubefwd partially written.
+install -m 0755 "$tmp_dir/kubefwd" "/usr/local/bin/.kubefwd-${KUBEFWD_VERSION}.tmp"
+mv -f "/usr/local/bin/.kubefwd-${KUBEFWD_VERSION}.tmp" /usr/local/bin/kubefwd
+installed_version="$(
+  /usr/local/bin/kubefwd version 2>/dev/null \
+    | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
+)"
+[ "$installed_version" = "$KUBEFWD_VERSION" ] || {
+  echo "kubefwd validation failed: expected ${KUBEFWD_VERSION}, got ${installed_version:-unknown}" >&2
+  exit 1
+}
+GUEST
+  ok "kubefwd ${KUBEFWD_VERSION} installed at /usr/local/bin/kubefwd"
+}
+
 # Read the host-reachable IP from the running VM and write the Trustable support
 # files. Used both by the fresh-install path and when the VM already exists.
 finish() {
@@ -252,11 +354,13 @@ finish() {
   fi
 
   ensure_guest_user
+  ensure_ssh_config "$IP"
   ensure_ollama
+  ensure_kubefwd
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 
-  # Provision the in-VM toolchain (ops/go/air/uv/node/opencode + MCP servers) by
+  # Provision the in-VM toolchain (ops/go/air/uv/node/pi + MCP servers) by
   # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir
   # (Lima mounts it at the same path). Idempotent — re-runs just verify.
   echo "--- Running setup.sh in the VM as $HOST_USER ---"
@@ -268,11 +372,14 @@ finish() {
   echo -e "${GREEN}=== Trustable VM ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
-  echo "  ssh:          ./ssh.sh <cmd>"
+  echo "  ssh:          ./ssh.sh <cmd>   |   ssh $HOST_USER@$IP   |   ssh trudev"
+  echo "  vscode:       opened by default (./start.sh -n to skip)"
   echo "  ollama:       http://localhost:11434  (CPU, in-VM)"
   echo "  mount:        $MOUNT_DIR  (owned by $HOST_USER in the VM)"
   echo "  stop:         ./start.sh -s   (keep the VM; restart with ./start.sh)"
   echo "  destroy:      ./start.sh -k"
+
+  if [[ "$OPEN_VSCODE" == 1 ]]; then open_vscode; fi
 }
 
 # Resolve + cache the .deb for the host arch into dist/, downloading if absent.
@@ -368,6 +475,47 @@ GUEST
   ok "Trustable package installed and ssh key authorized"
 }
 
+# A dedicated host key for passwordless access as the mirrored user. The Lima
+# identity would also work, but `code --remote ssh-remote+<user>@<ip>` shells out
+# to plain `ssh` with no -i, so the key has to be discoverable from ~/.ssh/config.
+# Generated once (no passphrase) and reused across VMs.
+HOST_KEY="$HOME/.ssh/id_trudev"
+
+ensure_host_key() {
+  [[ -f "$HOST_KEY" ]] && return 0
+  echo "--- Generating ssh key for $HOST_USER -> VM ($HOST_KEY) ---"
+  mkdir -p "$HOME/.ssh"; chmod 0700 "$HOME/.ssh"
+  ssh-keygen -t ed25519 -N '' -C "$HOST_USER@trudev" -f "$HOST_KEY" >/dev/null \
+    || fail "ssh-keygen failed"
+  ok "generated $HOST_KEY"
+}
+
+# Maintain a managed block in ~/.ssh/config so `ssh <user>@<ip>` — and therefore
+# VS Code Remote-SSH, which cannot be handed an -i — picks up the key without a
+# passphrase prompt. Rewritten on every run because the VM IP can change.
+ensure_ssh_config() {
+  local IP="$1" CFG="$HOME/.ssh/config"
+  local BEGIN="# >>> trustable trudev >>>" END="# <<< trustable trudev <<<"
+  touch "$CFG"; chmod 0600 "$CFG"
+  # Drop any previous managed block, then append the current one.
+  awk -v b="$BEGIN" -v e="$END" '
+    $0==b {skip=1} !skip {print} $0==e {skip=0}' "$CFG" > "$CFG.tmp"
+  {
+    cat "$CFG.tmp"
+    echo "$BEGIN"
+    printf 'Host %s %s.nip.io trudev\n' "$IP" "$IP"
+    printf '  User %s\n' "$HOST_USER"
+    printf '  HostName %s\n' "$IP"
+    printf '  IdentityFile %s\n' "$HOST_KEY"
+    printf '  IdentitiesOnly yes\n'
+    printf '  StrictHostKeyChecking no\n'
+    printf '  UserKnownHostsFile /dev/null\n'
+    echo "$END"
+  } > "$CFG"
+  rm -f "$CFG.tmp"
+  ok "ssh config entry for $HOST_USER@$IP (alias: trudev)"
+}
+
 # Mirror the current macOS user into the VM: a guest account with the same name
 # and UID, so files under the virtiofs mount (mounted at the same path) keep the
 # host's ownership. Give them passwordless sudo and authorize the same Lima key
@@ -377,8 +525,9 @@ ensure_guest_user() {
   [ -n "$HOST_USER" ] || return 0
   case "$HOST_USER" in trustable|root) return 0 ;; esac
   echo "--- Mirroring host user '$HOST_USER' into the VM ---"
+  ensure_host_key
   limactl shell "$VM_NAME" sudo HOST_USER="$HOST_USER" HOST_UID="$HOST_UID" \
-    bash -euo pipefail -s <<'GUEST'
+    HOST_PUBKEY="$(cat "$HOST_KEY.pub")" bash -euo pipefail -s <<'GUEST'
 if ! id "$HOST_USER" >/dev/null 2>&1; then
   # Only pin the UID if it isn't already taken by another account.
   if [ -n "${HOST_UID:-}" ] && ! getent passwd "$HOST_UID" >/dev/null 2>&1; then
@@ -390,13 +539,30 @@ if ! id "$HOST_USER" >/dev/null 2>&1; then
 fi
 printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$HOST_USER" > "/etc/sudoers.d/90-$HOST_USER"
 chmod 0440 "/etc/sudoers.d/90-$HOST_USER"
-install -d -o "$HOST_USER" -g "$HOST_USER" -m 0700 "/home/$HOST_USER/.ssh"
-# Authorize the same key(s) trustable trusts, so ssh as the host user works.
-if [ -f /home/trustable/.ssh/authorized_keys ]; then
-  cp /home/trustable/.ssh/authorized_keys "/home/$HOST_USER/.ssh/authorized_keys"
-  chown "$HOST_USER:$HOST_USER" "/home/$HOST_USER/.ssh/authorized_keys"
-  chmod 0600 "/home/$HOST_USER/.ssh/authorized_keys"
-fi
+
+# Resolve the account's REAL home and group from passwd — never assume
+# /home/$HOST_USER. Lima may already own the account and give it a suffixed home
+# (e.g. /home/msciab.guest, with /home/msciab.linux symlinked to it) to avoid
+# colliding with the virtiofs mount. sshd reads authorized_keys from the passwd
+# home, so writing to the assumed path silently authorizes nothing and every
+# publickey auth fails with "Permission denied (publickey)".
+HOME_DIR="$(getent passwd "$HOST_USER" | cut -d: -f6)"
+[ -n "$HOME_DIR" ] || { echo "could not resolve home for $HOST_USER" >&2; exit 1; }
+HOST_GROUP="$(id -gn "$HOST_USER")"
+echo "authorizing keys in ${HOME_DIR}/.ssh (group ${HOST_GROUP})"
+
+install -d -o "$HOST_USER" -g "$HOST_GROUP" -m 0700 "$HOME_DIR/.ssh"
+# Authorize the same key(s) trustable trusts, plus the dedicated host key, so
+# both `ssh <user>@<ip>` and VS Code Remote-SSH connect without a passphrase.
+AK="$HOME_DIR/.ssh/authorized_keys"
+: > /tmp/hostkeys
+[ -f /home/trustable/.ssh/authorized_keys ] && cat /home/trustable/.ssh/authorized_keys >> /tmp/hostkeys
+[ -f "$AK" ] && cat "$AK" >> /tmp/hostkeys
+[ -n "${HOST_PUBKEY:-}" ] && printf '%s\n' "$HOST_PUBKEY" >> /tmp/hostkeys
+sort -u /tmp/hostkeys > "$AK"
+rm -f /tmp/hostkeys
+chown "$HOST_USER:$HOST_GROUP" "$AK"
+chmod 0600 "$AK"
 GUEST
   ok "guest user '$HOST_USER' ready (mount owner)"
 }
@@ -425,6 +591,34 @@ if [[ "${1:-}" == "-s" ]]; then
   exit 0
 fi
 
+# --- open VS Code in the VM (default; ./start.sh -n to skip) -----------------
+# Remote-SSH shells out to plain `ssh` with no -i, so this relies on the managed
+# ~/.ssh/config block (written by ensure_ssh_config on every start) to supply the
+# identity. Opens the same absolute path the virtiofs mount exposes in the guest.
+# `-v` is kept as a no-op alias for the old opt-in flag.
+OPEN_VSCODE=1
+case "${1:-}" in
+  -n) OPEN_VSCODE=0; shift ;;
+  -v) shift ;;
+  # -s/-k never reach the finish path, so they must not require `code` on PATH.
+  -s|-k) OPEN_VSCODE=0 ;;
+esac
+if [[ "$OPEN_VSCODE" == 1 ]]; then
+  command -v code >/dev/null 2>&1 \
+    || fail "'code' not found — enable it in VS Code: Shell Command: Install 'code' command in PATH, or run ./start.sh -n"
+fi
+
+# Opens VS Code on the mounted folder in the VM. Called at the end of the normal
+# start path (which has already booted the VM and written the ssh config).
+open_vscode() {
+  local IP
+  IP="$(cat "$SUPPORT_DIR/current.ip")"
+  echo "--- Opening VS Code on $HOST_USER@$IP:$MOUNT_DIR ---"
+  code --remote "ssh-remote+$HOST_USER@$IP" "$MOUNT_DIR" \
+    || fail "code --remote failed (is the Remote-SSH extension installed?)"
+  ok "VS Code opening — first connect installs the remote server, give it a moment"
+}
+
 # --- teardown: ./start.sh -k -----------------------------------------------
 if [[ "${1:-}" == "-k" ]]; then
   if limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
@@ -439,6 +633,7 @@ if [[ "${1:-}" == "-k" ]]; then
 fi
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "start.sh is macOS-only (needs the Trustable support dir + vz)"
+ensure_source_submodules
 
 # If the VM already exists, don't re-provision — just make sure it's running and
 # refresh the support files (the IP can change across restarts). Use ./start.sh -k
@@ -491,7 +686,10 @@ images:
     arch: "x86_64"
 cpus: 4
 memory: "8GiB"
-disk: "40GiB"
+# Trustable keeps the full k3s service stack and imports multi-layer development
+# images locally; 60 GiB restores headroom over the DiskPressure-prone 40 GiB
+# default without imposing the larger 100 GiB allocation on every new VM.
+disk: "60GiB"
 networks:
   - vzNAT: true
 mountType: virtiofs

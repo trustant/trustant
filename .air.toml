@@ -5,13 +5,17 @@ tmp_dir = "tmp"
   cmd = "go build -o ./tmp/main ."
   bin = "./tmp/main"
   delay = 1000
-  exclude_dir = ["tmp", "workspace", "workbench", "web", "node_modules", "image", "olaris", "olaris-bestia"]
+  # Runtime subrepos are built explicitly by setup.sh. Watching them would make
+  # Air checksum Node/Bun build artifacts and can cause rebuild or permission loops.
+  exclude_dir = ["tmp", "workspace", "workbench", "web", "node_modules", "image", "olaris", "olaris-bestia", "trustable-code", "trustable-acp"]
   exclude_regex = ["_test.go"]
   exclude_unchanged = true
   follow_symlink = false
-  include_ext = ["go"]
+  include_ext = ["go", "js"]
   kill_delay = "0s"
   log = "build-errors.log"
+  poll = true
+  poll_interval = 1000
   send_interrupt = false
   stop_on_error = true
 

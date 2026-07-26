@@ -49,6 +49,11 @@ load, whenever it opens, and every 10 seconds. It lists up to 20 persistent root
 OpenCode sessions for the current canonical workbench, newest first, with title
 and update time. The active session is visibly marked.
 
+The first menu action is **New session**. It sends
+`POST /api/opencode/sessions/<name>`, stores the returned ID in the `SESSIONID`
+cookie, and opens that session in the left iframe. While the request is in
+progress the action is disabled; a creation error remains visible in the menu.
+
 Selecting a session updates the `SESSIONID` cookie and reloads only the left
 iframe at `<LEFT>/<B64DIR>/session/<session-id>`. It must not launch a new
 OpenCode process, replace the application workbench, or modify the right Vite

@@ -15,6 +15,9 @@ VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
 IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
 TAG="${TRUSTABLE_BUILD_TAG:-${KEY}_${VERSION}_$(date +%y.%j.%H%M)}"
+BRANCH="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+BRANCH="${BRANCH:-detached}"
+STREAM="${TRUSTABLE_BUILD_STREAM:-$BRANCH}"
 NAMESPACE="${TRUSTABLE_K8S_NAMESPACE:-nuvolaris}"
 STATEFULSET="${TRUSTABLE_K8S_STATEFULSET:-trustable}"
 CONTAINER="${TRUSTABLE_K8S_CONTAINER:-trustable}"
@@ -23,7 +26,8 @@ need docker
 need go
 
 echo "Server build tag: $TAG"
-printf "Version: %s\nBuild: %s\nExpiry: %s\n" "$VERSION" "$TAG" "$EXPIRY" > _build.txt
+printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n" \
+    "$VERSION" "$TAG" "$BRANCH" "$STREAM" "$EXPIRY" > _build.txt
 git tag -f "$TAG"
 
 mkdir -p image/bin

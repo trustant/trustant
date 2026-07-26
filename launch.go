@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha1"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,16 +17,39 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/template"
 	"time"
 )
 
 const (
-	opencodePort      = 4096
+	// Preserve the historical public port split: TruACP replaces OpenCode on the
+	// left pane without changing ingress/proxy contracts; Vite remains on 5173.
+	truacpPort        = 4096
 	opsdevelPort      = 5173
 	localLoopbackHost = "127.0.0.1"
+	// WHY: ~/.local/bin contains the generated wrapper itself, so resolving the
+	// upstream Milvus CLI through PATH can recurse or follow a stale uv symlink.
+	globalMilvusCLIPath = "/usr/local/bin/milvus_cli"
 )
+
+var runtimeLifecycleMu sync.Mutex
+
+// lockRuntimeLifecycle serializes launch, stop, and redeploy operations because
+// all applications share TruACP :4096, Vite :5173, and one process-group marker.
+// Browser tabs can submit overlapping requests; allowing them to proceed in
+// parallel lets a late request mistake the runtime just started by an earlier
+// request for an orphan and either kill it or report a false port conflict.
+func lockRuntimeLifecycle(operation string) func() {
+	log.Printf("Runtime lifecycle: waiting for %s", operation)
+	runtimeLifecycleMu.Lock()
+	log.Printf("Runtime lifecycle: acquired for %s", operation)
+	return func() {
+		log.Printf("Runtime lifecycle: released for %s", operation)
+		runtimeLifecycleMu.Unlock()
+	}
+}
 
 // opsConfig mirrors the service blocks of ~/.ops/config.json that drive MCP
 // server generation and CLI tooling at launch time (see spec/4-launch.md).
@@ -223,7 +244,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 // uses this to drop any that leaked into a global config written by older code.
 func isTrustableManagedMCPServer(name string) bool {
 	switch name {
-	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless":
+	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless", "browser", "react":
 		return true
 	}
 	return false
@@ -267,6 +288,188 @@ func appServiceRuntimeEnv(base []string) []string {
 		base = append(base, "MONGODB_URI="+uri)
 	}
 	return base
+}
+
+const trustablePiRuntimeManifestVersion = 2
+
+var trustablePiRuntimeManifestPathOverride string
+var trustablePiExtensionPathOverride string
+
+// trustablePiRuntimeWorkbench is one credential-free, host-owned application
+// contract. Workspace deliberately names the active checkout, not the durable
+// bare repository under WORKSPACE_DIR.
+type trustablePiRuntimeWorkbench struct {
+	App                string   `json:"app"`
+	Workspace          string   `json:"workspace"`
+	DevelopmentURL     string   `json:"developmentUrl"`
+	BrowserURL         string   `json:"browserUrl"`
+	RequiredMCPServers []string `json:"requiredMcpServers"`
+	WatcherLog         string   `json:"watcherLog"`
+}
+
+// trustablePiRuntimeManifest retains the versioned workbenches envelope already
+// consumed by the bounded Browser MCP. WHY: Pi and browser verification must
+// validate one host contract instead of interpreting incompatible files carried
+// in the same TRUSTABLE_RUNTIME_CONFIG variable.
+type trustablePiRuntimeManifest struct {
+	Version     int                           `json:"version"`
+	Workbenches []trustablePiRuntimeWorkbench `json:"workbenches"`
+}
+
+// trustablePiRuntimeManifestPath keeps the mutable host contract outside the
+// application checkout. WHY: generated project files are model-editable input,
+// while the selected workbench boundary must remain host-owned.
+func trustablePiRuntimeManifestPath() (string, error) {
+	if trustablePiRuntimeManifestPathOverride != "" {
+		return trustablePiRuntimeManifestPathOverride, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home for Trustable Pi runtime manifest: %w", err)
+	}
+	return filepath.Join(home, ".config", "trustable", "pi-runtime.json"), nil
+}
+
+// trustablePiExtensionPath resolves the extension installed by trustable-acp's
+// setup.sh. WHY: managed mode must fail before starting a session when the
+// deterministic policy artifact is absent instead of silently running plain Pi.
+func trustablePiExtensionPath() (string, error) {
+	if trustablePiExtensionPathOverride != "" {
+		return trustablePiExtensionPathOverride, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home for Trustable Pi extension: %w", err)
+	}
+	path := filepath.Join(home, ".local", "lib", "truacp", "extensions", "trustable-runtime.ts")
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("Trustable Pi extension is not installed at %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("Trustable Pi extension is not a regular file: %s", path)
+	}
+	return path, nil
+}
+
+// browserVisibleDevelopmentURL derives Vite's public origin from the browser's
+// Trustable request. WHY: localhost and the configured OpenServerless API host
+// describe different network surfaces and cannot be substituted for the URL
+// the user can actually open.
+func browserVisibleDevelopmentURL(r *http.Request) (string, error) {
+	scheme := "http"
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded != "" {
+		scheme = forwarded
+	} else if r.TLS != nil {
+		scheme = "https"
+	}
+	if scheme != "http" && scheme != "https" {
+		return "", fmt.Errorf("unsupported browser-visible protocol %q", scheme)
+	}
+
+	requestURL, err := url.Parse(scheme + "://" + r.Host)
+	if err != nil || requestURL.Hostname() == "" {
+		return "", fmt.Errorf("invalid Trustable request host %q", r.Host)
+	}
+	const trustablePrefix = "trustable."
+	if !strings.HasPrefix(requestURL.Hostname(), trustablePrefix) {
+		return "", fmt.Errorf("invalid Trustable request host %q: expected trustable.<domain>", r.Host)
+	}
+	viteHost := "vite." + strings.TrimPrefix(requestURL.Hostname(), trustablePrefix)
+	if port := requestURL.Port(); port != "" {
+		viteHost = net.JoinHostPort(viteHost, port)
+	}
+	return (&url.URL{Scheme: scheme, Host: viteHost}).String(), nil
+}
+
+// writeTrustablePiRuntimeManifest publishes an atomic, private manifest after
+// project MCP generation. WHY: the required server list must describe the exact
+// .mcp.json that Pi will consume, not a pre-login or inferred service set.
+func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog string) (string, error) {
+	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve Trustable workbench %s: %w", projectDir, err)
+	}
+	canonicalProjectDir, err = filepath.Abs(canonicalProjectDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to make Trustable workbench absolute: %w", err)
+	}
+	parsedBrowserURL, err := url.Parse(browserURL)
+	if err != nil || parsedBrowserURL.Host == "" ||
+		(parsedBrowserURL.Scheme != "http" && parsedBrowserURL.Scheme != "https") {
+		return "", fmt.Errorf("invalid browser-visible application URL %q", browserURL)
+	}
+	canonicalWatcherLog, err := filepath.Abs(watcherLog)
+	if err != nil {
+		return "", fmt.Errorf("failed to make watcher log absolute: %w", err)
+	}
+	watcherInfo, err := os.Stat(canonicalWatcherLog)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect watcher log %s: %w", canonicalWatcherLog, err)
+	}
+	if !watcherInfo.Mode().IsRegular() || watcherInfo.Mode().Perm() != 0600 {
+		return "", fmt.Errorf("watcher log must be a private regular file: %s", canonicalWatcherLog)
+	}
+	if rel, err := filepath.Rel(canonicalProjectDir, canonicalWatcherLog); err != nil ||
+		(rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+		return "", fmt.Errorf("watcher log must remain outside the workbench: %s", canonicalWatcherLog)
+	}
+
+	data, err := os.ReadFile(filepath.Join(canonicalProjectDir, ".mcp.json"))
+	if err != nil {
+		return "", fmt.Errorf("failed to read generated MCP config: %w", err)
+	}
+	var config struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("failed to parse generated MCP config: %w", err)
+	}
+	if len(config.MCPServers) == 0 {
+		return "", errors.New("generated MCP config declares no servers")
+	}
+	servers := make([]string, 0, len(config.MCPServers))
+	for name := range config.MCPServers {
+		if strings.TrimSpace(name) == "" {
+			return "", errors.New("generated MCP config contains an empty server name")
+		}
+		servers = append(servers, name)
+	}
+	sort.Strings(servers)
+
+	manifest := trustablePiRuntimeManifest{
+		Version: trustablePiRuntimeManifestVersion,
+		Workbenches: []trustablePiRuntimeWorkbench{{
+			App:       app,
+			Workspace: canonicalProjectDir,
+			// WHY: Browser MCP runs beside the managed Vite process and must use
+			// the shared local port only after matching this exact workbench.
+			DevelopmentURL:     "http://localhost:5173",
+			BrowserURL:         browserURL,
+			RequiredMCPServers: servers,
+			WatcherLog:         canonicalWatcherLog,
+		}},
+	}
+	encoded, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to encode Trustable Pi runtime manifest: %w", err)
+	}
+	manifestPath, err := trustablePiRuntimeManifestPath()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
+		return "", fmt.Errorf("failed to create Trustable Pi runtime config directory: %w", err)
+	}
+	temporaryPath := manifestPath + ".tmp"
+	defer os.Remove(temporaryPath)
+	if err := os.WriteFile(temporaryPath, encoded, 0600); err != nil {
+		return "", fmt.Errorf("failed to write Trustable Pi runtime manifest: %w", err)
+	}
+	if err := os.Rename(temporaryPath, manifestPath); err != nil {
+		return "", fmt.Errorf("failed to publish Trustable Pi runtime manifest: %w", err)
+	}
+	return manifestPath, nil
 }
 
 // mongodbConnectionString returns a MongoDB URI only from the official
@@ -338,35 +541,34 @@ func localBinPrefix() string {
 	return "/usr/bin"
 }
 
-// setupServiceTooling writes the CLI wrapper scripts into ~/.local/bin that
-// accompany service MCP servers with companion CLIs (see spec/4-launch.md):
-// `rclone` (s3), `psql` (postgres), `redis-cli` (redis), and `milvus_cli`
-// (milvus). Each is gated on the same config block that gates its MCP server
-// and is best-effort — failures are logged, never fatal to a launch.
-//
-// Every wrapper sets PATH to localBinPrefix() and then invokes the real binary
-// by bare name (rather than an absolute path) so it reaches the system binary
-// without re-entering the ~/.local/bin wrapper itself (spec/4-launch.md line 4).
-func setupServiceTooling() {
-	cfg, err := loadOpsConfig()
-	if err != nil {
-		log.Printf("Warning: failed to load ~/.ops/config.json for service tooling: %s", err)
-		return
-	}
+// setupServiceToolingFromConfig renders every companion CLI from the same
+// post-login snapshot used for MCP generation. WHY: reading config separately
+// can produce a Redis wrapper and MCP entry with different endpoints if login
+// refreshes the file between the two operations. Every wrapper sets PATH to
+// localBinPrefix() and invokes the real binary by bare name so it cannot
+// re-enter ~/.local/bin; Milvus instead derives its interpreter from the exact
+// global entry point.
+func setupServiceToolingFromConfig(cfg *opsConfig) error {
+	return setupServiceToolingFromConfigWithMilvusEntryPoint(cfg, globalMilvusCLIPath)
+}
+
+// setupServiceToolingFromConfigWithMilvusEntryPoint keeps the global
+// implementation path explicit for regression fixtures while the production
+// call fixes it outside ~/.local/bin. No caller may rediscover it through PATH.
+func setupServiceToolingFromConfigWithMilvusEntryPoint(cfg *opsConfig, globalClientPath string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Warning: failed to locate home for service tooling: %s", err)
-		return
+		return fmt.Errorf("locate home for service tooling: %w", err)
 	}
 	binDir := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
-		log.Printf("Warning: failed to create ~/.local/bin: %s", err)
-		return
+		return fmt.Errorf("create service wrapper directory: %w", err)
 	}
 	prefix := localBinPrefix()
+	var wrapperErrors []error
 
 	if cfg.S3.Host != "" {
-		writeServiceWrapper(binDir, "rclone", fmt.Sprintf(
+		if err := writeServiceWrapper(binDir, "rclone", fmt.Sprintf(
 			"#!/bin/bash\n"+
 				"export PATH=%s\n"+
 				"export RCLONE_CONFIG_S3_TYPE=s3\n"+
@@ -381,42 +583,47 @@ func setupServiceTooling() {
 				"export RCLONE_CONFIG_DATA_REMOTE=s3:%s\n"+
 				"exec rclone \"$@\"\n",
 			prefix, cfg.S3.Access.Key, cfg.S3.Secret.Key, cfg.S3.Host, cfg.S3.Port,
-			cfg.S3.Bucket.Static, cfg.S3.Bucket.Data))
+			cfg.S3.Bucket.Static, cfg.S3.Bucket.Data)); err != nil {
+			wrapperErrors = append(wrapperErrors, err)
+		}
 	}
 	if cfg.Postgres.Database != "" {
-		writeServiceWrapper(binDir, "psql", fmt.Sprintf(
+		if err := writeServiceWrapper(binDir, "psql", fmt.Sprintf(
 			"#!/bin/bash\nexport PATH=%s\nexec psql \"%s\" \"$@\"\n",
-			prefix, cfg.Postgres.URL))
+			prefix, cfg.Postgres.URL)); err != nil {
+			wrapperErrors = append(wrapperErrors, err)
+		}
 	}
 	if cfg.Redis.URL != "" || cfg.Redis.Port != 0 {
 		user := redisUsername(cfg)
-		writeServiceWrapper(binDir, "redis-cli", fmt.Sprintf(
+		if err := writeServiceWrapper(binDir, "redis-cli", fmt.Sprintf(
 			"#!/bin/bash\n"+
 				"export PATH=%s\n"+
 				"export REDISCLI_AUTH='%s'\n"+
 				"exec redis-cli -h '%s' --user '%s' -p '%d' \"$@\"\n",
-			prefix, cfg.Redis.Password, cfg.Redis.Service, user, cfg.Redis.Port))
-	}
-	if cfg.Milvus.Host != "" {
-		// The milvus_cli wrapper is a self-contained Python script (rendered from
-		// the embedded milvus_cli.tmpl) that auto-connects to the configured
-		// host/db before dropping into the milvus-cli REPL, reusing the installed
-		// milvus-cli venv. Its shebang is the venv python taken from the first line
-		// of the installed `milvus_client` binary (see spec/4-launch.md).
-		if body, err := renderMilvusCliWrapper(prefix, cfg); err != nil {
-			log.Printf("Warning: failed to render milvus_cli wrapper: %s", err)
-		} else {
-			writeServiceWrapper(binDir, "milvus_cli", body)
+			prefix, cfg.Redis.Password, cfg.Redis.Service, user, cfg.Redis.Port)); err != nil {
+			wrapperErrors = append(wrapperErrors, err)
 		}
 	}
+	if cfg.Milvus.Host != "" {
+		// WHY: the global path is outside ~/.local/bin, so the configured
+		// milvus_cli wrapper cannot rediscover itself through PATH.
+		if body, err := renderMilvusCliWrapper(globalClientPath, cfg); err != nil {
+			wrapperErrors = append(wrapperErrors, fmt.Errorf("render milvus_cli wrapper: %w", err))
+		} else {
+			if err := writeServiceWrapper(binDir, "milvus_cli", body); err != nil {
+				wrapperErrors = append(wrapperErrors, err)
+			}
+		}
+	}
+	return errors.Join(wrapperErrors...)
 }
 
 // renderMilvusCliWrapper renders the embedded milvus_cli.tmpl with the milvus
-// config and the python venv resolved from the installed `milvus_client`
-// binary. <local.prefix> (prefix) is a PATH-style list of bin dirs; the first
-// one containing `milvus_client` supplies the venv shebang (its first line).
-func renderMilvusCliWrapper(prefix string, cfg *opsConfig) (string, error) {
-	pythonVenv, err := milvusPythonVenv(prefix)
+// config and the interpreter resolved from the exact globally installed
+// `milvus_cli` entry point.
+func renderMilvusCliWrapper(globalClientPath string, cfg *opsConfig) (string, error) {
+	pythonVenv, err := milvusPythonInterpreter(globalClientPath)
 	if err != nil {
 		return "", err
 	}
@@ -443,40 +650,56 @@ func renderMilvusCliWrapper(prefix string, cfg *opsConfig) (string, error) {
 	return buf.String(), nil
 }
 
-// milvusPythonVenv returns the venv python interpreter for the milvus_cli
-// wrapper shebang: the first line of the installed `milvus_client` binary, found
-// by scanning the colon-separated <local.prefix> bin dirs.
-func milvusPythonVenv(prefix string) (string, error) {
-	for _, dir := range strings.Split(prefix, ":") {
-		dir = strings.TrimSpace(dir)
-		if dir == "" {
-			continue
-		}
-		path := filepath.Join(dir, "milvus_client")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		firstLine := string(data)
-		if idx := strings.IndexByte(firstLine, '\n'); idx != -1 {
-			firstLine = firstLine[:idx]
-		}
-		firstLine = strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
-		if firstLine != "" {
-			return firstLine, nil
-		}
+// milvusPythonInterpreter returns the interpreter from the global
+// milvus_cli shebang. WHY: scanning PATH is unsafe after the generated
+// ~/.local/bin wrapper has taken precedence and can select the wrapper again.
+func milvusPythonInterpreter(globalClientPath string) (string, error) {
+	data, err := os.ReadFile(globalClientPath)
+	if err != nil {
+		return "", fmt.Errorf("read global milvus_cli at %s: %w", globalClientPath, err)
 	}
-	return "", fmt.Errorf("milvus_client not found in any of: %s", prefix)
+	firstLine := string(data)
+	if idx := strings.IndexByte(firstLine, '\n'); idx != -1 {
+		firstLine = firstLine[:idx]
+	}
+	interpreter := strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
+	if interpreter == "" || interpreter == firstLine {
+		return "", fmt.Errorf("global milvus_cli at %s has no interpreter shebang", globalClientPath)
+	}
+	if !filepath.IsAbs(interpreter) {
+		return "", fmt.Errorf("global milvus_cli at %s uses non-absolute interpreter", globalClientPath)
+	}
+	return interpreter, nil
 }
 
-// writeServiceWrapper writes a single executable wrapper script into binDir.
-func writeServiceWrapper(binDir, name, body string) {
+// writeServiceWrapper atomically installs one regular executable into binDir.
+// WHY: os.WriteFile follows an existing symlink, which can overwrite a
+// package-managed uv target when replacing the old milvus_cli installation.
+func writeServiceWrapper(binDir, name, body string) (err error) {
 	path := filepath.Join(binDir, name)
-	if err := os.WriteFile(path, []byte(body), 0755); err != nil {
-		log.Printf("Warning: failed to write %s wrapper: %s", name, err)
-		return
+	temp, err := os.CreateTemp(binDir, "."+name+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary %s wrapper: %w", name, err)
+	}
+	tempPath := temp.Name()
+	defer func() {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+	}()
+	if _, err := temp.WriteString(body); err != nil {
+		return fmt.Errorf("write temporary %s wrapper: %w", name, err)
+	}
+	if err := temp.Chmod(0755); err != nil {
+		return fmt.Errorf("chmod temporary %s wrapper: %w", name, err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close temporary %s wrapper: %w", name, err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("install %s wrapper: %w", name, err)
 	}
 	log.Printf("Configured %s wrapper at %s", name, path)
+	return nil
 }
 
 // getPgidFile returns the path to the pgid file inside WorkbenchDir
@@ -509,6 +732,31 @@ func readCurrentApp() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+func processGroupAlive(pgid int) bool {
+	if pgid <= 0 {
+		return false
+	}
+	err := syscall.Kill(-pgid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// managedRuntimeHealthyForApp identifies only a Trustable-owned runtime: the
+// durable current/pgid markers must agree with the requested app, the process
+// group must still exist, and both shared listeners must answer. Port checks
+// alone are deliberately insufficient because an unrelated listener must be
+// reclaimed instead of being reused as a successful launch.
+func managedRuntimeHealthyForApp(app string, leftPort, rightPort int) bool {
+	current, err := readCurrentApp()
+	if err != nil || current != app {
+		return false
+	}
+	pgid, err := readPgid()
+	if err != nil || !processGroupAlive(pgid) {
+		return false
+	}
+	return isPortListening(leftPort) && isPortListening(rightPort)
 }
 
 // canonicalWorkbenchPath returns the path OpenCode uses to store project and
@@ -632,7 +880,7 @@ func killPgid(pgid int) error {
 // terminateLeftoverProcesses checks for and kills any leftover process group.
 // It handles two cases of stale state from a previous launch:
 //  1. A pgid file pointing at a still-running process group — kill it by pgid.
-//  2. No pgid file, but an orphaned opencode/devel still holding 4096/5173 (the
+//  2. No pgid file, but an orphaned truacp/devel still holding 4096/5173 (the
 //     pgid file was removed while the process kept running) — reclaim the ports
 //     directly so the upcoming port-free check doesn't wedge the launch.
 //
@@ -643,9 +891,9 @@ func terminateLeftoverProcesses() {
 	if err != nil {
 		// No pgid file: nothing to kill by group, but a prior process may still
 		// be holding the ports. Reclaim them and clear the stale current marker.
-		if isPortListening(opencodePort) || isPortListening(opsdevelPort) {
+		if isPortListening(truacpPort) || isPortListening(opsdevelPort) {
 			log.Printf("No pgid file but ports busy; reclaiming orphaned listeners")
-			reclaimPort(opencodePort)
+			reclaimPort(truacpPort)
 			reclaimPort(opsdevelPort)
 		}
 		removeCurrentFile()
@@ -663,172 +911,6 @@ func terminateLeftoverProcesses() {
 
 	// Wait a bit for ports to be freed
 	time.Sleep(500 * time.Millisecond)
-}
-
-func normalizeOpenCodeAgentColor(color string) string {
-	normalized := strings.TrimSpace(strings.ToLower(color))
-	switch normalized {
-	case "primary", "secondary", "accent", "success", "warning", "error", "info":
-		return normalized
-	case "blue", "indigo":
-		return "primary"
-	case "purple", "violet", "gray", "grey":
-		return "secondary"
-	case "cyan", "sky", "teal":
-		return "info"
-	case "green", "emerald", "lime":
-		return "success"
-	case "yellow", "amber", "orange":
-		return "warning"
-	case "red", "rose", "pink":
-		return "error"
-	default:
-		if len(color) == 7 && strings.HasPrefix(color, "#") {
-			valid := true
-			for _, ch := range color[1:] {
-				if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
-					valid = false
-					break
-				}
-			}
-			if valid {
-				return color
-			}
-		}
-		return "primary"
-	}
-}
-
-func sanitizeOpenCodeAgentMetadata(workbenchPath string) {
-	agentDir := filepath.Join(workbenchPath, ".opencode", "agent")
-	if _, err := os.Stat(agentDir); err != nil {
-		return
-	}
-	if err := filepath.WalkDir(agentDir, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			return nil
-		}
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
-			log.Printf("Warning: failed to read OpenCode agent metadata %s: %s", path, readErr)
-			return nil
-		}
-		lines := strings.Split(string(data), "\n")
-		changed := false
-		for i, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if !strings.HasPrefix(trimmed, "color:") {
-				continue
-			}
-			prefix := line[:strings.Index(line, "color:")]
-			rawColor := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "color:")), `"'`)
-			normalized := normalizeOpenCodeAgentColor(rawColor)
-			if normalized != rawColor {
-				lines[i] = prefix + "color: " + normalized
-				changed = true
-			}
-			break
-		}
-		if changed {
-			if writeErr := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); writeErr != nil {
-				log.Printf("Warning: failed to update OpenCode agent metadata %s: %s", path, writeErr)
-				return nil
-			}
-			log.Printf("Normalized OpenCode agent metadata in %s", path)
-		}
-		return nil
-	}); err != nil {
-		log.Printf("Warning: failed to scan OpenCode agent metadata: %s", err)
-	}
-}
-
-func openCodeProjectID(app string) string {
-	sum := sha1.Sum([]byte("trustable:" + app))
-	return hex.EncodeToString(sum[:])
-}
-
-func ensureOpenCodeProjectID(workbenchPath, app string) {
-	gitDirOutput, err := exec.Command("git", "-C", workbenchPath, "rev-parse", "--git-dir").Output()
-	gitDir := ""
-	if err == nil {
-		gitDir = strings.TrimSpace(string(gitDirOutput))
-		if gitDir != "" && !filepath.IsAbs(gitDir) {
-			gitDir = filepath.Join(workbenchPath, gitDir)
-		}
-	}
-	if gitDir == "" {
-		gitDir = filepath.Join(workbenchPath, ".git")
-	}
-	if info, statErr := os.Stat(gitDir); statErr != nil || !info.IsDir() {
-		log.Printf("Warning: failed to locate git dir for OpenCode project id: %s", gitDir)
-		return
-	}
-	projectIDPath := filepath.Join(gitDir, "opencode")
-	projectID := openCodeProjectID(app)
-	if err := os.WriteFile(projectIDPath, []byte(projectID), 0644); err != nil {
-		log.Printf("Warning: failed to write OpenCode project id %s: %s", projectIDPath, err)
-		return
-	}
-	log.Printf("OpenCode project id for %s set to %s", app, projectID)
-}
-
-func cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("Warning: failed to locate home for OpenCode DB cleanup: %s", err)
-		return
-	}
-	dbPath := filepath.Join(home, ".local", "share", "opencode", "opencode.db")
-	if _, err := os.Stat(dbPath); err != nil {
-		return
-	}
-
-	projectID := openCodeProjectID(app)
-	script := `
-import json
-import sqlite3
-import sys
-
-db_path, directory, project_id = sys.argv[1:4]
-con = sqlite3.connect(db_path)
-cur = con.cursor()
-changed = 0
-
-cur.execute(
-    "delete from project_directory where directory = ? and project_id != ?",
-    (directory, project_id),
-)
-changed += cur.rowcount
-
-for stale_id, raw_sandboxes in cur.execute(
-    "select id, sandboxes from project where id != ?",
-    (project_id,),
-).fetchall():
-    try:
-        sandboxes = json.loads(raw_sandboxes or "[]")
-    except Exception:
-        sandboxes = []
-    updated = [entry for entry in sandboxes if entry != directory]
-    if updated != sandboxes:
-        cur.execute(
-            "update project set sandboxes = ? where id = ?",
-            (json.dumps(updated), stale_id),
-        )
-        changed += cur.rowcount
-
-con.commit()
-print(changed)
-`
-	cmd := exec.Command("python3", "-c", script, dbPath, workbenchPath, projectID)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Warning: failed to cleanup OpenCode project directory links: %s, output: %s", err, strings.TrimSpace(string(output)))
-		return
-	}
-	changed := strings.TrimSpace(string(output))
-	if changed != "" && changed != "0" {
-		log.Printf("Cleaned %s stale OpenCode project directory link(s) for %s", changed, workbenchPath)
-	}
 }
 
 // waitForProcessStart waits for a process to either exit (error) or stay running for the specified duration
@@ -850,171 +932,6 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 		// Process is still running after the duration - success
 		return nil
 	}
-}
-
-// opencodeSession mirrors the subset of opencode's session object we care about
-// when deciding whether to reuse an existing session (see spec/4-launch.md).
-type opencodeSession struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	Time  struct {
-		Created int64 `json:"created"`
-		Updated int64 `json:"updated"`
-	} `json:"time"`
-	Tokens struct {
-		Input  int64 `json:"input"`
-		Output int64 `json:"output"`
-	} `json:"tokens"`
-}
-
-var listOpenCodeSessionsForUI = listOpencodeSessions
-
-// handleOpenCodeSessions exposes the persistent root sessions for one
-// Trustable workbench. OpenCode remains the source of truth; this endpoint
-// gives the Trustable app chrome a stable session picker independent of the
-// embedded OpenCode sidebar state.
-func handleOpenCodeSessions(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodGet {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	app := strings.TrimPrefix(r.URL.Path, "/api/opencode/sessions/")
-	if !namePattern.MatchString(app) {
-		http.Error(w, `{"error":"invalid app name"}`, http.StatusBadRequest)
-		return
-	}
-
-	directory, err := canonicalWorkbenchPath(app)
-	if err != nil {
-		http.Error(w, `{"error":"invalid workbench path"}`, http.StatusBadRequest)
-		return
-	}
-	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
-		http.Error(w, `{"error":"workbench not found"}`, http.StatusNotFound)
-		return
-	}
-
-	sessions := listOpenCodeSessionsForUI(localLoopbackHost, opencodePort, directory)
-	if sessions == nil {
-		http.Error(w, `{"error":"OpenCode session history unavailable"}`, http.StatusBadGateway)
-		return
-	}
-	sort.SliceStable(sessions, func(i, j int) bool {
-		return sessions[i].Time.Updated > sessions[j].Time.Updated
-	})
-	json.NewEncoder(w).Encode(sessions)
-}
-
-// hasActivity reports whether a session is non-empty: it has token activity or a
-// title other than the default "New session - ..." placeholder (spec/4-launch.md).
-func (s opencodeSession) hasActivity() bool {
-	if s.Tokens.Input > 0 || s.Tokens.Output > 0 {
-		return true
-	}
-	title := strings.TrimSpace(s.Title)
-	return title != "" && !strings.HasPrefix(title, "New session - ")
-}
-
-func chooseOpenCodeSessionID(sessions []opencodeSession) string {
-	var best, newest *opencodeSession
-	for i := range sessions {
-		s := &sessions[i]
-		if newest == nil || s.Time.Updated > newest.Time.Updated {
-			newest = s
-		}
-		if s.hasActivity() && (best == nil || s.Time.Updated > best.Time.Updated) {
-			best = s
-		}
-	}
-	if best != nil {
-		return best.ID
-	}
-	if newest != nil {
-		return newest.ID
-	}
-	return ""
-}
-
-// resolveOpencodeSession returns the id of the session to use for the launched
-// app. It first queries opencode's root sessions for the workbench directory and
-// prefers the newest non-empty session; if none are non-empty it reuses the
-// newest returned session. Only when no session exists does it create a new one
-// via createOpencodeSession (see spec/4-launch.md). Failures are non-fatal.
-func resolveOpencodeSession(domain string, port int, directory string) string {
-	sessions := listOpencodeSessions(domain, port, directory)
-	if len(sessions) > 0 {
-		sessionID := chooseOpenCodeSessionID(sessions)
-		log.Printf("opencode: reusing session %s for %s", sessionID, directory)
-		return sessionID
-	}
-	return createOpencodeSession(domain, port, directory)
-}
-
-// listOpencodeSessions queries opencode for the root sessions scoped to the
-// given directory. Returns nil on any failure (treated as "no sessions").
-func listOpencodeSessions(domain string, port int, directory string) []opencodeSession {
-	reqURL := fmt.Sprintf("http://%s:%d/session?directory=%s&roots=true&limit=20", domain, port, url.QueryEscape(directory))
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		log.Printf("opencode session list: failed to build request: %s", err)
-		return nil
-	}
-	req.Header.Set("X-Opencode-Directory", directory)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("opencode session list %s failed: %s", reqURL, err)
-		return nil
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("opencode session list %s -> %d: %s", reqURL, resp.StatusCode, strings.TrimSpace(string(body)))
-		return nil
-	}
-	var sessions []opencodeSession
-	if err := json.Unmarshal(body, &sessions); err != nil {
-		log.Printf("Warning: failed to parse OpenCode session list: %s", err)
-		return nil
-	}
-	return sessions
-}
-
-// createOpencodeSession POSTs to opencode's /session/ endpoint with the
-// workbench directory header so the running opencode server scopes its session
-// to the launched app. Launch runs in the same pod as OpenCode, so this is an
-// explicit pod-local sidecar call to localhost:4096. Browser traffic uses the
-// opencode.<domain> ingress and Trustable proxy path instead.
-func createOpencodeSession(domain string, port int, directory string) string {
-	url := fmt.Sprintf("http://%s:%d/session/", domain, port)
-	req, err := http.NewRequest(http.MethodPost, url, nil)
-	if err != nil {
-		log.Printf("opencode session POST: failed to build request: %s", err)
-		return ""
-	}
-	req.Header.Set("X-Opencode-Directory", directory)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("opencode session POST %s failed: %s", url, err)
-		return ""
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	trimmedBody := strings.TrimSpace(string(body))
-	log.Printf("opencode session POST %s -> %d: %s", url, resp.StatusCode, trimmedBody)
-	var session struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &session); err != nil {
-		log.Printf("Warning: failed to parse OpenCode session response: %s", err)
-		return ""
-	}
-	return session.ID
 }
 
 // ensureRequiredWorkbenchFolders scaffolds the folders every app must have
@@ -1156,8 +1073,6 @@ func restoreMissingWorkbenchCheckouts() {
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to generate restored workbench .env for %s: %s", app, err)
 		}
-		ensureOpenCodeProjectID(workbenchPath, app)
-		cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
 	}
 }
 
@@ -1175,6 +1090,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", app)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("App folder not found: %s/workspace/%s", WorkspaceDir, app)})
+		return
+	}
+
+	// A second tab can reach this point only after the first launch releases the
+	// lifecycle lock. Reuse its healthy process group instead of redeploying the
+	// same app and treating the legitimate :4096 listener as a port collision.
+	if managedRuntimeHealthyForApp(app, truacpPort, opsdevelPort) {
+		log.Printf("Runtime for %s is already healthy; reusing ports %d and %d", app, truacpPort, opsdevelPort)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"left":         truacpPort,
+			"right":        opsdevelPort,
+			"skills_added": false,
+		})
 		return
 	}
 
@@ -1223,10 +1151,8 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Ensure the required folders exist (packages/, web/) after checkout.
 	ensureRequiredWorkbenchFolders(workbenchPath)
 
-	ensureOpenCodeProjectID(workbenchPath, app)
-	cleanupOpenCodeProjectDirectoryLinks(workbenchPath, app)
-
-	// Set up skills if not already present
+	// Skills remain project-local rather than being baked into Pi's global state,
+	// so each generated app carries the capabilities appropriate to its repo.
 	skillsAdded := ensureSkills(app)
 
 	// Ensure the OpenWhisk user exists and password is in sync
@@ -1234,6 +1160,16 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to load config: %s", err)})
+		return
+	}
+	// Configure owns Pi's global provider/model state. Edit intentionally avoids
+	// repairing it here. Keep an API-side guard as well as the applist redirect
+	// so a stale/direct browser tab cannot launch an unconfigured Pi runtime.
+	if piDefaultModel(cfg) == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":          "Pi model is not configured",
+			"setup_required": true,
+		})
 		return
 	}
 	storedPassword := ""
@@ -1303,7 +1239,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	log.Printf("ops ide login for %s completed successfully", app)
 
 	// ops ide login (re)writes ~/.ops/config.json with the app user's service
-	// bindings. The opencode.json/MCP generation below reads that file, so log
+	// bindings. The project MCP generation below reads that file, so log
 	// which service blocks landed — a missing block here is exactly why an MCP
 	// server would be skipped or misconfigured (spec/4-launch.md).
 	logOpsServiceBlocks(app)
@@ -1335,15 +1271,15 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	log.Printf("ops ide deploy for %s completed successfully", app)
 
 	// Detect ports
-	leftPort := opencodePort
+	leftPort := truacpPort
 	rightPort := opsdevelPort
 
 	// Check if ports are free. If a port is held — typically by an orphaned
-	// opencode/devel from a prior launch whose pgid file is gone, so
+	// truacp/devel from a prior launch whose pgid file is gone, so
 	// terminateLeftoverProcesses couldn't clean it up — reclaim it by killing
 	// the listener directly before giving up.
 	if !isPortFree(leftPort) && !reclaimPort(leftPort) {
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Port %d (opencode) is not available", leftPort)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Port %d (truacp) is not available", leftPort)})
 		return
 	}
 	if !isPortFree(rightPort) && !reclaimPort(rightPort) {
@@ -1351,81 +1287,168 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	// Generate the complete, self-contained OpenCode config directly in the
-	// workbench project folder (<workbench>/<app>/opencode.json): provider,
-	// model defaults, lsp, and the mcp servers from ~/.ops/config.json. There is
-	// no global ~/.config/opencode/opencode.json (see spec/4-launch.md).
-	if cfg, err := loadTrustableConfig(); err != nil {
-		log.Printf("Warning: failed to load trustable config for opencode generation: %s", err)
-	} else if err := generateOpencodeConfigForApp(cfg, app); err != nil {
-		log.Printf("Warning: failed to generate opencode.json: %s", err)
-	}
-	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
-	// MCP servers generated above from ~/.ops/config.json.
-	setupServiceTooling()
-	sanitizeOpenCodeAgentMetadata(workbenchPath)
-
-	// Start opencode
-	log.Printf("Starting opencode for %s on port %d...", app, leftPort)
-	opencodeCmd := exec.Command("opencode", "serve", "--port", strconv.Itoa(leftPort), "--hostname", "0.0.0.0", "--log-level", "DEBUG", "--print-logs")
-	opencodeCmd.Dir = workbenchPath
-	opencodeCmd.Stdout = os.Stdout
-	opencodeCmd.Stderr = os.Stderr
-	opencodeCmd.Env = appServiceRuntimeEnv(os.Environ())
-	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
-	for key, value := range appEnv {
-		if isServiceRuntimeEnvKey(key) {
-			continue
-		}
-		opencodeCmd.Env = append(opencodeCmd.Env, key+"="+value)
-	}
-	// Set process group so we can kill all child processes
-	opencodeCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Log exactly what we are about to run so failures are visible in the air console.
-	if bin, lookErr := exec.LookPath("opencode"); lookErr != nil {
-		log.Printf("opencode: WARNING `opencode` not found in PATH: %s", lookErr)
-	} else {
-		log.Printf("opencode: binary=%s", bin)
-	}
-	log.Printf("opencode: cmd=`%s`", strings.Join(opencodeCmd.Args, " "))
-	log.Printf("opencode: dir=%s config=%s appEnvCount=%d", workbenchPath, filepath.Join(workbenchPath, "opencode.json"), len(appEnv))
-
-	if err := opencodeCmd.Start(); err != nil {
-		log.Printf("opencode: FAILED to start: %s", err)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start opencode: %s", err)})
+	// Generate MCP entries and companion CLIs from one post-login snapshot.
+	// WHY: service endpoints are an atomic platform contract; two reads can
+	// drift when ops refreshes ~/.ops/config.json during launch.
+	serviceConfig, err := loadOpsConfig()
+	if err != nil {
+		log.Printf("Failed to load post-login service configuration: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to load post-login service configuration: %s", err),
+		})
 		return
 	}
 
-	log.Printf("opencode: started pid=%d in directory: %s", opencodeCmd.Process.Pid, workbenchPath)
+	// Generate the project assets consumed by Pi: standard .mcp.json,
+	// AGENTS.md/CLAUDE.md, the OpenServerless contract, and local checkers.
+	// Provider/model configuration is global under ~/.pi/agent.
+	if err := generateProjectAssetsInDir(workbenchPath, buildMCPFromOpsConfig(serviceConfig)); err != nil {
+		log.Printf("Failed to generate project assets: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to generate project assets: %s", err),
+		})
+		return
+	}
+	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
+	// MCP servers generated above from ~/.ops/config.json. WHY: these wrappers
+	// are one launch contract with the MCP entries; continuing after a required
+	// wrapper fails would expose tooling Pi cannot actually use.
+	if err := setupServiceToolingFromConfig(serviceConfig); err != nil {
+		log.Printf("Service tooling configuration failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("service tooling configuration failed: %s", err),
+		})
+		return
+	}
+	browserURL, err := browserVisibleDevelopmentURL(r)
+	if err != nil {
+		log.Printf("Trustable Pi development URL resolution failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to resolve browser-visible development URL: %s", err),
+		})
+		return
+	}
+	extensionPath, err := trustablePiExtensionPath()
+	if err != nil {
+		log.Printf("Trustable Pi extension validation failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to validate Trustable Pi extension: %s", err),
+		})
+		return
+	}
+	watcherLogPath, err := opsDevelLogPath(app)
+	if err != nil {
+		log.Printf("Trustable watcher log path resolution failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to resolve ops ide devel log: %s", err),
+		})
+		return
+	}
+	initialWatcherLog, err := openRotatingRuntimeLog(watcherLogPath)
+	if err != nil {
+		log.Printf("Trustable watcher log initialization failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to initialize ops ide devel log: %s", err),
+		})
+		return
+	}
+	// WHY: create and protect the host-owned log before Pi validates the
+	// manifest, so managed mode never starts with a declared but absent source.
+	fmt.Fprintf(initialWatcherLog, "\n[trustable] preparing ops ide devel for %s at %s\n", app, time.Now().Format(time.RFC3339))
+	initialWatcherLog.Close()
+	runtimeManifestPath, err := writeTrustablePiRuntimeManifest(app, workbenchPath, browserURL, watcherLogPath)
+	if err != nil {
+		log.Printf("Trustable Pi runtime manifest generation failed: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to generate Trustable Pi runtime manifest: %s", err),
+		})
+		return
+	}
+
+	// Start truacp. It serves its React UI on :4096 and owns the ACP session,
+	// spawning pi-acp (and therefore Pi) in the selected workbench directory.
+	// Trustable does not bootstrap or rewrite an agent session URL.
+	log.Printf("Starting truacp for %s on port %d...", app, leftPort)
+	truacpCmd := exec.Command("truacp", "--port", strconv.Itoa(leftPort), "--dir", workbenchPath)
+	truacpCmd.Dir = workbenchPath
+	truacpCmd.Stdout = os.Stdout
+	truacpCmd.Stderr = os.Stderr
+	truacpCmd.Env = appServiceRuntimeEnv(os.Environ())
+	appEnv := parseEnvFile(filepath.Join(workbenchPath, ".env"))
+	for key, value := range appEnv {
+		// Service bindings are reconstructed from the post-login ops config by
+		// appServiceRuntimeEnv; accepting duplicates from .env could select stale
+		// credentials after an app switch.
+		if isServiceRuntimeEnvKey(key) {
+			continue
+		}
+		truacpCmd.Env = append(truacpCmd.Env, key+"="+value)
+	}
+	// TruACP also supports standalone use, where its local endpoint form and Pi
+	// update notice are appropriate. Append these managed-runtime controls last
+	// so neither the inherited environment nor an application .env can override
+	// Trustable's ownership of configuration and dependency updates.
+	truacpCmd.Env = append(
+		truacpCmd.Env,
+		"TRUSTABLE_MANAGED_RUNTIME=1",
+		"TRUSTABLE_RUNTIME_CONFIG="+runtimeManifestPath,
+		"TRUSTABLE_PI_EXTENSION_PATH="+extensionPath,
+		"PI_SKIP_VERSION_CHECK=1",
+	)
+	// Keep truacp, pi-acp, Pi and ops ide devel in one process group.
+	truacpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// Log exactly what we are about to run so failures are visible in the air console.
+	if bin, lookErr := exec.LookPath("truacp"); lookErr != nil {
+		log.Printf("truacp: WARNING `truacp` not found in PATH: %s", lookErr)
+	} else {
+		log.Printf("truacp: binary=%s", bin)
+	}
+	log.Printf("truacp: cmd=`%s`", strings.Join(truacpCmd.Args, " "))
+	log.Printf(
+		"truacp: dir=%s mcp=%s runtime=%s development=%s appEnvCount=%d",
+		workbenchPath,
+		filepath.Join(workbenchPath, ".mcp.json"),
+		runtimeManifestPath,
+		browserURL,
+		len(appEnv),
+	)
+
+	if err := truacpCmd.Start(); err != nil {
+		log.Printf("truacp: FAILED to start: %s", err)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start truacp: %s", err)})
+		return
+	}
+
+	log.Printf("truacp: started pid=%d in directory: %s", truacpCmd.Process.Pid, workbenchPath)
 
 	// Get the process group ID
-	pgid, err := syscall.Getpgid(opencodeCmd.Process.Pid)
+	pgid, err := syscall.Getpgid(truacpCmd.Process.Pid)
 	if err != nil {
-		opencodeCmd.Process.Kill()
+		truacpCmd.Process.Kill()
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get process group: %s", err)})
 		return
 	}
 
-	// Check opencode doesn't terminate within 0.5 seconds
-	opencodeExited := make(chan error, 1)
+	// Check truacp doesn't terminate within 0.5 seconds.
+	truacpExited := make(chan error, 1)
 	go func() {
-		opencodeExited <- opencodeCmd.Wait()
+		truacpExited <- truacpCmd.Wait()
 	}()
 
 	select {
-	case err := <-opencodeExited:
+	case err := <-truacpExited:
 		// Process exited within 0.5 seconds - this is an error
-		errMsg := "opencode exited unexpectedly"
+		errMsg := "truacp exited unexpectedly"
 		if err != nil {
-			errMsg = fmt.Sprintf("opencode exited with error: %s", err)
+			errMsg = fmt.Sprintf("truacp exited with error: %s", err)
 		}
-		log.Printf("opencode: %s (see opencode stdout/stderr above for the cause)", errMsg)
+		log.Printf("truacp: %s (see truacp stdout/stderr above for the cause)", errMsg)
 		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
 		return
 	case <-time.After(500 * time.Millisecond):
 		// Process is still running - continue
-		log.Printf("opencode: pid=%d still alive after 500ms, serving on port %d", opencodeCmd.Process.Pid, leftPort)
+		log.Printf("truacp: pid=%d still alive after 500ms, serving on port %d", truacpCmd.Process.Pid, leftPort)
 	}
 
 	// Write pgid and current app name to files
@@ -1440,14 +1463,25 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	// Start ops ide devel in the same process group
 	log.Printf("Starting ops ide devel for %s on port %d...", app, rightPort)
+	develLog, err := openRotatingRuntimeLog(watcherLogPath)
+	if err != nil {
+		killPgid(pgid)
+		removePgidFile()
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to open ops ide devel log: %s", err)})
+		return
+	}
+	fmt.Fprintf(develLog, "[trustable] starting managed watcher at %s\n", time.Now().Format(time.RFC3339))
 	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel", workbenchPath))
-	develCmd.Stdout = os.Stdout
-	develCmd.Stderr = os.Stderr
+	develOutput := io.MultiWriter(os.Stdout, develLog)
+	develCmd.Stdout = develOutput
+	develCmd.Stderr = develOutput
 	develCmd.Env = appServiceRuntimeEnv(os.Environ())
-	// Join the same process group as opencode
+	// Join the same process group as truacp.
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	if err := develCmd.Start(); err != nil {
+		fmt.Fprintf(develLog, "[trustable] watcher failed to start: %s\n", err)
+		develLog.Close()
 		killPgid(pgid)
 		removePgidFile()
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to start ops ide devel: %s", err)})
@@ -1457,7 +1491,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Check ops ide devel doesn't terminate within 0.5 seconds
 	develExited := make(chan error, 1)
 	go func() {
-		develExited <- develCmd.Wait()
+		waitErr := develCmd.Wait()
+		fmt.Fprintf(develLog, "[trustable] watcher exited at %s: %v\n", time.Now().Format(time.RFC3339), waitErr)
+		develLog.Close()
+		develExited <- waitErr
 	}()
 
 	select {
@@ -1480,7 +1517,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	if err := waitForPort(leftPort, 30*time.Second); err != nil {
 		killPgid(pgid)
 		removePgidFile()
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("opencode failed to start listening: %s", err)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("truacp failed to start listening: %s", err)})
 		return
 	}
 	if err := waitForPort(rightPort, 30*time.Second); err != nil {
@@ -1490,29 +1527,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		return
 	}
 
-	// Calculate URL-encoded absolute path of the app folder
-	absPath, err := filepath.Abs(workbenchPath)
-	if err != nil {
-		killPgid(pgid)
-		removePgidFile()
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to get absolute path: %s", err)})
-		return
-	}
-	absPath = canonicalPath(absPath)
-	b64Path := base64.RawURLEncoding.EncodeToString([]byte(absPath))
-
-	// Notify the pod-local OpenCode server of the workbench directory so it
-	// scopes the session correctly. Browser requests use opencode.<domain>
-	// through the ingress/proxy path; launch bootstrapping stays inside the pod.
-	sessionID := resolveOpencodeSession(localLoopbackHost, leftPort, absPath)
-
-	log.Printf("Services for %s started - opencode on port %d, opsdevel on port %d", app, leftPort, rightPort)
+	log.Printf("Services for %s started - truacp on port %d, opsdevel on port %d", app, leftPort, rightPort)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"left":         leftPort,
 		"right":        rightPort,
-		"b64dir":       b64Path,
-		"encdir":       absPath,
-		"session_id":   sessionID,
 		"skills_added": skillsAdded,
 	})
 }
@@ -1617,6 +1635,9 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unlock := lockRuntimeLifecycle("redeploy " + name)
+	defer unlock()
+
 	req := struct{ Name string }{Name: name}
 
 	workbenchPath, err := canonicalWorkbenchPath(req.Name)
@@ -1717,20 +1738,37 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 
 	// Step 5: Start ops ide devel --fast
 	send("status", "Starting dev server (ops ide devel --fast)...")
+	watcherLogPath, err := opsDevelLogPath(req.Name)
+	if err != nil {
+		send("error", fmt.Sprintf("Failed to resolve ops ide devel log: %s", err))
+		return
+	}
+	develLog, err := openRotatingRuntimeLog(watcherLogPath)
+	if err != nil {
+		send("error", fmt.Sprintf("Failed to open ops ide devel log: %s", err))
+		return
+	}
+	fmt.Fprintf(develLog, "[trustable] restarting managed watcher with --fast at %s\n", time.Now().Format(time.RFC3339))
 	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel --fast", workbenchPath))
-	develCmd.Stdout = os.Stdout
-	develCmd.Stderr = os.Stderr
+	develOutput := io.MultiWriter(os.Stdout, develLog)
+	develCmd.Stdout = develOutput
+	develCmd.Stderr = develOutput
 	develCmd.Env = appServiceRuntimeEnv(os.Environ())
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	if err := develCmd.Start(); err != nil {
+		fmt.Fprintf(develLog, "[trustable] watcher failed to restart: %s\n", err)
+		develLog.Close()
 		send("error", fmt.Sprintf("Failed to start ops ide devel: %s", err))
 		return
 	}
 
 	develExited := make(chan error, 1)
 	go func() {
-		develExited <- develCmd.Wait()
+		waitErr := develCmd.Wait()
+		fmt.Fprintf(develLog, "[trustable] watcher exited at %s: %v\n", time.Now().Format(time.RFC3339), waitErr)
+		develLog.Close()
+		develExited <- waitErr
 	}()
 
 	select {
@@ -1774,8 +1812,12 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "App name is required"})
 			return
 		}
+		unlock := lockRuntimeLifecycle("launch " + app)
+		defer unlock()
 		handleLaunchGet(w, r, app)
 	case http.MethodDelete:
+		unlock := lockRuntimeLifecycle("stop")
+		defer unlock()
 		handleLaunchDelete(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

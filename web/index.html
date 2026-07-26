@@ -202,6 +202,22 @@
             }
         }
 
+        function catalogSelectionError(providerLabel, section) {
+            const models = section && section.models;
+            const defaultModel = String((section && section.default) || '').trim();
+            // Catalog-backed providers have no later discovery step. Treat an
+            // empty or internally inconsistent status block as unavailable so
+            // it cannot become a saved configuration that fails in testmodel.
+            if (!models || typeof models !== 'object' || Array.isArray(models)
+                || Object.keys(models).length === 0) {
+                return providerLabel + ' model catalog is empty. Please retry later.';
+            }
+            if (!defaultModel || !Object.prototype.hasOwnProperty.call(models, defaultModel)) {
+                return providerLabel + ' model catalog has no valid default model. Please retry later.';
+            }
+            return '';
+        }
+
         function selectOllama() {
             hideProviderModal();
             const modal = document.getElementById('ollamaModeModal');
@@ -230,8 +246,9 @@
         }
 
         async function selectOllamaInternal() {
-            if (!bootStatus || !bootStatus.ollama || !bootStatus.ollama.models) {
-                alert('Status response is not available. Cannot configure Ollama.');
+            const catalogError = catalogSelectionError('Ollama', bootStatus && bootStatus.ollama);
+            if (catalogError) {
+                alert(catalogError);
                 showProviderModal();
                 return;
             }
@@ -239,7 +256,7 @@
             const cfg = Object.assign({}, currentConfig || {}, {
                 provider: 'ollama',
                 models: sec.models,
-                opencode: { default: sec.default || '', small: sec.small || '' },
+                pi: { default: sec.default || '' },
                 base_url: 'http://localhost:11434/v1',
                 api_key: 'dummy'
             });
@@ -248,6 +265,7 @@
                 cfg.model_versions.ollama = sec.modelsVersion;
             }
             // Drop legacy fields if present.
+            delete cfg.opencode;
             delete cfg.model_version;
             delete cfg.env;
             await saveAndRunConfiguration(cfg);
@@ -262,10 +280,11 @@
                 base_url: '',
                 api_key: 'dummy',
                 models: {},
-                opencode: { default: '', small: '' }
+                pi: { default: '' }
             });
             cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
             // Drop legacy fields if present.
+            delete cfg.opencode;
             delete cfg.model_version;
             delete cfg.env;
             try {
@@ -295,8 +314,9 @@
                 showProviderModal();
                 return;
             }
-            if (!bootStatus || !bootStatus.trustable || !bootStatus.trustable.models) {
-                alert('Status response is not available. Cannot configure Trustable.');
+            const catalogError = catalogSelectionError('Trustable', bootStatus && bootStatus.trustable);
+            if (catalogError) {
+                alert(catalogError);
                 showProviderModal();
                 return;
             }
@@ -361,9 +381,10 @@
                     base_url: 'http://bestia:11434/v1',
                     api_key: data.api_key,
                     models: {},
-                    opencode: { default: '', small: '' }
+                    pi: { default: '' }
                 });
                 cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
+                delete cfg.opencode;
                 delete cfg.model_version;
                 delete cfg.env;
                 hideRegisterOverlay();
@@ -420,7 +441,7 @@
             }
 
             const sec = bootStatus.trustable;
-            const statusOpencode = { default: sec.default || '', small: sec.small || '' };
+            const statusPi = { default: sec.default || '' };
 
             const cfg = Object.assign({}, currentConfig || {}, {
                 provider: 'trustable',
@@ -428,18 +449,22 @@
                 base_url: data.base_url,
                 api_key: data.api_key
             });
-            // OpenCode defaults: prefer the iframe payload (the proxy may
-            // have user-specific suggestions), fall back to the status block.
-            if (data.opencode && typeof data.opencode === 'object') {
-                cfg.opencode = Object.assign({}, statusOpencode, data.opencode);
-            } else {
-                cfg.opencode = statusOpencode;
-            }
+            // Issue #51 is a hard cutover: only a Pi payload can override the
+            // provider default. Legacy data.opencode is deliberately ignored.
+            // An empty Pi value from an older registration page is not a real
+            // selection; retain the validated status default in that case.
+            const registeredPiDefault = String(
+                (data.pi && typeof data.pi === 'object' && data.pi.default) || ''
+            ).trim();
+            cfg.pi = {
+                default: registeredPiDefault || statusPi.default
+            };
             cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
             if (typeof sec.modelsVersion === 'number') {
                 cfg.model_versions.trustable = sec.modelsVersion;
             }
             // Drop legacy fields if present.
+            delete cfg.opencode;
             delete cfg.model_version;
             delete cfg.env;
             hideRegisterOverlay();
@@ -466,6 +491,7 @@
         }
 
         async function saveAndRunConfiguration(cfg) {
+            let saveResult = null;
             try {
                 const resp = await fetch('/api/configuration', {
                     method: 'POST',
@@ -477,6 +503,7 @@
                     showProviderModal();
                     return;
                 }
+                saveResult = await resp.json();
             } catch (e) {
                 alert('Failed to save configuration: ' + e.message);
                 showProviderModal();
@@ -487,6 +514,12 @@
                 const fresh = await fetch('/api/configuration');
                 currentConfig = await fresh.json();
             } catch (e) {}
+            // POST /api/configuration already performs a model probe. Honour
+            // its structured auth result instead of discarding it and letting
+            // the following streamed gate surface a misleading generic error.
+            if (saveResult && saveResult.testmodel && saveResult.testmodel.auth_required) {
+                await waitForOllamaSignin();
+            }
             await runConfiguration();
         }
 
@@ -534,7 +567,19 @@
 
         function retryOpenAITest() {
             hideSigninModal();
-            if (_openaiTestResolve) _openaiTestResolve();
+            const resolve = _openaiTestResolve;
+            _openaiTestResolve = null;
+            if (resolve) resolve();
+        }
+
+        // Both the JSON connectivity probe and the streamed Pi gate can detect
+        // the same missing Ollama Cloud identity. Keep one managed wait point
+        // so Retry resumes the operation that originally required sign-in.
+        async function waitForOllamaSignin() {
+            await new Promise(resolve => {
+                _openaiTestResolve = resolve;
+                showSigninModal();
+            });
         }
 
         function isSigninError(message) {
@@ -569,10 +614,7 @@
 
                 if (isOllama) {
                     if (result.auth_required || isSigninError(result.error)) {
-                        await new Promise(resolve => {
-                            _openaiTestResolve = resolve;
-                            showSigninModal();
-                        });
+                        await waitForOllamaSignin();
                         continue;
                     }
                     return result;
@@ -590,6 +632,7 @@
             showConfigModal();
             const msgEl = document.getElementById('configMessages');
             let configError = false;
+            let authRequired = false;
             try {
                 const resp = await fetch('/api/configure');
                 const reader = resp.body.getReader();
@@ -604,7 +647,14 @@
                     for (const line of lines) {
                         if (line.trim()) {
                             const div = document.createElement('div');
-                            if (line.startsWith('ERROR:')) {
+                            // /api/configure must not collapse an Ollama 401
+                            // into a generic configuration error: that would
+                            // skip the sign-in modal and strand Pi unconfigured.
+                            if (line.startsWith('AUTH_REQUIRED:')) {
+                                div.className = 'text-[color:var(--nu-danger)]';
+                                div.textContent = line.substring('AUTH_REQUIRED:'.length).trim();
+                                authRequired = true;
+                            } else if (line.startsWith('ERROR:')) {
                                 div.className = 'text-[color:var(--nu-danger)]';
                                 div.textContent = line;
                                 configError = true;
@@ -634,6 +684,13 @@
                 configError = true;
             }
             document.getElementById('configSpinner').classList.add('hidden');
+
+            if (authRequired) {
+                await waitForOllamaSignin();
+                // Rerun the full gate, not only /api/testmodel: a successful
+                // retry must also materialize Pi's global models/auth/settings.
+                return runConfiguration();
+            }
 
             if (configError) {
                 document.getElementById('configRetryBtn').classList.remove('hidden');
@@ -701,15 +758,24 @@
 
             // STATUS_URL is the single source of truth for the per-provider
             // catalog (models + default + small + modelsVersion). On each
-            // splash we compare the active provider's saved snapshot against
-            // the live response; any drift (modelsVersion bump OR a changed
-            // default/small) persists the new values and routes the user
-            // through configure.html?reselect=1.
+            // splash we compare the active provider's saved catalog version
+            // against the live response. The catalog's default is only a seed:
+            // a different saved Pi model is an intentional user choice, not
+            // drift, and must never create a configure/applist redirect loop.
             bootStatus = await fetchStatus();
 
             const params = new URLSearchParams(window.location.search);
             const forceChoose = params.get('choose') === '1';
             const provider = currentConfig && currentConfig.provider;
+            const configuredPiDefault = String((currentConfig.pi && currentConfig.pi.default) || '').trim();
+
+            // Issue #51 deliberately ignores legacy opencode selections. Stop
+            // before configure/testmodel so upgrades land on the model picker
+            // instead of exposing "pi.default not defined" as a runtime error.
+            if (provider && !forceChoose && !configuredPiDefault) {
+                window.location.href = 'configure.html?setup=1';
+                return;
+            }
 
             // Own-host Ollama is exempt from the reselect redirect: those
             // users discover their model list via /api/discover-models on
@@ -723,24 +789,29 @@
             if (provider && !ownHostOllama && !forceChoose && bootStatus && bootStatus[provider]) {
                 const sec = bootStatus[provider];
                 const savedVer = (currentConfig.model_versions && currentConfig.model_versions[provider]) || 0;
-                const savedOpencode = currentConfig.opencode || {};
+                const savedPi = currentConfig.pi || {};
                 const versionChanged = typeof sec.modelsVersion === 'number'
                     && sec.modelsVersion > 0
                     && sec.modelsVersion !== savedVer;
-                const defaultsChanged =
-                    (sec.default && sec.default !== savedOpencode.default) ||
-                    (sec.small   && sec.small   !== savedOpencode.small);
 
-                if ((versionChanged || defaultsChanged) && sec.models) {
+                if (versionChanged && sec.models) {
                     const newVersions = Object.assign({}, currentConfig.model_versions || {});
                     if (typeof sec.modelsVersion === 'number') {
                         newVersions[provider] = sec.modelsVersion;
                     }
+                    // Keep the user's selection when it still exists in the
+                    // refreshed catalog; use the catalog default only when the
+                    // previous model disappeared.
+                    const refreshedDefault = savedPi.default
+                        && Object.prototype.hasOwnProperty.call(sec.models, savedPi.default)
+                        ? savedPi.default
+                        : (sec.default || '');
                     const cfg = Object.assign({}, currentConfig, {
                         models: sec.models,
-                        opencode: { default: sec.default || '', small: sec.small || '' },
+                        pi: { default: refreshedDefault },
                         model_versions: newVersions
                     });
+                    delete cfg.opencode;
                     delete cfg.model_version;
                     delete cfg.env;
                     try {

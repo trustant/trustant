@@ -759,6 +759,57 @@ password-in-query defects as failures. More ambiguous session-token and
 browser-supplied identity patterns remain warnings to avoid noisy false
 positives.
 
+## Pipeline follow-up: circuit-breaker recovery UX
+
+The `trulongsession` long run exposed a blocking recovery failure. A source
+`write` was correctly rejected because diagnostic browser evidence was still
+missing, but the model retried the same blocked operation three times. The
+hidden continuation did not change its strategy; the final assistant turn was
+empty, the backend became idle, and the UI gave the user no explanation.
+
+Required follow-up:
+
+1. A blocked mutation must produce one bounded internal recovery action that
+   identifies the missing evidence and the valid next tool operation.
+2. The same mutation cannot be retried while its diagnostic precondition is
+   unchanged. A repeated attempt must collect fresh evidence or finish with a
+   concise visible status.
+3. Browser evidence must distinguish interactive flows from failures that can
+   be reproduced with a snapshot, diagnostics, console, or network evidence.
+4. Hidden continuations must never end in an empty assistant turn.
+5. The UI must clear thinking from authoritative session status and show a
+   bounded explanation when recovery cannot proceed.
+
+This must not weaken the source-mutation gate. The correction is deterministic
+recovery and honest user feedback, not allowing the rejected write.
+
+## Core long-session resolution
+
+The later `trulongsession` run exposed a second failure mode: a failed large
+`write` remained in provider history, the model later treated its unapplied
+content as real source, and LLM-driven compaction attempted another `write`
+while summary tools were disabled. The run ended after 9.6 minutes with only a
+partial frontend change and no useful final response.
+
+Trustable Code resolves this in core rather than adding another plugin gate:
+
+1. every user iteration fingerprints the active task and invalidates the old
+   execution plan until an updated `todowrite` plan is persisted;
+2. the core presents the current task, plan, and workflow phase in system
+   context on every provider turn;
+3. failed and interrupted mutation inputs are reduced to path plus an explicit
+   `changed nothing` marker before historical replay;
+4. unsigned historical reasoning is removed from Trustable provider history;
+5. compaction creates a deterministic checkpoint from observed state and never
+   invokes the model or tools;
+6. the UI reports real activity and elapsed time from session tool events.
+
+The workflow also incorporates project governance: `spec.md` carries current
+application behavior, while architecture, rules, skill, README, implementation
+plan, and project log are updated when an iteration changes their contract.
+The structured `question` tool remains available for genuinely blocking user
+decisions and its answer must revise the persisted plan.
+
 Authentication is also added to the real E2E flow. The runner prompts OpenCode
 in non-technical language, then Playwright validates registration, login,
 protected navigation, full-page reload persistence, logout, and login reuse.
