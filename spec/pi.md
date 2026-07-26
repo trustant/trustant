@@ -260,3 +260,11 @@ There is still no global step/turn budget.
 Context-continuity state and completion evidence remain subsequent issue #57
 increments. The complete versioned contract and acceptance matrix are
 specified in [trustable-pi-runtime.md](trustable-pi-runtime.md).
+
+## Notebook prompts
+
+TruACP notebook workflows are client/server orchestration, not a Pi extension.
+Each selected notebook or ad-hoc node is sent through the same ACP prompt path
+as ordinary composer input. No notebook index, source metadata, GitHub token, or
+unexecuted prompt is injected into Pi or its model context. See
+[notebook.md](notebook.md).

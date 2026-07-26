@@ -50,7 +50,7 @@ func loadEnv() error {
 		val = os.ExpandEnv(val)
 		// Set in the process environment so subsequent expansions work
 		os.Setenv(key, val)
-		log.Printf("  env: %s=%s", key, val)
+		log.Printf("  env: %s=%s", key, safeEnvLogValue(key, val))
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("failed to read .env: %w", err)
@@ -85,6 +85,22 @@ func loadEnv() error {
 		return fmt.Errorf("AIP_BASE_URL is not set")
 	}
 	return nil
+}
+
+// safeEnvLogValue prevents server-side credentials from being copied into the
+// Trustable/Air/pod log. NOTEBOOK_GITHUB_TOKEN is covered by TOKEN; the broader
+// rule also fixes the same exposure for provider keys and service passwords.
+func safeEnvLogValue(key, value string) string {
+	upper := strings.ToUpper(key)
+	for _, marker := range []string{"TOKEN", "SECRET", "PASSWORD", "API_KEY"} {
+		if strings.Contains(upper, marker) {
+			if value == "" {
+				return ""
+			}
+			return "<redacted>"
+		}
+	}
+	return value
 }
 
 // runPreflight executes all preflight checks before starting the server

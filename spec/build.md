@@ -144,3 +144,10 @@ Publishing environment:
 The server flow does not update `olaris-bestia/opsroot.json`; that file belongs
 to the release/plugin publishing flow. Local server builds are for testing the
 image currently being developed.
+
+Notebook support adds no runtime package or image secret. Its React UI, parser,
+server GitHub client, and session sidecar code are imported by the existing
+truacp web/server entrypoints and therefore travel in the normal embedded
+bundle. `NOTEBOOK_GITHUB_TOKEN`, when configured, is supplied only to the
+running server process; it is never baked into an image layer or staged
+artifact.
