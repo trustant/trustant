@@ -27,14 +27,17 @@ local-k3s target, but service forwarding must be supplied explicitly with the
 same pinned `kubefwd` used by `trudev`; repository setup must not rewrite the
 Windows or Linux resolver configuration.
 
-Runtime tools are installed for the local user — into `~/.local/bin`,
-`~/.local/lib/truacp`, and `~/.pi/agent` — except for the upstream Milvus CLI.
-That pinned package is a system prerequisite under `/opt/uv/tools` with entry
+Runtime tools are installed for the local user. npm global packages use the
+setup-owned user prefix (default `~/.npm-global`), while uv tools, wrappers, and
+the TruACP launcher remain under `~/.local/bin` and
+`~/.local/lib/truacp`; Pi state remains under `~/.pi/agent`. The pinned
+upstream Milvus CLI is a system prerequisite under `/opt/uv/tools` with entry
 points in `/usr/local/bin`; `~/.local/bin/milvus_cli` belongs exclusively to
 Trustable's per-app wrapper. `sudo` is otherwise limited to system packages and
-system prerequisites (the guest user has passwordless sudo). This mirrors the
-Dockerfile's per-user (`trustable`) stages while keeping the wrapper boundary
-identical in Lima and the image.
+system prerequisites (the guest user has passwordless sudo). npm global
+installation never uses `sudo`. This mirrors the Dockerfile's per-user
+(`trustable`) stages while keeping the wrapper boundary identical in Lima and
+the image.
 
 When I say add to the PATH, add to ~/.bashrc (the VM is Ubuntu; bash login shell).
 
@@ -115,7 +118,30 @@ Dockerfile; node may already be present from the VM package):
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
-6. ensure $HOME/.local/bin is the first entry in the path and warn if not
+After npm is available and before any global npm installation, repository-root
+`setup.sh` owns one npm-prefix policy:
+
+- use `NPM_CONFIG_PREFIX` when explicitly supplied and compatible;
+- otherwise preserve the current `npm config get prefix` when it is an absolute,
+  writable directory owned by the current user;
+- otherwise default to `$HOME/.npm-global`;
+- create `<prefix>/bin` and `<prefix>/lib/node_modules` without sudo;
+- export `NPM_CONFIG_PREFIX=<prefix>` and prepend `<prefix>/bin` to the current
+  setup process PATH;
+- persist the prefix with `npm config set ... --location=user`;
+- persist the PATH through the canonical `~/.bashrc` PATH line. Repeated setup
+  runs must not duplicate that line.
+
+An explicitly configured prefix that is relative, owned by another user, or
+not writable without privilege is incompatible and falls back with a warning to
+`$HOME/.npm-global`. `trustable-acp/setup.sh` consumes this exported/configured
+prefix; it does not own another persistent default in the repository-root flow.
+The image build remains reproducible: it invokes the same nested installer as
+the image build user and uses that build context's writable npm prefix.
+
+6. ensure $HOME/.local/bin is the first entry in the path and warn if not. The
+selected npm `<prefix>/bin` must also be present before npm-installed commands
+are verified.
 
 7. check you can reach OpenWhisk.
 
@@ -172,10 +198,19 @@ missing (apt via passwordless sudo, the pinned upstream Milvus CLI via uv):
 - lsof, required by Trustable's orphaned TruACP/Vite listener recovery
 - milvus-cli 1.2.1, installed globally with its upstream entry points under
   `/usr/local/bin`
+- GitHub CLI 2.96.0, installed from the official Linux tarball under
+  `/usr/local/bin/gh`
 
 (uv itself was ensured in step 3. There is no `/opt/homebrew` in the VM.
 `~/.local/bin/milvus_cli` is reserved for the configured Trustable wrapper
 generated at app launch; setup must not place the upstream executable there.)
+
+The GitHub CLI release is owned by `GH_VERSION`, `GH_SHA_AMD64`, and
+`GH_SHA_ARM64` in `image/Dockerfile`. Setup reads those exact values, selects
+only amd64/arm64, verifies the archive SHA-256 before extraction, and rejects a
+different installed version instead of accepting a floating distro package.
+The CLI is only a runtime dependency at this stage: setup does not authenticate
+an account and never reads a developer machine's normal `~/.config/gh`.
 
 11. Install the pinned Pi coding-agent toolchain.
 
@@ -183,8 +218,8 @@ generated at app launch; setup must not place the upstream executable there.)
   ignoring comments and blank lines.
 - Reject any entry without an explicit version separator; setup must never
   resolve a floating Pi CLI or extension.
-- Install the complete list globally under `~/.local` and verify `pi` is on
-  `PATH`.
+- Install the complete list globally under the selected user-owned npm prefix
+  and verify `pi` is on `PATH`.
 
 Do not install OpenCode, use `https://opencode.ai/install`, or replace the
 checked-in Trustable ACP adapter with a public unpinned package.
@@ -217,7 +252,7 @@ Package-name-only “already installed” output is not sufficient evidence beca
 it can leave an executable created from the previous upstream source.
 
 Package the repository `mcp` submodule and install that tarball together with
-the mongodb server using npm (global, for the local user):
+the mongodb server using npm (global, under the selected user-owned npm prefix):
 
 ```
 pack_dir=$(mktemp -d)
@@ -241,7 +276,7 @@ assistant to modify the system Python environment during a session.
 
 Pack `browser-mcp/` and install the resulting `trustable-browser-mcp` package,
 then pack `react-mcp/` and install the resulting `trustable-react-mcp` package
-plus `tsx` under `~/.local`. The React MCP is a read-only deterministic
+plus `tsx` under the selected npm prefix. The React MCP is a read-only deterministic
 validator and is separate from optional Agentic React. Install Playwright
 `1.56.1` Chromium and its system dependencies with
 `PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright`. Setup must verify that both
@@ -286,10 +321,11 @@ session. Standalone TruACP does not load this extension unless the host selects
 it through the typed launch contract.
 
 This is the "references ready" prerequisite. Ensure the ~/.bashrc PATH matches the
-image ordering, including the Go bin dir (GOBIN/GOPATH-bin) so a fresh login shell
-(as run.sh uses) finds air:
+image ordering, including the selected npm prefix bin and the Go bin dir
+(GOBIN/GOPATH-bin), so a fresh login shell (as run.sh uses) finds npm-installed
+commands and air:
 
-~/.local/bin:~/.ops/linux-<arch>/bin:<go-bin>:/usr/local/bin:/usr/bin:/bin
+~/.local/bin:<npm-prefix>/bin:~/.ops/linux-<arch>/bin:<go-bin>:/usr/local/bin:/usr/bin:/bin
 
 Note (no action needed): per-app `AGENTS.md`, its `CLAUDE.md` compatibility
 mirror, `.openserverless-contract.md`, and `.mcp.json` are written at launch by

@@ -116,7 +116,7 @@
         </div>
 
         <!-- Git User -->
-        <div class="nu-card p-5 mb-4">
+        <div id="gitUserCard" class="nu-card p-5 mb-4">
             <h2 class="text-lg font-medium mb-4">Git User</h2>
             <div class="space-y-3">
                 <div>
@@ -128,6 +128,44 @@
                     <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Email</label>
                     <input type="text" id="gitEmail"
                         class="nu-input w-full px-3 py-2 text-sm">
+                </div>
+            </div>
+        </div>
+
+        <!-- GitHub credentials stay in the backend-managed workspace. The UI
+             receives only account metadata and the one-time device code. -->
+        <div class="nu-card p-5 mb-4">
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-medium">GitHub Account</h2>
+                    <p class="text-sm text-[color:var(--nu-muted)] mt-1">
+                        Connect a personal account to import and push public or private repositories.
+                    </p>
+                </div>
+                <span id="githubAccountBadge" class="nu-status-pill px-2 py-1">Checking...</span>
+            </div>
+            <div class="mt-4">
+                <p id="githubAccountMessage" class="text-sm text-[color:var(--nu-muted)]">
+                    Checking managed GitHub status...
+                </p>
+                <div id="githubDevicePanel" class="hidden nu-feedback nu-feedback-info p-3 mt-3">
+                    <p class="text-sm">Open the device page and enter this one-time code:</p>
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                        <code id="githubDeviceCode" class="nu-code text-base font-semibold"></code>
+                        <button type="button" onclick="copyGitHubDeviceCode()"
+                            class="nu-btn nu-btn-secondary nu-btn-compact">Copy Code</button>
+                        <a id="githubDeviceURL" href="https://github.com/login/device"
+                            target="_blank" rel="noopener" class="nu-btn nu-btn-primary">Open GitHub</a>
+                    </div>
+                </div>
+                <p id="githubAccountError" class="hidden nu-feedback nu-feedback-error p-3 mt-3 text-sm"></p>
+                <div class="flex flex-wrap gap-2 mt-4">
+                    <button id="githubConnectBtn" type="button" onclick="startGitHubLogin()"
+                        class="nu-btn nu-btn-primary">Connect GitHub</button>
+                    <button id="githubCancelBtn" type="button" onclick="cancelGitHubLogin()"
+                        class="hidden nu-btn nu-btn-secondary">Cancel</button>
+                    <button id="githubLogoutBtn" type="button" onclick="logoutGitHub()"
+                        class="hidden nu-btn nu-btn-danger">Disconnect</button>
                 </div>
             </div>
         </div>
@@ -175,6 +213,118 @@
 
     <script>
         let config = { models: {}, pi: { default: '' } };
+        let githubPollTimer = null;
+
+        function setGitHubElementVisible(id, visible) {
+            const element = document.getElementById(id);
+            if (element) element.classList.toggle('hidden', !visible);
+        }
+
+        function scheduleGitHubPoll() {
+            if (githubPollTimer) clearTimeout(githubPollTimer);
+            githubPollTimer = setTimeout(loadGitHubAccount, 1500);
+        }
+
+        async function loadGitHubAccount() {
+            const badge = document.getElementById('githubAccountBadge');
+            const message = document.getElementById('githubAccountMessage');
+            const error = document.getElementById('githubAccountError');
+            try {
+                const [statusResponse, loginResponse] = await Promise.all([
+                    fetch('/api/github/status'),
+                    fetch('/api/github/login')
+                ]);
+                const status = await statusResponse.json();
+                const login = await loginResponse.json();
+                const connecting = !status.authenticated && login.state === 'connecting';
+                badge.textContent = status.authenticated
+                    ? 'Connected'
+                    : connecting
+                        ? 'Connecting'
+                        : status.available
+                            ? 'Disconnected'
+                            : 'Unavailable';
+                message.textContent = status.authenticated
+                    ? `Connected as ${status.login} on ${status.hostname}.`
+                    : connecting
+                        ? 'Waiting for GitHub device authorization.'
+                        : status.error || 'No personal GitHub account is connected.';
+                setGitHubElementVisible('githubConnectBtn', !status.authenticated && !connecting);
+                setGitHubElementVisible('githubCancelBtn', connecting);
+                setGitHubElementVisible('githubLogoutBtn', status.authenticated);
+                setGitHubElementVisible('gitUserCard', !status.authenticated);
+                const hasDevice = connecting && Boolean(login.url || login.code);
+                setGitHubElementVisible('githubDevicePanel', hasDevice);
+                if (hasDevice) {
+                    document.getElementById('githubDeviceCode').textContent = login.code || 'Waiting...';
+                    document.getElementById('githubDeviceURL').href =
+                        login.url || 'https://github.com/login/device';
+                }
+                const loginError = !status.authenticated && login.state === 'failed'
+                    ? login.error
+                    : '';
+                error.textContent = loginError || '';
+                setGitHubElementVisible('githubAccountError', Boolean(loginError));
+                if (connecting) scheduleGitHubPoll();
+            } catch (e) {
+                badge.textContent = 'Unavailable';
+                message.textContent = 'GitHub account status could not be loaded.';
+                error.textContent = e.message;
+                setGitHubElementVisible('githubAccountError', true);
+                setGitHubElementVisible('githubConnectBtn', true);
+                setGitHubElementVisible('githubCancelBtn', false);
+                setGitHubElementVisible('githubLogoutBtn', false);
+                setGitHubElementVisible('gitUserCard', true);
+            }
+        }
+
+        async function startGitHubLogin() {
+            const error = document.getElementById('githubAccountError');
+            error.textContent = '';
+            setGitHubElementVisible('githubAccountError', false);
+            try {
+                const response = await fetch('/api/github/login', { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'GitHub login could not start');
+                await loadGitHubAccount();
+            } catch (e) {
+                error.textContent = e.message;
+                setGitHubElementVisible('githubAccountError', true);
+            }
+        }
+
+        async function cancelGitHubLogin() {
+            await fetch('/api/github/login/cancel', { method: 'POST' });
+            await loadGitHubAccount();
+        }
+
+        async function logoutGitHub() {
+            if (!confirm('Disconnect the managed GitHub account from Trustable?')) return;
+            const response = await fetch('/api/github/logout', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) {
+                const error = document.getElementById('githubAccountError');
+                error.textContent = data.error || 'GitHub logout failed';
+                setGitHubElementVisible('githubAccountError', true);
+            }
+            await loadGitHubAccount();
+        }
+
+        async function copyGitHubDeviceCode() {
+            const code = document.getElementById('githubDeviceCode').textContent;
+            if (!code || code === 'Waiting...') return;
+            try {
+                await navigator.clipboard.writeText(code);
+            } catch (e) {
+                const range = document.createRange();
+                range.selectNodeContents(document.getElementById('githubDeviceCode'));
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                document.execCommand('copy');
+                selection.removeAllRanges();
+            }
+        }
 
         function providerLabel(name) {
             if (name === 'trustable') return 'Trustable Cloud <br> powered by Regolo.AI';
@@ -724,7 +874,7 @@
             } catch (e) {
                 console.error('Failed to check version:', e);
             }
-            await loadConfig();
+            await Promise.all([loadConfig(), loadGitHubAccount()]);
 
             // setup=1 is provider-independent: every provider must make the
             // new Pi selection explicitly because legacy opencode settings are
@@ -742,6 +892,9 @@
                 document.getElementById('reselectBanner').classList.remove('hidden');
             }
         })();
+        window.addEventListener('beforeunload', () => {
+            if (githubPollTimer) clearTimeout(githubPollTimer);
+        });
     </script>
 </body>
 </html>

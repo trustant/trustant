@@ -62,11 +62,30 @@ If it is an error:
 
 Return error if fails, otherwise return a warning that the password was ignored for local as the user was existing and the local password was reused.
 
-Then try to clone the repo as bare from github as git@github.com:<repo>
-using the ssh key in `~/.ssh/id_ed25519` saving in
-`<workspacedir>/workspace/<name>`
+Before creating local state, check the managed GitHub account described in
+[github.md](github.md). When authenticated:
+
+- validate the repository with the official `gh` CLI using argument-safe
+  invocation;
+- obtain only its sanitized full name, HTTPS clone URL, visibility, and default
+  branch;
+- fail clearly when the account cannot access the repository;
+- clone through the Trustable-owned isolated HTTPS credential helper.
+
+When no managed account is authenticated, preserve the existing fallback:
+first try `git@github.com:<repo>` with `~/.ssh/id_ed25519`, then unauthenticated
+HTTPS for public repositories.
 
 Use `git clone --bare` so the workspace is a bare repository (no working tree). This avoids push conflicts when saving from the workbench.
+
+Preserve the repository's real default branch in the bare repository's symbolic
+`HEAD`. This also applies to empty repositories, where no fetched branch exists
+yet. Do not silently replace an empty repository with `trureact` and do not
+assume its default branch is `main`.
+
+All Git and `gh` subprocesses use argv arrays, bounded execution, and the
+managed environment from [github.md](github.md). GitHub tokens and credential
+files are never returned in API errors or logs.
 
 Return error if fails.
 

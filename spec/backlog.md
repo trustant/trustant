@@ -58,6 +58,12 @@ Trustable does not use the upstream `opencode github install` or
 `https://api.opencode.ai` token-exchange and installation-check endpoints are
 still included in the Trustable Code source and compiled binary.
 
+The managed personal GitHub account implemented for trustable-app issue #62 is
+deliberately separate: it invokes the official `gh` CLI from the Trustable
+backend with isolated persistent state and never calls `api.opencode.ai`.
+Implementing #62 does not activate, retain, or justify the upstream OpenCode
+cloud integration described in this backlog item.
+
 Remove or explicitly disable this integration in the Trustable Code build so a
 normal Trustable installation cannot contact the OpenCode cloud endpoint. This
 must not remove Trustable's existing local repository operations such as

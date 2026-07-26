@@ -3,7 +3,7 @@ Put the code in the file `publish.go`
 
 # Publishing authorization
 
-Only `/api/publish/remote` (OpenServerless deploy) is gated by publishing authorization. The Git-push endpoints `/api/publish/push` and `/api/publish/force-push` are always allowed — pushing to a user-owned GitHub repository requires no proxy entitlement, only the user's SSH key.
+Only `/api/publish/remote` (OpenServerless deploy) is gated by publishing authorization. The Git-push endpoints `/api/publish/push` and `/api/publish/force-push` are always allowed — pushing to a user-owned GitHub repository requires no proxy entitlement. Authentication comes from the managed personal GitHub account when connected, with the existing SSH key as fallback.
 
 For `/api/publish/remote` the server-side check below runs **before** doing any work; the frontend does not gate this call.
 
@@ -36,9 +36,18 @@ Where `repo` is optional (only sent when user provides it from the popup).
 4. Check workspace bare repo exists at `<WorkspaceDir>/workspace/<name>`. If not, return error.
 5. In the workspace bare repo directory:
    - `git remote remove production` (ignore errors, may not exist)
-   - `git remote add production git@github.com:<OPS_REPO>.git`
-   - `git push production main` with `GIT_SSH_COMMAND=ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no`
+   - resolve its symbolic default branch and reject an invalid/missing branch;
+   - when the managed GitHub account is authenticated, validate `OPS_REPO` and
+     add `production` with the sanitized HTTPS clone URL;
+   - otherwise add `production` as `git@github.com:<OPS_REPO>.git`;
+   - run `git push production <default-branch>` with the isolated managed Git
+     environment. SSH fallback also adds
+     `GIT_SSH_COMMAND=ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no`.
 6. Return `{"output": "..."}` on success, or `{"error": "...", "output": "..."}` on failure
+
+The same transport and default-branch rules apply to
+`/api/publish/force-push`. Neither endpoint returns tokens, credential-helper
+configuration, or raw `gh` output.
 
 # POST /api/publish/remote
 

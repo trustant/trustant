@@ -41,6 +41,54 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	}
 }
 
+func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+	for _, required := range []string{
+		`NPM_DEFAULT_PREFIX="$HOME/.npm-global"`,
+		`NPM_CONFIGURED_PREFIX="${NPM_CONFIG_PREFIX:-}"`,
+		`NPM_CONFIGURED_PREFIX="$(npm config get prefix`,
+		`mkdir -p "$prefix/bin" "$prefix/lib/node_modules"`,
+		`stat -c '%u' "$prefix"`,
+		`npm_prefix_is_compatible "$NPM_CONFIGURED_PREFIX"`,
+		`export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"`,
+		`npm config set prefix "$NPM_GLOBAL_PREFIX" --location=user`,
+		`export PATH="$NPM_GLOBAL_BIN:$PATH"`,
+		`if ! grep -qF "$IMAGE_PATH" "$HOME/.bashrc"`,
+		`IMAGE_PATH="\$HOME/.local/bin:${NPM_GLOBAL_BIN}:`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing npm-prefix fragment %q", required)
+		}
+	}
+	if strings.Contains(setup, `--prefix "$HOME/.local"`) {
+		t.Fatal("setup.sh global npm installs must consume the selected npm prefix")
+	}
+	if strings.Contains(setup, "sudo npm") {
+		t.Fatal("setup.sh must never require sudo for a global npm install")
+	}
+	configureAt := strings.Index(setup, `npm config set prefix "$NPM_GLOBAL_PREFIX"`)
+	firstGlobalInstallAt := strings.Index(setup, "npm install -g")
+	if configureAt < 0 || firstGlobalInstallAt < 0 || configureAt > firstGlobalInstallAt {
+		t.Fatal("setup.sh must configure and export the npm prefix before global npm installs")
+	}
+
+	acpContent, err := os.ReadFile(filepath.Join("trustable-acp", "setup.sh"))
+	if err != nil {
+		t.Fatalf("read trustable-acp/setup.sh: %s", err)
+	}
+	acpSetup := string(acpContent)
+	if !strings.Contains(acpSetup, `GLOBAL_PREFIX=$(npm config get prefix)`) {
+		t.Fatal("trustable-acp/setup.sh must consume the caller-selected npm prefix")
+	}
+	if strings.Contains(acpSetup, ".npm-global") {
+		t.Fatal("trustable-acp/setup.sh must not define a competing persistent npm-prefix default")
+	}
+}
+
 func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 	setupContent, err := os.ReadFile("setup.sh")
 	if err != nil {
@@ -62,6 +110,33 @@ func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 	}
 	if !strings.Contains(string(dockerContent), "vim lsof libatomic1") {
 		t.Fatal("production image must contain lsof for orphaned TruACP/Vite listener recovery")
+	}
+}
+
+func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
+	setupContent, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	for name, content := range map[string]string{
+		"setup.sh":         string(setupContent),
+		"image/Dockerfile": string(dockerContent),
+	} {
+		for _, required := range []string{
+			"GH_VERSION=2.96.0",
+			"GH_SHA_AMD64=",
+			"GH_SHA_ARM64=",
+			"gh_${GH_VERSION}_linux_",
+			"sha256sum -c -",
+		} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s is missing pinned GitHub CLI fragment %q", name, required)
+			}
+		}
 	}
 }
 

@@ -5,6 +5,9 @@ ARG OPS_REPO=https://github.com/nuvolaris/bestia
 # cannot drift back to the upstream Milvus MCP or a floating branch.
 ARG MILVUS_MCP_REPO=https://github.com/trustable-ai/mcp-server-milvus.git
 ARG MILVUS_MCP_REF=a7e624f3057a0d739528bca3ed92504943224ceb
+ARG GH_VERSION=2.96.0
+ARG GH_SHA_AMD64=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
+ARG GH_SHA_ARM64=06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909
 
 ########################################################## loader
 FROM ubuntu:24.04 AS loader
@@ -31,6 +34,9 @@ FROM ubuntu:24.04 AS stage1-root
 ARG TARGETARCH
 ARG MILVUS_MCP_REPO
 ARG MILVUS_MCP_REF
+ARG GH_VERSION
+ARG GH_SHA_AMD64
+ARG GH_SHA_ARM64
 USER root
 
 # collecting
@@ -55,6 +61,24 @@ RUN \
     echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
     locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+# Install the official GitHub CLI from a checked release. WHY: managed account
+# state is isolated at runtime, but VM and pod must execute the same verified
+# client without inheriting a floating distro package.
+RUN \
+    case "${TARGETARCH}" in \
+        amd64) GH_SHA="${GH_SHA_AMD64}" ;; \
+        arm64) GH_SHA="${GH_SHA_ARM64}" ;; \
+        *) echo "unsupported GitHub CLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac ;\
+    GH_ARCHIVE="gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" ;\
+    curl -fsSL -o "/tmp/${GH_ARCHIVE}" \
+        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" ;\
+    echo "${GH_SHA}  /tmp/${GH_ARCHIVE}" | sha256sum -c - ;\
+    tar -C /tmp -xzf "/tmp/${GH_ARCHIVE}" ;\
+    install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh ;\
+    rm -rf "/tmp/${GH_ARCHIVE}" "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}" ;\
+    gh --version
 
 
 # Keep the upstream Milvus CLI pinned in /usr/local/bin. WHY: app launch replaces

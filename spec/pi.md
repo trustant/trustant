@@ -24,6 +24,14 @@ package as a fallback. Dependency hydration for this nested source uses
 generation, while repository-only lifecycle hooks must not require the host
 worktree's Git administration path from inside Lima, WSL, or an image builder.
 
+In the repository-root Lima/WSL flow, root `setup.sh` is the sole owner of the
+persistent npm global-prefix policy. It selects a compatible user-owned prefix
+(default `~/.npm-global`), exports it before invoking this installer, and places
+its bin directory on the current and Bash-login PATH. `trustable-acp/setup.sh`
+consumes npm's selected writable prefix and must not introduce a competing
+`~/.npm-global` default. Its standalone/image fallback remains scoped to those
+entrypoints, where the caller's writable build prefix is authoritative.
+
 ## Global model configuration
 
 Pi model configuration is global under `${PI_CODING_AGENT_DIR}` or, when that
