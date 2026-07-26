@@ -39,7 +39,7 @@ VM_NAME="trudev"
 SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
 LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
 DOWNLOAD_BASE="https://landing2.nuvolaris.org/api/my/v1/download"
-TRUSTABLE_VERSION="0.3.10"
+TRUSTABLE_VERSION="0.4.0"
 DIST_DIR="dist"                              # host-side cache for the .deb
 
 # CPU-only ollama is installed as a host process in the VM (localhost:11434); the

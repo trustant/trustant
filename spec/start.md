@@ -16,6 +16,10 @@ Cache as dist/trustable_<version>_<arch>.deb. If it already exists, skip the
 ~3.6GB download. Download to a .part file and move into place so an interrupted
 download never leaves a truncated cache entry.
 
+The release identity must stay aligned across the repository: `version.txt`
+contains the tagged form (`v0.4.0`) used by builds, while `TRUSTABLE_VERSION` in
+`start.sh` contains the numeric form (`0.4.0`) used to download the VM package.
+
 ## Boot the VM, then install (NOT via cloud-init provision)
 
 Create an Ubuntu VM with Lima using vmType: vz and a vzNAT network. Do NOT install
