@@ -152,3 +152,10 @@ stages `setup.sh`, `pi.version`, `pi.integrity`, the managed runtime extension,
 the built TruACP bundle, and the pinned `pi-acp` package. It must not build a Pi
 monorepo or create a `pi-packages` directory. The Docker layer consumes this
 same payload and verifies upstream package integrity through the ACP installer.
+
+Notebook support adds no runtime package or image secret. Its React UI, parser,
+server GitHub client, and session sidecar code are imported by the existing
+truacp web/server entrypoints and therefore travel in the normal embedded
+bundle. `NOTEBOOK_GITHUB_TOKEN`, when configured, is supplied only to the
+running server process; it is never baked into an image layer or staged
+artifact.

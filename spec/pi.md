@@ -274,3 +274,11 @@ The managed repeated-stream invariant is implemented by
 `trustable-acp/extensions/trustable-runtime.ts` through upstream Pi's
 `message_update`, `message_end`, and `ctx.abort()` extension API. Detection is
 scoped to one assistant response and does not impose a turn or step budget.
+
+## Notebook prompts
+
+TruACP notebook workflows are client/server orchestration, not a Pi extension.
+Each selected notebook or ad-hoc node is sent through the same ACP prompt path
+as ordinary composer input. No notebook index, source metadata, GitHub token, or
+unexecuted prompt is injected into Pi or its model context. See
+[notebook.md](notebook.md).

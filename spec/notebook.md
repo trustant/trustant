@@ -1,109 +1,132 @@
+# TruACP notebooks
 
-Add notebook support to TruACP.
+A notebook is an ordered collection of predefined prompts loaded into the
+existing TruACP conversation and executed through the normal ACP prompt path.
+When no notebook is loaded, ordinary chat behavior is unchanged.
 
-# Intro
+## Source and security
 
-This is the current UI for TruACP:
+The default source is `trustable-ai/notebooks` on branch `main`. A source may be
+entered as `owner/repository` or a `https://github.com/owner/repository` URL;
+the branch/ref is independently configurable.
 
-![[SCR-20260725-smtv.png]]
+Public repository browsing and loading work without credentials. Mutations use
+only `NOTEBOOK_GITHUB_TOKEN` read by the TruACP server from its process
+environment or server `.env`.
 
-It shows a chat interface with a sequence of input/output turns.
+- The browser never asks for, receives, persists, logs, or renders the token.
+- API responses expose only `hasToken: boolean`.
+- When the token is absent, save/add/remove controls are disabled and the panel
+  tells the operator to set `NOTEBOOK_GITHUB_TOKEN` in the server `.env`.
+- The token is not added to generated application `.env`, `.env.production`,
+  application config maps, chat messages, model context, notebook Markdown, or
+  commits.
+- Repository owner/name, GitHub URL, branch/ref, and Markdown paths are
+  validated server-side. Paths are repository-relative `.md` files and cannot
+  traverse directories or target `README.md`.
+- Writes compare the SHA loaded by the browser with the current GitHub SHA and
+  send that SHA to the GitHub Contents API. Stale writes return a conflict and
+  never silently overwrite a newer file.
 
-# Notebooks
+Notebook-file and `README.md` mutations require separate GitHub commits. Add
+creates the file before indexing it; remove updates the index before deleting
+the file. If the second mutation fails, the API reports an explicit
+`Partial mutation` error describing what succeeded.
 
-A **notebook** is a set of predefined prompts that can be loaded into the chat and executed sequentially.
+## Repository formats
 
-## Source
+A notebook is a Markdown file whose prompts are separated by a line containing
+only `---`:
 
-Notebooks are stored in a GitHub repository. The default source is `trustable-ai/notebooks` (https://github.com/trustable-ai/notebooks).
-
-## Format
-
-A notebook is a plain markdown file. Prompts are separated by `---`:
-
-```
+```markdown
 First prompt text
 
 ---
 
 Second prompt text
-
----
-
-Third prompt text
 ```
 
-The file `README.md` in the repo acts as the index. It is parsed for entries of the form:
+Parsing preserves prompt text and normalizes line endings. Saving is
+deterministic: prompts are joined with `\n\n---\n\n` and the file ends with one
+newline.
 
-```
+`README.md` is the index. Entries have this shape:
+
+```markdown
 - [name](notebook-file.md) optional comment
 ```
 
-Each entry corresponds to one notebook.
+Index mutation preserves unrelated headings and prose.
 
-# Toolbar
+## Toolbar and panel
 
-The toolbar gains two new controls:
+The toolbar adds:
 
-| Control | Description |
+| Control | Behavior |
 | --- | --- |
-| **Notebook** button | Opens the notebook panel to browse and load notebooks |
-| **Run next** button | Executes the currently selected notebook node and advances selection to the next |
+| **Notebook** | Opens the side panel and loads the default source on first open |
+| **Run next** | Runs the selected notebook node; disabled without a selection |
 
-# Notebook Panel
+The panel contains editable source and branch/ref fields, the indexed notebook
+list, load/save controls, and add/remove controls. There is no rename
+operation: rename is deliberately remove plus recreate under the new name.
+There is no token field or token prompt.
 
-Clicking **Notebook** opens a side panel with:
+## Conversation model
 
-- A **source field** showing the current GitHub repository (default: `trustable-ai/notebooks`)
-- A **pen icon** to change the repository URL and optionally enter a GitHub token (required to save back)
-- The list of notebooks parsed from `README.md` — clicking a name loads that notebook into the chat
-- A **save button** (disabled unless a GitHub token is set) to write the current notebook back to the repo
-- Controls to **add**, **remove**, or **rename** notebooks — changes are reflected in `README.md` and the repository
+Loading a notebook renders each prompt as a visually distinct notebook node
+and selects the first node. Each notebook node has radio/select, run, edit, and
+remove controls.
 
-# Notebook Nodes in Chat
+Running the selected node, either from the node or **Run next**:
 
-When a notebook is loaded, each prompt appears in the conversation as a **notebook node**. Notebook nodes are visually distinct from regular chat turns and show:
+1. sends exactly that prompt through the existing ACP session;
+2. streams reasoning, tool activity, and model output directly below the node;
+3. advances exactly once to the next persisted notebook node, skipping unpinned
+   inputs.
 
-| Control | Action |
-| --- | --- |
-| Radio button | Selects this node as the current node |
-| Arrow icon | Executes this node |
-| Pen icon | Edits this node |
-| Trash icon | Removes this node |
+Running the final node clears selection and disables **Run next** while keeping
+the notebook loaded and editable.
 
-Selection starts at the first node when the notebook is loaded.
+Edit copies the node prompt into the normal composer. Submitting updates the
+node, runs it immediately, appends its output, marks the notebook dirty, and
+advances selection.
 
-## Executing a Notebook Node
+Normal composer input while a notebook is loaded becomes an ad-hoc input node:
 
-Clicking the arrow icon (or **Run next** on the toolbar):
+1. it is inserted before the selected notebook node, or appended if selection
+   is clear;
+2. it runs through the normal ACP prompt path;
+3. notebook selection does not advance.
 
-1. Sends the prompt to the LLM
-2. Appends the LLM output immediately after the node in the chat
-3. Advances selection to the next notebook node
+An ad-hoc node can be pinned. Pinning promotes it to a notebook node with the
+standard controls, marks the notebook dirty, and includes it in saves. Unpinned
+inputs and all model/tool output are excluded from GitHub saves.
 
-## Editing a Notebook Node
+## APIs
 
-Clicking the pen icon:
+TruACP exposes server-side routes:
 
-1. Copies the prompt text into the chat textarea
-2. The user edits the text and submits
-3. On submit: the node is updated with the new text **and** executed immediately (output appended, selection advances)
+- `POST /api/notebooks/index`
+- `POST /api/notebooks/load`
+- `PUT /api/notebooks/save`
+- `POST /api/notebooks/add`
+- `POST /api/notebooks/remove`
+- `POST /api/sessions/notebook/get`
+- `PUT /api/sessions/notebook`
 
-# Ad-hoc Input Nodes
+The GitHub routes accept repository/ref/path/SHA metadata, never a token. The
+session routes persist a whitelisted notebook sidecar under `.acp-data`; unknown
+fields are discarded.
 
-If the user types in the textarea **without** clicking a pen icon first, the text is treated as an ad-hoc input:
+## Session behavior
 
-1. An **input node** is inserted before the currently selected notebook node
-2. The input is sent to the LLM and output is appended after it
-3. Selection remains on the next notebook node
+Notebook identity, source/ref, file and README SHAs, ordered notebook/ad-hoc
+nodes, execution outputs, selected node, and dirty state are stored beside the
+ACP session. Load/resume reads the same sidecar. Fork copies it to the new
+session so subsequent changes diverge independently. Starting a new session
+does not inherit notebook state.
 
-Input nodes are not part of the notebook by default. Each input node shows a **pin icon**. Clicking the pin promotes the input node to a full notebook node (it then gains the standard radio / arrow / pen / trash controls and is included in saves).
-
-# Saving
-
-Clicking **Save** in the notebook panel writes the current notebook back to GitHub:
-
-- Only notebook nodes are saved (pinned nodes that have been promoted are included; unpinned input nodes are not)
-- The file is saved in the same `---`-separated markdown format the notebook was loaded from
-- Changes to the notebook list (add / remove / rename) are also saved to `README.md`
-- The save button is disabled unless a GitHub token has been provided
+Errors remain visible and recoverable. A read, conflict, authentication, or
+partial-mutation failure does not discard the loaded notebook or reorder the
+conversation.

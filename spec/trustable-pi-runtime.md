@@ -116,6 +116,12 @@ Version 2 revalidates the host contract inside Pi and:
 - blocks Pi shell calls that would run `ops ide deploy` or start another
   `ops ide devel` process. The existing Trustable-managed development watcher
   is the sole owner of live action packaging and deployment;
+- keeps TruACP's explicit user `!` shell path outside Pi and its tool hooks.
+  The browser never executes a process or supplies cwd: the Node host accepts
+  only an active session id plus command, resolves the session-owned workbench,
+  filters credential-bearing environment variables, bounds time/output, and
+  renders command, stdout/stderr, nonzero status, timeout, or truncation in the
+  conversation. Non-leading `!` remains an ordinary agent prompt;
 - registers `trustable_runtime_redeploy`, which invokes the same co-located
   `/api/redeploy` SSE workflow as the Trustable UI. A successful
   OpenServerless `action_new` creation requires one call after the coherent
@@ -196,6 +202,9 @@ Tests must cover:
   checker calls without an intervening relevant mutation;
 - extension installation and image staging;
 - unchanged standalone TruACP behavior;
+- direct `!` prefix classification, active-session cwd resolution,
+  stdout/stderr and nonzero-exit rendering, bounded timeout/output, exact ready
+  composer text, and unchanged ordinary prompts for Pi and non-Pi agents;
 - successful per-server `connect` calls satisfying the managed MCP bootstrap
   without being misclassified as global status, while failed connects advance
   neither reachability nor server-discovery state;

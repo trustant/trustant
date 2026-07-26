@@ -483,7 +483,11 @@ done
   || fail "npm install of the pi toolchain failed"
 
 hash -r
+# pi.version pins the upstream Pi CLI together with the other managed agent
+# CLIs, so all three commands must exist before setup proceeds to MCP tooling.
 command -v pi &>/dev/null || fail "pi not on PATH after install (expected $NPM_GLOBAL_BIN/pi)"
+command -v claude &>/dev/null || fail "claude not on PATH after install (expected $NPM_GLOBAL_BIN/claude)"
+command -v codex &>/dev/null || fail "codex not on PATH after install (expected $NPM_GLOBAL_BIN/codex)"
 ok "pi toolchain installed (${#PI_PACKAGES[@]} pinned packages)"
 
 # --- 12. Install MCP servers (openserverless, redis, milvus, postgres, mongodb, s3) ---
@@ -609,17 +613,25 @@ echo "--- Building truacp ---"
 command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
 ok "truacp installed ($(command -v truacp))"
 
-# Ensure ~/.bashrc PATH matches the image ordering, including BOTH the Go toolchain
+# Ensure the shell PATH matches the image ordering, including BOTH the Go toolchain
 # dir (GOROOT/bin — where `go` itself lives, via g) and the Go install bin dir
-# (GOBIN/GOPATH-bin — where air lands), so a fresh login shell (as run.sh uses)
-# finds `go` AND `air`. Omitting GOROOT/bin makes `go` vanish in the login shell,
-# which in turn hides air.
+# (GOBIN/GOPATH-bin — where air lands), so a fresh shell finds `go` AND `air`.
+# Omitting GOROOT/bin makes `go` vanish, which in turn hides air.
+#
+# WHY both files: Ubuntu's stock ~/.bashrc returns early for non-interactive
+# shells, so a PATH line appended there is dead code under `bash -lc` (and under
+# `ssh <host> <cmd>`) — that is how `pi`/`claude`/`codex` end up "installed but
+# not found". ~/.profile is read by login shells regardless of interactivity, so
+# it is the file that actually carries the toolchain. ~/.bashrc keeps the same
+# ordering for interactive non-login shells, which never source ~/.profile.
 GO_ROOT_BIN="$(go env GOROOT)/bin"
 IMAGE_PATH="\$HOME/.local/bin:${NPM_GLOBAL_BIN}:\$HOME/.ops/linux-${ARCH}/bin:${GO_ROOT_BIN}:${GO_BIN}:/usr/local/bin:/usr/bin:/bin"
-if ! grep -qF "$IMAGE_PATH" "$HOME/.bashrc" 2>/dev/null; then
-  echo "export PATH=\"$IMAGE_PATH\"" >> "$HOME/.bashrc"
-  ok "added image PATH ordering to ~/.bashrc"
-fi
+for shell_rc in "$HOME/.profile" "$HOME/.bashrc"; do
+  if ! grep -qF "$IMAGE_PATH" "$shell_rc" 2>/dev/null; then
+    echo "export PATH=\"$IMAGE_PATH\"" >> "$shell_rc"
+    ok "added image PATH ordering to ${shell_rc/#$HOME/\~}"
+  fi
+done
 
 # Note: per-app AGENTS.md / .openserverless-contract.md are written at launch by
 # the Go binary, and skills come from OPS_SKILLS (default trustable-ai/skills)
@@ -627,5 +639,5 @@ fi
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"
-echo "Restart your shell or run: source ~/.bashrc"
+echo "Restart your shell or run: source ~/.profile"
 echo "Then run ./run.sh inside the VM."
