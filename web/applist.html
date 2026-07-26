@@ -138,12 +138,20 @@
                 </div>
                 <div>
                     <label for="appRepo" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">GitHub Repository</label>
-                    <input type="text" id="appRepo" required
+                    <input type="text" id="appRepo" required list="githubRepoOptions"
                         placeholder="org/repo"
                         pattern="[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+"
                         title="Format: org/repo (e.g., nuvolaris/trustable-workspace)"
                         class="nu-input w-full px-3 py-2">
+                    <datalist id="githubRepoOptions"></datalist>
                     <p class="text-xs text-[color:var(--nu-muted)] mt-1">Format: org/repo</p>
+                </div>
+                <div id="githubRepoNotice" class="nu-feedback nu-feedback-info p-3 hidden">
+                    <p class="text-sm">
+                        Connected to GitHub as <strong id="githubRepoAccount"></strong>.
+                        Choose a visible repository or keep typing manually.
+                    </p>
+                    <p id="githubRepoHint" class="text-xs mt-1 text-[color:var(--nu-muted)]"></p>
                 </div>
                 <!-- SSH Key Notice (hidden if key not available) -->
                 <div id="sshKeyNotice" class="nu-banner p-3 hidden">
@@ -218,7 +226,7 @@
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p class="mt-2 text-[color:var(--nu-muted)]">Pulling updates...</p>
+                <p id="gitPullSpinnerText" class="mt-2 text-[color:var(--nu-muted)]">Pulling updates...</p>
             </div>
             <div id="gitPullResult" class="hidden">
                 <h3 class="text-lg font-medium mb-4">Git Pull</h3>
@@ -227,6 +235,18 @@
                     class="nu-btn nu-btn-secondary">
                     Continue
                 </button>
+            </div>
+            <div id="gitPullDeployPrompt" class="hidden">
+                <h3 class="text-lg font-medium mb-3">Git Pull</h3>
+                <p class="text-[color:var(--nu-muted)] mb-6">Git pull completed. Do you want to deploy too?</p>
+                <div class="flex gap-3">
+                    <button onclick="skipGitPullDeploy()" class="nu-btn nu-btn-secondary flex-1">
+                        Not now
+                    </button>
+                    <button onclick="deployGitPullApp()" class="nu-btn nu-btn-primary flex-1">
+                        Deploy
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -440,6 +460,7 @@
         let allApps = [];
         let appFilter = 'all';
         let appView = 'list';
+        let githubAccountAuthenticated = false;
 
         function isPublishAuthError(msg) {
             return typeof msg === 'string' && msg.indexOf('Publishing not authorized') !== -1;
@@ -492,6 +513,7 @@
             const copied = document.getElementById('addAppSshCopied');
             if (copied) copied.classList.add('hidden');
             refreshAddAppSshKeyNotice();
+            refreshGitHubRepositories(true);
             document.getElementById('appName').focus();
         }
 
@@ -505,6 +527,48 @@
 
         // SSH key helpers — the key is rendered inline in the Git Push and Add App panels.
         let sshKeyText = '';
+
+        async function refreshGitHubRepositories(loadRepositories) {
+            const notice = document.getElementById('githubRepoNotice');
+            const account = document.getElementById('githubRepoAccount');
+            const hint = document.getElementById('githubRepoHint');
+            const options = document.getElementById('githubRepoOptions');
+            if (options && loadRepositories) options.innerHTML = '';
+            try {
+                const response = await fetch('/api/github/status');
+                const status = await response.json();
+                githubAccountAuthenticated = Boolean(status.authenticated);
+                if (!githubAccountAuthenticated) {
+                    if (notice) notice.classList.add('hidden');
+                    return;
+                }
+                if (account) account.textContent = status.login || 'github.com';
+                if (notice) notice.classList.remove('hidden');
+                if (!loadRepositories) return;
+                if (hint) hint.textContent = 'Loading repositories...';
+                const repoResponse = await fetch('/api/github/repos?page=1&per_page=50');
+                const data = await repoResponse.json();
+                if (!repoResponse.ok) {
+                    if (hint) hint.textContent = data.error || 'Repository list unavailable; manual input remains available.';
+                    return;
+                }
+                const repositories = Array.isArray(data.repositories) ? data.repositories : [];
+                for (const repository of repositories) {
+                    const option = document.createElement('option');
+                    option.value = repository.name;
+                    option.label = `${repository.visibility || 'repository'} · ${repository.default_branch || 'default branch'}`;
+                    options.appendChild(option);
+                }
+                if (hint) {
+                    hint.textContent = repositories.length
+                        ? `${repositories.length} repositories available, including private repositories.`
+                        : 'No repositories returned; manual input remains available.';
+                }
+            } catch (error) {
+                githubAccountAuthenticated = false;
+                if (hint) hint.textContent = 'GitHub status unavailable; manual input and SSH remain available.';
+            }
+        }
 
         async function loadSSHKey() {
             if (sshKeyText) return sshKeyText;
@@ -605,8 +669,12 @@
                 if (data.error) {
                     showGitPullResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
-                    showGitPullResult((data.message || 'Pull completed successfully') + (data.output ? '\n' + data.output : ''), 'success');
                     loadApps();
+                    if (data.workbench_updated) {
+                        showGitPullDeployPrompt();
+                    } else {
+                        showGitPullResult((data.message || 'Pull completed successfully') + (data.output ? '\n' + data.output : ''), 'success');
+                    }
                 }
             } catch (error) {
                 showGitPullResult('Failed: ' + error.message, 'error');
@@ -614,8 +682,10 @@
         }
 
         function showGitPullModal() {
+            document.getElementById('gitPullSpinnerText').textContent = 'Pulling updates...';
             document.getElementById('gitPullSpinner').classList.remove('hidden');
             document.getElementById('gitPullResult').classList.add('hidden');
+            document.getElementById('gitPullDeployPrompt').classList.add('hidden');
             document.getElementById('gitPullModal').classList.remove('hidden');
             document.getElementById('gitPullModal').classList.add('flex');
         }
@@ -623,15 +693,52 @@
         function hideGitPullModal() {
             document.getElementById('gitPullModal').classList.add('hidden');
             document.getElementById('gitPullModal').classList.remove('flex');
+            document.getElementById('gitPullDeployPrompt').classList.add('hidden');
             gitPullApp = null;
         }
 
         function showGitPullResult(message, type) {
             document.getElementById('gitPullSpinner').classList.add('hidden');
+            document.getElementById('gitPullDeployPrompt').classList.add('hidden');
             const textEl = document.getElementById('gitPullResultText');
             textEl.textContent = message;
             textEl.className = feedbackClass(type);
             document.getElementById('gitPullResult').classList.remove('hidden');
+        }
+
+        function showGitPullDeployPrompt() {
+            document.getElementById('gitPullSpinner').classList.add('hidden');
+            document.getElementById('gitPullResult').classList.add('hidden');
+            document.getElementById('gitPullDeployPrompt').classList.remove('hidden');
+        }
+
+        function skipGitPullDeploy() {
+            hideGitPullModal();
+        }
+
+        async function deployGitPullApp() {
+            if (!gitPullApp) return;
+            const name = gitPullApp;
+            document.getElementById('gitPullDeployPrompt').classList.add('hidden');
+            document.getElementById('gitPullSpinnerText').textContent = 'Deploying application...';
+            document.getElementById('gitPullSpinner').classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/git/deploy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    showGitPullResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
+                } else {
+                    showGitPullResult((data.message || 'Deployment completed') + (data.output ? '\n' + data.output : ''), 'success');
+                    loadApps();
+                }
+            } catch (error) {
+                showGitPullResult('Failed: ' + error.message, 'error');
+            }
         }
 
         // Git Push functions
@@ -666,7 +773,7 @@
             document.getElementById('gitPushSpinner').classList.add('hidden');
             document.getElementById('gitPushForm').classList.remove('hidden');
             document.getElementById('gitPushResult').classList.add('hidden');
-            if (sshKeyAvailable) {
+            if (sshKeyAvailable && !githubAccountAuthenticated) {
                 document.getElementById('gitPushSshNotice').classList.remove('hidden');
                 document.getElementById('gitPushSshKeyReveal').classList.add('hidden');
                 document.getElementById('gitPushSshCopied').classList.add('hidden');
@@ -1364,7 +1471,8 @@
                     !document.getElementById('gitPushForm').classList.contains('hidden')) {
                     hideGitPushModal();
                 }
-                if (!document.getElementById('gitPullResult').classList.contains('hidden')) {
+                if (!document.getElementById('gitPullResult').classList.contains('hidden') ||
+                    !document.getElementById('gitPullDeployPrompt').classList.contains('hidden')) {
                     hideGitPullModal();
                 }
                 if (!document.getElementById('publishResult').classList.contains('hidden') ||
@@ -1396,7 +1504,10 @@
             if (e.target === e.currentTarget) hideGitPushModal();
         });
         document.getElementById('gitPullModal').addEventListener('click', (e) => {
-            if (e.target === e.currentTarget && !document.getElementById('gitPullResult').classList.contains('hidden')) {
+            if (e.target === e.currentTarget && (
+                !document.getElementById('gitPullResult').classList.contains('hidden') ||
+                !document.getElementById('gitPullDeployPrompt').classList.contains('hidden')
+            )) {
                 hideGitPullModal();
             }
         });
@@ -1556,6 +1667,7 @@
             } catch (e) {
                 console.error('Failed to check version:', e);
             }
+            await refreshGitHubRepositories(false);
             // Check if SSH key is available and prime inline panels
             await refreshAddAppSshKeyNotice();
             loadApps();

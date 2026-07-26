@@ -92,7 +92,14 @@ Trustable keeps two git locations for an app:
 - `$WORKBENCH_DIR/<name>`: active checkout. Its `origin` remote points to the
   local bare workspace repository.
 
-The pull operation is intentionally fast-forward only:
+Trustable-managed Git commands receive the isolated environment from
+[github.md](github.md). This makes HTTPS remotes use the managed `gh`
+credential helper without placing credentials in the process-wide environment,
+Pi/TruACP, MCP configuration, or application files. SSH remotes continue to use
+the dedicated Trustable key.
+
+The pull operation is intentionally fast-forward only and follows the bare
+workspace repository's symbolic default branch instead of assuming `main`:
 
 1. validate the app name and ensure the bare workspace repo exists;
 2. if the workbench checkout exists, inspect `git status --porcelain`;
@@ -103,36 +110,33 @@ The pull operation is intentionally fast-forward only:
    `opencode.json`, or a generated-only `AGENTS.md` with no app-local notes),
    clean those generated files before continuing because they are regenerated
    on launch;
-5. if the workbench checkout exists, fetch its local `origin` and fail when the
-   workbench `HEAD` is not an ancestor of `origin/main`, because that means
+5. resolve and validate the bare workspace symbolic default branch;
+6. if the workbench checkout exists, require it to be on that branch, fetch its
+   local `origin`, and fail when the workbench `HEAD` is not an ancestor of the
+   matching `origin/<default-branch>`, because that means
    there are local-only commits or divergent history that should be saved or
    resolved first;
-6. in the bare workspace repo, configure `production` from `OPS_REPO` when
-   present, then run `git fetch <remote> main`;
-7. if `refs/heads/main` already equals `FETCH_HEAD`, report that the app is
+7. in the bare workspace repo, configure `production` from `OPS_REPO` when
+   present, choosing managed HTTPS when authenticated and SSH otherwise, then
+   run `git fetch <remote> <default-branch>`;
+8. if `refs/heads/<default-branch>` already equals `FETCH_HEAD`, report that the app is
    already up to date;
-8. otherwise fail unless `refs/heads/main` is an ancestor of
+9. otherwise fail unless `refs/heads/<default-branch>` is an ancestor of
    `FETCH_HEAD`;
-9. update `refs/heads/main` to `FETCH_HEAD`;
-10. if the workbench checkout exists, fetch from its local `origin` and run
-   `git merge --ff-only origin/main`;
-11. when the workbench checkout was updated, run `ops ide clean` and
-   `ops ide deploy` in the workbench so the local dev server reflects the
-   pulled code.
+10. update `refs/heads/<default-branch>` to `FETCH_HEAD`;
+11. if the workbench checkout exists, fetch from its local `origin` and run
+   `git merge --ff-only origin/<default-branch>`;
+12. If the workbench moved to a new commit, return
+    `workbench_updated: true`. Git Pull MUST NOT run `ops ide clean` or
+    `ops ide deploy`; deployment is a separate, explicit user choice.
 
-Return JSON:
+## Optional deployment after Git Pull
 
-```
-{
-  "message": <summary>,
-  "output": <combined command output>,
-  "updated": <true when new commits were pulled>,
-  "workbench_updated": <true when the active checkout moved>
-}
-```
+`POST /api/git/deploy` accepts `{ "name": "<app>" }`, validates the app name
+and requires an existing workbench. It runs `ops ide clean` followed by
+`ops ide deploy` in that workbench and returns their output.
 
-On failures return JSON with `error` and `output` when command output is
-available. The endpoint must not perform an implicit merge commit, rebase, or
-hard reset.
-
-See [git-pull-flow.svg](git-pull-flow.svg).
+The applications UI offers this endpoint only after a successful pull with
+`workbench_updated: true`. Declining the prompt performs no `ops` command;
+the later Edit action remains responsible for the normal application launch
+lifecycle.

@@ -81,6 +81,19 @@ func testGitPullRequest(t *testing.T, name string) (*httptest.ResponseRecorder, 
 	return rec, payload
 }
 
+func testGitDeployRequest(t *testing.T, name string) (*httptest.ResponseRecorder, map[string]interface{}) {
+	t.Helper()
+	body := bytes.NewBufferString(`{"name":"` + name + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/git/deploy", body)
+	rec := httptest.NewRecorder()
+	handleGitDeploy(rec, req)
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid JSON response: %s", rec.Body.String())
+	}
+	return rec, payload
+}
+
 func TestGitPullUpdatesBareWorkspaceFromRemote(t *testing.T) {
 	workspace, _ := testSetWorkspaceDirs(t)
 	remote := testRemoteRepo(t)
@@ -97,6 +110,29 @@ func TestGitPullUpdatesBareWorkspaceFromRemote(t *testing.T) {
 	}
 	if got := testGit(t, bare, "rev-parse", "refs/heads/main"); got != remoteHead {
 		t.Fatalf("workspace main = %s, want %s", got, remoteHead)
+	}
+}
+
+func TestGitPullPreservesNonMainDefaultBranch(t *testing.T) {
+	workspace, _ := testSetWorkspaceDirs(t)
+	remote := t.TempDir()
+	testGit(t, remote, "init", "-b", "trunk")
+	testGit(t, remote, "config", "user.email", "test@example.com")
+	testGit(t, remote, "config", "user.name", "Test User")
+	testCommitFile(t, remote, "README.md", "initial\n", "initial")
+	app := "trunkapp"
+	bare := testCloneBareWorkspace(t, remote, workspace, app)
+	remoteHead := testCommitFile(t, remote, "README.md", "trunk update\n", "trunk update")
+
+	rec, payload := testGitPullRequest(t, app)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %#v", rec.Code, payload)
+	}
+	if got := testGit(t, bare, "symbolic-ref", "--short", "HEAD"); got != "trunk" {
+		t.Fatalf("workspace default branch = %s, want trunk", got)
+	}
+	if got := testGit(t, bare, "rev-parse", "refs/heads/trunk"); got != remoteHead {
+		t.Fatalf("workspace trunk = %s, want %s", got, remoteHead)
 	}
 }
 
@@ -169,7 +205,7 @@ func TestGitPullRejectsAgentsWithLocalNotes(t *testing.T) {
 	}
 }
 
-func TestGitPullFastForwardsWorkbenchAndRefreshesOps(t *testing.T) {
+func TestGitPullFastForwardsWorkbenchWithoutDeploy(t *testing.T) {
 	workspace, workbench := testSetWorkspaceDirs(t)
 	remote := testRemoteRepo(t)
 	app := "ffpull"
@@ -181,7 +217,7 @@ func TestGitPullFastForwardsWorkbenchAndRefreshesOps(t *testing.T) {
 	binDir := t.TempDir()
 	opsLog := filepath.Join(t.TempDir(), "ops.log")
 	opsPath := filepath.Join(binDir, "ops")
-	if err := os.WriteFile(opsPath, []byte("#!/bin/sh\necho \"$@\" >> \"$OPS_LOG\"\n"), 0755); err != nil {
+	if err := os.WriteFile(opsPath, []byte("#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$OPS_LOG\"\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("OPS_LOG", opsLog)
@@ -197,11 +233,60 @@ func TestGitPullFastForwardsWorkbenchAndRefreshesOps(t *testing.T) {
 	if got := testGit(t, workbenchPath, "rev-parse", "HEAD"); got != remoteHead {
 		t.Fatalf("workbench HEAD = %s, want %s", got, remoteHead)
 	}
+	if _, err := os.Stat(opsLog); err == nil {
+		logData, readErr := os.ReadFile(opsLog)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		t.Fatalf("git pull must not run ops commands, got %q", string(logData))
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+func TestGitDeployRefreshesOpsOnRequest(t *testing.T) {
+	_, workbench := testSetWorkspaceDirs(t)
+	app := "deployapp"
+	workbenchPath := filepath.Join(workbench, app)
+	if err := os.MkdirAll(workbenchPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	binDir := t.TempDir()
+	opsLog := filepath.Join(t.TempDir(), "ops.log")
+	opsPath := filepath.Join(binDir, "ops")
+	if err := os.WriteFile(opsPath, []byte("#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$OPS_LOG\"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPS_LOG", opsLog)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	rec, payload := testGitDeployRequest(t, app)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %#v", rec.Code, payload)
+	}
 	logData, err := os.ReadFile(opsLog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(logData), "ide clean") || !strings.Contains(string(logData), "ide deploy") {
-		t.Fatalf("expected ops ide clean/deploy, got %q", string(logData))
+	if got := strings.TrimSpace(string(logData)); got != "ide clean\nide deploy" {
+		t.Fatalf("expected explicit clean/deploy sequence, got %q", got)
+	}
+}
+
+func TestGitPullUIOffersOptionalDeploy(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("web", "applist.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	for _, expected := range []string{
+		"Git pull completed. Do you want to deploy too?",
+		"fetch('/api/git/deploy'",
+		"data.workbench_updated",
+	} {
+		if !strings.Contains(page, expected) {
+			t.Fatalf("Git Pull UI is missing %q", expected)
+		}
 	}
 }

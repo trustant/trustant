@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -179,10 +180,15 @@ func writeGitJSON(w http.ResponseWriter, status int, payload interface{}) {
 func gitCommand(dir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	if environment, err := managedGitHubEnvironment(); err == nil {
+		cmd.Env = environment
+	} else {
+		cmd.Env = os.Environ()
+	}
 	if homeDir, err := os.UserHomeDir(); err == nil {
 		sshKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
 		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-		cmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
+		cmd.Env = setEnvValue(cmd.Env, "GIT_SSH_COMMAND", sshCmd)
 	}
 	return cmd
 }
@@ -220,6 +226,18 @@ func gitRefEquals(dir, left, right string) bool {
 func gitIsAncestor(dir, ancestor, descendant string) bool {
 	cmd := gitCommand(dir, "merge-base", "--is-ancestor", ancestor, descendant)
 	return cmd.Run() == nil
+}
+
+func gitDefaultBranch(dir string) (string, error) {
+	branch, err := gitOutput(dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil || strings.TrimSpace(branch) == "" {
+		return "", errors.New("repository default branch is not configured")
+	}
+	check := gitCommand(dir, "check-ref-format", "--branch", branch)
+	if check.Run() != nil {
+		return "", errors.New("repository default branch is invalid")
+	}
+	return branch, nil
 }
 
 func parseGitStatusEntries(status string) []gitStatusEntry {
@@ -324,9 +342,11 @@ func configuredProductionRepo(name string) string {
 }
 
 func ensureProductionRemote(workspacePath, repo string, output *bytes.Buffer) error {
-	repoURL := fmt.Sprintf("git@github.com:%s.git", repo)
-	removeCmd := exec.Command("git", "remote", "remove", "production")
-	removeCmd.Dir = workspacePath
+	repoURL, _, err := managedGitHubRemoteURL(repo)
+	if err != nil {
+		return err
+	}
+	removeCmd := gitCommand(workspacePath, "remote", "remove", "production")
 	removeCmd.Run()
 	if err := runGitCommand(workspacePath, output, "remote", "add", "production", repoURL); err != nil {
 		return fmt.Errorf("failed to configure production remote: %w", err)
@@ -361,6 +381,53 @@ func runOpsIdeRefresh(workbenchPath string, output *bytes.Buffer) error {
 		return fmt.Errorf("ops ide deploy failed: %w", deployErr)
 	}
 	return nil
+}
+
+// handleGitDeploy handles POST /api/git/deploy
+func handleGitDeploy(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || !namePattern.MatchString(req.Name) {
+		http.Error(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	workbenchPath := filepath.Join(WorkbenchDir, req.Name)
+	info, err := os.Stat(workbenchPath)
+	if os.IsNotExist(err) || (err == nil && !info.IsDir()) {
+		writeGitJSON(w, http.StatusBadRequest, map[string]string{"error": "workbench not found"})
+		return
+	}
+	if err != nil {
+		writeGitJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	var output bytes.Buffer
+	if err := runOpsIdeRefresh(workbenchPath, &output); err != nil {
+		writeGitJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  err.Error(),
+			"output": strings.TrimSpace(output.String()),
+		})
+		return
+	}
+	writeGitJSON(w, http.StatusOK, map[string]string{
+		"message": "deployment completed",
+		"output":  strings.TrimSpace(output.String()),
+	})
 }
 
 // handleGitPull handles POST /api/git/pull
@@ -401,6 +468,11 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var output bytes.Buffer
+	branch, err := gitDefaultBranch(workspacePath)
+	if err != nil {
+		writeGitJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
 	remote := "origin"
 	if opsRepo := configuredProductionRepo(req.Name); opsRepo != "" {
 		remote = "production"
@@ -441,14 +513,22 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := runGitCommand(workbenchPath, &output, "fetch", "origin", "main:refs/remotes/origin/main"); err != nil {
+		workbenchBranch, branchErr := gitOutput(workbenchPath, "branch", "--show-current")
+		if branchErr != nil || workbenchBranch != branch {
+			writeGitJSON(w, http.StatusConflict, map[string]string{
+				"error": fmt.Sprintf("workbench must be on default branch %s before pulling", branch),
+			})
+			return
+		}
+		remoteTrackingRef := "origin/" + branch
+		if err := runGitCommand(workbenchPath, &output, "fetch", "origin", branch+":refs/remotes/"+remoteTrackingRef); err != nil {
 			writeGitJSON(w, http.StatusInternalServerError, map[string]string{
 				"error":  "git fetch local origin failed: " + err.Error(),
 				"output": output.String(),
 			})
 			return
 		}
-		if !gitIsAncestor(workbenchPath, "HEAD", "origin/main") {
+		if !gitIsAncestor(workbenchPath, "HEAD", remoteTrackingRef) {
 			writeGitJSON(w, http.StatusConflict, map[string]string{
 				"error":  "workbench has local commits or divergent history; save/push or resolve before pulling",
 				"output": output.String(),
@@ -457,7 +537,7 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := runGitCommand(workspacePath, &output, "fetch", remote, "main"); err != nil {
+	if err := runGitCommand(workspacePath, &output, "fetch", remote, branch); err != nil {
 		writeGitJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  fmt.Sprintf("git fetch %s failed: %s", remote, err.Error()),
 			"output": output.String(),
@@ -466,15 +546,16 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated := false
-	if !gitRefEquals(workspacePath, "refs/heads/main", "FETCH_HEAD") {
-		if !gitIsAncestor(workspacePath, "refs/heads/main", "FETCH_HEAD") {
+	branchRef := "refs/heads/" + branch
+	if !gitRefEquals(workspacePath, branchRef, "FETCH_HEAD") {
+		if !gitIsAncestor(workspacePath, branchRef, "FETCH_HEAD") {
 			writeGitJSON(w, http.StatusConflict, map[string]string{
 				"error":  "remote history diverged from the local workspace; pull requires fast-forward",
 				"output": output.String(),
 			})
 			return
 		}
-		if err := runGitCommand(workspacePath, &output, "update-ref", "refs/heads/main", "FETCH_HEAD"); err != nil {
+		if err := runGitCommand(workspacePath, &output, "update-ref", branchRef, "FETCH_HEAD"); err != nil {
 			writeGitJSON(w, http.StatusInternalServerError, map[string]string{
 				"error":  "git update-ref failed: " + err.Error(),
 				"output": output.String(),
@@ -487,14 +568,15 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 	workbenchUpdated := false
 	if workbenchExists {
 		before, _ := gitOutput(workbenchPath, "rev-parse", "HEAD")
-		if err := runGitCommand(workbenchPath, &output, "fetch", "origin", "main:refs/remotes/origin/main"); err != nil {
+		remoteTrackingRef := "origin/" + branch
+		if err := runGitCommand(workbenchPath, &output, "fetch", "origin", branch+":refs/remotes/"+remoteTrackingRef); err != nil {
 			writeGitJSON(w, http.StatusInternalServerError, map[string]string{
 				"error":  "git fetch updated workspace failed: " + err.Error(),
 				"output": output.String(),
 			})
 			return
 		}
-		if err := runGitCommand(workbenchPath, &output, "merge", "--ff-only", "origin/main"); err != nil {
+		if err := runGitCommand(workbenchPath, &output, "merge", "--ff-only", remoteTrackingRef); err != nil {
 			writeGitJSON(w, http.StatusConflict, map[string]string{
 				"error":  "workbench fast-forward failed: " + err.Error(),
 				"output": output.String(),
@@ -503,15 +585,6 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 		}
 		after, _ := gitOutput(workbenchPath, "rev-parse", "HEAD")
 		workbenchUpdated = before != "" && after != "" && before != after
-		if workbenchUpdated {
-			if err := runOpsIdeRefresh(workbenchPath, &output); err != nil {
-				writeGitJSON(w, http.StatusInternalServerError, map[string]string{
-					"error":  err.Error(),
-					"output": output.String(),
-				})
-				return
-			}
-		}
 	}
 
 	message := "already up to date"

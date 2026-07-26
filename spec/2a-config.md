@@ -462,7 +462,11 @@ Sections (rendered top to bottom in this order):
   an embedding, rerank, tiny, or otherwise unsuitable model. `POST
   /api/configuration` enforces the same policy server-side before writing
   `trustable.json`; UI filtering alone is not sufficient.
-- **Git User** — name and email (unchanged).
+- **Git User** — name and email used as commit-author defaults. The card is
+  visible while no managed GitHub account is connected. It is hidden when
+  `GET /api/github/status` reports an authenticated account, because showing it
+  beside the connected account is misleading; hiding does not delete or alter
+  its saved values, and disconnecting GitHub shows it again.
 If the URL has `?reselect=1` (set by the splash or applist when
 `status[provider].modelsVersion` bumped), show a banner asking the user to
 re-select the Pi model. If `applist.html` finds no `pi.default`, it redirects to

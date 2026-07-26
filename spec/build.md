@@ -66,6 +66,17 @@ Both environments install `lsof` explicitly because the shared TruACP/Vite
 lifecycle uses it to reclaim listeners left without a valid process-group
 marker; image behavior must not depend on an undeclared base-package accident.
 
+Both environments also install the official GitHub CLI from the pinned
+`GH_VERSION=2.96.0` Linux archive. The Dockerfile owns checked-in SHA-256 values
+for amd64 and arm64; both the image and repository-root setup verify the
+matching checksum before installing `/usr/local/bin/gh`. Builds never resolve a
+floating GitHub CLI release or copy a host developer's GitHub configuration.
+
+Managed account state is runtime data under
+`$WORKSPACE_DIR/.trustable/github`, not an image layer. The directory is on the
+durable workspace mount in the pod and in `trudev`, so authentication survives
+supported restarts while remaining isolated from the normal host account.
+
 For the macOS Lima flow, `start.sh` initializes `mcp`, `trustable-acp`, and its
 nested `pi-acp` fork recursively on the host before starting the guest. It checks
 the nested leaf even when the outer submodule was already populated. A
