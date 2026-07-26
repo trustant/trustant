@@ -24,6 +24,14 @@ package as a fallback. Dependency hydration for this nested source uses
 generation, while repository-only lifecycle hooks must not require the host
 worktree's Git administration path from inside Lima, WSL, or an image builder.
 
+In the repository-root Lima/WSL flow, root `setup.sh` is the sole owner of the
+persistent npm global-prefix policy. It selects a compatible user-owned prefix
+(default `~/.npm-global`), exports it before invoking this installer, and places
+its bin directory on the current and Bash-login PATH. `trustable-acp/setup.sh`
+consumes npm's selected writable prefix and must not introduce a competing
+`~/.npm-global` default. Its standalone/image fallback remains scoped to those
+entrypoints, where the caller's writable build prefix is authoritative.
+
 ## Global model configuration
 
 Pi model configuration is global under `${PI_CODING_AGENT_DIR}` or, when that
@@ -252,3 +260,25 @@ There is still no global step/turn budget.
 Context-continuity state and completion evidence remain subsequent issue #57
 increments. The complete versioned contract and acceptance matrix are
 specified in [trustable-pi-runtime.md](trustable-pi-runtime.md).
+
+## Upstream runtime ownership (#71)
+
+This section supersedes earlier fork-source packaging language. Trustable pins
+all five upstream Pi packages at `0.82.0` in `trustable-acp/pi.version` and pins
+their reviewed SHA-512 values in `trustable-acp/pi.integrity`. Setup and image
+builds must fail on any version or integrity mismatch and must not require a Pi
+source submodule or cached `pi-packages` tarballs. The Trustable `pi-acp` fork
+remains a separate pinned component.
+
+The managed repeated-stream invariant is implemented by
+`trustable-acp/extensions/trustable-runtime.ts` through upstream Pi's
+`message_update`, `message_end`, and `ctx.abort()` extension API. Detection is
+scoped to one assistant response and does not impose a turn or step budget.
+
+## Notebook prompts
+
+TruACP notebook workflows are client/server orchestration, not a Pi extension.
+Each selected notebook or ad-hoc node is sent through the same ACP prompt path
+as ordinary composer input. No notebook index, source metadata, GitHub token, or
+unexecuted prompt is injected into Pi or its model context. See
+[notebook.md](notebook.md).

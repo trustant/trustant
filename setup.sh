@@ -66,7 +66,7 @@ read_arg() {
 
 # WHY: source identity is owned by the image contract even in development.
 # Reading the same pinned fork here keeps clean VM and pod installations equal.
-for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF; do
+for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF GH_VERSION GH_SHA_AMD64 GH_SHA_ARM64; do
   val=$(read_arg "$v")
   [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
   export "$v=$val"
@@ -224,6 +224,46 @@ fi
 command -v npm &>/dev/null || fail "npm not in PATH after install"
 ok "npm is available"
 
+# Repository-root setup owns the persistent npm policy for Lima/WSL. WHY: the
+# nested TruACP installer must consume one caller-selected prefix instead of
+# independently falling back to a second location and making PATH resolution
+# depend on which installer ran first.
+NPM_DEFAULT_PREFIX="$HOME/.npm-global"
+NPM_CONFIGURED_PREFIX="${NPM_CONFIG_PREFIX:-}"
+if [[ -z "$NPM_CONFIGURED_PREFIX" ]]; then
+  NPM_CONFIGURED_PREFIX="$(npm config get prefix 2>/dev/null || true)"
+fi
+
+npm_prefix_is_compatible() {
+  local prefix="$1"
+  [[ -n "$prefix" && "$prefix" == /* ]] || return 1
+  mkdir -p "$prefix/bin" "$prefix/lib/node_modules" 2>/dev/null || return 1
+  [[ "$(stat -c '%u' "$prefix")" == "$(id -u)" ]] || return 1
+  [[ -w "$prefix" && -w "$prefix/bin" && -w "$prefix/lib/node_modules" ]]
+}
+
+if npm_prefix_is_compatible "$NPM_CONFIGURED_PREFIX"; then
+  NPM_GLOBAL_PREFIX="$NPM_CONFIGURED_PREFIX"
+else
+  if [[ -n "$NPM_CONFIGURED_PREFIX" && "$NPM_CONFIGURED_PREFIX" != "$NPM_DEFAULT_PREFIX" ]]; then
+    warn "npm prefix '$NPM_CONFIGURED_PREFIX' is not an absolute user-owned writable directory; using $NPM_DEFAULT_PREFIX"
+  fi
+  NPM_GLOBAL_PREFIX="$NPM_DEFAULT_PREFIX"
+  npm_prefix_is_compatible "$NPM_GLOBAL_PREFIX" \
+    || fail "cannot create writable npm prefix $NPM_GLOBAL_PREFIX without sudo"
+fi
+
+NPM_GLOBAL_BIN="$NPM_GLOBAL_PREFIX/bin"
+export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"
+npm config set prefix "$NPM_GLOBAL_PREFIX" --location=user \
+  || fail "could not persist npm prefix $NPM_GLOBAL_PREFIX"
+case ":$PATH:" in
+  *":$NPM_GLOBAL_BIN:"*) ;;
+  *) export PATH="$NPM_GLOBAL_BIN:$PATH" ;;
+esac
+hash -r
+ok "npm global prefix: $NPM_GLOBAL_PREFIX"
+
 # --- 6. Ensure ~/.local/bin is the first entry in PATH ---
 echo "--- Checking ~/.local/bin is first in PATH ---"
 LOCAL_BIN="$HOME/.local/bin"
@@ -325,7 +365,7 @@ ok "Admin access confirmed"
 # --- 10. Ensure the image's CLI tools are available (install any missing) ---
 # The upstream Milvus CLI lives globally. WHY: ~/.local/bin/milvus_cli is the
 # per-app auto-connect wrapper and must never remain a uv-managed symlink.
-echo "--- Checking CLI tools (psql, redis-cli, rclone, lsof, milvus-cli) ---"
+echo "--- Checking CLI tools (psql, redis-cli, rclone, lsof, milvus-cli, gh) ---"
 APT_MISSING=()
 command -v psql      &>/dev/null || APT_MISSING+=(postgresql-client-16)
 command -v redis-cli &>/dev/null || APT_MISSING+=(redis-tools)
@@ -340,6 +380,31 @@ if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
 ok "psql, redis-cli, rclone, lsof available"
+
+case "$ARCH" in
+  amd64) GH_SHA="$GH_SHA_AMD64" ;;
+  arm64) GH_SHA="$GH_SHA_ARM64" ;;
+  *) fail "unsupported GitHub CLI architecture: $ARCH" ;;
+esac
+GH_INSTALLED_VERSION="$(gh --version 2>/dev/null | awk 'NR==1{print $3}' || true)"
+if [[ "$GH_INSTALLED_VERSION" != "$GH_VERSION" ]]; then
+  warn "installing verified GitHub CLI ${GH_VERSION}..."
+  GH_TMP="$(mktemp -d)"
+  GH_ARCHIVE="gh_${GH_VERSION}_linux_${ARCH}.tar.gz"
+  curl -fsSL -o "$GH_TMP/$GH_ARCHIVE" \
+    "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" \
+    || fail "GitHub CLI ${GH_VERSION} download failed"
+  echo "$GH_SHA  $GH_TMP/$GH_ARCHIVE" | sha256sum -c - \
+    || fail "GitHub CLI ${GH_VERSION} checksum verification failed"
+  tar -C "$GH_TMP" -xzf "$GH_TMP/$GH_ARCHIVE" \
+    || fail "GitHub CLI ${GH_VERSION} extraction failed"
+  sudo install -m 0755 "$GH_TMP/gh_${GH_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh \
+    || fail "GitHub CLI ${GH_VERSION} installation failed"
+  rm -rf "$GH_TMP"
+fi
+[[ "$(gh --version 2>/dev/null | awk 'NR==1{print $3}')" == "$GH_VERSION" ]] \
+  || fail "GitHub CLI version mismatch after installation"
+ok "GitHub CLI ${GH_VERSION} available globally in /usr/local/bin"
 
 MILVUS_CLI_VERSION="1.2.1"
 UV_BIN="$(command -v uv)"
@@ -370,6 +435,8 @@ ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 echo "--- Installing the pi coding-agent toolchain ---"
 PI_VERSIONS_FILE="trustable-acp/pi.version"
 [[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
+PI_INTEGRITY_FILE="trustable-acp/pi.integrity"
+[[ -f "$PI_INTEGRITY_FILE" ]] || fail "$PI_INTEGRITY_FILE not found — it pins the reviewed upstream Pi artifacts"
 
 command -v npm &>/dev/null || fail "npm is required to install the pi toolchain"
 
@@ -389,20 +456,38 @@ for pkg in "${PI_PACKAGES[@]}"; do
   esac
 done
 
+while IFS= read -r integrity_line; do
+  integrity_line="$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"$integrity_line")"
+  [[ -n "$integrity_line" ]] || continue
+  read -r spec expected_integrity extra <<<"$integrity_line"
+  [[ -n "$spec" && -n "$expected_integrity" && -z "$extra" ]] \
+    || fail "$PI_INTEGRITY_FILE contains an invalid entry: $integrity_line"
+  printf '%s\n' "${PI_PACKAGES[@]}" | grep -Fqx "$spec" \
+    || fail "$PI_INTEGRITY_FILE pins $spec, but pi.version does not install it"
+  actual_integrity="$(npm view "$spec" dist.integrity)" \
+    || fail "could not read registry integrity for $spec"
+  [[ "$actual_integrity" == "$expected_integrity" ]] \
+    || fail "integrity mismatch for $spec (expected $expected_integrity, received $actual_integrity)"
+done <"$PI_INTEGRITY_FILE"
+
 echo "Packages pinned by $PI_VERSIONS_FILE:"
 for pkg in "${PI_PACKAGES[@]}"; do
   printf '  %-45s %s\n' "${pkg%@*}" "${pkg##*@}"
 done
 
-# --prefix "$HOME/.local" so binaries land in ~/.local/bin (already first in
-# PATH) and packages under ~/.local/lib — never the root-owned /usr/lib. --force
-# lets a re-run overwrite bin links left by a previously-installed adapter.
+# Use the setup-owned npm prefix so the selected user location applies to every
+# global npm install. --force lets a re-run overwrite bin links left by a
+# previously-installed adapter.
 # Run from $HOME so npm's git fetch does not stumble into this repo's submodules.
-( cd "$HOME" && npm install -g --force --prefix "$HOME/.local" "${PI_PACKAGES[@]}" ) \
+( cd "$HOME" && npm install -g --force --prefix "$NPM_GLOBAL_PREFIX" "${PI_PACKAGES[@]}" ) \
   || fail "npm install of the pi toolchain failed"
 
 hash -r
-command -v pi &>/dev/null || fail "pi not on PATH after install (expected ~/.local/bin/pi)"
+# pi.version pins the upstream Pi CLI together with the other managed agent
+# CLIs, so all three commands must exist before setup proceeds to MCP tooling.
+command -v pi &>/dev/null || fail "pi not on PATH after install (expected $NPM_GLOBAL_BIN/pi)"
+command -v claude &>/dev/null || fail "claude not on PATH after install (expected $NPM_GLOBAL_BIN/claude)"
+command -v codex &>/dev/null || fail "codex not on PATH after install (expected $NPM_GLOBAL_BIN/codex)"
 ok "pi toolchain installed (${#PI_PACKAGES[@]} pinned packages)"
 
 # --- 12. Install MCP servers (openserverless, redis, milvus, postgres, mongodb, s3) ---
@@ -450,10 +535,10 @@ OPENSERVERLESS_MCP_PACK_DIR=$(mktemp -d)
   || fail "packing local openserverless-mcp failed"
 OPENSERVERLESS_MCP_PACKAGE=$(find "$OPENSERVERLESS_MCP_PACK_DIR" -maxdepth 1 -name 'openserverless-mcp-*.tgz' -print -quit)
 [[ -n "$OPENSERVERLESS_MCP_PACKAGE" ]] || fail "local openserverless-mcp package was not created"
-( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$OPENSERVERLESS_MCP_PACKAGE" mongodb-mcp-server@1.9.0 ) \
+( cd "$HOME" && npm install -g --prefix "$NPM_GLOBAL_PREFIX" tsx "$OPENSERVERLESS_MCP_PACKAGE" mongodb-mcp-server@1.9.0 ) \
   || fail "npm install of openserverless-mcp/mongodb-mcp-server failed"
 rm -rf "$OPENSERVERLESS_MCP_PACK_DIR"
-grep -qF 'secret-unbind' "$HOME/.local/lib/node_modules/openserverless-mcp/src/index.ts" \
+grep -qF 'secret-unbind' "$NPM_GLOBAL_PREFIX/lib/node_modules/openserverless-mcp/src/index.ts" \
   || fail "installed openserverless-mcp does not match the checked-out source"
 
 [[ -f browser-mcp/package.json ]] || fail "browser-mcp source is missing"
@@ -462,7 +547,7 @@ BROWSER_MCP_PACK_DIR=$(mktemp -d)
   || fail "packing trustable-browser-mcp failed"
 BROWSER_MCP_PACKAGE=$(find "$BROWSER_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-browser-mcp-*.tgz' -print -quit)
 [[ -n "$BROWSER_MCP_PACKAGE" ]] || fail "trustable-browser-mcp package was not created"
-( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$BROWSER_MCP_PACKAGE" ) \
+( cd "$HOME" && npm install -g --prefix "$NPM_GLOBAL_PREFIX" tsx "$BROWSER_MCP_PACKAGE" ) \
   || fail "installing trustable-browser-mcp failed"
 rm -rf "$BROWSER_MCP_PACK_DIR"
 command -v trustable-browser-mcp &>/dev/null || fail "trustable-browser-mcp is not in PATH"
@@ -476,7 +561,7 @@ REACT_MCP_PACK_DIR=$(mktemp -d)
   || fail "packing trustable-react-mcp failed"
 REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-react-mcp-*.tgz' -print -quit)
 [[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustable-react-mcp package was not created"
-( cd "$HOME" && npm install -g --prefix "$HOME/.local" tsx "$REACT_MCP_PACKAGE" ) \
+( cd "$HOME" && npm install -g --prefix "$NPM_GLOBAL_PREFIX" tsx "$REACT_MCP_PACKAGE" ) \
   || fail "installing trustable-react-mcp failed"
 rm -rf "$REACT_MCP_PACK_DIR"
 command -v trustable-react-mcp &>/dev/null || fail "trustable-react-mcp is not in PATH"
@@ -508,12 +593,16 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 # builds separately stage the resulting portable JavaScript bundle.
 #
 # trustable-acp/setup.sh owns this step: it (re)installs the pinned agents and
-# adapters from pi.version, builds the nested Trustable pi-acp fork, then,
+# integrity-verified upstream Pi packages from pi.version, builds the nested
+# Trustable pi-acp fork, then,
 # because a package.json is present in the working directory, builds and installs
 # the ~/.local/bin/truacp launcher. It MUST be run from inside trustable-acp/:
 # the build/install phases key off a package.json in the *current* directory, so
 # invoking it from here would install the agents and skip the build entirely
 # (trustable-acp/SPEC.md §10b).
+# WHY: NPM_CONFIG_PREFIX is inherited here so the nested installer consumes the
+# root policy; configuring another prefix inside the submodule would duplicate
+# packages and make clean VM behavior differ from the image workflow.
 echo "--- Building truacp ---"
 [[ -f trustable-acp/package.json && -f trustable-acp/pi.version ]] \
   || fail "trustable-acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init trustable-acp)"
@@ -524,17 +613,25 @@ echo "--- Building truacp ---"
 command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
 ok "truacp installed ($(command -v truacp))"
 
-# Ensure ~/.bashrc PATH matches the image ordering, including BOTH the Go toolchain
+# Ensure the shell PATH matches the image ordering, including BOTH the Go toolchain
 # dir (GOROOT/bin — where `go` itself lives, via g) and the Go install bin dir
-# (GOBIN/GOPATH-bin — where air lands), so a fresh login shell (as run.sh uses)
-# finds `go` AND `air`. Omitting GOROOT/bin makes `go` vanish in the login shell,
-# which in turn hides air.
+# (GOBIN/GOPATH-bin — where air lands), so a fresh shell finds `go` AND `air`.
+# Omitting GOROOT/bin makes `go` vanish, which in turn hides air.
+#
+# WHY both files: Ubuntu's stock ~/.bashrc returns early for non-interactive
+# shells, so a PATH line appended there is dead code under `bash -lc` (and under
+# `ssh <host> <cmd>`) — that is how `pi`/`claude`/`codex` end up "installed but
+# not found". ~/.profile is read by login shells regardless of interactivity, so
+# it is the file that actually carries the toolchain. ~/.bashrc keeps the same
+# ordering for interactive non-login shells, which never source ~/.profile.
 GO_ROOT_BIN="$(go env GOROOT)/bin"
-IMAGE_PATH="\$HOME/.local/bin:\$HOME/.ops/linux-${ARCH}/bin:${GO_ROOT_BIN}:${GO_BIN}:/usr/local/bin:/usr/bin:/bin"
-if ! grep -qF "$IMAGE_PATH" "$HOME/.bashrc" 2>/dev/null; then
-  echo "export PATH=\"$IMAGE_PATH\"" >> "$HOME/.bashrc"
-  ok "added image PATH ordering to ~/.bashrc"
-fi
+IMAGE_PATH="\$HOME/.local/bin:${NPM_GLOBAL_BIN}:\$HOME/.ops/linux-${ARCH}/bin:${GO_ROOT_BIN}:${GO_BIN}:/usr/local/bin:/usr/bin:/bin"
+for shell_rc in "$HOME/.profile" "$HOME/.bashrc"; do
+  if ! grep -qF "$IMAGE_PATH" "$shell_rc" 2>/dev/null; then
+    echo "export PATH=\"$IMAGE_PATH\"" >> "$shell_rc"
+    ok "added image PATH ordering to ${shell_rc/#$HOME/\~}"
+  fi
+done
 
 # Note: per-app AGENTS.md / .openserverless-contract.md are written at launch by
 # the Go binary, and skills come from OPS_SKILLS (default trustable-ai/skills)
@@ -542,5 +639,5 @@ fi
 
 echo ""
 echo -e "${GREEN}=== Setup complete! ===${NC}"
-echo "Restart your shell or run: source ~/.bashrc"
+echo "Restart your shell or run: source ~/.profile"
 echo "Then run ./run.sh inside the VM."

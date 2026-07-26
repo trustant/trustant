@@ -41,6 +41,117 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	}
 }
 
+func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+	for _, required := range []string{
+		`NPM_DEFAULT_PREFIX="$HOME/.npm-global"`,
+		`NPM_CONFIGURED_PREFIX="${NPM_CONFIG_PREFIX:-}"`,
+		`NPM_CONFIGURED_PREFIX="$(npm config get prefix`,
+		`mkdir -p "$prefix/bin" "$prefix/lib/node_modules"`,
+		`stat -c '%u' "$prefix"`,
+		`npm_prefix_is_compatible "$NPM_CONFIGURED_PREFIX"`,
+		`export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"`,
+		`npm config set prefix "$NPM_GLOBAL_PREFIX" --location=user`,
+		`export PATH="$NPM_GLOBAL_BIN:$PATH"`,
+		`if ! grep -qF "$IMAGE_PATH" "$shell_rc"`,
+		`IMAGE_PATH="\$HOME/.local/bin:${NPM_GLOBAL_BIN}:`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing npm-prefix fragment %q", required)
+		}
+	}
+	if strings.Contains(setup, `--prefix "$HOME/.local"`) {
+		t.Fatal("setup.sh global npm installs must consume the selected npm prefix")
+	}
+	if strings.Contains(setup, "sudo npm") {
+		t.Fatal("setup.sh must never require sudo for a global npm install")
+	}
+	configureAt := strings.Index(setup, `npm config set prefix "$NPM_GLOBAL_PREFIX"`)
+	firstGlobalInstallAt := strings.Index(setup, "npm install -g")
+	if configureAt < 0 || firstGlobalInstallAt < 0 || configureAt > firstGlobalInstallAt {
+		t.Fatal("setup.sh must configure and export the npm prefix before global npm installs")
+	}
+
+	acpContent, err := os.ReadFile(filepath.Join("trustable-acp", "setup.sh"))
+	if err != nil {
+		t.Fatalf("read trustable-acp/setup.sh: %s", err)
+	}
+	acpSetup := string(acpContent)
+	if !strings.Contains(acpSetup, `GLOBAL_PREFIX=$(npm config get prefix)`) {
+		t.Fatal("trustable-acp/setup.sh must consume the caller-selected npm prefix")
+	}
+	if strings.Contains(acpSetup, ".npm-global") {
+		t.Fatal("trustable-acp/setup.sh must not define a competing persistent npm-prefix default")
+	}
+}
+
+// pi.version owns the integrity-pinned upstream Pi CLI, so repository setup
+// must install and verify it before the nested installer builds only pi-acp.
+func TestSetupChecksUpstreamPiBeforeNestedACPBuild(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+
+	nestedBuildAt := strings.Index(setup, `(cd trustable-acp && ./setup.sh)`)
+	if nestedBuildAt < 0 {
+		t.Fatal("setup.sh must build the nested trustable-acp installer")
+	}
+	piCheckAt := strings.Index(setup, `command -v pi &>/dev/null`)
+	if piCheckAt < 0 {
+		t.Fatal("setup.sh must verify the pi CLI is installed")
+	}
+	if piCheckAt > nestedBuildAt {
+		t.Fatal("setup.sh must check upstream pi before trustable-acp/setup.sh builds pi-acp")
+	}
+
+	versions, err := os.ReadFile(filepath.Join("trustable-acp", "pi.version"))
+	if err != nil {
+		t.Fatalf("read trustable-acp/pi.version: %s", err)
+	}
+	hasUpstreamPi := false
+	for _, line := range strings.Split(string(versions), "\n") {
+		spec := strings.TrimSpace(line)
+		if i := strings.Index(spec, "#"); i >= 0 {
+			spec = strings.TrimSpace(spec[:i])
+		}
+		if strings.HasPrefix(spec, "@earendil-works/pi-coding-agent@") {
+			hasUpstreamPi = true
+		}
+	}
+	if !hasUpstreamPi {
+		t.Fatal("pi.version must pin the upstream @earendil-works/pi-coding-agent package")
+	}
+}
+
+// Ubuntu's stock ~/.bashrc returns early for non-interactive shells, so a PATH
+// line appended only there never runs under `bash -lc`. ~/.profile is what
+// actually carries the toolchain into a login shell.
+func TestSetupWritesImagePathToProfileNotOnlyBashrc(t *testing.T) {
+	content, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	setup := string(content)
+	for _, required := range []string{
+		`for shell_rc in "$HOME/.profile" "$HOME/.bashrc"`,
+		`grep -qF "$IMAGE_PATH" "$shell_rc"`,
+		`echo "export PATH=\"$IMAGE_PATH\"" >> "$shell_rc"`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh is missing login-shell PATH fragment %q", required)
+		}
+	}
+	if strings.Contains(setup, `echo "export PATH=\"$IMAGE_PATH\"" >> "$HOME/.bashrc"`) {
+		t.Fatal("setup.sh must not write the image PATH to ~/.bashrc alone")
+	}
+}
+
 func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 	setupContent, err := os.ReadFile("setup.sh")
 	if err != nil {
@@ -62,6 +173,33 @@ func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 	}
 	if !strings.Contains(string(dockerContent), "vim lsof libatomic1") {
 		t.Fatal("production image must contain lsof for orphaned TruACP/Vite listener recovery")
+	}
+}
+
+func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
+	setupContent, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	for name, content := range map[string]string{
+		"setup.sh":         string(setupContent),
+		"image/Dockerfile": string(dockerContent),
+	} {
+		for _, required := range []string{
+			"GH_VERSION=2.96.0",
+			"GH_SHA_AMD64=",
+			"GH_SHA_ARM64=",
+			"gh_${GH_VERSION}_linux_",
+			"sha256sum -c -",
+		} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s is missing pinned GitHub CLI fragment %q", name, required)
+			}
+		}
 	}
 }
 
@@ -162,6 +300,25 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("run.sh is missing clean-worktree build metadata fragment %q", required)
+		}
+	}
+}
+
+func TestRunRestoresSelectedNPMGlobalPrefix(t *testing.T) {
+	content, err := os.ReadFile("run.sh")
+	if err != nil {
+		t.Fatalf("read run.sh: %s", err)
+	}
+	run := string(content)
+	for _, required := range []string{
+		`NPM_GLOBAL_PREFIX="${NPM_CONFIG_PREFIX:-$(npm config get prefix`,
+		`export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"`,
+		`export PATH="$HOME/.local/bin:$NPM_GLOBAL_PREFIX/bin:$PATH"`,
+		`for runtime_command in pi pi-acp`,
+		`is missing from the configured npm prefix`,
+	} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("run.sh is missing npm runtime PATH fragment %q", required)
 		}
 	}
 }

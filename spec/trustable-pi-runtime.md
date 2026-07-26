@@ -116,6 +116,12 @@ Version 2 revalidates the host contract inside Pi and:
 - blocks Pi shell calls that would run `ops ide deploy` or start another
   `ops ide devel` process. The existing Trustable-managed development watcher
   is the sole owner of live action packaging and deployment;
+- keeps TruACP's explicit user `!` shell path outside Pi and its tool hooks.
+  The browser never executes a process or supplies cwd: the Node host accepts
+  only an active session id plus command, resolves the session-owned workbench,
+  filters credential-bearing environment variables, bounds time/output, and
+  renders command, stdout/stderr, nonzero status, timeout, or truncation in the
+  conversation. Non-leading `!` remains an ordinary agent prompt;
 - registers `trustable_runtime_redeploy`, which invokes the same co-located
   `/api/redeploy` SSE workflow as the Trustable UI. A successful
   OpenServerless `action_new` creation requires one call after the coherent
@@ -196,6 +202,9 @@ Tests must cover:
   checker calls without an intervening relevant mutation;
 - extension installation and image staging;
 - unchanged standalone TruACP behavior;
+- direct `!` prefix classification, active-session cwd resolution,
+  stdout/stderr and nonzero-exit rendering, bounded timeout/output, exact ready
+  composer text, and unchanged ordinary prompts for Pi and non-Pi agents;
 - successful per-server `connect` calls satisfying the managed MCP bootstrap
   without being misclassified as global status, while failed connects advance
   neither reachability nor server-discovery state;
@@ -209,3 +218,13 @@ Tests must cover:
   prose inside one streamed response is terminated deterministically;
 - watcher output is bounded, private, redacted by `trustable_runtime_status`,
   and available in both initial launch and explicit redeploy paths.
+
+## Upstream extension boundary (#71)
+
+This section supersedes the earlier requirement to own a Pi core fork. The
+runtime is the exact upstream Pi `0.82.0` package set with checked-in SRI values.
+Trustable's repeated-stream guard runs in the managed extension: after four
+occurrences of a normalized 32-word window within one assistant text stream it
+calls `ctx.abort()` and rewrites `message_end` with an explicit provider-loop
+error. State resets at the next assistant response; healthy runs beyond 300
+turns are not limited.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -320,6 +321,29 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve managed GitHub metadata before creating an OpenServerless user.
+	// WHY: an inaccessible private repository must not leave partially-created
+	// local users, and the browser must never receive a token to perform this
+	// validation itself.
+	var managedRepository *githubRepository
+	githubCtx, githubCancel := context.WithTimeout(r.Context(), managedGitHubCommandTimeout)
+	githubStatus := getManagedGitHubStatus(githubCtx)
+	if githubStatus.Authenticated {
+		if err := ensureManagedGitHubCredentials(); err != nil {
+			githubCancel()
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		details, err := lookupManagedGitHubRepository(githubCtx, req.Repo)
+		if err != nil {
+			githubCancel()
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		managedRepository = &details
+	}
+	githubCancel()
+
 	// Check if workspace folder already exists
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 	if _, err := os.Stat(workspacePath); err == nil {
@@ -348,30 +372,61 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clone the repo as bare: try SSH first, fall back to HTTPS if SSH fails
+	// Clone the repo as bare. Managed accounts use only their isolated HTTPS
+	// credential helper; disconnected installations preserve SSH/public HTTPS.
 	homeDir, _ := os.UserHomeDir()
 	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
 	cloned := false
-	if _, err := os.Stat(sshKeyPath); err == nil {
+	cloneOutput := ""
+	defaultBranch := ""
+	if managedRepository != nil {
+		cloneCmd := gitCommand("", "clone", "--bare", managedRepository.CloneURL, workspacePath)
+		output, err := cloneCmd.CombinedOutput()
+		cloneOutput = string(output)
+		if err == nil {
+			cloned = true
+			defaultBranch = managedRepository.DefaultBranch
+		}
+	} else if _, err := os.Stat(sshKeyPath); err == nil {
 		repoURL := fmt.Sprintf("git@github.com:%s", req.Repo)
-		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-		cloneCmd := exec.Command("git", "clone", "--bare", repoURL, workspacePath)
-		cloneCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
+		cloneCmd := gitCommand("", "clone", "--bare", repoURL, workspacePath)
 		if output, err := cloneCmd.CombinedOutput(); err != nil {
 			log.Printf("SSH clone failed, falling back to HTTPS: %s, output: %s", err, string(output))
+			cloneOutput = string(output)
 			os.RemoveAll(workspacePath)
 		} else {
 			cloned = true
 		}
 	}
-	if !cloned {
+	if !cloned && managedRepository == nil {
 		repoURL := fmt.Sprintf("https://github.com/%s", req.Repo)
-		cloneCmd := exec.Command("git", "clone", "--bare", repoURL, workspacePath)
+		cloneCmd := gitCommand("", "clone", "--bare", repoURL, workspacePath)
 		if output, err := cloneCmd.CombinedOutput(); err != nil {
+			cloneOutput = string(output)
+		} else {
+			cloned = true
+		}
+	}
+	if !cloned {
+		if !userExisted {
 			deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
 			deleteUserCmd.Run()
-			log.Printf("Failed to clone repo: %s, output: %s", err, string(output))
-			http.Error(w, fmt.Sprintf("Failed to clone repository: %s", string(output)), http.StatusInternalServerError)
+		}
+		os.RemoveAll(workspacePath)
+		log.Printf("Failed to clone repo: %s", strings.TrimSpace(cloneOutput))
+		http.Error(w, "Failed to clone repository: "+strings.TrimSpace(cloneOutput), http.StatusInternalServerError)
+		return
+	}
+	if defaultBranch != "" {
+		headCmd := gitCommand(workspacePath, "symbolic-ref", "HEAD", "refs/heads/"+defaultBranch)
+		if output, err := headCmd.CombinedOutput(); err != nil {
+			if !userExisted {
+				deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
+				deleteUserCmd.Run()
+			}
+			os.RemoveAll(workspacePath)
+			log.Printf("Failed to preserve repository default branch: %s", string(output))
+			http.Error(w, "Failed to preserve repository default branch", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -397,6 +452,10 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{
 		"name": req.Name,
 		"repo": req.Repo,
+	}
+	if defaultBranch != "" {
+		result["default_branch"] = defaultBranch
+		result["github_account"] = githubStatus.Login
 	}
 	if userExisted {
 		result["warning"] = "The provided password was ignored because the user already existed. The existing local password was reused."

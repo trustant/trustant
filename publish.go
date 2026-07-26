@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -101,51 +101,30 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Setup production remote on the bare repo
-	repoURL := fmt.Sprintf("git@github.com:%s.git", opsRepo)
-
-	// Remove existing production remote (ignore errors)
-	removeCmd := exec.Command("git", "remote", "remove", "production")
-	removeCmd.Dir = workspacePath
-	removeCmd.Run()
-
-	// Add production remote
-	addCmd := exec.Command("git", "remote", "add", "production", repoURL)
-	addCmd.Dir = workspacePath
-	if output, err := addCmd.CombinedOutput(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":  "Failed to add production remote: " + err.Error(),
-			"output": string(output),
-		})
+	var output bytes.Buffer
+	branch, err := gitDefaultBranch(workspacePath)
+	if err != nil {
+		writeGitJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
-
-	// Push to production with SSH key
-	homeDir, _ := os.UserHomeDir()
-	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
-	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-
-	pushCmd := exec.Command("git", "push", "production", "main")
-	pushCmd.Dir = workspacePath
-	pushCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
-
-	output, err := pushCmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Git push to production failed: %s, output: %s", err, string(output))
+	if err := ensureProductionRemote(workspacePath, opsRepo, &output); err != nil {
+		writeGitJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "output": output.String()})
+		return
+	}
+	if err := runGitCommand(workspacePath, &output, "push", "production", branch); err != nil {
+		log.Printf("Git push to production failed: %s", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error":  err.Error(),
-			"output": string(output),
+			"output": output.String(),
 		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"output": string(output),
+		"output": output.String(),
 	})
 }
 
@@ -193,48 +172,30 @@ func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Setup production remote
-	repoURL := fmt.Sprintf("git@github.com:%s.git", opsRepo)
-
-	removeCmd := exec.Command("git", "remote", "remove", "production")
-	removeCmd.Dir = workspacePath
-	removeCmd.Run()
-
-	addCmd := exec.Command("git", "remote", "add", "production", repoURL)
-	addCmd.Dir = workspacePath
-	if output, err := addCmd.CombinedOutput(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":  "Failed to add production remote: " + err.Error(),
-			"output": string(output),
-		})
+	var output bytes.Buffer
+	branch, err := gitDefaultBranch(workspacePath)
+	if err != nil {
+		writeGitJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
-
-	// Force push to production with SSH key
-	homeDir, _ := os.UserHomeDir()
-	sshKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
-	sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=no", sshKeyPath)
-
-	pushCmd := exec.Command("git", "push", "-f", "production", "main")
-	pushCmd.Dir = workspacePath
-	pushCmd.Env = append(os.Environ(), "GIT_SSH_COMMAND="+sshCmd)
-
-	output, err := pushCmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Git force push to production failed: %s, output: %s", err, string(output))
+	if err := ensureProductionRemote(workspacePath, opsRepo, &output); err != nil {
+		writeGitJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "output": output.String()})
+		return
+	}
+	if err := runGitCommand(workspacePath, &output, "push", "-f", "production", branch); err != nil {
+		log.Printf("Git force push to production failed: %s", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error":  err.Error(),
-			"output": string(output),
+			"output": output.String(),
 		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"output": string(output),
+		"output": output.String(),
 	})
 }
 

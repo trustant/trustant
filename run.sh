@@ -15,11 +15,17 @@ cd "$(dirname "$0")"
 # checkout. Inside Lima/WSL the mounted .git indirection may be unavailable, so
 # an explicit override or a truthful development fallback is used there.
 write_dev_build_metadata() {
-    local version expiry branch stream build
+    local version expiry branch stream build worktree
     version="$(cat version.txt 2>/dev/null || printf 'dev')"
     expiry="$(cat expiry.txt 2>/dev/null || printf '2099/12/31')"
     branch="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
-    branch="${branch:-development}"
+    if [[ -z "$branch" ]]; then
+        worktree="$(basename "$PWD")"
+        case "$worktree" in
+            trustable-app-*) branch="${worktree#trustable-app-}" ;;
+            *) branch="development" ;;
+        esac
+    fi
     stream="${TRUSTABLE_BUILD_STREAM:-$branch}"
     build="${TRUSTABLE_BUILD_TAG:-local_$(date +%y.%j.%H%M)}"
     printf 'Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n' \
@@ -48,9 +54,29 @@ if [[ "$(uname)" == "Darwin" ]]; then
     exit 0
 fi
 
-[[ -s _build.txt ]] || write_dev_build_metadata
+# Always replace release or verification metadata before starting Air. A reused
+# worktree may carry an ignored _build.txt from an earlier image build.
+write_dev_build_metadata
 
 source ./.env
+
+# setup.sh persists the selected user-owned npm prefix, but running this script
+# from the same non-interactive shell does not reload ~/.bashrc. Reconstruct the
+# setup-owned PATH here so TruACP can spawn the pinned pi-acp and Pi binaries on
+# the first run after setup as well as after a fresh login.
+command -v npm &>/dev/null \
+    || { echo "npm is missing — run ./setup.sh first" >&2; exit 1; }
+NPM_GLOBAL_PREFIX="${NPM_CONFIG_PREFIX:-$(npm config get prefix 2>/dev/null || true)}"
+if [[ -z "$NPM_GLOBAL_PREFIX" || "$NPM_GLOBAL_PREFIX" != /* ]]; then
+    echo "npm global prefix is invalid — run ./setup.sh first" >&2
+    exit 1
+fi
+export NPM_CONFIG_PREFIX="$NPM_GLOBAL_PREFIX"
+export PATH="$HOME/.local/bin:$NPM_GLOBAL_PREFIX/bin:$PATH"
+for runtime_command in pi pi-acp; do
+    command -v "$runtime_command" &>/dev/null \
+        || { echo "$runtime_command is missing from the configured npm prefix $NPM_GLOBAL_PREFIX — run ./setup.sh first" >&2; exit 1; }
+done
 
 # Put the Go dirs on PATH so `go` and `air` are found even in a non-interactive
 # shell (Ubuntu's .bashrc returns early when non-interactive, so the PATH lines

@@ -88,7 +88,7 @@ TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
 echo "Using trustable-acp submodule: $TRUACP_REF"
 # WHY: the managed runtime must package the issue #57 policy extension beside
 # the exact TruACP and pi-acp versions that negotiate its typed launch path.
-for required in setup.sh pi.version package-lock.json extensions/trustable-runtime.ts; do
+for required in setup.sh pi.version pi.integrity package-lock.json extensions/trustable-runtime.ts; do
     if [ ! -f "../trustable-acp/$required" ]; then
         echo "Error: ../trustable-acp/$required is missing." >&2
         exit 1
@@ -100,13 +100,6 @@ for required in package.json package-lock.json; do
         exit 1
     fi
 done
-for required in package.json package-lock.json scripts/local-release.mjs; do
-    if [ ! -f "../trustable-acp/pi/$required" ]; then
-        echo "Error: nested trustable-acp/pi/$required is missing." >&2
-        exit 1
-    fi
-done
-
 # Build outside Docker, then stage only the self-contained JavaScript bundle,
 # its pinned agent manifest, the tested pi-acp package, and the sole installer.
 # Shipping the remaining source or node_modules in an earlier image layer would
@@ -126,6 +119,7 @@ rm -rf "$TRUACP_ARTIFACT_DIR"
 mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
 cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
 cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
+cp ../trustable-acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"
 cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
 mkdir -p "$TRUACP_ARTIFACT_DIR/extensions"
 cp ../trustable-acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"
@@ -144,34 +138,6 @@ if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
 fi
 mv "$1" "$TRUACP_ARTIFACT_DIR/pi-acp-package.tgz"
 
-# Build the owned Pi monorepo into the five package tarballs consumed by the
-# same setup.sh path in both VM and image modes. WHY: installing the public
-# coding-agent package here would pass the build while dropping the core loop
-# protection tested from source.
-PI_RELEASE_DIR=$(mktemp -d)
-(
-    cd ../trustable-acp/pi
-    # WHY: repository lifecycle hooks (notably Husky) need Git administration
-    # paths that are intentionally absent from portable VM/image build inputs.
-    # The explicit local-release command below owns the actual package build.
-    npm ci --ignore-scripts
-    # WHY: an image build must not silently refresh model catalogs from a
-    # network service after the source revision has been reviewed.
-    PI_LOCAL_RELEASE_USE_CHECKED_IN_MODELS=1 node scripts/local-release.mjs \
-        --out "$PI_RELEASE_DIR" \
-        --force \
-        --skip-check \
-        --skip-test \
-        --skip-install
-)
-mkdir -p "$TRUACP_ARTIFACT_DIR/pi-packages"
-cp "$PI_RELEASE_DIR"/tarballs/*.tgz "$TRUACP_ARTIFACT_DIR/pi-packages/"
-rm -rf "$PI_RELEASE_DIR"
-set -- "$TRUACP_ARTIFACT_DIR"/pi-packages/*.tgz
-if [ "$#" -ne 5 ]; then
-    echo "Error: nested Trustable Pi build did not produce exactly five package archives." >&2
-    exit 1
-fi
 TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using staged TruACP artifact hash: $TRUACP_HASH"
 

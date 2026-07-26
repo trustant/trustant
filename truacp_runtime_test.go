@@ -65,7 +65,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	for _, required := range []string{
 		"COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh",
 		"COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version",
-		"COPY --chown=trustable:trustable truacp-runtime/pi-packages /tmp/truacp/pi-packages",
+		"COPY --chown=trustable:trustable truacp-runtime/pi.integrity /tmp/truacp/pi.integrity",
 		"COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs",
 		"COPY --chown=trustable:trustable truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts",
 		"sh setup.sh",
@@ -91,11 +91,9 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		`npm run build`,
 		`cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"`,
 		`cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
+		`cp ../trustable-acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
 		`cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
 		`cp ../trustable-acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"`,
-		`npm ci --ignore-scripts`,
-		`node scripts/local-release.mjs`,
-		`"$TRUACP_ARTIFACT_DIR/pi-packages"`,
 		`printf 'trustable-acp=%s:%s\n' "$TRUACP_REF" "$TRUACP_HASH"`,
 	} {
 		if !strings.Contains(staging, required) {
@@ -105,6 +103,8 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	for _, forbidden := range []string{
 		`tar -C ../trustable-acp`,
 		`TRUACP_CONTEXT_DIR="trustable-acp"`,
+		`PI_LOCAL_RELEASE_USE_CHECKED_IN_MODELS`,
+		`pi-packages`,
 		// WHY: the issue #57 execution-policy extension must return through
 		// its complete contract, not as the stale issue #58 build placeholder.
 		`trustable-guardrails.ts`,

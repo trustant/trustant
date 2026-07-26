@@ -66,6 +66,17 @@ Both environments install `lsof` explicitly because the shared TruACP/Vite
 lifecycle uses it to reclaim listeners left without a valid process-group
 marker; image behavior must not depend on an undeclared base-package accident.
 
+Both environments also install the official GitHub CLI from the pinned
+`GH_VERSION=2.96.0` Linux archive. The Dockerfile owns checked-in SHA-256 values
+for amd64 and arm64; both the image and repository-root setup verify the
+matching checksum before installing `/usr/local/bin/gh`. Builds never resolve a
+floating GitHub CLI release or copy a host developer's GitHub configuration.
+
+Managed account state is runtime data under
+`$WORKSPACE_DIR/.trustable/github`, not an image layer. The directory is on the
+durable workspace mount in the pod and in `trudev`, so authentication survives
+supported restarts while remaining isolated from the normal host account.
+
 For the macOS Lima flow, `start.sh` initializes `mcp`, `trustable-acp`, and its
 nested `pi-acp` fork recursively on the host before starting the guest. It checks
 the nested leaf even when the outer submodule was already populated. A
@@ -133,3 +144,18 @@ Publishing environment:
 The server flow does not update `olaris-bestia/opsroot.json`; that file belongs
 to the release/plugin publishing flow. Local server builds are for testing the
 image currently being developed.
+
+## Upstream Pi image payload (#71)
+
+This section supersedes earlier Pi-tarball staging requirements. `image.sh`
+stages `setup.sh`, `pi.version`, `pi.integrity`, the managed runtime extension,
+the built TruACP bundle, and the pinned `pi-acp` package. It must not build a Pi
+monorepo or create a `pi-packages` directory. The Docker layer consumes this
+same payload and verifies upstream package integrity through the ACP installer.
+
+Notebook support adds no runtime package or image secret. Its React UI, parser,
+server GitHub client, and session sidecar code are imported by the existing
+truacp web/server entrypoints and therefore travel in the normal embedded
+bundle. `NOTEBOOK_GITHUB_TOKEN`, when configured, is supplied only to the
+running server process; it is never baked into an image layer or staged
+artifact.

@@ -167,7 +167,18 @@ When you add an application it will ask for:
 
 with a button "Create" and "Cancel"
 
-If the SSH key is available (GET /api/sshkey returns 200), show a yellow notice inside the Add Application modal with the text:
+When `GET /api/github/status` reports an authenticated managed GitHub account,
+the repository input remains an editable `org/repo` field but is backed by a
+datalist populated from bounded `GET /api/github/repos` results. The modal
+shows the connected login, repository visibility, and default branch where
+available. Public and private repositories are both selectable. Repository
+listing failures do not disable manual input; they show an actionable message
+and preserve the SSH fallback.
+
+If the managed GitHub account is not connected, or the selected repository is
+not available to it, the existing SSH path remains available. If the SSH key is
+available (`GET /api/sshkey` returns 200), show a yellow notice inside the Add
+Application modal with the text:
 
 "To save and read private repo add this **ssh key** to your GitHub account."
 
@@ -179,6 +190,22 @@ The phrase "ssh key" is an inline link. Clicking it toggles a reveal area inside
 The reveal is collapsed by default and reset to collapsed every time the Add Application modal is closed and reopened.
 
 If the SSH key is not available, do not show this notice.
+
+The Configure page owns a compact **GitHub Account** card. It displays:
+
+- unavailable, disconnected, connecting, connected, cancelled, expired/error;
+- the authenticated `github.com` login, but never a token;
+- Connect, Cancel, Retry, and Disconnect actions;
+- the one-time device URL and code while login is active.
+
+The browser polls the bounded backend login state. It never executes `gh`,
+receives credential files, stores a GitHub token, or sends GitHub credentials
+to Pi/TruACP. An authenticated account status takes precedence over stale
+terminal device-flow state: the Configure card must not show a failed/expired
+login error together with a connected account. While the managed account is
+connected, the separate Git User card is hidden because it is not a second
+authentication mechanism. Its saved commit-author values remain unchanged and
+become visible again after disconnecting GitHub.
 
 ## SSH Key link
 
@@ -228,7 +255,11 @@ If the backend returns `{"needs_config": true}`, show a popup asking for:
 - The SSH key notice (same as in app creation: yellow box with "Show Key" button, only if SSH key is available)
 - A note: "The SSH public key must be added to this repository's deploy keys or your GitHub account."
 
-Once the repo is set, the backend saves it as `OPS_REPO` in production config, adds a "production" git remote, and runs `git push production main` using the SSH key.
+Once the repo is set, the backend saves it as `OPS_REPO` in production config
+and adds a `production` remote. With a connected managed GitHub account it uses
+the isolated HTTPS credential helper. Otherwise it uses the existing SSH key.
+It pushes the bare workspace repository's symbolic default branch rather than
+assuming `main`.
 
 If `needs_config` was not returned (already configured), skip the form and show the result directly.
 
@@ -330,3 +361,16 @@ A compact **Credits box** is shown on this page right after the title (below the
 The box is a rounded pill (light background, border) showing the label `Credits:` followed by the current credit value (e.g. `Credits: 873`). While the value has not yet been fetched, show `Credits: …`. On error, show `Credits: —` and put the error text in the element's `title` attribute (tooltip).
 
 The frontend fetches credits from the local backend endpoint `GET /api/credits` (which proxies the ai-proxy's `GET /api/v2/credits` — see [3-app.md](3-app.md) "Credits" for the endpoint contract and [10-validate_key.md](10-validate_key.md) for the upstream API). It calls the endpoint when the page loads and then re-fetches **every 60 seconds** with `setInterval`. Clear the interval on page unload.
+
+## Optional deploy after Git Pull
+
+After Git Pull succeeds with `workbench_updated: true`, the result modal
+asks: "Git pull completed. Do you want to deploy too?"
+
+- `Deploy` calls `POST /api/git/deploy`, shows the deployment spinner, and
+  reports the command result.
+- `Not now`, Escape, or a backdrop click closes the prompt without running
+  `ops ide clean` or `ops ide deploy`.
+- No deployment prompt appears when the workbench did not change.
+- The application list reloads after the successful pull independently of
+  the deployment choice.
