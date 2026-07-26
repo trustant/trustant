@@ -332,3 +332,12 @@ mirror, `.openserverless-contract.md`, and `.mcp.json` are written at launch by
 the Go binary. There is no project-local `opencode.md`. Skills come from
 OPS_SKILLS (default `trustable-ai/skills`) cloned at launch by `skills.go`;
 setup does nothing for these, but they are covered when an app is launched.
+
+## Upstream Pi setup contract (#71)
+
+This section supersedes earlier nested-Pi-build instructions. Clean `trudev`
+setup installs the exact upstream Pi `0.82.0` package set from
+`trustable-acp/pi.version` only after matching every entry in
+`trustable-acp/pi.integrity`. It must not initialize or build a Pi source fork,
+consume locally staged Pi tarballs, or rely on host npm caches. The nested
+`trustable-acp/pi-acp` fork remains required and is built by the ACP installer.

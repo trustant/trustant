@@ -144,3 +144,11 @@ Publishing environment:
 The server flow does not update `olaris-bestia/opsroot.json`; that file belongs
 to the release/plugin publishing flow. Local server builds are for testing the
 image currently being developed.
+
+## Upstream Pi image payload (#71)
+
+This section supersedes earlier Pi-tarball staging requirements. `image.sh`
+stages `setup.sh`, `pi.version`, `pi.integrity`, the managed runtime extension,
+the built TruACP bundle, and the pinned `pi-acp` package. It must not build a Pi
+monorepo or create a `pi-packages` directory. The Docker layer consumes this
+same payload and verifies upstream package integrity through the ACP installer.
