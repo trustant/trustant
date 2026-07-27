@@ -1,4 +1,8 @@
 {
+    "notebook": {
+        "repository": "trustable-ai/notebooks",
+        "ref": "main"
+    },
     "git": {
         "user": "Trustable User",
         "email": "noreply@example.com"

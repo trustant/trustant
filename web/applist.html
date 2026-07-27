@@ -417,7 +417,15 @@
                 </svg>
             </div>
             <h3 id="launchTitle" class="text-lg font-medium mb-2">Launching <span id="launchAppName"></span></h3>
-            <p id="launchMessage" class="text-[color:var(--nu-muted)] mb-4">Please wait...</p>
+            <p id="launchMessage" class="text-[color:var(--nu-muted)] mb-4">Preparing launch...</p>
+                    <div id="launchProgress" class="mb-4 text-left" aria-live="polite">
+                        <div id="launchProgressTrack" class="h-2.5 w-full overflow-hidden rounded-full bg-gray-200" role="progressbar" aria-label="Application launch progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div id="launchProgressBar" class="h-full rounded-full bg-cyan-500 transition-[width] duration-500 ease-out" style="width: 0%"></div>
+                        </div>
+                        <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                            <span id="launchProgressStep">Starting...</span><span id="launchProgressPercent">0%</span>
+                        </div>
+                    </div>
             <div id="launchError" class="hidden">
                 <div id="launchErrorText" class="mb-4 nu-feedback nu-feedback-error max-h-48 overflow-y-auto text-left text-sm nu-code p-3 whitespace-pre-wrap"></div>
                 <button onclick="hideLaunchModal()"
@@ -1390,7 +1398,73 @@
             }
         }
 
+        let launchProgressPercent = 0;
+        const launchProgressTotal = 8;
+
+        function resetLaunchProgress() {
+            launchProgressPercent = 0;
+            document.getElementById('launchMessage').textContent = 'Preparing launch...';
+            const track = document.getElementById('launchProgressTrack');
+            track.setAttribute('aria-valuenow', '0');
+            document.getElementById('launchProgressBar').style.width = '0%';
+            document.getElementById('launchProgressStep').textContent = 'Starting...';
+            document.getElementById('launchProgressPercent').textContent = '0%';
+            document.getElementById('launchProgress').classList.remove('hidden');
+        }
+
+        function updateLaunchProgress(stage, total, message) {
+            const safeTotal = Math.max(1, Number(total) || 1);
+            const safeStage = Math.max(0, Math.min(safeTotal, Number(stage) || 0));
+            launchProgressPercent = Math.max(launchProgressPercent, Math.round((safeStage / safeTotal) * 100));
+            const track = document.getElementById('launchProgressTrack');
+            track.setAttribute('aria-valuenow', String(launchProgressPercent));
+            document.getElementById('launchProgressBar').style.width = launchProgressPercent + '%';
+            document.getElementById('launchProgressStep').textContent = 'Step ' + safeStage + ' of ' + safeTotal;
+            document.getElementById('launchProgressPercent').textContent = launchProgressPercent + '%';
+            if (message) document.getElementById('launchMessage').textContent = message;
+        }
+
+        function parseLaunchStreamEvent(block) {
+            let event = 'message';
+            const data = [];
+            block.split('\n').forEach(line => {
+                if (line.startsWith('event:')) event = line.slice(6).trim();
+                else if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+            });
+            if (data.length === 0) return null;
+            return { event, payload: JSON.parse(data.join('\n')) };
+        }
+
+        async function fetchLaunchResponse(name) {
+            const response = await fetch('/api/launch/' + encodeURIComponent(name), { headers: { 'Accept': 'text/event-stream' } });
+            const contentType = response.headers.get('content-type') || '';
+            if (!response.body || !contentType.includes('text/event-stream')) return response;
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let terminalPayload = null;
+            let terminalEvent = '';
+            const consume = block => {
+                const parsed = parseLaunchStreamEvent(block);
+                if (!parsed) return;
+                if (parsed.event === 'progress') updateLaunchProgress(parsed.payload.stage, parsed.payload.total, parsed.payload.message);
+                else if (parsed.event === 'done' || parsed.event === 'error') { terminalEvent = parsed.event; terminalPayload = parsed.payload; }
+            };
+            while (true) {
+                const { value, done } = await reader.read();
+                buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+                let boundary;
+                while ((boundary = buffer.indexOf('\n\n')) !== -1) { consume(buffer.slice(0, boundary)); buffer = buffer.slice(boundary + 2); }
+                if (done) break;
+            }
+            if (buffer.trim()) consume(buffer.trim());
+            if (terminalPayload === null) throw new Error('Launch progress stream ended before completion');
+            if (terminalEvent === 'done') updateLaunchProgress(launchProgressTotal, launchProgressTotal, 'Ready');
+            return { ok: response.ok, status: response.status, statusText: response.statusText, headers: response.headers, json: async () => terminalPayload };
+        }
+
         function showLaunchModal(name) {
+            resetLaunchProgress();
             document.getElementById('launchAppName').textContent = name;
             document.getElementById('launchSpinner').classList.remove('hidden');
             document.getElementById('launchMessage').classList.remove('hidden');
@@ -1428,7 +1502,7 @@
             const rightURL = `${protocol}//vite.${domain}${portSuffix}`;
 
             try {
-                const response = await fetch(`/api/launch/${encodeURIComponent(name)}`);
+                const response = await fetchLaunchResponse(name);
                 const data = await response.json();
 
                 // The API repeats the Pi setup guard for stale/direct tabs.

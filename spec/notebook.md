@@ -148,3 +148,27 @@ strictly validated.
 Errors remain visible and recoverable. A read, conflict, authentication, or
 partial-mutation failure does not discard the loaded notebook or reorder the
 conversation.
+# Trustable-managed configuration ownership
+
+This section supersedes earlier references in this specification to editable
+source/ref controls in TruACP or to configuring `NOTEBOOK_GITHUB_TOKEN` in the
+TruACP server `.env`.
+
+- Trustable's main **Configure** screen owns the global notebook repository,
+  branch/ref, and write token.
+- Repository/ref are persisted in workspace `trustable.json`; the token is
+  write-only and stored separately in a mode-`0600` file under
+  `<WorkspaceDir>/.trustable/secrets/`.
+- `GET /api/configuration` returns repository/ref plus only `has_token`.
+  `POST /api/configuration` preserves an omitted token and supports an explicit
+  clear action.
+- Launch injects `NOTEBOOK_GITHUB_REPOSITORY`, `NOTEBOOK_GITHUB_REF`, and
+  `NOTEBOOK_GITHUB_TOKEN` only into the TruACP process. These values never enter
+  generated application env files, app config maps, notebook/session state,
+  project assets, logs, commits, or model context.
+- Managed TruACP treats the injected repository/ref as authoritative. Its
+  notebook panel displays the active source read-only and offers Refresh, but
+  no source configuration fields.
+- Public index/load operations continue without a token. Save, add, and remove
+  are disabled whenever `hasToken` is false, with guidance to use Trustable
+  Configure.

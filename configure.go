@@ -81,6 +81,14 @@ type GitConfig struct {
 	Email string `json:"email"`
 }
 
+// NotebookConfig contains the non-secret GitHub source selected in Configure.
+// The write token is stored separately under WorkspaceDir and never serialized
+// into trustable.json or returned to the browser.
+type NotebookConfig struct {
+	Repository string `json:"repository,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+}
+
 // trustableConfig represents the structure of trustable.json
 type trustableConfig struct {
 	Provider string `json:"provider,omitempty"`
@@ -99,6 +107,7 @@ type trustableConfig struct {
 	Models        map[string]*ModelLimits `json:"models,omitempty"`
 	Pi            *piConfig               `json:"pi,omitempty"`
 	Git           *GitConfig              `json:"git,omitempty"`
+	Notebook      *NotebookConfig         `json:"notebook,omitempty"`
 	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
 	Current       string                  `json:"current,omitempty"`
 
@@ -257,6 +266,20 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 		result.Git = override.Git
 	}
 
+	if override.Notebook != nil {
+		notebook := NotebookConfig{}
+		if base.Notebook != nil {
+			notebook = *base.Notebook
+		}
+		if override.Notebook.Repository != "" {
+			notebook.Repository = override.Notebook.Repository
+		}
+		if override.Notebook.Ref != "" {
+			notebook.Ref = override.Notebook.Ref
+		}
+		result.Notebook = &notebook
+	}
+
 	if override.Apps != nil {
 		result.Apps = override.Apps
 	}
@@ -292,6 +315,208 @@ func saveWorkspaceConfig(cfg *trustableConfig) error {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
 	return os.WriteFile(configPath, formatted, 0644)
+}
+
+const (
+	defaultNotebookRepository = "trustable-ai/notebooks"
+	defaultNotebookRef        = "main"
+)
+
+func notebookGitHubTokenPath() string {
+	return filepath.Join(
+		WorkspaceDir,
+		".trustable",
+		"secrets",
+		"notebook-github-token",
+	)
+}
+
+func readNotebookGitHubToken() (string, error) {
+	data, err := os.ReadFile(notebookGitHubTokenPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read notebook GitHub token: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func validateNotebookGitHubTokenUpdate(token string) (string, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(token, " \t\r\n") {
+		return "", fmt.Errorf("notebook GitHub token cannot contain whitespace")
+	}
+	return token, nil
+}
+
+func updateNotebookGitHubToken(token string, clear bool) error {
+	path := notebookGitHubTokenPath()
+	if clear {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to clear notebook GitHub token: %w", err)
+		}
+		return nil
+	}
+	token, err := validateNotebookGitHubTokenUpdate(token)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return nil
+	}
+	secretDir := filepath.Dir(path)
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		return fmt.Errorf("failed to create notebook secret directory: %w", err)
+	}
+	if err := os.Chmod(secretDir, 0700); err != nil {
+		return fmt.Errorf("failed to protect notebook secret directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(token), 0600); err != nil {
+		return fmt.Errorf("failed to save notebook GitHub token: %w", err)
+	}
+	if err := os.Chmod(path, 0600); err != nil {
+		return fmt.Errorf("failed to protect notebook GitHub token: %w", err)
+	}
+	return nil
+}
+
+func isNotebookRepositorySegment(value string) bool {
+	if value == "" || len(value) > 100 {
+		return false
+	}
+	for index, char := range value {
+		alphaNumeric := char >= 'a' && char <= 'z' ||
+			char >= 'A' && char <= 'Z' ||
+			char >= '0' && char <= '9'
+		if index == 0 || index == len(value)-1 {
+			if !alphaNumeric {
+				return false
+			}
+			continue
+		}
+		if !alphaNumeric && char != '.' && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeNotebookRepository(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	for _, prefix := range []string{"https://github.com/", "http://github.com/"} {
+		if strings.HasPrefix(lower, prefix) {
+			value = value[len(prefix):]
+			break
+		}
+	}
+	if strings.Contains(value, "://") {
+		return "", fmt.Errorf("notebook source must use github.com")
+	}
+	value = strings.Trim(strings.TrimSuffix(value, ".git"), "/")
+	parts := strings.Split(value, "/")
+	if len(parts) != 2 ||
+		!isNotebookRepositorySegment(parts[0]) ||
+		!isNotebookRepositorySegment(parts[1]) {
+		return "", fmt.Errorf("notebook source must be owner/repository or a GitHub repository URL")
+	}
+	return parts[0] + "/" + parts[1], nil
+}
+
+func normalizeNotebookRef(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = defaultNotebookRef
+	}
+	if len(value) > 200 ||
+		strings.HasPrefix(value, "/") ||
+		strings.HasSuffix(value, "/") ||
+		strings.Contains(value, "..") ||
+		strings.Contains(value, "\\") {
+		return "", fmt.Errorf("invalid notebook branch/ref")
+	}
+	hasAlphaNumeric := false
+	for _, char := range value {
+		alphaNumeric := char >= 'a' && char <= 'z' ||
+			char >= 'A' && char <= 'Z' ||
+			char >= '0' && char <= '9'
+		if alphaNumeric {
+			hasAlphaNumeric = true
+			continue
+		}
+		if char != '.' && char != '_' && char != '/' && char != '-' {
+			return "", fmt.Errorf("invalid notebook branch/ref")
+		}
+	}
+	if !hasAlphaNumeric {
+		return "", fmt.Errorf("invalid notebook branch/ref")
+	}
+	return value, nil
+}
+
+func normalizeNotebookConfig(cfg *trustableConfig) error {
+	if cfg.Notebook == nil {
+		cfg.Notebook = &NotebookConfig{
+			Repository: defaultNotebookRepository,
+			Ref:        defaultNotebookRef,
+		}
+	}
+	repository, err := normalizeNotebookRepository(cfg.Notebook.Repository)
+	if err != nil {
+		return err
+	}
+	ref, err := normalizeNotebookRef(cfg.Notebook.Ref)
+	if err != nil {
+		return err
+	}
+	cfg.Notebook.Repository = repository
+	cfg.Notebook.Ref = ref
+	return nil
+}
+
+func notebookRuntimeEnvironment() ([]string, error) {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeNotebookConfig(cfg); err != nil {
+		return nil, err
+	}
+	token, err := readNotebookGitHubToken()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		"NOTEBOOK_GITHUB_REPOSITORY=" + cfg.Notebook.Repository,
+		"NOTEBOOK_GITHUB_REF=" + cfg.Notebook.Ref,
+		"NOTEBOOK_GITHUB_TOKEN=" + token,
+	}, nil
+}
+
+func configurationPayload(cfg *trustableConfig) (map[string]interface{}, error) {
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		return nil, err
+	}
+	notebook, _ := payload["notebook"].(map[string]interface{})
+	if notebook == nil {
+		notebook = map[string]interface{}{}
+	}
+	token, err := readNotebookGitHubToken()
+	if err != nil {
+		return nil, err
+	}
+	notebook["has_token"] = token != ""
+	payload["notebook"] = notebook
+	return payload, nil
 }
 
 // modelLimitsEqual reports whether two map[string]*ModelLimits values have
@@ -2160,8 +2385,17 @@ func handleGetConfiguration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := normalizeNotebookConfig(cfg); err != nil {
+		http.Error(w, "Invalid notebook configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	payload, err := configurationPayload(cfg)
+	if err != nil {
+		http.Error(w, "Failed to prepare configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cfg)
+	json.NewEncoder(w).Encode(payload)
 }
 
 // handlePostConfiguration saves the provided configuration to workspace trustable.json
@@ -2177,6 +2411,20 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	var notebookInput struct {
+		Notebook struct {
+			GitHubToken string `json:"github_token"`
+			ClearToken  bool   `json:"clear_token"`
+		} `json:"notebook"`
+	}
+	if err := json.Unmarshal(body, &notebookInput); err != nil {
+		http.Error(w, "Invalid notebook configuration: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := validateNotebookGitHubTokenUpdate(notebookInput.Notebook.GitHubToken); err != nil {
+		http.Error(w, "Invalid notebook configuration: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Preserve existing apps and current from workspace config
 	wsCfg, wsErr := loadWorkspaceConfig()
@@ -2187,6 +2435,14 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		if wsCfg.Current != "" && cfg.Current == "" {
 			cfg.Current = wsCfg.Current
 		}
+		if wsCfg.Notebook != nil && cfg.Notebook == nil {
+			cfg.Notebook = wsCfg.Notebook
+		}
+	}
+
+	if err := normalizeNotebookConfig(&cfg); err != nil {
+		http.Error(w, "Invalid notebook configuration: "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	if err := validatePiModelSelection(&cfg); err != nil {
@@ -2196,6 +2452,13 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 
 	if err := saveWorkspaceConfig(&cfg); err != nil {
 		http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := updateNotebookGitHubToken(
+		notebookInput.Notebook.GitHubToken,
+		notebookInput.Notebook.ClearToken,
+	); err != nil {
+		http.Error(w, "Failed to save notebook credentials: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

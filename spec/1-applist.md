@@ -374,3 +374,18 @@ asks: "Git pull completed. Do you want to deploy too?"
 - No deployment prompt appears when the workbench did not change.
 - The application list reloads after the successful pull independently of
   the deployment choice.
+
+## Launch Progress
+
+The Edit launch modal requests `GET /api/launch/<name>` with
+`Accept: text/event-stream` and displays an accessible progress bar while the
+application lifecycle runs. Each progress event provides a monotonic
+`stage`, the fixed `total`, and a user-facing `message`. The UI derives its
+percentage only from those real lifecycle stages, never from elapsed-time
+animation, and keeps the last reached stage visible when launch fails. A
+terminal `done` event reaches 100% before navigation; a terminal `error`
+event preserves the existing error and setup-required behavior.
+
+If streaming is unavailable or the response is not `text/event-stream`, the
+browser falls back to the existing JSON response contract. This preserves
+compatibility with older servers and non-streaming clients. See issue #82.

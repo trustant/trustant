@@ -22,6 +22,10 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
     "pi": {
         "default": "<chosen Pi model name>"
     },
+    "notebook": {
+        "repository": "trustable-ai/notebooks",
+        "ref": "main"
+    },
     "apps": {
         "<app-name>": {
             "password": "<ops user password>",
@@ -51,6 +55,12 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   Legacy `opencode.default` and `opencode.small` are ignored rather than
   migrated; a missing `pi.default` sends the user to `configure.html?setup=1`
   from both the splash and the application list, before any model probe runs.
+- `notebook.repository` and `notebook.ref` — the global GitHub source consumed
+  by notebook workflows in every launched TruACP session. The defaults are
+  `trustable-ai/notebooks` and `main`. The write token is deliberately absent
+  from `trustable.json`: Configure stores it as a mode-`0600` workspace secret
+  under `<WorkspaceDir>/.trustable/secrets/` and the API exposes only
+  `notebook.has_token`.
 - `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustable Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
 - `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
 
@@ -368,13 +378,20 @@ preflight does not invent one and the normal Configure guard remains mandatory.
 
 # Manage configuration: GET /api/configuration
 
-Returns the merged configuration (base + workspace overrides) as JSON.
+Returns the merged configuration (base + workspace overrides) as JSON. The
+notebook block includes `repository`, `ref`, and `has_token`; it never contains
+the GitHub token value.
 
 # POST /api/configuration
 
 The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs two steps in order and returns a single JSON result:
 
 1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
+   The optional `notebook.github_token` request field is write-only and is
+   stored in the private workspace secret file, never in `trustable.json`.
+   Omitting it preserves the current token; `notebook.clear_token=true`
+   explicitly removes it. Repository/ref are validated and normalized before
+   persistence.
 2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process. An Ollama authentication failure is preserved as `testmodel.auth_required` in the save response and as `AUTH_REQUIRED:` in the streamed Configure gate. The browser opens the managed Ollama Cloud sign-in modal and reruns the complete gate after Retry, ensuring the Pi global configuration is written only after the model succeeds.
 3. **Write global Pi configuration** — only when testmodel succeeds, merge the Trustable provider into `models.json`, `settings.json`, and `auth.json`. On test failure the previously working files remain unchanged.
 
@@ -462,6 +479,11 @@ Sections (rendered top to bottom in this order):
   an embedding, rerank, tiny, or otherwise unsuitable model. `POST
   /api/configuration` enforces the same policy server-side before writing
   `trustable.json`; UI filtering alone is not sufficient.
+- **Notebook Repository** — global repository and branch/ref fields plus a
+  write-only GitHub token field. The page shows only whether a token is already
+  configured. Leaving the password field blank preserves it; an explicit
+  remove checkbox clears it. Public notebook reads do not require a token, but
+  TruACP save/add/remove remain disabled until one is configured.
 - **Git User** — name and email used as commit-author defaults. The card is
   visible while no managed GitHub account is connected. It is hidden when
   `GET /api/github/status` reports an authenticated account, because showing it

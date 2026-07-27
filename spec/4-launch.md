@@ -681,6 +681,16 @@ or inconsistent inputs abort launch; these values must never enter generated
 application env files or maps. Standalone TruACP does not receive this managed
 contract.
 
+The same private process boundary carries
+`NOTEBOOK_GITHUB_REPOSITORY`, `NOTEBOOK_GITHUB_REF`, and
+`NOTEBOOK_GITHUB_TOKEN`. Repository/ref come from the global Trustable
+configuration; the token comes from the mode-`0600` workspace secret written
+by Configure. Launch removes inherited or application-supplied values for
+these keys before appending the authoritative values, including an explicit
+empty token when write access is not configured. None of them is written to an
+application `.env`, `.env.production`, app config map, project asset, runtime
+manifest, log, or model-visible context.
+
 The companion `rclone`, `psql`, `redis-cli`, and `milvus_cli` wrappers and the
 service MCP entries are generated from the same post-login `~/.ops/config.json`
 object in one launch. For Redis in particular, the wrapper and MCP must use the
@@ -743,6 +753,11 @@ ACP server that serves its own React UI on `:4096`; it spawns `pi-acp` over
 stdio, which spawns the `pi` binary. Trustable never execs the agent directly,
 and there is no launch-time session bootstrap (truacp creates the ACP session, in
 the `--dir` cwd, on the first prompt; SPEC §10e).
+
+Managed notebook environment values are appended after the workbench
+environment and are server-authoritative. TruACP exposes only the normalized
+source and `hasToken`; the browser cannot override the managed repository/ref
+or receive the token.
 
 The Trustable `pi-acp` fork always owns `--mode rpc --no-themes`; a versioned,
 typed ACP launch extension may add validated extension/skill/prompt/session
@@ -900,3 +915,22 @@ Stream: `event: done` / `data: <output of ops action list>`
 At any step, if an error occurs:
 
 Stream: `event: error` / `data: <error message>`
+
+## Launch Progress Streaming
+
+`GET /api/launch/<name>` keeps its JSON response as the default contract. A
+client that sends `Accept: text/event-stream` receives Server-Sent Events on
+the same lifecycle request and under the same shared lifecycle lock:
+
+- `progress` carries `{stage, total, message}`;
+- `done` carries the unchanged successful launch JSON payload;
+- `error` carries the unchanged error JSON payload, including
+  `setup_required` when present.
+
+The eight monotonic phases are workspace preparation, application-account
+validation, OpenServerless login, clean, deploy, agent-tool preparation, coding
+service startup, and service readiness. A healthy reusable runtime may report
+the readiness phase immediately. Phase numbers identify lifecycle boundaries,
+not elapsed-time estimates; the server must not manufacture timer-based
+progress. Disconnecting the stream does not create a second lifecycle owner or
+bypass the lifecycle lock. See issue #82.
