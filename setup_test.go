@@ -33,11 +33,31 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	if !strings.Contains(setup, `playwright@1.56.1 install --with-deps chromium`) {
 		t.Fatal("setup.sh must install pinned Chromium and its Linux runtime dependencies")
 	}
+	if !strings.Contains(setup, `install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
+		t.Fatal("setup.sh must install the Trustable Redis namespace wrapper")
+	}
 	if strings.Contains(setup, `git -C trustable-acp`) || strings.Contains(setup, `git -C mcp`) {
 		t.Fatal("setup.sh must consume mounted source without following host-only Git metadata")
 	}
 	if !strings.Contains(setup, `(cd trustable-acp && ./setup.sh)`) {
 		t.Fatal("setup.sh must build TruACP from the checked-out submodule")
+	}
+}
+
+func TestRedisMCPNamespaceWrapperIsInstalledInVMAndImage(t *testing.T) {
+	setupContent, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	if !strings.Contains(string(setupContent), `image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
+		t.Fatal("VM setup must install the Redis MCP namespace wrapper")
+	}
+	if !strings.Contains(string(dockerContent), `COPY redis-mcp /usr/local/bin/trustable-redis-mcp`) {
+		t.Fatal("production image must install the Redis MCP namespace wrapper")
 	}
 }
 

@@ -180,7 +180,8 @@ RUN \
         mv /usr/local/bin/mcp-s3 /usr/local/bin/mcp-s3-real; \
     fi
 COPY mcp-s3 /usr/local/bin/mcp-s3
-RUN chmod 0755 /usr/local/bin/mcp-s3
+COPY redis-mcp /usr/local/bin/trustable-redis-mcp
+RUN chmod 0755 /usr/local/bin/mcp-s3 /usr/local/bin/trustable-redis-mcp
 COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh

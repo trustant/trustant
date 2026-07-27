@@ -163,6 +163,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 				"S3_ENDPOINT":           fmt.Sprintf("http://%s:%d", cfg.S3.Host, cfg.S3.Port),
 				"AWS_ACCESS_KEY_ID":     cfg.S3.Access.Key,
 				"AWS_SECRET_ACCESS_KEY": cfg.S3.Secret.Key,
+				"S3_CONNECTION_NAME":    "default",
 				"S3_USE_PATH_STYLE":     "true",
 			},
 			"enabled": true,
@@ -186,7 +187,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 		mcp["redis"] = map[string]interface{}{
 			"type": "local",
 			"command": []string{
-				"redis-mcp-server",
+				"trustable-redis-mcp",
 				"--host", cfg.Redis.Service,
 				"--port", fmt.Sprintf("%d", cfg.Redis.Port),
 				"--username", redisUsername(cfg),
@@ -197,6 +198,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 				"REDIS_HOST":     cfg.Redis.Service,
 				"REDIS_PORT":     fmt.Sprintf("%d", cfg.Redis.Port),
 				"REDIS_PWD":      cfg.Redis.Password,
+				"TRUSTABLE_REDIS_PREFIX": cfg.Redis.Prefix,
 			},
 			"enabled": true,
 			"timeout": 30000,

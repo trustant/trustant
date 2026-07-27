@@ -72,6 +72,13 @@ for amd64 and arm64; both the image and repository-root setup verify the
 matching checksum before installing `/usr/local/bin/gh`. Builds never resolve a
 floating GitHub CLI release or copy a host developer's GitHub configuration.
 
+Both environments install the same Trustable-owned Redis MCP stdio wrapper:
+`image/redis-mcp` becomes `trustable-redis-mcp`, while the pinned upstream
+`redis-mcp-server==0.5.0` remains its child process. The wrapper is part of the
+image source context and clean VM setup payload; no build may substitute a
+cached developer copy or bypass its fail-closed per-application namespace
+policy.
+
 Managed account state is runtime data under
 `$WORKSPACE_DIR/.trustable/github`, not an image layer. The directory is on the
 durable workspace mount in the pod and in `trudev`, so authentication survives

@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+
+
+REAL = os.environ.get("TRUSTABLE_REDIS_MCP_REAL") or shutil.which("redis-mcp-server")
+BLOCKED_TOOLS = {"client_list", "dbsize", "get_indexes", "info"}
+UNSCOPED_TOOLS = {"search_redis_documents"}
+KEY_FIELDS = {
+    "set": ("key",),
+    "get": ("key",),
+    "hset": ("name",),
+    "hget": ("name",),
+    "hdel": ("name",),
+    "hgetall": ("name",),
+    "hexists": ("name",),
+    "set_vector_in_hash": ("name",),
+    "get_vector_from_hash": ("name",),
+    "lpush": ("name",),
+    "rpush": ("name",),
+    "lpop": ("name",),
+    "rpop": ("name",),
+    "lrange": ("name",),
+    "llen": ("name",),
+    "lrem": ("name",),
+    "sadd": ("name",),
+    "srem": ("name",),
+    "smembers": ("name",),
+    "zadd": ("key",),
+    "zrange": ("key",),
+    "zrem": ("key",),
+    "xadd": ("key",),
+    "xrange": ("key",),
+    "xdel": ("key",),
+    "json_set": ("name",),
+    "json_get": ("name",),
+    "json_del": ("name",),
+    "delete": ("key",),
+    "type": ("key",),
+    "expire": ("name",),
+    "rename": ("old_key", "new_key"),
+    "publish": ("channel",),
+    "subscribe": ("channel",),
+    "unsubscribe": ("channel",),
+    "get_index_info": ("index_name",),
+    "get_indexed_keys_number": ("index_name",),
+    "create_vector_index_hash": ("index_name", "prefix"),
+    "vector_search_hash": ("index_name",),
+    "hybrid_search": ("index_name",),
+}
+PATTERN_FIELDS = {
+    "scan_keys": ("pattern",),
+    "scan_all_keys": ("pattern",),
+}
+SCOPED_DEFAULTS = {
+    "scan_keys": {"pattern": "*"},
+    "scan_all_keys": {"pattern": "*"},
+    "create_vector_index_hash": {
+        "index_name": "vector_index",
+        "prefix": "doc:",
+    },
+    "vector_search_hash": {"index_name": "vector_index"},
+    "hybrid_search": {"index_name": "vector_index"},
+}
+ALLOWED_TOOLS = set(KEY_FIELDS) | set(PATTERN_FIELDS) | UNSCOPED_TOOLS
+
+
+class PolicyError(Exception):
+    pass
+
+
+def validate_prefix(value):
+    if not isinstance(value, str) or not value or not value.endswith(":"):
+        raise PolicyError("configured Redis prefix must be non-empty and end with ':'")
+    if any(char in value for char in "*?[]") or any(ord(char) < 32 for char in value):
+        raise PolicyError("configured Redis prefix contains unsupported characters")
+    return value
+
+
+def scope_value(value, prefix):
+    if not isinstance(value, str) or not value:
+        raise PolicyError("Redis key, pattern, channel, and index values must be non-empty strings")
+    if value.startswith(prefix):
+        return value
+    return prefix + value
+
+
+def scope_arguments(tool_name, arguments, prefix):
+    if tool_name in BLOCKED_TOOLS:
+        raise PolicyError(f"global Redis tool '{tool_name}' is unavailable in a workspace")
+    if tool_name not in ALLOWED_TOOLS:
+        raise PolicyError(f"Redis tool '{tool_name}' has no reviewed workspace policy")
+    if not isinstance(arguments, dict):
+        raise PolicyError("Redis tool arguments must be an object")
+
+    scoped = dict(arguments)
+    for field, default in SCOPED_DEFAULTS.get(tool_name, {}).items():
+        if field not in scoped:
+            scoped[field] = default
+    for field in KEY_FIELDS.get(tool_name, ()):
+        if field in scoped:
+            scoped[field] = scope_value(scoped[field], prefix)
+    for field in PATTERN_FIELDS.get(tool_name, ()):
+        if field in scoped:
+            scoped[field] = scope_value(scoped[field], prefix)
+    return scoped
+
+
+def tool_name(tool):
+    if not isinstance(tool, dict):
+        return ""
+    return str(tool.get("name") or "")
+
+
+def rewrite_response(message):
+    result = message.get("result")
+    if not isinstance(result, dict):
+        return message
+    tools = result.get("tools")
+    if not isinstance(tools, list):
+        return message
+    result["tools"] = [tool for tool in tools if tool_name(tool) in ALLOWED_TOOLS]
+    for tool in result["tools"]:
+        description = tool.get("description")
+        if isinstance(description, str):
+            tool["description"] = (
+                description
+                + "\nTrustable enforces the current application's Redis namespace server-side."
+            )
+    return message
+
+
+def denied_response(request, error):
+    if "id" not in request:
+        return None
+    return {
+        "jsonrpc": request.get("jsonrpc", "2.0"),
+        "id": request["id"],
+        "result": {
+            "content": [{"type": "text", "text": f"Redis workspace policy denied the call: {error}"}],
+            "isError": True,
+        },
+    }
+
+
+def prepare_request(request, prefix):
+    if not isinstance(request, dict) or request.get("method") != "tools/call":
+        return request, None
+    params = request.get("params")
+    if not isinstance(params, dict):
+        return None, denied_response(request, "tools/call params must be an object")
+    name = params.get("name")
+    if not isinstance(name, str):
+        return None, denied_response(request, "tool name must be a string")
+    try:
+        arguments = scope_arguments(name, params.get("arguments", {}), prefix)
+    except PolicyError as error:
+        return None, denied_response(request, str(error))
+    rewritten = dict(request)
+    rewritten["params"] = dict(params)
+    rewritten["params"]["arguments"] = arguments
+    return rewritten, None
+
+
+def write_json(stream, lock, message):
+    with lock:
+        stream.write(json.dumps(message, separators=(",", ":")) + "\n")
+        stream.flush()
+
+
+def forward_requests(source, destination, output, output_lock, prefix):
+    try:
+        for line in source:
+            outgoing = line
+            try:
+                payload = json.loads(line)
+                if isinstance(payload, list):
+                    forwarded = []
+                    for request in payload:
+                        rewritten, denied = prepare_request(request, prefix)
+                        if denied is not None:
+                            write_json(output, output_lock, denied)
+                        if rewritten is not None:
+                            forwarded.append(rewritten)
+                    if not forwarded:
+                        continue
+                    payload = forwarded
+                else:
+                    payload, denied = prepare_request(payload, prefix)
+                    if denied is not None:
+                        write_json(output, output_lock, denied)
+                    if payload is None:
+                        continue
+                outgoing = json.dumps(payload, separators=(",", ":")) + "\n"
+            except json.JSONDecodeError:
+                pass
+            destination.write(outgoing)
+            destination.flush()
+    except BrokenPipeError:
+        pass
+    finally:
+        try:
+            destination.close()
+        except Exception:
+            pass
+
+
+def pump_stderr(source):
+    for line in source:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+
+
+def main():
+    try:
+        prefix = validate_prefix(os.environ.get("TRUSTABLE_REDIS_PREFIX", ""))
+    except PolicyError as error:
+        print(f"trustable-redis-mcp: {error}", file=sys.stderr)
+        return 78
+    if not REAL:
+        print("trustable-redis-mcp: redis-mcp-server is not installed", file=sys.stderr)
+        return 127
+
+    proc = subprocess.Popen(
+        [REAL, *sys.argv[1:]],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    output_lock = threading.Lock()
+
+    def relay_signal(signum, _frame):
+        try:
+            proc.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
+    signal.signal(signal.SIGINT, relay_signal)
+    signal.signal(signal.SIGTERM, relay_signal)
+
+    stdin_thread = threading.Thread(
+        target=forward_requests,
+        args=(sys.stdin, proc.stdin, sys.stdout, output_lock, prefix),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(target=pump_stderr, args=(proc.stderr,), daemon=True)
+    stdin_thread.start()
+    stderr_thread.start()
+
+    try:
+        for line in proc.stdout:
+            outgoing = line
+            try:
+                outgoing = json.dumps(
+                    rewrite_response(json.loads(line)),
+                    separators=(",", ":"),
+                ) + "\n"
+            except (json.JSONDecodeError, AttributeError):
+                pass
+            with output_lock:
+                sys.stdout.write(outgoing)
+                sys.stdout.flush()
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    return proc.wait()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

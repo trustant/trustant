@@ -92,6 +92,13 @@ WebSocket events, direct-shell REST output, and therefore persisted session
 history. Pi's extension blocks reads and shell inspection of the private MCP
 config; generated instructions forbid direct MCP startup for every agent.
 
+Redis is additionally isolated inside its selected MCP subprocess:
+`trustable-redis-mcp` applies the manifest-selected application's private
+prefix to every reviewed key-bearing request before the upstream server sees
+it, hides non-isolatable global tools, and rejects unknown tools. S3 names its
+environment-derived primary connection `default`, so process replacement
+recreates one discoverable connection without a mutable client-side registry.
+
 Exactly one initialized ACP agent is retained. Switching agents disconnects the
 previous process tree before the replacement starts, preventing competing
 Browser MCP owners. Browser MCP serializes every operation on one stdio
@@ -246,6 +253,11 @@ Tests must cover:
 - concurrent Browser MCP operations are ordered through one persistent process;
   empty/stale captures fail explicitly and agent switching closes the previous
   browser owner.
+- Redis exact-key, hash-field, scan, channel, and index arguments cannot escape
+  the selected application prefix; global and unknown Redis tools fail at the
+  wrapper boundary for every managed agent.
+- S3 launch configuration always names one primary `default` connection, and
+  `s3_list_connections` remains non-empty after MCP reconnect/redeploy.
 
 ## Upstream extension boundary (#71)
 

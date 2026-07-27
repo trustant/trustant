@@ -282,6 +282,9 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	if s3Env["S3_USE_PATH_STYLE"] != "true" {
 		t.Fatalf("unexpected S3_USE_PATH_STYLE: %#v", s3Env)
 	}
+	if s3Env["S3_CONNECTION_NAME"] != "default" {
+		t.Fatalf("S3 MCP must expose one stable default connection: %#v", s3Env)
+	}
 
 	postgres := mcp["postgres"].(map[string]interface{})
 	if cmd := postgres["command"].([]string); len(cmd) != 2 || cmd[0] != "postgres-mcp" || cmd[1] != "--access-mode=unrestricted" {
@@ -293,10 +296,10 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	}
 
 	redis := mcp["redis"].(map[string]interface{})
-	// Per spec/4-launch.md the redis command has no --ssl/--cluster-mode flags,
-	// and the environment block carries exactly REDIS_USERNAME/HOST/PORT/PWD.
+	// Per spec/4-launch.md the Redis MCP runs behind the Trustable namespace
+	// wrapper and receives the same prefix as the generated redis-cli.
 	wantRedisCmd := []string{
-		"redis-mcp-server",
+		"trustable-redis-mcp",
 		"--host", "redis",
 		"--port", "6379",
 		"--username", "app",
@@ -311,6 +314,7 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 		"REDIS_HOST":     "redis",
 		"REDIS_PORT":     "6379",
 		"REDIS_PWD":      "pw",
+		"TRUSTABLE_REDIS_PREFIX": "app:",
 	}
 	if !reflect.DeepEqual(redisEnv, wantRedisEnv) {
 		t.Fatalf("unexpected redis environment: %#v", redisEnv)

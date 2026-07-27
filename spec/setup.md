@@ -249,6 +249,13 @@ do
 done
 ```
 
+Install the checked-in `image/redis-mcp` as
+`~/.local/bin/trustable-redis-mcp` after the pinned upstream Redis server.
+Launch selects this Trustable wrapper and passes the application prefix only
+through the private managed MCP environment. The wrapper must fail closed on
+an absent/invalid prefix or an unreviewed tool and must match the production
+image byte-for-byte.
+
 The Milvus MCP source and commit are declared by
 `MILVUS_MCP_REPO`/`MILVUS_MCP_REF` in `image/Dockerfile` and consumed by both
 the image and this development setup. Use the Trustable fork at the exact
@@ -305,7 +312,7 @@ install -m 0755 image/mcp-s3 "$HOME/.local/bin/mcp-s3"
 ```
 
 The Go server writes each app's `.mcp.json` referencing these servers by command
-name (mcp-s3, postgres-mcp, redis-mcp-server, mcp-server-milvus,
+name (mcp-s3, postgres-mcp, trustable-redis-mcp, mcp-server-milvus,
 mongodb-mcp-server, openserverless-mcp), so "MCP ready" means all of them resolve
 on the guest's PATH.
 
