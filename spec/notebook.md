@@ -78,12 +78,24 @@ Loading a notebook renders each prompt as a visually distinct notebook node
 and selects the first node. Each notebook node has radio/select, run, edit, and
 remove controls.
 
+The conversation presents nodes as compact tasks rather than full prompt
+documents. A node title is derived from the first Markdown heading, falling
+back to the first meaningful line, and is bounded to a single concise label.
+The complete unchanged prompt remains available under a collapsed, bounded
+**Task details** disclosure.
+
 Running the selected node, either from the node or **Run next**:
 
 1. sends exactly that prompt through the existing ACP session;
 2. streams reasoning, tool activity, and model output directly below the node;
 3. advances exactly once to the next persisted notebook node, skipping unpinned
    inputs.
+
+Assistant output is the primary highlighted content inside the node. Tool calls
+are grouped separately under **Activity** in a scrollable window with exactly
+three visible rows; the window follows the latest operation while preserving
+the complete tool history. This presentation does not alter persisted output
+order or the normal ACP event path.
 
 Running the final node clears selection and disables **Run next** while keeping
 the notebook loaded and editable.
@@ -126,6 +138,12 @@ nodes, execution outputs, selected node, and dirty state are stored beside the
 ACP session. Load/resume reads the same sidecar. Fork copies it to the new
 session so subsequent changes diverge independently. Starting a new session
 does not inherit notebook state.
+
+ACP tool titles and statuses are adapter-owned display metadata. The browser
+and persistence boundary normalize missing, empty, structured, or oversized
+values to bounded strings (`(tool)` and `unknown` fallbacks) instead of
+rejecting the complete notebook state. Structural node and tool-call IDs remain
+strictly validated.
 
 Errors remain visible and recoverable. A read, conflict, authentication, or
 partial-mutation failure does not discard the loaded notebook or reorder the

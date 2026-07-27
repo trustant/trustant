@@ -346,10 +346,17 @@ session requires relaunching the app before `.mcp.json` changes.
     "S3_ENDPOINT": "http://<config.s3.host>:<config.s3.port>",
     "AWS_ACCESS_KEY_ID": "<config.s3.access.key>",
     "AWS_SECRET_ACCESS_KEY": "<config.s3.secret.key>",
+    "S3_CONNECTION_NAME": "default",
     "S3_USE_PATH_STYLE": "true"
   }
 }
 ```
+
+`S3_CONNECTION_NAME=default` is mandatory. `txn2/mcp-s3` otherwise creates a
+usable unnamed client but reports zero entries through `s3_list_connections`.
+Every MCP process restart reconstructs this one named primary connection from
+the private host configuration; no connection state is stored in the
+workbench.
 
 and create in ~/.local/bin/rclone the script:
 
@@ -398,7 +405,7 @@ exec psql "<config.postgres.url>" "$@"
 "redis": {
   "type": "stdio",
   "lifecycle": "eager",
-  "command": "redis-mcp-server",
+  "command": "trustable-redis-mcp",
   "args": [
     "--host", "<config.redis.service>",
     "--port", "<config.redis.port>",
@@ -409,10 +416,26 @@ exec psql "<config.postgres.url>" "$@"
     "REDIS_USERNAME": "<config.redis.prefix with last char removed>",
     "REDIS_HOST": "<config.redis.service>",
     "REDIS_PORT": "<config.redis.port>",
-    "REDIS_PWD": "<config.redis.password>"
+    "REDIS_PWD": "<config.redis.password>",
+    "TRUSTABLE_REDIS_PREFIX": "<config.redis.prefix>"
   }
 }
 ```
+
+`trustable-redis-mcp` is a Trustable-owned stdio policy wrapper around the
+pinned `redis-mcp-server`. It requires the private application prefix and
+qualifies every reviewed key, scan pattern, pub/sub channel, and Redis Query
+Engine index argument before forwarding the call. Already-qualified values are
+preserved; unqualified or foreign-looking values are nested under the current
+application prefix and therefore cannot address another workspace.
+
+The wrapper is fail-closed for tool names not reviewed against
+`redis-mcp-server==0.5.0`. It does not advertise or execute the global
+`dbsize`, `info`, `client_list`, or `get_indexes` tools because their results
+cannot be isolated per application. A rejected call returns an MCP
+protocol-level tool failure. This boundary applies equally to Pi, Codex, and
+Claude because all three consume the same private managed server definition.
+The prefix remains outside generated app env files and model-visible config.
 
 and create in ~/.local/bin/redis-cli like this:
 
@@ -587,6 +610,11 @@ messages are normally smaller than the relay buffer and must not wait for 8 KiB
 or end-of-file before reaching the real server.
 This prevents agent sessions from failing on S3 MCP schema validation while
 keeping non-bucket-listing S3 diagnostics available.
+
+The image also installs `/usr/local/bin/trustable-redis-mcp`, with the upstream
+`redis-mcp-server==0.5.0` left as the private child executable. Repository-root
+`setup.sh` installs the same checked-in wrapper under `~/.local/bin`, so the VM
+and pod enforce an identical Redis namespace boundary.
 
 
 ## clean

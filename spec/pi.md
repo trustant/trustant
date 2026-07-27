@@ -117,6 +117,9 @@ Launch writes these model-readable files to `<workbench>/<app>` after
 
 It also installs the three Trustable checker scripts under `~/.local/bin`.
 There is no `opencode.json`, OpenCode runtime manifest, or per-app model file.
+`AGENTS.md` remains active Pi project context, but `pi-acp` does not mirror its
+absolute host path or a redundant **Context** section into the browser-visible
+startup prelude.
 
 The complete MCP process configuration is atomically regenerated outside the
 workbench under `~/.config/trustable/runtime/<app>/mcp.json`, mode `0600`.
@@ -161,6 +164,15 @@ the ACP `session/new`, `session/load`, `session/resume`, and `session/fork`
 the proxy. TruACP keeps only one initialized agent process at a time, so an
 agent switch deterministically closes that agent's persistent MCP children.
 Managed agents never need to launch MCP commands manually.
+
+The shared private Redis entry launches `trustable-redis-mcp`, which enforces
+the current application's configured prefix before forwarding any reviewed
+key, scan, channel, or index operation and hides global Redis introspection.
+Unknown tools fail closed. The shared S3 entry sets
+`S3_CONNECTION_NAME=default`, so `s3_list_connections` exposes exactly one
+primary connection reconstructed from private host configuration after every
+MCP restart. These guarantees are server-side and therefore do not depend on
+Pi, Codex, or Claude following prompt guidance.
 
 The pinned `pi-mcp-adapter@2.11.0` receives a deterministic setup-time recovery
 patch. If a co-located Streamable HTTP server restarts and rejects the cached

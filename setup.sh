@@ -580,6 +580,8 @@ if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
   mv "$MCP_BIN/mcp-s3" "$MCP_BIN/mcp-s3-real" || fail "renaming mcp-s3 -> mcp-s3-real failed"
 fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
+install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp" \
+  || fail "installing Trustable Redis MCP wrapper failed"
 
 ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
 
