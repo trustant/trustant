@@ -25,6 +25,12 @@ Then:
   the browser cannot turn shell access into arbitrary-directory access.
 - The process gets its own process group (`Setpgid`), so teardown can reap
   children the shell spawned — the same discipline `launch.go` applies via `pgid`.
+  Some hardened environments deny that `fork/exec` outright ("operation not
+  permitted"); rather than leave the terminal unusable there, `startTerminalShell`
+  retries without `Setpgid` and logs the downgrade. `pty.Start` calls `setsid()`
+  regardless, so the shell still leads its own group either way — teardown
+  confirms `pgid == pid` before signalling the group, so it can never signal the
+  server's own group.
 - Binary WS frames carry raw PTY bytes in both directions.
 - A JSON **text** frame carries resize: `{"type":"resize","cols":N,"rows":N}` →
   `pty.Setsize`. Zero values are ignored.
@@ -115,6 +121,6 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
 - a resize control frame reaches `pty.Setsize` (assert via `stty size`)
 - closing the socket reaps the process group — no orphan after close
 
-The last three need to spawn a shell with `Setpgid`. Sandboxed environments deny
-that `fork/exec`, so those tests **skip** via `requirePTYSpawn` rather than
-failing misleadingly. They must be run in the dev VM to be meaningful.
+The last three spawn a real shell. `requirePTYSpawn` skips them only when the
+environment cannot start a PTY shell at all; a mere `Setpgid` denial is not a
+reason to skip, since the handler falls back the same way.

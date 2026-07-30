@@ -144,15 +144,7 @@ func runTerminalSession(parent context.Context, conn *websocket.Conn, name, work
 	registerTerminalSession(name, session)
 	defer releaseTerminalSession(name, session)
 
-	shell := terminalShell()
-	cmd := exec.Command(shell, "-i")
-	cmd.Dir = workbenchPath
-	cmd.Env = terminalEnvironment(workbenchPath)
-	// Own process group, so teardown can reap children the shell spawned —
-	// the same discipline launch.go applies via pgid.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	ptmx, err := pty.Start(cmd)
+	cmd, ptmx, err := startTerminalShell(workbenchPath)
 	if err != nil {
 		conn.Close(websocket.StatusInternalError, "failed to start shell")
 		return err
@@ -248,6 +240,43 @@ func applyTerminalResize(ptmx *os.File, control terminalControl) {
 	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: control.Cols, Rows: control.Rows})
 }
 
+// startTerminalShell starts the interactive shell on a PTY in workbenchPath.
+//
+// The shell normally gets its own process group so teardown can reap children
+// it spawned — the same discipline launch.go applies via pgid. Some hardened
+// environments deny that fork/exec outright ("operation not permitted"), which
+// would make the terminal unusable there, so a denial falls back to starting
+// without Setpgid. In that mode only the shell itself is signalled on teardown;
+// see terminateProcessGroup.
+func startTerminalShell(workbenchPath string) (*exec.Cmd, *os.File, error) {
+	build := func(setpgid bool) *exec.Cmd {
+		cmd := exec.Command(terminalShell(), "-i")
+		cmd.Dir = workbenchPath
+		cmd.Env = terminalEnvironment(workbenchPath)
+		if setpgid {
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		}
+		return cmd
+	}
+
+	cmd := build(true)
+	ptmx, err := pty.Start(cmd)
+	if err == nil {
+		return cmd, ptmx, nil
+	}
+	if !errors.Is(err, syscall.EPERM) && !errors.Is(err, syscall.EACCES) {
+		return nil, nil, err
+	}
+
+	log.Printf("terminal: Setpgid denied (%v) — starting shell in the server's process group", err)
+	cmd = build(false)
+	ptmx, err = pty.Start(cmd)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cmd, ptmx, nil
+}
+
 // terminalShell picks the user's shell, falling back to /bin/sh.
 func terminalShell() string {
 	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
@@ -289,12 +318,16 @@ func terminateProcessGroup(cmd *exec.Cmd, reaped <-chan struct{}) {
 		return
 	}
 	pid := cmd.Process.Pid
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid
+
+	// Signal the whole group only when the shell actually leads its own. If
+	// Setpgid was denied it shares the server's group, and signalling that
+	// would kill the server — target just the shell instead.
+	target := pid
+	if pgid, err := syscall.Getpgid(pid); err == nil && pgid == pid {
+		target = -pgid
 	}
 
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	_ = syscall.Kill(target, syscall.SIGTERM)
 
 	// Wait for the leader to be reaped, then SIGKILL whatever is left in the
 	// group. Polling Kill(-pgid, 0) cannot stand in for this: the leader stays
@@ -303,5 +336,5 @@ func terminateProcessGroup(cmd *exec.Cmd, reaped <-chan struct{}) {
 	case <-reaped:
 	case <-time.After(terminalShutdownGrace):
 	}
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	_ = syscall.Kill(target, syscall.SIGKILL)
 }

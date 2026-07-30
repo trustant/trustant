@@ -39,21 +39,32 @@ func newTerminalTestServer(t *testing.T, appName string) *httptest.Server {
 	return server
 }
 
-// requirePTYSpawn skips the test when the environment forbids starting a shell
-// in its own process group. Sandboxed CI denies the Setpgid fork/exec that
-// runTerminalSession needs for orderly teardown; the shell tests are
-// meaningless there and must not be read as failures of this code.
+// requirePTYSpawn skips the test when the environment cannot start a PTY shell
+// at all. Setpgid alone being denied is not a reason to skip — startTerminalShell
+// falls back to starting without it — so the probe mirrors that fallback.
 func requirePTYSpawn(t *testing.T) {
 	t.Helper()
 
-	probe := exec.Command("/bin/sh", "-c", "exit 0")
-	probe.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	file, err := pty.Start(probe)
-	if err != nil {
-		t.Skipf("environment cannot start a PTY shell with Setpgid: %v", err)
+	start := func(setpgid bool) error {
+		probe := exec.Command("/bin/sh", "-c", "exit 0")
+		if setpgid {
+			probe.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		}
+		file, err := pty.Start(probe)
+		if err != nil {
+			return err
+		}
+		file.Close()
+		_ = probe.Wait()
+		return nil
 	}
-	file.Close()
-	_ = probe.Wait()
+
+	if start(true) == nil {
+		return
+	}
+	if err := start(false); err != nil {
+		t.Skipf("environment cannot start a PTY shell: %v", err)
+	}
 }
 
 // dialTerminal opens the terminal WebSocket for name.
@@ -200,8 +211,10 @@ func TestTerminalClosingSocketReapsProcessGroup(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 
-	// Ask the shell for its own PID so we can watch for an orphan.
-	if err := conn.Write(ctx, websocket.MessageBinary, []byte("echo PID=$$\n")); err != nil {
+	// Ask the shell for its own PID so we can watch for an orphan. The PTY
+	// echoes the typed command back, so the marker is split across the echo to
+	// keep it from matching the echoed line instead of the shell's output.
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(`echo "PID""=$$"`+"\n")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	output, found := readUntil(ctx, conn, "PID=", 15*time.Second)
