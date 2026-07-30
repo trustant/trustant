@@ -32,6 +32,8 @@ Toolbar buttons use inline SVG icons that inherit the current button text color.
 
 # Config Pulldown
 
+The **Terminal** button (gray, terminal icon) sits on the left side of the toolbar, immediately before the Config button — see "Terminal" below.
+
 The **Config** pulldown groups the three configuration entries (Env, Skills, Memory) under a single button on the left side of the toolbar, immediately after the Credits box (or after the app name when the Credits box is not shown).
 
 The button shows a gear icon, the label "Config", and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
@@ -205,6 +207,21 @@ If the user confirms (OK):
 - Reload the right iframe using `<RIGHT><new_route>?<query>#<new_route>` as the URL (omit the `?<query>` segment if the query string is empty).
 
 If the user cancels, the cookies and iframe are left unchanged.
+
+# Terminal
+
+The **Terminal** button toggles a shell pane below the two iframes. Full
+contract in [12-terminal.md](12-terminal.md).
+
+- The body is a vertical column: the `leftFrame | divider | rightFrame` row on
+  top, then a horizontal divider and the terminal pane below. Opening the
+  terminal shrinks the iframe row; neither frame is replaced.
+- The pane runs xterm.js in a `<div>`, connected to `/api/terminal/<name>` — a
+  real PTY-backed shell in the app's workbench directory.
+- The pane is resizable with the same drag behaviour as the vertical divider,
+  and its height persists in `localStorage`. Visibility does **not** persist:
+  closing the pane terminates the shell.
+- The button shows an active state while the pane is open.
 
 # Redeploy
 

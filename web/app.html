@@ -7,6 +7,9 @@
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
     <script src="js/marked.min.js"></script>
+    <script src="js/xterm.min.js"></script>
+    <script src="js/xterm-addon-fit.min.js"></script>
+    <link rel="stylesheet" href="js/xterm.css">
     <link rel="stylesheet" href="trustable-ui.css">
     <style>
         html, body {
@@ -31,6 +34,11 @@
                 class="hidden nu-btn nu-btn-secondary items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Top-up
+            </button>
+            <button id="terminalBtn" onclick="toggleTerminal()"
+                class="nu-btn nu-btn-secondary flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/></svg>
+                Terminal
             </button>
             <div class="relative">
                 <button id="configBtn" onclick="toggleConfigMenu()"
@@ -113,11 +121,17 @@
         </div>
     </div>
 
-    <!-- Body with two iframes (90% height), resizable horizontally -->
-    <div id="iframeContainer" class="h-[90%] flex">
-        <iframe id="leftFrame" class="h-full border-r border-[color:var(--nu-rule)]" style="width: 50%; min-width: 100px;"></iframe>
-        <div id="divider" class="w-1.5 bg-[color:var(--nu-rule)] hover:bg-[color:var(--nu-brand)] cursor-col-resize flex-shrink-0 transition-colors"></div>
-        <iframe id="rightFrame" class="h-full flex-1" style="min-width: 100px;"></iframe>
+    <!-- Body: iframe row (resizable horizontally) above an optional terminal pane -->
+    <div id="workbenchBody" class="h-[90%] flex flex-col">
+        <div id="iframeContainer" class="flex-1 flex min-h-0">
+            <iframe id="leftFrame" class="h-full border-r border-[color:var(--nu-rule)]" style="width: 50%; min-width: 100px;"></iframe>
+            <div id="divider" class="w-1.5 bg-[color:var(--nu-rule)] hover:bg-[color:var(--nu-brand)] cursor-col-resize flex-shrink-0 transition-colors"></div>
+            <iframe id="rightFrame" class="h-full flex-1" style="min-width: 100px;"></iframe>
+        </div>
+        <div id="terminalDivider" class="h-1.5 bg-[color:var(--nu-rule)] hover:bg-[color:var(--nu-brand)] cursor-row-resize flex-shrink-0 transition-colors hidden"></div>
+        <div id="terminalPane" class="hidden flex-shrink-0 bg-black" style="height: 260px; min-height: 80px;">
+            <div id="terminalHost" class="w-full h-full"></div>
+        </div>
     </div>
 
     <!-- Save Confirmation Modal -->
@@ -887,6 +901,137 @@
                 rightFrame.style.pointerEvents = '';
                 divider.classList.remove('bg-[color:var(--nu-brand)]');
             });
+        })();
+
+        // Terminal pane — xterm.js over the /api/terminal/<name> WebSocket.
+        // See spec/12-terminal.md. Height persists; visibility does not, because
+        // closing the pane terminates the shell.
+        (function() {
+            const TERMINAL_HEIGHT_KEY = 'trustable.terminal.height';
+            const pane = document.getElementById('terminalPane');
+            const host = document.getElementById('terminalHost');
+            const paneDivider = document.getElementById('terminalDivider');
+            const button = document.getElementById('terminalBtn');
+            const body = document.getElementById('workbenchBody');
+
+            let term = null;
+            let fit = null;
+            let socket = null;
+
+            const storedHeight = parseInt(localStorage.getItem(TERMINAL_HEIGHT_KEY) || '', 10);
+            if (!isNaN(storedHeight) && storedHeight >= 80) {
+                pane.style.height = storedHeight + 'px';
+            }
+
+            function sendResize() {
+                if (!fit || !term || !socket || socket.readyState !== WebSocket.OPEN) return;
+                try { fit.fit(); } catch (e) { return; }
+                socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+
+            function openTerminal() {
+                if (!appName) return;
+
+                if (!term) {
+                    term = new Terminal({
+                        cursorBlink: true,
+                        fontSize: 13,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        theme: { background: '#000000' }
+                    });
+                    fit = new FitAddon.FitAddon();
+                    term.loadAddon(fit);
+                    term.open(host);
+                }
+
+                const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                socket = new WebSocket(protocol + '//' + location.host + '/api/terminal/' + encodeURIComponent(appName));
+                socket.binaryType = 'arraybuffer';
+
+                socket.onopen = () => {
+                    sendResize();
+                    term.focus();
+                };
+                socket.onmessage = (event) => {
+                    if (typeof event.data === 'string') {
+                        term.write(event.data);
+                    } else {
+                        term.write(new Uint8Array(event.data));
+                    }
+                };
+                socket.onclose = () => {
+                    if (term) term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
+                };
+
+                if (!term._trustableWired) {
+                    term.onData((data) => {
+                        if (socket && socket.readyState === WebSocket.OPEN) {
+                            socket.send(new TextEncoder().encode(data));
+                        }
+                    });
+                    term._trustableWired = true;
+                }
+            }
+
+            function closeTerminal() {
+                if (socket) {
+                    socket.onclose = null;
+                    socket.close();
+                    socket = null;
+                }
+                if (term) term.clear();
+            }
+
+            window.toggleTerminal = function() {
+                const opening = pane.classList.contains('hidden');
+                pane.classList.toggle('hidden', !opening);
+                paneDivider.classList.toggle('hidden', !opening);
+                button.classList.toggle('nu-btn-primary', opening);
+                button.classList.toggle('nu-btn-secondary', !opening);
+
+                if (opening) {
+                    openTerminal();
+                    setTimeout(sendResize, 50);
+                } else {
+                    closeTerminal();
+                }
+            };
+
+            window.addEventListener('resize', () => {
+                if (!pane.classList.contains('hidden')) sendResize();
+            });
+
+            // Horizontal drag, mirroring the vertical divider above.
+            let isDragging = false;
+            paneDivider.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                e.preventDefault();
+                document.getElementById('leftFrame').style.pointerEvents = 'none';
+                document.getElementById('rightFrame').style.pointerEvents = 'none';
+                paneDivider.classList.add('bg-[color:var(--nu-brand)]');
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const rect = body.getBoundingClientRect();
+                const minHeight = 80;
+                const maxHeight = rect.height - paneDivider.offsetHeight - 100;
+                const newHeight = Math.max(minHeight, Math.min(rect.bottom - e.clientY, maxHeight));
+                pane.style.height = newHeight + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (!isDragging) return;
+                isDragging = false;
+                document.getElementById('leftFrame').style.pointerEvents = '';
+                document.getElementById('rightFrame').style.pointerEvents = '';
+                paneDivider.classList.remove('bg-[color:var(--nu-brand)]');
+                localStorage.setItem(TERMINAL_HEIGHT_KEY, parseInt(pane.style.height, 10) || 260);
+                sendResize();
+            });
+
+            // Closing the page should not leave a shell attached to a dead socket.
+            window.addEventListener('beforeunload', closeTerminal);
         })();
 
         // Env functions

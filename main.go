@@ -114,6 +114,7 @@ func main() {
 	http.HandleFunc("/api/publish/remote", handlePublish)
 	http.HandleFunc("/api/skills/", handleSkills)
 	http.HandleFunc("/api/memory/", handleMemory)
+	http.HandleFunc("/api/terminal/", handleTerminal)
 	http.HandleFunc("/api/redeploy", handleRedeploy)
 	http.HandleFunc("/api/activations/poll", handleActivationPoll)
 	http.HandleFunc("/api/credits", handleCredits)
