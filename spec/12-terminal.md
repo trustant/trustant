@@ -27,7 +27,8 @@ Then:
   children the shell spawned — the same discipline `launch.go` applies via `pgid`.
   Some hardened environments deny that `fork/exec` outright ("operation not
   permitted"); rather than leave the terminal unusable there, `startTerminalShell`
-  retries without `Setpgid` and logs the downgrade. `pty.Start` calls `setsid()`
+  retries without `Setpgid`. The downgrade is logged **once** per process, not
+  per session — it is a fixed property of the environment, not an error. `pty.Start` calls `setsid()`
   regardless, so the shell still leads its own group either way — teardown
   confirms `pgid == pid` before signalling the group, so it can never signal the
   server's own group.
@@ -120,6 +121,8 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
   regression that motivated the PTY)
 - a resize control frame reaches `pty.Setsize` (assert via `stty size`)
 - closing the socket reaps the process group — no orphan after close
+- the shell leads its own process group in both modes (the property that makes
+  the `Setpgid` fallback safe)
 
 The last three spawn a real shell. `requirePTYSpawn` skips them only when the
 environment cannot start a PTY shell at all; a mere `Setpgid` denial is not a

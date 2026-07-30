@@ -49,6 +49,10 @@ type terminalControl struct {
 	Rows uint16 `json:"rows"`
 }
 
+// setpgidDeniedOnce keeps the Setpgid-denied downgrade to a single log line;
+// the restriction is environmental and would otherwise repeat on every open.
+var setpgidDeniedOnce sync.Once
+
 // terminalSession is one live shell. The pointer identity is the session key,
 // so a late-finishing predecessor cannot evict its replacement.
 type terminalSession struct {
@@ -268,7 +272,12 @@ func startTerminalShell(workbenchPath string) (*exec.Cmd, *os.File, error) {
 		return nil, nil, err
 	}
 
-	log.Printf("terminal: Setpgid denied (%v) — starting shell in the server's process group", err)
+	// pty.Start calls setsid(), so the shell still leads its own process group
+	// without Setpgid and teardown stays correct. This is a fixed property of
+	// the environment, not a per-session event, so it is logged only once.
+	setpgidDeniedOnce.Do(func() {
+		log.Printf("terminal: Setpgid denied (%v) — starting shells without it; pty.Start's setsid still gives each shell its own process group", err)
+	})
 	cmd = build(false)
 	ptmx, err = pty.Start(cmd)
 	if err != nil {

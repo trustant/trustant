@@ -195,6 +195,37 @@ func TestTerminalResizeReachesPTY(t *testing.T) {
 	}
 }
 
+// TestTerminalShellLeadsItsOwnProcessGroup pins the property that makes the
+// Setpgid fallback safe: pty.Start calls setsid(), so the shell leads its own
+// process group even when Setpgid was denied. If this ever stopped holding,
+// terminateProcessGroup's pgid == pid guard would be the only thing standing
+// between a teardown and signalling the server's own process group.
+func TestTerminalShellLeadsItsOwnProcessGroup(t *testing.T) {
+	requirePTYSpawn(t)
+
+	cmd, ptmx, err := startTerminalShell(t.TempDir())
+	if err != nil {
+		t.Fatalf("start shell: %v", err)
+	}
+	defer func() {
+		ptmx.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	pid := cmd.Process.Pid
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("getpgid: %v", err)
+	}
+	if pgid != pid {
+		t.Errorf("shell pgid %d != pid %d — it does not lead its own group, so teardown would signal a group it does not own", pgid, pid)
+	}
+	if serverPgid, err := syscall.Getpgid(os.Getpid()); err == nil && pgid == serverPgid {
+		t.Errorf("shell shares the server's process group %d — teardown would signal the server", serverPgid)
+	}
+}
+
 // TestTerminalClosingSocketReapsProcessGroup asserts no orphan shell outlives
 // the socket.
 func TestTerminalClosingSocketReapsProcessGroup(t *testing.T) {
