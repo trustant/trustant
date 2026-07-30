@@ -85,22 +85,42 @@ RUN \
 # ~/.local/bin/milvus_cli with a configured wrapper and must not follow a
 # floating package or overwrite the package-managed implementation.
 # installing lsp: ts py, mcp: postgres, redis, milvus, mongodb, cli: milvus
-RUN \
+# WHY the `mcp<2` constraint: postgres-mcp and redis-mcp-server declare an open
+# upper bound on the MCP SDK (`mcp[cli]>=1.5.0` / `>=1.9.4`), but both still
+# import `mcp.server.fastmcp`, which mcp 2.x renamed to `mcp.server.mcpserver`.
+# Left unpinned they resolve mcp 2.x and die at import, which surfaces only as a
+# silent "7/9 servers connected" in OpenCode. Keep this in step with setup.sh.
+RUN set -eu ;\
     curl -LsSf https://astral.sh/uv/install.sh | \
     env UV_INSTALL_DIR="/usr/bin" INSTALLER_NO_MODIFY_PATH=1 sh ;\
     for tool in \
         milvus-cli==1.2.1 \
         'python-lsp-server[yapf]' \
-        postgres-mcp==0.3.0 \
-        redis-mcp-server==0.5.0 \
+        'postgres-mcp==0.3.0|--with|mcp<2' \
+        'redis-mcp-server==0.5.0|--with|mcp<2' \
         "git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}" ;\
-    do env \
+    do \
+        spec="${tool%%|*}" ;\
+        extra="" ;\
+        if [ "$tool" != "$spec" ] ; then \
+            extra="$(echo "$tool" | cut -d'|' -f2- | tr '|' ' ')" ;\
+        fi ;\
+        env \
         UV_TOOL_BIN_DIR=/usr/local/bin \
         UV_TOOL_DIR=/opt/uv/tools \
         UV_CACHE_DIR=/opt/uv/cache \
         UV_PYTHON_PREFERENCE=only-system \
         UV_LINK_MODE=hardlink \
-        uv tool install --python /usr/bin/python3 $tool ;\
+        uv tool install --python /usr/bin/python3 $extra "$spec" ;\
+    done ;\
+    # Fail the build on an import-time break rather than shipping a server that
+    # only fails once a user launches an app (see the constraint note above).
+    for probe in "postgres-mcp:postgres_mcp" \
+                 "redis-mcp-server:src.main" \
+                 "mcp-server-milvus:mcp_server_milvus" ;\
+    do \
+        /opt/uv/tools/"${probe%%:*}"/bin/python -c "import ${probe#*:}" \
+        || { echo "FATAL: ${probe%%:*} fails at import" >&2 ; exit 1 ; } ;\
     done
 
 COPY openserverless-mcp /tmp/openserverless-mcp

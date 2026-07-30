@@ -501,25 +501,45 @@ command -v uv &>/dev/null || fail "uv is required to install MCP servers"
 # postgres, redis, milvus MCP servers via uv tool (same pins as the Dockerfile)
 MILVUS_MCP_SPEC="git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
 MILVUS_MCP_RECEIPT="$(uv tool dir)/mcp-server-milvus/uv-receipt.toml"
-for tool in \
-    postgres-mcp==0.3.0 \
-    redis-mcp-server==0.5.0 \
-    "$MILVUS_MCP_SPEC" ;
-do
-  UV_INSTALL_ARGS=()
-  if [[ "$tool" == "$MILVUS_MCP_SPEC" ]] &&
-     { [[ ! -f "$MILVUS_MCP_RECEIPT" ]] ||
+
+# WHY the extra pins below: postgres-mcp and redis-mcp-server declare an open
+# upper bound on the MCP SDK (`mcp[cli]>=1.5.0` / `>=1.9.4`), but both still
+# import `mcp.server.fastmcp`, which mcp 2.x renamed to `mcp.server.mcpserver`.
+# Left unpinned, uv resolves mcp 2.x and each server dies at import; OpenCode
+# only sees the stdio pipe close and reports `-32000: Connection closed`.
+# The interpreter is pinned for the same class of reason: postgres-mcp requires
+# pglast==7.2.0, which publishes no cp313 wheel, so a default interpreter that
+# has moved on to 3.13 silently yields an incompatible pglast.
+UV_PYTHON_PIN=3.12
+declare -a MCP_TOOL_SPECS=(
+  "postgres-mcp==0.3.0|--with|mcp<2"
+  "redis-mcp-server==0.5.0|--with|mcp<2"
+  "$MILVUS_MCP_SPEC"
+)
+for spec in "${MCP_TOOL_SPECS[@]}"; do
+  IFS='|' read -r -a spec_parts <<<"$spec"
+  tool="${spec_parts[0]}"
+  UV_INSTALL_ARGS=("${spec_parts[@]:1}")
+  if [[ "$tool" == "$MILVUS_MCP_SPEC" ]]; then
+    if [[ ! -f "$MILVUS_MCP_RECEIPT" ]] ||
        ! grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" ||
-       ! grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT"; }; then
-    # WHY: uv identifies tools by package name. Without --force, a VM carrying
-    # the former upstream install can remain "already installed" after the
-    # repository pin changes, even though its executable still resolves.
+       ! grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT"; then
+      # WHY: uv identifies tools by package name. Without --force, a VM carrying
+      # the former upstream install can remain "already installed" after the
+      # repository pin changes, even though its executable still resolves.
+      UV_INSTALL_ARGS+=(--force)
+    fi
+  else
+    # WHY --force unconditionally: uv treats these as "already installed" by
+    # package name, so a VM holding the previously-resolved mcp 2.x environment
+    # would never re-resolve against the constraint added above.
     UV_INSTALL_ARGS+=(--force)
   fi
   env \
     UV_TOOL_BIN_DIR="$MCP_BIN" \
     UV_LINK_MODE=hardlink \
-    uv tool install "${UV_INSTALL_ARGS[@]}" "$tool" || fail "uv tool install $tool failed"
+    uv tool install --python "$UV_PYTHON_PIN" "${UV_INSTALL_ARGS[@]}" "$tool" \
+    || fail "uv tool install $tool failed"
 done
 grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
   grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT" \
@@ -582,6 +602,22 @@ fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
 install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp" \
   || fail "installing Trustable Redis MCP wrapper failed"
+
+# Smoke-check the uv-installed Python MCP servers. WHY: a broken transitive pin
+# (see the mcp<2 note above) makes these die at *import*, long before any
+# connection is attempted. That failure is otherwise invisible here and only
+# surfaces later as a silent "7/9 servers connected" inside OpenCode. Importing
+# the module entrypoint exercises the whole import graph without needing live
+# service credentials, so this stays valid on a VM with no cluster access.
+echo "--- Verifying Python MCP servers can be imported ---"
+for probe in "postgres-mcp:postgres_mcp" "redis-mcp-server:src.main" "mcp-server-milvus:mcp_server_milvus"; do
+  probe_tool="${probe%%:*}"
+  probe_module="${probe#*:}"
+  "$(uv tool dir)/${probe_tool}/bin/python" -c "import ${probe_module}" 2>/tmp/mcp-probe.$$ \
+    || fail "${probe_tool} fails at import: $(tail -1 /tmp/mcp-probe.$$)"
+done
+rm -f /tmp/mcp-probe.$$
+ok "postgres, redis and milvus MCP servers import cleanly"
 
 ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongodb, s3) installed in $MCP_BIN"
 
