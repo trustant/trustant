@@ -7,7 +7,7 @@ Invoke the version api at the end of the page and if it expired show a page with
 # Application
 
 This page shows the current application
-reading it the cookie LEFT, RIGHT, URLDIR and NAME
+reading it the cookie LEFT, RIGHT, URLDIR, NAME and DEVICE
 
 It shows a full page, with a top bar with 10% high.
 
@@ -25,6 +25,7 @@ Aligned to the right:
 - a git status indicator (dot + text)
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
 - the **"Utils" pulldown** (orange, chevron-down icon) — see "Utils Pulldown" below
+- the **device preview toggle** (three icon-only segmented buttons: desktop, tablet, phone) — see "Device Preview" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
 - the button "Back" (gray, chevron left icon)
 
@@ -77,7 +78,7 @@ The button shows the label "Utils" and a chevron-down icon. Clicking it toggles 
 
 Each item triggers the same behavior previously documented in the "Revert", "Redeploy", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
-In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
+In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally. The right iframe sits inside a preview pane that can constrain it to a device viewport — see "Device Preview" below.
 
 The workbench chrome, menus, modals, and toolbar controls use the shared
 Nuvolaris-style Trustable visual system defined in
@@ -228,6 +229,50 @@ If the user confirms (OK):
 - Reload the right iframe using `<RIGHT><new_route>?<query>#<new_route>` as the URL (omit the `?<query>` segment if the query string is empty).
 
 If the user cancels, the cookies and iframe are left unchanged.
+
+# Device Preview
+
+The right iframe shows the user's running application. So the user can check how
+that application behaves at tablet and phone widths without leaving the
+workbench, the right iframe lives inside a **preview pane** that can constrain it
+to a device viewport.
+
+A three-way segmented control sits in the right-hand toolbar group, immediately
+before the Route button. The three buttons are icon-only (monitor, tablet, phone
+inline SVG inheriting the button text color) with `title` and `aria-label`
+attributes, and use the shared `nu-segment-btn` / `nu-segment-btn-active`
+styling. The active mode is visibly marked.
+
+| Mode | Viewport |
+|---|---|
+| Desktop | fills the pane (no device frame) |
+| Tablet | 820 × 1180 |
+| Mobile | 390 × 844 |
+
+In Desktop mode the iframe fills the pane exactly as before: no frame, no
+backdrop, no transform.
+
+In Tablet and Mobile mode the iframe is laid out at the device's true pixel size
+and centered in the pane. If it does not fit, it is **scaled down** with a CSS
+`transform: scale(...)` so the whole device frame is always visible; the scale is
+clamped at 1 so the frame is never enlarged past 1:1. The frame gets a thin
+border, a small radius and a soft shadow, and the surrounding pane gets a muted
+backdrop so the device reads as a device.
+
+Scaling must be applied to the frame's transform only, never to its layout width.
+The iframe therefore still reports the true device width to the previewed
+application, so that application's own CSS media queries fire exactly as they
+would on the real device. This is the point of the feature.
+
+The scale is recomputed whenever the pane's box changes — window resize,
+horizontal divider drag, and the terminal pane opening or being resized.
+
+The chosen mode is stored in the `DEVICE` cookie (`desktop`, `tablet` or
+`mobile`) and restored on page load. A missing or unrecognized value falls back
+to `desktop`.
+
+The device frame applies to whatever the right iframe is currently showing,
+including the redeploy progress and result pages injected via `srcdoc`.
 
 # Terminal
 
