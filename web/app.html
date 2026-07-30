@@ -113,6 +113,20 @@
                     </button>
                 </div>
             </div>
+            <div id="deviceToggle" class="flex items-center rounded-[4px] overflow-hidden border border-[color:var(--nu-control-border)]" role="group" aria-label="Preview device size">
+                <button id="devDesktop" type="button" onclick="setDevice('desktop')" title="Desktop preview" aria-label="Desktop preview"
+                    class="nu-segment-btn flex items-center justify-center">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                </button>
+                <button id="devTablet" type="button" onclick="setDevice('tablet')" title="Tablet preview (820x1180)" aria-label="Tablet preview"
+                    class="nu-segment-btn flex items-center justify-center border-l border-[color:var(--nu-control-border)]">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path stroke-linecap="round" d="M11 18.5h2"/></svg>
+                </button>
+                <button id="devMobile" type="button" onclick="setDevice('mobile')" title="Mobile preview (390x844)" aria-label="Mobile preview"
+                    class="nu-segment-btn flex items-center justify-center border-l border-[color:var(--nu-control-border)]">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path stroke-linecap="round" d="M11 18.5h2"/></svg>
+                </button>
+            </div>
             <button id="routeBtn" onclick="showRouteModal()"
                 class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
@@ -131,7 +145,11 @@
         <div id="iframeContainer" class="flex-1 flex min-h-0">
             <iframe id="leftFrame" class="h-full border-r border-[color:var(--nu-rule)]" style="width: 50%; min-width: 100px;"></iframe>
             <div id="divider" class="w-1.5 bg-[color:var(--nu-rule)] hover:bg-[color:var(--nu-brand)] cursor-col-resize flex-shrink-0 transition-colors"></div>
-            <iframe id="rightFrame" class="h-full flex-1" style="min-width: 100px;"></iframe>
+            <div id="rightPane" class="h-full flex-1 relative overflow-hidden" style="min-width: 100px;">
+                <div id="deviceStage" class="absolute inset-0">
+                    <iframe id="rightFrame" class="w-full h-full"></iframe>
+                </div>
+            </div>
         </div>
         <div id="terminalDivider" class="h-1.5 bg-[color:var(--nu-rule)] hover:bg-[color:var(--nu-brand)] cursor-row-resize flex-shrink-0 transition-colors hidden"></div>
         <div id="terminalPane" class="hidden flex-shrink-0 bg-black" style="height: 260px; min-height: 80px;">
@@ -905,6 +923,55 @@
             if (e.target === e.currentTarget) hideMemoryModal();
         });
 
+
+        // Device preview — constrain the right (Vite) iframe to a real device
+        // viewport and scale it down to fit the pane. The iframe keeps its true
+        // device pixel width, so the previewed app's media queries fire exactly
+        // as they would on the device. See spec/3-app.md "Device Preview".
+        const DEVICE_SIZES = { desktop: null, tablet: [820, 1180], mobile: [390, 844] };
+        const DEVICE_PAD = 24;
+        let currentDevice = 'desktop';
+
+        function applyDevice() {
+            const pane = document.getElementById('rightPane');
+            const stage = document.getElementById('deviceStage');
+            const size = DEVICE_SIZES[currentDevice];
+
+            if (!size) {
+                stage.className = 'absolute inset-0';
+                stage.style.cssText = '';
+                pane.style.background = '';
+                return;
+            }
+
+            const [w, h] = size;
+            const scale = Math.min(1, (pane.clientWidth - DEVICE_PAD) / w, (pane.clientHeight - DEVICE_PAD) / h);
+            stage.className = 'absolute';
+            // content-box so the 1px frame border sits OUTSIDE the device box:
+            // the iframe must be exactly w x h or the previewed app sees the
+            // wrong viewport width and its breakpoints shift.
+            stage.style.cssText = `box-sizing:content-box;left:50%;top:50%;width:${w}px;height:${h}px;` +
+                `transform:translate(-50%,-50%) scale(${Math.max(scale, 0.05)});transform-origin:center center;` +
+                'border:1px solid var(--nu-rule);border-radius:6px;overflow:hidden;background:#fff;' +
+                'box-shadow:0 8px 24px rgba(0,0,0,.18);';
+            pane.style.background = 'color-mix(in oklab, var(--nu-rule) 45%, var(--nu-paper))';
+        }
+
+        function setDevice(mode) {
+            if (!(mode in DEVICE_SIZES)) mode = 'desktop';
+            currentDevice = mode;
+            document.cookie = `DEVICE=${mode};path=/`;
+            for (const [id, m] of [['devDesktop', 'desktop'], ['devTablet', 'tablet'], ['devMobile', 'mobile']]) {
+                document.getElementById(id).classList.toggle('nu-segment-btn-active', m === mode);
+            }
+            applyDevice();
+        }
+
+        // One observer covers every trigger: window resize, divider drag, and the
+        // terminal pane opening or being resized.
+        new ResizeObserver(applyDevice).observe(document.getElementById('rightPane'));
+
+        setDevice(getCookie('DEVICE') || 'desktop');
 
         // Resizable divider between iframes
         (function() {
