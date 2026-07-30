@@ -83,6 +83,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
 | [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog (powers the splash screen) |
 | [memory.go](memory.go) | — | `/api/memory/` |
+| [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
 | [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
 
 When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.

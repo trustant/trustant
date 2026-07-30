@@ -122,6 +122,28 @@ textarea {
     opacity: .55;
 }
 
+/* File-viewer tree rows: menu-like, but filenames keep their real casing and
+   monospace form, unlike the uppercase .nu-menu-item labels. */
+.nu-tree-item {
+    width: 100%;
+    display: block;
+    padding: .25rem .5rem;
+    color: var(--nu-ink);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .8125rem;
+    text-align: left;
+    border-radius: 2px;
+}
+
+.nu-tree-item:hover {
+    background: var(--nu-accent);
+}
+
+.nu-tree-item-active {
+    background: var(--nu-accent);
+    font-weight: 600;
+}
+
 .nu-close {
     color: var(--nu-muted);
     line-height: 1;

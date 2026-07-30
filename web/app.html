@@ -101,6 +101,11 @@
                         <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
                         Debug
                     </button>
+                    <button onclick="hideUtilsMenu(); showFilesModal()"
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                        Files
+                    </button>
                     <button onclick="hideUtilsMenu(); triggerUpload()"
                         class="nu-menu-item">
                         <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/></svg>
@@ -378,6 +383,40 @@
                 </div>
             </div>
             <div id="memoryError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+        </div>
+    </div>
+
+    <!-- Files Modal (read-only workbench file viewer) -->
+    <div id="filesModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal w-full max-w-5xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-[color:var(--nu-rule)]">
+                <h3 class="text-lg font-medium">Files — <span id="filesAppName"></span></h3>
+                <div class="flex items-center gap-2">
+                    <button onclick="loadFileTree()" class="nu-btn nu-btn-secondary nu-btn-compact">Refresh</button>
+                    <button onclick="hideFilesModal()" class="nu-close text-2xl leading-none">&times;</button>
+                </div>
+            </div>
+            <div id="filesLoading" class="p-8 text-center text-[color:var(--nu-muted)]">Loading...</div>
+            <div id="filesBody" class="hidden flex-1 flex min-h-0">
+                <div class="w-1/3 min-w-[200px] border-r border-[color:var(--nu-rule)] overflow-auto p-2">
+                    <div id="filesTruncated" class="hidden text-xs text-[color:var(--nu-signal)] px-2 py-1">
+                        Listing truncated at 5000 entries.
+                    </div>
+                    <div id="filesTree" class="text-sm"></div>
+                </div>
+                <div class="flex-1 flex flex-col min-w-0">
+                    <div class="flex items-center justify-between px-4 py-2 border-b border-[color:var(--nu-rule)] gap-2">
+                        <span id="filesCurrentPath" class="text-sm text-[color:var(--nu-muted)] truncate">Select a file</span>
+                        <button id="filesCopyBtn" onclick="copyFileContent()"
+                            class="nu-btn nu-btn-secondary nu-btn-compact hidden shrink-0">Copy</button>
+                    </div>
+                    <div id="filesContent" class="flex-1 overflow-auto p-4 text-sm nu-code" style="white-space: pre-wrap;"></div>
+                </div>
+            </div>
+            <div id="filesError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+            <div class="flex justify-end p-4 border-t border-[color:var(--nu-rule)]">
+                <button onclick="hideFilesModal()" class="nu-btn nu-btn-secondary">Close</button>
+            </div>
         </div>
     </div>
 
@@ -808,6 +847,7 @@
                 hideSkillsUpdateModal();
                 hideRouteModal();
                 hideMemoryModal();
+                hideFilesModal();
                 hideTopupModal();
             }
         });
@@ -1309,6 +1349,144 @@
             }
         }
 
+
+        // Files viewer (read-only) functions
+        let filesCurrentContent = '';
+        let filesCollapsed = new Set();
+        let filesEntries = [];
+
+        function showFilesModal() {
+            document.getElementById('filesAppName').textContent = appName;
+            document.getElementById('filesModal').classList.remove('hidden');
+            document.getElementById('filesModal').classList.add('flex');
+            resetFileContentPane();
+            loadFileTree();
+        }
+
+        function hideFilesModal() {
+            document.getElementById('filesModal').classList.add('hidden');
+            document.getElementById('filesModal').classList.remove('flex');
+            filesCurrentContent = '';
+        }
+
+        function resetFileContentPane() {
+            document.getElementById('filesContent').textContent = '';
+            document.getElementById('filesCurrentPath').textContent = 'Select a file';
+            document.getElementById('filesCopyBtn').classList.add('hidden');
+            filesCurrentContent = '';
+        }
+
+        async function loadFileTree() {
+            document.getElementById('filesLoading').classList.remove('hidden');
+            document.getElementById('filesBody').classList.add('hidden');
+            document.getElementById('filesError').classList.add('hidden');
+
+            try {
+                const resp = await fetch(`/api/files/${encodeURIComponent(appName)}`);
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+
+                filesEntries = data.files || [];
+                document.getElementById('filesTruncated').classList.toggle('hidden', !data.truncated);
+                renderFileTree();
+
+                document.getElementById('filesLoading').classList.add('hidden');
+                document.getElementById('filesBody').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('filesLoading').classList.add('hidden');
+                document.getElementById('filesError').textContent = error.message;
+                document.getElementById('filesError').classList.remove('hidden');
+            }
+        }
+
+        // Build the tree from the flat list. Directories below the root start
+        // collapsed so a deep project stays readable.
+        function renderFileTree() {
+            const tree = document.getElementById('filesTree');
+            tree.textContent = '';
+
+            for (const entry of filesEntries) {
+                const parts = entry.path.split('/');
+                const depth = parts.length - 1;
+
+                // Hide anything inside a collapsed ancestor.
+                let hidden = false;
+                for (let i = 1; i <= depth; i++) {
+                    if (filesCollapsed.has(parts.slice(0, i).join('/'))) { hidden = true; break; }
+                }
+                if (hidden) continue;
+
+                const row = document.createElement('div');
+                row.className = 'nu-tree-item cursor-pointer truncate';
+                row.style.paddingLeft = (depth * 12 + 8) + 'px';
+                row.textContent = (entry.dir ? (filesCollapsed.has(entry.path) ? '▸ ' : '▾ ') : '') + parts[parts.length - 1];
+                row.title = entry.path;
+
+                if (entry.dir) {
+                    row.onclick = () => {
+                        if (filesCollapsed.has(entry.path)) filesCollapsed.delete(entry.path);
+                        else filesCollapsed.add(entry.path);
+                        renderFileTree();
+                    };
+                } else {
+                    row.dataset.path = entry.path;
+                    row.onclick = () => openFile(entry.path);
+                }
+                tree.appendChild(row);
+            }
+        }
+
+        async function openFile(path) {
+            const pathEl = document.getElementById('filesCurrentPath');
+            const contentEl = document.getElementById('filesContent');
+            pathEl.textContent = path;
+            contentEl.textContent = 'Loading...';
+            document.getElementById('filesCopyBtn').classList.add('hidden');
+            filesCurrentContent = '';
+
+            // Highlight the selected row.
+            for (const row of document.querySelectorAll('#filesTree [data-path]')) {
+                row.classList.toggle('nu-tree-item-active', row.dataset.path === path);
+            }
+
+            try {
+                const resp = await fetch(`/api/files/${encodeURIComponent(appName)}?path=${encodeURIComponent(path)}`);
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+
+                if (data.binary) {
+                    contentEl.textContent = 'Binary file — not shown.';
+                    return;
+                }
+
+                // Content is always inserted as text, never as HTML. These files
+                // are written by the assistant, and this page shares an origin
+                // with the config and publish APIs, so rendering them as markup
+                // would be an XSS vector. Markdown is shown as its source.
+                filesCurrentContent = data.content || '';
+                contentEl.textContent = filesCurrentContent;
+                document.getElementById('filesCopyBtn').classList.remove('hidden');
+            } catch (error) {
+                contentEl.textContent = error.message;
+            }
+        }
+
+        async function copyFileContent() {
+            try {
+                await navigator.clipboard.writeText(filesCurrentContent);
+                const btn = document.getElementById('filesCopyBtn');
+                const original = btn.textContent;
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = original; }, 1200);
+            } catch (error) {
+                document.getElementById('filesError').textContent = error.message;
+                document.getElementById('filesError').classList.remove('hidden');
+            }
+        }
+
+        document.getElementById('filesModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('filesModal')) hideFilesModal();
+        });
 
         // Redeploy functions
         window.addEventListener('message', (e) => {

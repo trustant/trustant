@@ -72,9 +72,10 @@ The button shows the label "Utils" and a chevron-down icon. Clicking it toggles 
 1. **Revert** (orange undo-arrow icon) — disabled when there are no uncommitted changes (same condition as Commit).
 2. **Redeploy** (indigo rocket icon) — always enabled.
 3. **Debug** (blue terminal/log icon) — always enabled.
-4. **Upload** (green upload-arrow icon) — always enabled.
+4. **Files** (document icon) — always enabled; opens the read-only file viewer described in "Files (Read-only)".
+5. **Upload** (green upload-arrow icon) — always enabled.
 
-Each item triggers the same behavior previously documented in the "Revert", "Redeploy", "Debug", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+Each item triggers the same behavior previously documented in the "Revert", "Redeploy", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally
 
@@ -156,6 +157,26 @@ The modal fetches data from `GET /api/appconfig/<name>` and displays a table wit
 All values are displayed as plain text (not editable). A note at the bottom says: "To edit environment variables, use the Env button from the app list."
 
 The modal can be closed with the X button, Escape key, or clicking the backdrop.
+
+# Files (Read-only)
+
+The **Files** entry in the Utils pulldown opens a read-only viewer for the files
+of the current application, so the user can inspect what the assistant generated
+without leaving Trustable. It never writes: there is no edit, create, rename, or
+delete action.
+
+The modal has a file tree on the left (fetched from `GET /api/files/<name>`,
+directories collapsible) and a content pane on the right (fetched from
+`GET /api/files/<name>?path=<relpath>`), plus a Copy button for the raw content
+and a Refresh control for the tree.
+
+File content is always inserted as text, never as HTML — markdown is shown as
+its source. See [11-files.md](11-files.md) for the endpoint contract, the path
+containment rules, the size and binary limits, and the reasoning behind not
+rendering assistant-authored markup.
+
+The modal can be closed with the X button, the Close button, Escape, or clicking
+the backdrop.
 
 # Memory
 
