@@ -66,6 +66,8 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 Everything is `package main`. Each `*.go` file owns a feature surface that maps 1:1 with a spec doc under [spec/](spec/):
 
+`go.mod` is no longer dependency-free: the terminal adds `github.com/creack/pty` and `github.com/coder/websocket`. Both are pure Go, so `build.sh` keeps cross-compiling `linux/amd64` and `linux/arm64` with `CGO_ENABLED=0`.
+
 | File | Spec | Responsibility |
 |---|---|---|
 | [main.go](main.go) | — | Embeds `web/`, registers `/api/*` routes, starts `:8910` with `hostnameMiddleware` |
@@ -81,6 +83,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
 | [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog (powers the splash screen) |
 | [memory.go](memory.go) | — | `/api/memory/` |
+| [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
 
 When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.
 
