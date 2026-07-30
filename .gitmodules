@@ -4,15 +4,15 @@
 	branch = bestia
 [submodule "support"]
 	path = support
-	url = git@github.com:trustable-ai/.github
+	url = http://github.com/trustable-ai/.github
         branch = main
 [submodule "skills"]
 	path = skills
-	url = git@github.com:trustable-ai/skills
+	url = http://ithub.com/trustable-ai/skills
         branch = main
 [submodule "olaris-bestia"]
 	path = olaris-bestia
-	url = git@github.com:nuvolaris/olaris-bestia
+	url = https://github.com/nuvolaris/olaris-bestia
         branch = main
 [submodule "mcp"]
 	path = mcp
