@@ -4,6 +4,18 @@ Be brief. Update the specs under spec/*.md when change code.
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Developemt process
+
+Never implement anything unless you wrote a plan in an issue.
+
+When the user ask for a new feature create an issue in the main repo (trustable-app) and store the plan in it.
+
+Implement only the plan writte in the issue.
+
+Once implemented, commit all the subodules to a branch issue-<issuenr> and create a pull request to main to the top level to link everything to the main.
+
+When I ask to merge, merge all the submodules and the main module to the main branch.
+
 ## What this is
 
 `trustable-app` is a Go single-binary web server that hosts a "Lovable-like" development environment on top of OpenServerless. It serves the local UI (`web/`), proxies the user's running app (Vite) and TruACP/Pi, drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
