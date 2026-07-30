@@ -71,9 +71,9 @@ assumed to protect this route.
 
 `web/app.html`, wired in the same inline script as the rest of the page.
 
-- A **Terminal** button in the top bar, right of the Route button, using the
-  existing `nu-btn` primitives. It toggles the pane and shows an active state
-  (`nu-btn-primary` while open).
+- A **Terminal** button in the top bar's left group, immediately before the
+  Config button, using the existing `nu-btn` primitives. It toggles the pane and
+  shows an active state (`nu-btn-primary` while open).
 - The body is a vertical column: the existing `leftFrame | divider | rightFrame`
   row on top, then a horizontal divider and the terminal pane **below**. Opening
   the terminal shrinks the iframe row rather than replacing either frame.

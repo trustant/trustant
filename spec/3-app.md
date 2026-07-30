@@ -26,12 +26,13 @@ Aligned to the right:
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
 - the **"Utils" pulldown** (orange, chevron-down icon) — see "Utils Pulldown" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
-- the button "Terminal" (gray, terminal icon) — toggles the terminal pane (see "Terminal" below)
 - the button "Back" (gray, chevron left icon)
 
 Toolbar buttons use inline SVG icons that inherit the current button text color.
 
 # Config Pulldown
+
+The **Terminal** button (gray, terminal icon) sits on the left side of the toolbar, immediately before the Config button — see "Terminal" below.
 
 The **Config** pulldown groups the three configuration entries (Env, Skills, Memory) under a single button on the left side of the toolbar, immediately after the Credits box (or after the app name when the Credits box is not shown).
 
