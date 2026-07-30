@@ -13,7 +13,7 @@
 [submodule "olaris-bestia"]
 	path = olaris-bestia
 	url = git@github.com:nuvolaris/olaris-bestia
-        branch = bestia
+        branch = main
 [submodule "mcp"]
 	path = mcp
 	url = https://github.com/apache/openserverless-mcp.git

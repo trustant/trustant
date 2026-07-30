@@ -6,9 +6,10 @@
 #
 # Plain run:   boots a plain Ubuntu VM (vz), then installs the Trustable .deb
 #              (k3s + helpers) inside it, installs a CPU-only ollama host
-#              (localhost:11434, pinned to the image's OLLAMA_VERSION), writes
-#              the VM ip, apihost and ssh key to the Trustable support dir, and
-#              finally opens this folder in the VM over Remote-SSH in VS Code.
+#              (localhost:11434, pinned to the image's OLLAMA_VERSION), ensures
+#              gh via apt in-VM, writes the VM ip/apihost/ssh key to the
+#              Trustable support dir, runs setup.sh in-VM, and finally opens this
+#              folder in the VM over Remote-SSH in VS Code.
 #   ./start.sh
 #
 # No VS Code:  same as a plain run, but skips opening VS Code at the end.
@@ -46,6 +47,7 @@ DIST_DIR="dist"                              # host-side cache for the .deb
 # app mostly uses cloud models. Pin to the same version as the image (ARG line in
 # image/Dockerfile) so the VM matches the container.
 OLLAMA_VERSION="$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
+GH_VERSION="$(grep -m1 '^ARG GH_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
 
 # Keep the release identity and both supported archive digests in source so a
 # clean VM never depends on a mutable "latest" asset.
@@ -59,6 +61,7 @@ KUBEFWD_SHA_ARM64="e01ade02d919be2c7e306543f0a65de2e629c254ef16b51ecb45830b0044a
 HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
+GH_TOKEN_FILE="$MOUNT_DIR/.ghtoken"
 
 # setup.sh runs inside a VM that only mounts this worktree. A worktree's .git
 # file may point outside that mount, so source submodules must be initialized on
@@ -312,9 +315,71 @@ GUEST
   ok "kubefwd ${KUBEFWD_VERSION} installed at /usr/local/bin/kubefwd"
 }
 
-# Read the host-reachable IP from the running VM and write the Trustable support
-# files. Used both by the fresh-install path and when the VM already exists.
-finish() {
+# Bootstrap gh with apt during VM provisioning so fresh instances have the CLI
+# even before setup.sh applies the pinned runtime convergence.
+ensure_gh_apt() {
+  echo "--- Ensuring GitHub CLI via apt in the VM ---"
+  limactl shell "$VM_NAME" sudo bash -euo pipefail -s <<'GUEST'
+export DEBIAN_FRONTEND=noninteractive
+if dpkg-query -W -f='${Status}' gh 2>/dev/null | grep -q 'install ok installed'; then
+  echo "gh apt package already installed"
+  exit 0
+fi
+apt-get update -qq
+apt-get install -y -qq gh
+GUEST
+  ok "GitHub CLI apt package is installed in the VM"
+}
+
+# setup.sh enforces the pinned gh runtime version from image/Dockerfile. start.sh
+# must fail before declaring "VM ready" when gh is missing or drifted.
+ensure_gh() {
+  echo "--- Verifying GitHub CLI in the VM ---"
+  limactl shell "$VM_NAME" sudo GH_VERSION="${GH_VERSION:-}" bash -euo pipefail -s <<'GUEST'
+command -v gh >/dev/null 2>&1 || {
+  echo "gh is missing after setup.sh" >&2
+  exit 1
+}
+if [ -n "${GH_VERSION:-}" ]; then
+  have="$(gh --version 2>/dev/null | awk 'NR==1{print $3}' || true)"
+  [ "$have" = "$GH_VERSION" ] || {
+    echo "gh version mismatch: expected ${GH_VERSION}, got ${have:-unknown}" >&2
+    exit 1
+  }
+fi
+GUEST
+  if [[ -n "${GH_VERSION:-}" ]]; then
+    ok "GitHub CLI ${GH_VERSION} available in the VM"
+  else
+    ok "GitHub CLI available in the VM"
+  fi
+}
+
+# Attempt a non-interactive gh login from a repo-local token file. Missing token,
+# missing gh, or login errors are warning-only so start.sh can still continue.
+login_github_from_token() {
+  echo "--- Attempting GitHub login in VM from .ghtoken ---"
+  if [[ ! -f "$GH_TOKEN_FILE" ]]; then
+    warn ".ghtoken not found at $GH_TOKEN_FILE; cannot login gh"
+    return 0
+  fi
+  if [[ ! -s "$GH_TOKEN_FILE" ]]; then
+    warn ".ghtoken is empty; cannot login gh"
+    return 0
+  fi
+  if ! limactl shell "$VM_NAME" command -v gh >/dev/null 2>&1; then
+    warn "gh is not installed in the VM; cannot login gh"
+    return 0
+  fi
+  if limactl shell "$VM_NAME" bash -euo pipefail -c 'gh auth login --with-token >/dev/null 2>&1' < "$GH_TOKEN_FILE"; then
+    ok "GitHub CLI authenticated in the VM"
+  else
+    warn "GitHub CLI login failed using .ghtoken"
+  fi
+}
+
+# Refresh host-visible VM connection metadata and SSH access files.
+refresh_support_files() {
   echo "--- Reading VM IP ---"
   local IP
   IP="$(limactl shell "$VM_NAME" hostname -I 2>/dev/null | tr ' ' '\n' \
@@ -355,8 +420,35 @@ finish() {
 
   ensure_guest_user
   ensure_ssh_config "$IP"
+}
+
+# Wait until ssh.sh can execute a command in the VM. This is used for the
+# existing-VM fast path after start, so VS Code Remote-SSH opens against a ready
+# endpoint instead of racing the guest boot.
+wait_for_ssh_ready() {
+  local retries=30
+  local delay_secs=2
+  echo "--- Waiting for SSH readiness ---"
+  for _ in $(seq 1 "$retries"); do
+    if ./ssh.sh true >/dev/null 2>&1; then
+      ok "SSH is ready"
+      return 0
+    fi
+    sleep "$delay_secs"
+  done
+  fail "ssh.sh could not reach the VM after $((retries * delay_secs))s"
+}
+
+# Read the host-reachable IP from the running VM and write the Trustable support
+# files. Used both by the fresh-install path and when the VM already exists.
+finish() {
+  refresh_support_files
+  local IP APIHOST
+  IP="$(cat "$SUPPORT_DIR/current.ip")"
+  APIHOST="$(cat "$SUPPORT_DIR/apihost")"
   ensure_ollama
   ensure_kubefwd
+  ensure_gh_apt
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 
@@ -367,6 +459,8 @@ finish() {
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./setup.sh \
     || fail "setup.sh failed in the VM"
   ok "setup.sh completed"
+  ensure_gh
+  login_github_from_token
 
   echo
   echo -e "${GREEN}=== Trustable VM ready ===${NC}"
@@ -635,8 +729,8 @@ fi
 [[ "$(uname -s)" == "Darwin" ]] || fail "start.sh is macOS-only (needs the Trustable support dir + vz)"
 ensure_source_submodules
 
-# If the VM already exists, don't re-provision — just make sure it's running and
-# refresh the support files (the IP can change across restarts). Use ./start.sh -k
+# If the VM already exists, don't re-provision. Start it when needed, refresh
+# support files, wait for SSH readiness, then open VS Code. Use ./start.sh -k
 # first if you actually want a clean rebuild.
 if limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
   STATUS="$(limactl list --format '{{.Status}}' "$VM_NAME" 2>/dev/null)"
@@ -646,17 +740,10 @@ if limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
   else
     echo "--- VM '$VM_NAME' already running ---"
   fi
-  # The VM can come back blank (e.g. a reset/reprovisioned disk drops the whole
-  # install). If the package isn't there, (re)install it before finishing —
-  # otherwise finish() would try to configure a k3s that doesn't exist.
-  if package_installed; then
-    echo "--- Trustable package present — refreshing support files ---"
-  else
-    warn "Trustable package missing in existing VM — reinstalling"
-    ensure_deb
-    install_package
-  fi
-  finish
+  refresh_support_files
+  wait_for_ssh_ready
+  # Existing VM flow intentionally skips setup/provisioning.
+  if [[ "$OPEN_VSCODE" == 1 ]]; then open_vscode; fi
   exit 0
 fi
 

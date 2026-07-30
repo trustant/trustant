@@ -131,12 +131,34 @@ version mismatches abort provisioning with an actionable error. This
 provisioning must not modify resolver configuration; `run.sh` owns the
 forwarder's process lifetime.
 
+## GitHub CLI availability in the VM
+
+`start.sh` must explicitly ensure GitHub CLI is installed in the VM with
+`apt-get install gh` during provisioning, for both fresh and reused VMs.
+
+Before printing the final "VM ready" summary, `start.sh` must also verify that
+`gh` resolves and matches the pinned runtime version. Runtime convergence is
+enforced by the mandatory in-VM `setup.sh` run in the finish path, using the
+release identity defined by `GH_VERSION`, `GH_SHA_AMD64`, and `GH_SHA_ARM64`
+from `image/Dockerfile`.
+
+This applies to provisioning flows that execute `setup.sh` (fresh VM creation).
+
+On provisioning flows that execute `setup.sh` (fresh VM creation), `start.sh`
+attempts non-interactive GitHub
+authentication inside the VM using repository-root `.ghtoken`
+(`gh auth login --with-token`). Missing `.ghtoken`, empty token, missing `gh`,
+or login failures are warning-only and must not block startup. VS Code opens by
+default; `./start.sh -n` skips opening VS Code.
+
 ## Re-running when the VM already exists
 
 `./start.sh` is idempotent — an existing VM is not an error:
 
-- Running: re-read the IP and refresh current.ip/apihost/id_ed25519, then exit.
-- Stopped: `limactl start` the existing instance (no reinstall), then refresh the files.
+- Running: skip provisioning/setup, refresh support files, wait until `ssh.sh`
+	can execute in the VM, then open VS Code when enabled.
+- Stopped: `limactl start` the existing instance, skip provisioning/setup,
+	refresh support files, wait for SSH readiness, then open VS Code when enabled.
 
 Use `./start.sh -k` first only when you want a clean rebuild.
 
