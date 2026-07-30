@@ -4,7 +4,7 @@
 	branch = bestia
 [submodule "support"]
 	path = support
-	url = http://github.com/trustable-ai/.github
+	url = https://github.com/trustable-ai/.github
         branch = main
 [submodule "skills"]
 	path = skills
