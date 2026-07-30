@@ -241,13 +241,35 @@ pointing the tool bin dir to ~/.local/bin:
 
 ```
 for tool in \
-    postgres-mcp==0.3.0 \
-    redis-mcp-server==0.5.0 \
+    postgres-mcp==0.3.0 --with 'mcp<2' \
+    redis-mcp-server==0.5.0 --with 'mcp<2' \
     git+https://github.com/trustable-ai/mcp-server-milvus.git@a7e624f3057a0d739528bca3ed92504943224ceb ;
 do
-    env UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install $tool
+    env UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install --python 3.12 $tool
 done
 ```
+
+`postgres-mcp` and `redis-mcp-server` must be constrained to the 1.x MCP SDK.
+Both declare an open upper bound (`mcp[cli]>=1.5.0` / `>=1.9.4`) but still
+import `mcp.server.fastmcp`, which mcp 2.x renamed to `mcp.server.mcpserver`.
+Unconstrained, uv resolves mcp 2.x and each server dies at import; the launcher
+sees only the stdio pipe close and reports `-32000: Connection closed`, which
+surfaces to the user as a silent "7/9 servers connected".
+
+Pin the interpreter to 3.12 for the same class of reason: `postgres-mcp`
+requires `pglast==7.2.0`, which publishes no cp313 wheel, so a host whose
+default interpreter has moved to 3.13 silently resolves an incompatible pglast
+and fails with `cannot import name 'parse_sql' from 'pglast'`.
+
+Because uv identifies tools by package name, an environment already holding the
+unconstrained resolution stays "already installed" and never re-resolves against
+these constraints; install both with `--force`.
+
+After installing, verify each uv-managed Python MCP server can be imported
+(`<uv tool dir>/<tool>/bin/python -c "import <module>"` for `postgres_mcp`,
+`src.main`, and `mcp_server_milvus`) and fail setup when one does not. An
+import-time break is otherwise invisible at setup time and only appears later as
+a reduced server count inside the agent runtime.
 
 Install the checked-in `image/redis-mcp` as
 `~/.local/bin/trustable-redis-mcp` after the pinned upstream Redis server.

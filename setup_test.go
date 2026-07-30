@@ -196,6 +196,48 @@ func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 	}
 }
 
+// TestPythonMCPServersPinTheMCPSDK guards the constraint that keeps postgres-mcp
+// and redis-mcp-server on the 1.x MCP SDK. Both declare an open upper bound but
+// import `mcp.server.fastmcp`, which mcp 2.x renamed; unconstrained they resolve
+// mcp 2.x and die at import, surfacing only as a reduced server count in the
+// agent runtime. The import probe is asserted for the same reason: without it a
+// broken resolution passes setup silently.
+func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
+	setupContent, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	for name, content := range map[string]string{
+		"setup.sh":         string(setupContent),
+		"image/Dockerfile": string(dockerContent),
+	} {
+		for _, required := range []string{
+			"postgres-mcp==0.3.0|--with|mcp<2",
+			"redis-mcp-server==0.5.0|--with|mcp<2",
+			"postgres-mcp:postgres_mcp",
+			"redis-mcp-server:src.main",
+			"mcp-server-milvus:mcp_server_milvus",
+		} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s is missing pinned Python MCP fragment %q", name, required)
+			}
+		}
+	}
+	// The interpreter pin belongs to the VM setup path: postgres-mcp requires
+	// pglast==7.2.0, which ships no cp313 wheel. The image already pins
+	// /usr/bin/python3 explicitly.
+	if !strings.Contains(string(setupContent), `uv tool install --python "$UV_PYTHON_PIN"`) {
+		t.Fatal("setup.sh does not pin the uv interpreter for the Python MCP servers")
+	}
+	if !strings.Contains(string(dockerContent), "uv tool install --python /usr/bin/python3") {
+		t.Fatal("image/Dockerfile does not pin the uv interpreter for the Python MCP servers")
+	}
+}
+
 func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
 	setupContent, err := os.ReadFile("setup.sh")
 	if err != nil {
