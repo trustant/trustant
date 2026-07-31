@@ -60,6 +60,13 @@ textarea {
     margin: 0 auto;
 }
 
+/* Roomiest shell: for pages whose content is a wide table that would otherwise
+   be squeezed by the default 1320px cap (the application list). */
+.nu-shell-full {
+    width: min(100%, 1760px);
+    margin: 0 auto;
+}
+
 .nu-topbar {
     border-bottom: 1px solid var(--nu-rule);
     background: color-mix(in oklab, var(--nu-paper) 94%, white);

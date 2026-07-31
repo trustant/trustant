@@ -17,6 +17,7 @@ In the bar, aligned to the left:
 - the app name in bold
 - the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
+- the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
 - the **"Sessions" pulldown** (history icon and persistent-session count) —
   see "Sessions Pulldown" below
 
@@ -24,7 +25,6 @@ Aligned to the right:
 
 - a git status indicator (dot + text)
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
-- the **"Utils" pulldown** (orange, chevron-down icon) — see "Utils Pulldown" below
 - the **device preview toggle** (three icon-only segmented buttons: desktop, tablet, phone) — see "Device Preview" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
 - the button "Back" (gray, chevron left icon)
@@ -66,17 +66,18 @@ See [opencode-session-history-flow.svg](opencode-session-history-flow.svg).
 
 # Utils Pulldown
 
-Replace the previous standalone "Revert", "Redeploy", and "Upload" toolbar buttons with a single **Utils** pulldown menu placed to the right of the Commit button.
+Replace the previous standalone "Revert", "Redeploy", and "Upload" toolbar buttons with a single **Utils** pulldown menu. It sits on the left side of the toolbar, immediately to the right of the Config pulldown, so the two pulldowns are grouped together. Its dropdown is left-anchored like the Config one.
 
 The button shows the label "Utils" and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
 
 1. **Revert** (orange undo-arrow icon) — disabled when there are no uncommitted changes (same condition as Commit).
 2. **Redeploy** (indigo rocket icon) — always enabled.
-3. **Debug** (blue terminal/log icon) — always enabled.
-4. **Files** (document icon) — always enabled; opens the read-only file viewer described in "Files (Read-only)".
-5. **Upload** (green upload-arrow icon) — always enabled.
+3. **Clean** (sparkles icon) — always enabled; see "Clean" below.
+4. **Debug** (blue terminal/log icon) — always enabled.
+5. **Files** (document icon) — always enabled; opens the read-only file viewer described in "Files (Read-only)".
+6. **Upload** (green upload-arrow icon) — always enabled.
 
-Each item triggers the same behavior previously documented in the "Revert", "Redeploy", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+Each item triggers the same behavior documented in the "Revert", "Redeploy", "Clean", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally. The right iframe sits inside a preview pane that can constrain it to a device viewport — see "Device Preview" below.
 
@@ -306,6 +307,27 @@ When clicked:
   - Waiting for dev server to be ready (HTTP HEAD check)
 - On `event: done`, show "Redeploy complete", the action list in a code block, and an OK link pointing to `<RIGHT><ROUTE>?<QUERY>#<ROUTE>`
 - On `event: error`, stop the spinner and show the error in red
+
+# Clean
+
+The **Clean** entry in the Utils pulldown removes the local build artifacts of the
+current application by running `ops ide clean` — and nothing else. It does **not**
+redeploy. `ops ide clean` stops the devel watcher and removes the virtualenv,
+`node_modules`, and `*.zip` artifacts, so the preview stays down until the user runs
+**Utils > Redeploy**.
+
+When clicked:
+
+- Disable the Utils button and replace the right iframe content with a spinner and the
+  status message "Cleaning...".
+- `POST /api/clean` with `{"name": "<NAME>"}`.
+- On success show "clean completed", the command output in a code block, and the note
+  that the preview is stopped and Utils > Redeploy brings it back.
+- On failure show the returned `error` (and `output` when present) in red.
+- Re-enable the Utils button in both cases.
+
+The internal `ops ide clean` steps that are part of launch, revert, commit, and Git
+Pull > Deploy are unchanged — this entry only adds a way to invoke it on demand.
 
 # Debug
 
