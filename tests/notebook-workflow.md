@@ -42,15 +42,22 @@
     `edited: false`.
 15. Select a different template. Confirm it is replaced without a prompt, now
     that the working copy has no unsaved changes.
-16. Add and remove a fixture template. Confirm `README.md` and the template
-    file change together, or that any partial GitHub mutation is reported, and
-    that removing a catalog entry leaves the working copy in place.
-17. Start a new session with no template loaded. Send an ordinary chat message,
-    press **Pin** on it, and confirm a `template.md` with a blank `name:` is
-    created, the message becomes the first step, and its reply is carried over.
-18. Run `git status` in the workbench. Confirm `template.md` is staged but not
+16. Confirm the panel offers **no** add-template form, even with a token
+    configured — creation happens by pinning, and saving covers it.
+17. Remove a fixture template. Confirm `README.md` and the template file change
+    together, or that any partial GitHub mutation is reported, and that removing
+    a catalog entry leaves the working copy in place.
+18. Start a new session with no template loaded. Send an ordinary chat message
+    and confirm its pin control reads **New template**. Press it and confirm a
+    `template.md` with a blank `name:` is created, the message becomes the first
+    step, and its reply is carried over. Send another message and confirm its
+    control now reads **Add to template**.
+19. Name that template and press **Save to GitHub**. Confirm the file is created
+    in the configured repository *and* indexed in `README.md`, and that
+    `edited` clears — creation and update are the same path.
+20. Run `git status` in the workbench. Confirm `template.md` is staged but not
     committed, then save the application in Trustable and confirm it is
     committed and pushed with the user's other changes.
-19. Resume and fork the ACP session; confirm template nodes, outputs,
+21. Resume and fork the ACP session; confirm template nodes, outputs,
     selection, and provenance restore. Start an ordinary new chat without
     loading a template and confirm its behavior is unchanged.

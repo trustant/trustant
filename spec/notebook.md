@@ -21,8 +21,8 @@ environment or server `.env`.
 
 - The browser never asks for, receives, persists, logs, or renders the token.
 - API responses expose only `hasToken: boolean`.
-- When the token is absent, save/add/remove controls are disabled and the panel
-  tells the operator to set `NOTEBOOK_GITHUB_TOKEN` in the server `.env`.
+- When the token is absent, the upstream controls (Save to GitHub, remove) are
+  hidden and the panel points the operator at Trustable Configure.
 - The token is not added to generated application `.env`, `.env.production`,
   application config maps, chat messages, model context, notebook Markdown, or
   commits.
@@ -74,9 +74,19 @@ The toolbar adds:
 | **Run all steps** | Runs every step from the selection to the end |
 
 The panel shows the active source read-only with a Refresh action, the indexed
-template list, load/save controls, and add/remove controls. There is no rename
-operation: rename is deliberately remove plus recreate under the new name.
-There is no token field or token prompt.
+template list, the working copy with its save controls, and a remove control per
+entry. There is no token field or token prompt.
+
+There is deliberately **no add-template form**. Saving the working copy already
+creates and indexes a template whose file does not exist, so a separate creation
+path would only be a second thing to keep in step. The two operations are:
+
+- **New template** — pin a chat message, then name it on the first save.
+- **Rename** — edit the loaded template's name and save; the file keeps its
+  path, the README entry moves, and its comment is preserved.
+
+Renaming is in place, so there is no branch-a-copy operation: to derive a new
+template from an existing one, pin your way to a new one.
 
 ### The working copy
 
@@ -100,7 +110,6 @@ working copy still saves locally. The panel therefore **hides**, rather than
 disables, only what cannot work:
 
 - no read-only warning banner;
-- no add-template section;
 - no per-entry remove control;
 - no Save to GitHub button.
 
@@ -180,7 +189,9 @@ standard controls, writes the working copy, and includes it in saves. Unpinned
 inputs and all model/tool output are excluded from GitHub saves.
 
 A template can also start from nothing. With none loaded there are no ad-hoc
-nodes to pin, so each of the user's own chat messages carries a **Pin** action:
+nodes to pin, so each of the user's own chat messages carries a pin action —
+labelled **New template** when none is loaded and **Add to template** when one
+is, since pinning is now the only way a template is created:
 the first pin creates a working copy with a blank name, converts that message
 into the first step, and switches the conversation into template mode. The
 message's assistant reply is carried across so pinning does not discard what the
@@ -254,7 +265,6 @@ TruACP exposes server-side routes:
 - `POST /api/notebooks/index`
 - `POST /api/notebooks/load`
 - `POST /api/notebooks/select`
-- `POST /api/notebooks/add`
 - `POST /api/notebooks/remove`
 - `POST /api/notebooks/local`
 - `PUT /api/notebooks/save-local`
@@ -310,5 +320,5 @@ TruACP server `.env`.
   overridden by the injected repository, so a template file can never redirect
   an authenticated write.
 - Public index/load/select operations continue without a token. When `hasToken`
-  is false the add, remove, and Save to GitHub controls are hidden; editing
-  still writes the application's local `template.md` as described above.
+  is false the remove and Save to GitHub controls are hidden; editing still
+  writes the application's local `template.md` as described above.
