@@ -1,6 +1,6 @@
 {
     "notebook": {
-        "repository": "trustable-ai/notebooks",
+        "repository": "trustable-ai/templates",
         "ref": "main"
     },
     "git": {

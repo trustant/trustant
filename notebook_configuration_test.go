@@ -55,7 +55,7 @@ func TestNotebookConfigurationKeepsTokenPrivate(t *testing.T) {
 	}
 	joined := strings.Join(env, "\n")
 	for _, expected := range []string{
-		"NOTEBOOK_GITHUB_REPOSITORY=trustable-ai/notebooks",
+		"NOTEBOOK_GITHUB_REPOSITORY=trustable-ai/templates",
 		"NOTEBOOK_GITHUB_REF=main",
 		"NOTEBOOK_GITHUB_TOKEN=" + token,
 	} {

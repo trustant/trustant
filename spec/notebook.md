@@ -1,12 +1,17 @@
-# TruACP notebooks
+# TruACP templates
 
-A notebook is an ordered collection of predefined prompts loaded into the
+A template is an ordered collection of predefined prompts loaded into the
 existing TruACP conversation and executed through the normal ACP prompt path.
-When no notebook is loaded, ordinary chat behavior is unchanged.
+When no template is loaded, ordinary chat behavior is unchanged.
+
+**Templates** is the user-visible name throughout the UI. `notebook` remains the
+wire name — types, API routes, `NOTEBOOK_GITHUB_*` environment variables, CSS
+classes, and the session sidecar — so existing workspaces and persisted sessions
+continue to work without migration.
 
 ## Source and security
 
-The default source is `trustable-ai/notebooks` on branch `main`. A source may be
+The default source is `trustable-ai/templates` on branch `main`. A source may be
 entered as `owner/repository` or a `https://github.com/owner/repository` URL;
 the branch/ref is independently configurable.
 
@@ -64,13 +69,28 @@ The toolbar adds:
 
 | Control | Behavior |
 | --- | --- |
-| **Notebook** | Opens the side panel and loads the default source on first open |
-| **Run next** | Runs the selected notebook node; disabled without a selection |
+| **Templates** | Opens the side panel and loads the default source on first open |
+| **Run next step** | Runs the selected node; disabled without a selection |
+| **Run all steps** | Runs every step from the selection to the end |
 
-The panel contains editable source and branch/ref fields, the indexed notebook
-list, load/save controls, and add/remove controls. There is no rename
+The panel shows the active source read-only with a Refresh action, the indexed
+template list, load/save controls, and add/remove controls. There is no rename
 operation: rename is deliberately remove plus recreate under the new name.
 There is no token field or token prompt.
+
+### Read-only repositories
+
+A repository without a write token is read-only. The panel then **hides**,
+rather than disables, everything that cannot work:
+
+- no read-only warning banner;
+- no add-template section;
+- no name/path row for the loaded template;
+- no per-entry remove control.
+
+A single unhighlighted note closes the panel: *"add in configuration your github
+token to edit templates"*. It carries no border, background, or alert color —
+nothing is wrong, the write controls are simply absent.
 
 ## Conversation model
 
@@ -97,12 +117,23 @@ three visible rows; the window follows the latest operation while preserving
 the complete tool history. This presentation does not alter persisted output
 order or the normal ACP event path.
 
-Running the final node clears selection and disables **Run next** while keeping
-the notebook loaded and editable.
+Running the final node clears selection and disables **Run next step** while
+keeping the template loaded and editable.
 
-Edit copies the node prompt into the normal composer. Submitting updates the
-node, runs it immediately, appends its output, marks the notebook dirty, and
-advances selection.
+**Run all steps** runs every notebook node from the current selection to the
+end, or from the first node when selection is clear. Steps are awaited one at a
+time because they share a single ACP session; ad-hoc unpinned inputs are
+skipped; each prompt is re-read at execution time so an edit applied mid-run is
+the version that executes; and a failed step ends the run rather than firing the
+remaining prompts into a broken session. Starting a new session stops an
+in-flight run.
+
+Edit is **in place**. It replaces the node's task body with a prompt editor and
+swaps Run/Remove for **Save** and **Cancel**. Cancel discards the draft. Save
+commits the prompt, marks the template dirty, and persists it; it does **not**
+run the node — running stays on Run, Run next step, and Run all steps. The
+composer is unaffected and remains available for ad-hoc input while a node is
+being edited.
 
 Normal composer input while a notebook is loaded becomes an ad-hoc input node:
 
@@ -115,6 +146,28 @@ An ad-hoc node can be pinned. Pinning promotes it to a notebook node with the
 standard controls, marks the notebook dirty, and includes it in saves. Unpinned
 inputs and all model/tool output are excluded from GitHub saves.
 
+## Saving: GitHub or local
+
+Saving an edited template routes by writability:
+
+- **Writable** (a write token is configured, and the template came from GitHub):
+  the existing GitHub Contents API path, with SHA conflict checking, unchanged.
+- **Read-only**: prompts are written to `template.md` at the root of the
+  launched application's workbench checkout and staged with `git add`, so the
+  saved template is committed and published with the application.
+
+The local file name is a server-side constant; no part of it comes from the
+request, so the local path has no traversal surface. Serialization is shared
+with the GitHub path, so a template saved locally is byte-identical to the same
+template saved upstream. Staging is best-effort — a workbench that is not a git
+checkout, or a failing `git`, still leaves the written file and reports
+`staged: false` instead of losing the save.
+
+When a local `template.md` exists, the panel lists **Saved Template** as an
+extra entry ahead of the indexed ones; upstream entries stay listed unchanged.
+Loading it marks the session state `local`, which keeps subsequent saves on the
+local path even if a token is configured later.
+
 ## APIs
 
 TruACP exposes server-side routes:
@@ -124,18 +177,21 @@ TruACP exposes server-side routes:
 - `PUT /api/notebooks/save`
 - `POST /api/notebooks/add`
 - `POST /api/notebooks/remove`
+- `POST /api/notebooks/local`
+- `PUT /api/notebooks/save-local`
 - `POST /api/sessions/notebook/get`
 - `PUT /api/sessions/notebook`
 
 The GitHub routes accept repository/ref/path/SHA metadata, never a token. The
-session routes persist a whitelisted notebook sidecar under `.acp-data`; unknown
-fields are discarded.
+local routes accept prompts only and resolve the destination server-side from
+the active project directory. The session routes persist a whitelisted notebook
+sidecar under `.acp-data`; unknown fields are discarded.
 
 ## Session behavior
 
-Notebook identity, source/ref, file and README SHAs, ordered notebook/ad-hoc
-nodes, execution outputs, selected node, and dirty state are stored beside the
-ACP session. Load/resume reads the same sidecar. Fork copies it to the new
+Template identity, source/ref, file and README SHAs, ordered notebook/ad-hoc
+nodes, execution outputs, selected node, dirty state, and the `local` flag are
+stored beside the ACP session. Load/resume reads the same sidecar. Fork copies it to the new
 session so subsequent changes diverge independently. Starting a new session
 does not inherit notebook state.
 
@@ -154,8 +210,8 @@ This section supersedes earlier references in this specification to editable
 source/ref controls in TruACP or to configuring `NOTEBOOK_GITHUB_TOKEN` in the
 TruACP server `.env`.
 
-- Trustable's main **Configure** screen owns the global notebook repository,
-  branch/ref, and write token.
+- Trustable's main **Configure** screen owns the global template repository,
+  branch/ref, and write token, under a **Template Repository** heading.
 - Repository/ref are persisted in workspace `trustable.json`; the token is
   write-only and stored separately in a mode-`0600` file under
   `<WorkspaceDir>/.trustable/secrets/`.
@@ -167,8 +223,8 @@ TruACP server `.env`.
   generated application env files, app config maps, notebook/session state,
   project assets, logs, commits, or model context.
 - Managed TruACP treats the injected repository/ref as authoritative. Its
-  notebook panel displays the active source read-only and offers Refresh, but
+  template panel displays the active source read-only and offers Refresh, but
   no source configuration fields.
-- Public index/load operations continue without a token. Save, add, and remove
-  are disabled whenever `hasToken` is false, with guidance to use Trustable
-  Configure.
+- Public index/load operations continue without a token. When `hasToken` is
+  false the add and remove controls are hidden, and save falls back to the
+  application's local `template.md` as described above.

@@ -115,16 +115,16 @@
             </div>
         </div>
 
-        <!-- Notebook repository -->
+        <!-- Template repository -->
         <div class="nu-card p-5 mb-4">
-            <h2 class="text-lg font-medium mb-1">Notebook Repository</h2>
+            <h2 class="text-lg font-medium mb-1">Template Repository</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
-                Configure the GitHub source used by notebook workflows in every application.
+                Configure the GitHub source used by prompt templates in every application.
             </p>
             <div class="space-y-3">
                 <div>
                     <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Repository</label>
-                    <input type="text" id="notebookRepository" placeholder="trustable-ai/notebooks"
+                    <input type="text" id="notebookRepository" placeholder="trustable-ai/templates"
                         class="nu-input w-full px-3 py-2 text-sm">
                 </div>
                 <div>
@@ -140,7 +140,7 @@
                         class="nu-input w-full px-3 py-2 text-sm">
                     <p id="notebookTokenStatus" class="text-xs text-[color:var(--nu-muted)] mt-2"></p>
                     <p class="text-xs text-[color:var(--nu-muted)] mt-1">
-                        The token is write-only and is used only by Trustable. Public notebooks remain readable without it.
+                        The token is write-only and is used only by Trustable. Public templates remain readable without it.
                     </p>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-[color:var(--nu-muted)]">
@@ -250,7 +250,7 @@
         let config = {
             models: {},
             pi: { default: '' },
-            notebook: { repository: 'trustable-ai/notebooks', ref: 'main', has_token: false }
+            notebook: { repository: 'trustable-ai/templates', ref: 'main', has_token: false }
         };
         let githubPollTimer = null;
 
@@ -387,7 +387,7 @@
                 if (!config.pi) config.pi = { default: '' };
                 if (!config.notebook) {
                     config.notebook = {
-                        repository: 'trustable-ai/notebooks',
+                        repository: 'trustable-ai/templates',
                         ref: 'main',
                         has_token: false
                     };
@@ -402,7 +402,7 @@
                 document.getElementById('gitUser').value = config.git?.user || '';
                 document.getElementById('gitEmail').value = config.git?.email || '';
                 document.getElementById('notebookRepository').value =
-                    config.notebook.repository || 'trustable-ai/notebooks';
+                    config.notebook.repository || 'trustable-ai/templates';
                 document.getElementById('notebookRef').value =
                     config.notebook.ref || 'main';
                 document.getElementById('notebookGitHubToken').value = '';
@@ -431,7 +431,7 @@
             }
             status.textContent = config.notebook?.has_token
                 ? 'Write access configured. Leave this field empty to keep the current token.'
-                : 'No token configured. Notebook save, add, and remove actions will stay disabled.';
+                : 'No token configured. Template save, add, and remove actions will stay disabled.';
         }
 
         function renderBestiaHost() {
@@ -842,8 +842,8 @@
         function validateNotebookConfiguration() {
             const repository = document.getElementById('notebookRepository').value.trim();
             const ref = document.getElementById('notebookRef').value.trim();
-            if (!repository) return 'Notebook repository is required';
-            if (!ref) return 'Notebook branch / ref is required';
+            if (!repository) return 'Template repository is required';
+            if (!ref) return 'Template branch / ref is required';
             return null;
         }
 
