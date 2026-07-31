@@ -1942,6 +1942,83 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Redeploy: completed successfully for %s", req.Name)
 }
 
+// runOpsIdeInWorkbench runs a single `ops ide <subcommand>` in the workbench
+// checkout of app and writes the JSON result. The workbench must already exist —
+// both Undeploy and Clean operate on a launched app and never provision one.
+func runOpsIdeInWorkbench(w http.ResponseWriter, r *http.Request, subcommand, doneMessage string) {
+	if expiredGuard(w) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || !namePattern.MatchString(req.Name) {
+		http.Error(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	workbenchPath, err := canonicalWorkbenchPath(req.Name)
+	if err != nil {
+		writeGitJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	info, statErr := os.Stat(workbenchPath)
+	if os.IsNotExist(statErr) || (statErr == nil && !info.IsDir()) {
+		writeGitJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "workbench not found - launch the app first",
+		})
+		return
+	}
+	if statErr != nil {
+		writeGitJSON(w, http.StatusInternalServerError, map[string]string{"error": statErr.Error()})
+		return
+	}
+
+	unlock := lockRuntimeLifecycle(subcommand + " " + req.Name)
+	defer unlock()
+
+	log.Printf("Running ops ide %s for %s...", subcommand, req.Name)
+	cmd := exec.Command("ops", "ide", subcommand)
+	cmd.Dir = workbenchPath
+	out, runErr := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(out))
+	if runErr != nil {
+		log.Printf("ops ide %s for %s failed: %s, output: %s", subcommand, req.Name, runErr, output)
+		writeGitJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  fmt.Sprintf("ops ide %s failed: %s", subcommand, runErr),
+			"output": output,
+		})
+		return
+	}
+	log.Printf("ops ide %s for %s completed successfully", subcommand, req.Name)
+	writeGitJSON(w, http.StatusOK, map[string]string{
+		"message": doneMessage,
+		"output":  output,
+	})
+}
+
+// handleUndeploy handles POST /api/undeploy - removes the app's deployed actions
+// and packages from OpenServerless via `ops ide undeploy`.
+func handleUndeploy(w http.ResponseWriter, r *http.Request) {
+	runOpsIdeInWorkbench(w, r, "undeploy", "undeploy completed")
+}
+
+// handleClean handles POST /api/clean - removes local build artifacts from the
+// workbench via `ops ide clean`. It does not redeploy; the preview stays down
+// until the user runs Utils > Redeploy.
+func handleClean(w http.ResponseWriter, r *http.Request) {
+	runOpsIdeInWorkbench(w, r, "clean", "clean completed")
+}
+
 // handleLaunch routes launch API requests
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {

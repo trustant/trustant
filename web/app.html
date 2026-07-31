@@ -96,6 +96,11 @@
                         <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-6.463 0 4.493 4.493 0 006.463 0zm8.1-2.093a4.493 4.493 0 00-.052-6.32 4.493 4.493 0 00-6.32-.052"/></svg>
                         Redeploy
                     </button>
+                    <button onclick="hideUtilsMenu(); cleanWorkbench()"
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-6.714 2.143L12 21l-2.286-6.857L3 12l6.714-2.143L12 3z"/></svg>
+                        Clean
+                    </button>
                     <button onclick="hideUtilsMenu(); openDebugWindow()"
                         class="nu-menu-item">
                         <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
@@ -1618,6 +1623,53 @@
                     </div>
                 </body></html>`;
             });
+        }
+
+        // Clean: runs `ops ide clean` only. It stops the devel watcher and removes
+        // local build artifacts, so the preview stays down until Utils > Redeploy.
+        async function cleanWorkbench() {
+            const btn = document.getElementById('utilsBtn');
+            btn.disabled = true;
+
+            const rf = document.getElementById('rightFrame');
+            rf.srcdoc = `<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui;background:#f3f4f6;">
+                <div style="text-align:center;">
+                    <div style="border:4px solid #e5e7eb;border-top:4px solid #4f46e5;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin:0 auto 16px;"></div>
+                    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+                    <p style="color:#374151;font-size:1.1rem;">Cleaning...</p>
+                </div>
+            </body></html>`;
+
+            const escape = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+            try {
+                const response = await fetch('/api/clean', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: appName })
+                });
+                const data = await response.json().catch(() => ({}));
+                const ok = response.ok;
+                const title = ok ? (data.message || 'Clean complete') : (data.error || 'Clean failed');
+                const note = ok
+                    ? 'The preview is stopped. Use Utils &gt; Redeploy to bring it back.'
+                    : '';
+                rf.srcdoc = `<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui;background:#f3f4f6;">
+                    <div style="text-align:center;max-width:700px;width:100%;padding:20px;">
+                        <p style="color:${ok ? '#059669' : '#dc2626'};font-size:1.2rem;font-weight:bold;margin-bottom:16px;">${escape(title)}</p>
+                        ${data.output ? `<pre style="text-align:left;background:#1f2937;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;font-size:0.85rem;max-height:300px;margin-bottom:16px;">${escape(data.output)}</pre>` : ''}
+                        ${note ? `<p style="color:#374151;font-size:0.95rem;">${note}</p>` : ''}
+                    </div>
+                </body></html>`;
+            } catch (error) {
+                rf.srcdoc = `<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui;background:#f3f4f6;">
+                    <div style="text-align:center;padding:20px;">
+                        <p style="color:#dc2626;font-size:1.2rem;font-weight:bold;">${escape(error.message)}</p>
+                    </div>
+                </body></html>`;
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         // Credits & Top-up

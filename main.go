@@ -117,6 +117,8 @@ func main() {
 	http.HandleFunc("/api/terminal/", handleTerminal)
 	http.HandleFunc("/api/files/", handleFiles)
 	http.HandleFunc("/api/redeploy", handleRedeploy)
+	http.HandleFunc("/api/undeploy", handleUndeploy)
+	http.HandleFunc("/api/clean", handleClean)
 	http.HandleFunc("/api/activations/poll", handleActivationPoll)
 	http.HandleFunc("/api/credits", handleCredits)
 	http.HandleFunc("/api/topup", handleTopUp)

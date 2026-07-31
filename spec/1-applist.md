@@ -99,7 +99,8 @@ hook without reworking the page structure.
 
 For each application lists a <name>, a <repo> , a link "Development" to access the local application, and optionally a "Production" link and a "Repository" link. Development and Production links show an external-link icon so they are recognizable as links.
 Application action buttons use restrained, light styling and fixed inline labels:
-Edit, Env, Git Pull, Git Push, Publish, and Delete must not wrap inside the list view.
+Edit, Env, Git Pull, Git Push, Publish, Undeploy, and Delete must not wrap inside the
+list view. Undeploy sits between Publish and Delete in both the card and the list view.
 Delete keeps a distinct pale red treatment.
 
 The Development link points to `<protocol>://<name>.<domain>` by replacing the
@@ -130,6 +131,7 @@ You can
 - git pull (pull fast-forward updates from the configured production repository when available, otherwise the original application repository)
 - git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
+- undeploy (remove the application's deployed actions and packages) — see "Undeploy" below
 
 Application action buttons should use a restrained visual style: very light
 cyan-tinted secondary backgrounds, soft brand-tinted borders/text, and subtle
@@ -301,6 +303,30 @@ Once configured, the backend ensures the workbench exists (clones from workspace
 If `needs_config` was not returned (already configured), skip the form and show the result directly.
 
 Show spinner during the operation and result on completion.
+
+# Undeploy
+
+Each app card and list row has an "Undeploy" button placed between "Publish" and
+"Delete". It removes the application's deployed actions and packages from
+OpenServerless by running `ops ide undeploy`; it does not touch the workspace repo,
+the workbench checkout, or the app entry in the configuration.
+
+Clicking it opens a confirmation modal ("Undeploy \"<name>\"? This removes its
+deployed actions and packages.") with Cancel and a pale-danger Undeploy button.
+Confirming calls `POST /api/undeploy` with `{"name": "<name>"}`, shows a spinner, and
+renders the result — `message` plus command `output` on success, `error` plus `output`
+on failure — in the shared `nu-feedback` result block.
+
+Undeploy requires an existing workbench, because `ops ide undeploy` runs inside
+`$WORKBENCH_DIR/<name>` with the credentials written by `ops ide login`. When the app
+has never been launched the backend returns HTTP 400 with
+`{"error": "workbench not found - launch the app first"}` and the modal shows that
+message. The frontend does not provision a workbench.
+
+Undeploy is not part of the publishing gate: `/api/undeploy` does not call
+`requirePublishingAuth`.
+
+The app list is not reloaded after an undeploy — the set of applications is unchanged.
 
 # Env (Configure Application Environment)
 

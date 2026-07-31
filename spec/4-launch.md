@@ -916,6 +916,45 @@ At any step, if an error occurs:
 
 Stream: `event: error` / `data: <error message>`
 
+# POST /api/undeploy
+
+Runs `ops ide undeploy` in `<workbenchdir>/<name>` to remove the application's
+deployed actions and packages from OpenServerless. Triggered by the **Undeploy**
+button on the application list (see [1-applist.md](1-applist.md)).
+
+Request body: `{"name": "<app>"}`.
+
+Behaviour:
+
+- Validate `<name>` with the same app-name rules used by the other per-app endpoints;
+  reject anything else with HTTP 400.
+- Reject non-POST with HTTP 405.
+- Require `<workbenchdir>/<name>` to exist. When it does not, return HTTP 400 with
+  `{"error": "workbench not found - launch the app first"}`. The endpoint never clones
+  the workspace or runs `ops ide login` — undeploy operates on an already-launched app.
+- Acquire the shared runtime lifecycle lock for the duration of the command, so an
+  undeploy cannot interleave with a launch, stop, or redeploy of the same runtime.
+- Execute `ops ide undeploy` in the workbench and capture combined output.
+- On exit code 0 return HTTP 200 `{"message": "undeploy completed", "output": "<output>"}`.
+- On failure return HTTP 500 `{"error": "ops ide undeploy failed: <err>", "output": "<output>"}`.
+
+This endpoint is not part of the publishing gate; it does not call
+`requirePublishingAuth`.
+
+# POST /api/clean
+
+Runs `ops ide clean` in `<workbenchdir>/<name>` to remove local build artifacts
+(virtualenv, `node_modules`, `*.zip`) and stop the devel watcher. Triggered by the
+**Clean** entry in the Utils pulldown (see [3-app.md](3-app.md)).
+
+It shares the request/response contract, validation, workbench precondition, and
+lifecycle lock of `POST /api/undeploy`, and returns
+`{"message": "clean completed", "output": "<output>"}` on success.
+
+It runs `ops ide clean` **only** — it does not deploy afterwards. The preview stays
+down until the user runs `GET /api/redeploy`. The `ops ide clean` invocations that are
+internal steps of launch, revert, commit, and Git Pull > Deploy are unaffected.
+
 ## Launch Progress Streaming
 
 `GET /api/launch/<name>` keeps its JSON response as the default contract. A
