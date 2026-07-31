@@ -101,7 +101,16 @@ For each application lists a <name>, a <repo> , a link "Development" to access t
 Application action buttons use restrained, light styling and fixed inline labels:
 Edit, Env, Git Pull, Git Push, Publish, Undeploy, and Delete must not wrap inside the
 list view. Undeploy sits between Publish and Delete in both the card and the list view.
+In the list view the action buttons are left-aligned, so the row starts directly under
+the "Actions" column header rather than being pushed to the right edge. The
+Development/Production status badge is centered in its column, and the "Status" column
+header is centered to match.
 Delete keeps a distinct pale red treatment.
+
+The application list uses the roomiest page shell (`nu-shell-full`, capped at 1760px)
+with reduced horizontal page padding for both the top bar and the main content, so the
+list view has enough width for the full action row without squeezing the Application
+and Repository columns. Other pages keep the default `nu-shell`.
 
 The Development link points to `<protocol>://<name>.<domain>` by replacing the
 first label of the current Trustable host. For example, from

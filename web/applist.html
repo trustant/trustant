@@ -10,7 +10,7 @@
 </head>
 <body class="min-h-screen">
     <header class="nu-topbar">
-        <div class="nu-shell px-4 md:px-8 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div class="nu-shell-full px-3 md:px-5 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div class="flex items-center gap-4">
                 <img src="trustable-logo.svg" alt="Trustable Logo" class="w-16 h-16">
                 <div>
@@ -38,7 +38,7 @@
         </div>
     </header>
 
-    <div id="mainContent" class="nu-shell px-4 md:px-8 py-6 md:py-8">
+    <div id="mainContent" class="nu-shell-full px-3 md:px-5 py-6 md:py-8">
         <div id="statusMessage" class="hidden nu-feedback nu-feedback-info px-4 py-2 mb-4 text-sm text-center"></div>
 
         <div id="appSummary" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -1175,7 +1175,7 @@
                     <div class="hidden xl:grid grid-cols-[minmax(220px,1.2fr)_minmax(170px,1fr)_110px_760px] gap-3 px-4 py-3 bg-[color:var(--nu-accent)] border-b border-[color:var(--nu-rule)] nu-mono text-xs font-medium uppercase text-[color:var(--nu-muted)]">
                         <div>Application</div>
                         <div>Repository</div>
-                        <div>Status</div>
+                        <div class="text-center">Status</div>
                         <div>Actions</div>
                     </div>
                     ${apps.map(renderAppRow).join('')}
@@ -1199,8 +1199,8 @@
                     <div class="text-sm min-w-0">
                         ${links.repo ? `<a href="${links.repo}" target="_blank" class="nu-link truncate block">${escapeHtml(links.repoLabel)}</a>` : '<span class="text-[color:var(--nu-muted)]">No repository</span>'}
                     </div>
-                    <div>${statusBadge(hasProduction(app))}</div>
-                    <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-end">
+                    <div class="text-center">${statusBadge(hasProduction(app))}</div>
+                    <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-start">
                         <button onclick="launchApp('${escapeAttr(app.name)}')" class="nu-btn nu-btn-primary">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
                         ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
