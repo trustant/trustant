@@ -78,19 +78,37 @@ template list, load/save controls, and add/remove controls. There is no rename
 operation: rename is deliberately remove plus recreate under the new name.
 There is no token field or token prompt.
 
-### Read-only repositories
+### The working copy
 
-A repository without a write token is read-only. The panel then **hides**,
-rather than disables, everything that cannot work:
+A template is edited as `template.md` at the root of the launched application's
+workbench checkout. GitHub is the catalog it is copied from and saved back to;
+the working copy is what the session runs and edits, so a template travels with
+the application and is published with it.
+
+The panel shows the working copy above the catalog, with its name and origin, an
+**Open** action, and — when it has been edited — a **Changed** badge plus
+editable name and file fields and a **Save to GitHub** button.
+
+Selecting a catalog entry copies it into the workbench. Replacing a working copy
+that has unsaved edits asks for confirmation first; replacing an unedited one is
+silent.
+
+### Repositories without a write token
+
+Such a repository cannot be published to, but the catalog still reads and the
+working copy still saves locally. The panel therefore **hides**, rather than
+disables, only what cannot work:
 
 - no read-only warning banner;
 - no add-template section;
-- no name/path row for the loaded template;
-- no per-entry remove control.
+- no per-entry remove control;
+- no Save to GitHub button.
 
-A single unhighlighted note closes the panel: *"add in configuration your github
-token to edit templates"*. It carries no border, background, or alert color —
-nothing is wrong, the write controls are simply absent.
+A single unhighlighted note reads *"add in configuration your github token to
+edit templates"*. It carries no border, background, or alert color — nothing is
+wrong, the upstream controls are simply absent. The Changed badge and the
+editable fields still appear, because that is how the user learns their edits
+are local-only.
 
 ## Conversation model
 
@@ -143,30 +161,76 @@ Normal composer input while a notebook is loaded becomes an ad-hoc input node:
 3. notebook selection does not advance.
 
 An ad-hoc node can be pinned. Pinning promotes it to a notebook node with the
-standard controls, marks the notebook dirty, and includes it in saves. Unpinned
+standard controls, writes the working copy, and includes it in saves. Unpinned
 inputs and all model/tool output are excluded from GitHub saves.
 
-## Saving: GitHub or local
+A template can also start from nothing. With none loaded there are no ad-hoc
+nodes to pin, so each of the user's own chat messages carries a **Pin** action:
+the first pin creates a working copy with a blank name, converts that message
+into the first step, and switches the conversation into template mode. The
+message's assistant reply is carried across so pinning does not discard what the
+step produced. The name is filled in later, when the template is saved.
 
-Saving an edited template routes by writability:
+## The template file
 
-- **Writable** (a write token is configured, and the template came from GitHub):
-  the existing GitHub Contents API path, with SHA conflict checking, unchanged.
-- **Read-only**: prompts are written to `template.md` at the root of the
-  launched application's workbench checkout and staged with `git add`, so the
-  saved template is committed and published with the application.
+`template.md` carries front matter recording where it came from:
+
+```markdown
+---
+name: Build
+repo: trustable-ai/templates
+file: flows/build.md
+edited: false
+---
+
+first prompt
+
+---
+
+second prompt
+```
+
+All four keys are always emitted, even when empty — a blank `name:` is how a
+template started from pinned chat records that it has no origin yet. Unknown
+keys survive a round trip.
+
+`edited` is what "changed" means: set by any local edit, cleared by a successful
+save back to GitHub. It is a flag, never a content comparison, and only the
+server clears it.
+
+`repo` is **informational**. It records the origin so it stays visible, but it
+never selects a write destination — save-back always resolves the repository
+through the one configured in Trustable, so a template file cannot redirect an
+authenticated write. A template copied from another catalog therefore saves into
+the configured repository under its recorded file name.
+
+Front matter is split from the body before prompts are parsed. The block
+delimiter and the prompt separator are the same `---` token, so the block is
+identified positionally, as a strict file prefix.
 
 The local file name is a server-side constant; no part of it comes from the
-request, so the local path has no traversal surface. Serialization is shared
-with the GitHub path, so a template saved locally is byte-identical to the same
-template saved upstream. Staging is best-effort — a workbench that is not a git
-checkout, or a failing `git`, still leaves the written file and reports
-`staged: false` instead of losing the save.
+request, so the local path has no traversal surface. In particular `file`
+records a path inside the template repository and is never joined onto a
+filesystem path. Serialization is shared with the GitHub path, so a template
+saved locally is byte-identical to the same template saved upstream.
 
-When a local `template.md` exists, the panel lists **Saved Template** as an
-extra entry ahead of the indexed ones; upstream entries stay listed unchanged.
-Loading it marks the session state `local`, which keeps subsequent saves on the
-local path even if a token is configured later.
+## Saving
+
+Editing is write-through: every change to the prompt set writes `template.md`
+immediately, so durability never depends on a panel button.
+
+Staging is best-effort and stops at `git add` — the application's own save in
+Trustable already commits and pushes, so the template rides along with the
+user's other changes instead of producing commits they did not ask for. A
+workbench that is not a git checkout, or a failing `git`, still leaves the
+written file and reports `staged: false`.
+
+**Save to GitHub** publishes the working copy under the name and file the user
+chose, then clears `edited`. Prompts are read from `template.md` server-side, so
+a stale browser cannot publish content the workbench never held. A renamed or
+brand-new template also updates the repository's `README.md` index so it appears
+in the catalog; the file and the index are separate commits, and a failure
+between them is reported explicitly rather than left half-applied.
 
 ## APIs
 
@@ -174,24 +238,26 @@ TruACP exposes server-side routes:
 
 - `POST /api/notebooks/index`
 - `POST /api/notebooks/load`
-- `PUT /api/notebooks/save`
+- `POST /api/notebooks/select`
 - `POST /api/notebooks/add`
 - `POST /api/notebooks/remove`
 - `POST /api/notebooks/local`
 - `PUT /api/notebooks/save-local`
+- `PUT /api/notebooks/save-template`
 - `POST /api/sessions/notebook/get`
 - `PUT /api/sessions/notebook`
 
 The GitHub routes accept repository/ref/path/SHA metadata, never a token. The
-local routes accept prompts only and resolve the destination server-side from
-the active project directory. The session routes persist a whitelisted notebook
-sidecar under `.acp-data`; unknown fields are discarded.
+local routes accept provenance and prompts only, and resolve the destination
+server-side from the active project directory; `save-template` accepts a name
+and file and reads the prompts from the working copy. The session routes persist
+a whitelisted notebook sidecar under `.acp-data`; unknown fields are discarded.
 
 ## Session behavior
 
-Template identity, source/ref, file and README SHAs, ordered notebook/ad-hoc
-nodes, execution outputs, selected node, dirty state, and the `local` flag are
-stored beside the ACP session. Load/resume reads the same sidecar. Fork copies it to the new
+Template identity, source/ref, ordered notebook/ad-hoc nodes, execution outputs,
+selected node, dirty state, and the provenance block are stored beside the ACP
+session. Load/resume reads the same sidecar. Fork copies it to the new
 session so subsequent changes diverge independently. Starting a new session
 does not inherit notebook state.
 
@@ -224,7 +290,10 @@ TruACP server `.env`.
   project assets, logs, commits, or model context.
 - Managed TruACP treats the injected repository/ref as authoritative. Its
   template panel displays the active source read-only and offers Refresh, but
-  no source configuration fields.
-- Public index/load operations continue without a token. When `hasToken` is
-  false the add and remove controls are hidden, and save falls back to the
-  application's local `template.md` as described above.
+  no source configuration fields. This authority extends to save-back: the
+  `repo` recorded in a template's front matter is informational and is
+  overridden by the injected repository, so a template file can never redirect
+  an authenticated write.
+- Public index/load/select operations continue without a token. When `hasToken`
+  is false the add, remove, and Save to GitHub controls are hidden; editing
+  still writes the application's local `template.md` as described above.
