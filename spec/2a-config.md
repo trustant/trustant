@@ -23,7 +23,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
         "default": "<chosen Pi model name>"
     },
     "notebook": {
-        "repository": "trustable-ai/notebooks",
+        "repository": "trustable-ai/templates",
         "ref": "main"
     },
     "apps": {
@@ -57,7 +57,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   from both the splash and the application list, before any model probe runs.
 - `notebook.repository` and `notebook.ref` — the global GitHub source consumed
   by notebook workflows in every launched TruACP session. The defaults are
-  `trustable-ai/notebooks` and `main`. The write token is deliberately absent
+  `trustable-ai/templates` and `main`. The write token is deliberately absent
   from `trustable.json`: Configure stores it as a mode-`0600` workspace secret
   under `<WorkspaceDir>/.trustable/secrets/` and the API exposes only
   `notebook.has_token`.

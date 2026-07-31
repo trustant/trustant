@@ -318,7 +318,7 @@ func saveWorkspaceConfig(cfg *trustableConfig) error {
 }
 
 const (
-	defaultNotebookRepository = "trustable-ai/notebooks"
+	defaultNotebookRepository = "trustable-ai/templates"
 	defaultNotebookRef        = "main"
 )
 
