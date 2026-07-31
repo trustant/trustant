@@ -17,6 +17,7 @@ In the bar, aligned to the left:
 - the app name in bold
 - the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
+- the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
 - the **"Sessions" pulldown** (history icon and persistent-session count) —
   see "Sessions Pulldown" below
 
@@ -24,7 +25,6 @@ Aligned to the right:
 
 - a git status indicator (dot + text)
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
-- the **"Utils" pulldown** (orange, chevron-down icon) — see "Utils Pulldown" below
 - the **device preview toggle** (three icon-only segmented buttons: desktop, tablet, phone) — see "Device Preview" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
 - the button "Back" (gray, chevron left icon)
@@ -66,7 +66,7 @@ See [opencode-session-history-flow.svg](opencode-session-history-flow.svg).
 
 # Utils Pulldown
 
-Replace the previous standalone "Revert", "Redeploy", and "Upload" toolbar buttons with a single **Utils** pulldown menu placed to the right of the Commit button.
+Replace the previous standalone "Revert", "Redeploy", and "Upload" toolbar buttons with a single **Utils** pulldown menu. It sits on the left side of the toolbar, immediately to the right of the Config pulldown, so the two pulldowns are grouped together. Its dropdown is left-anchored like the Config one.
 
 The button shows the label "Utils" and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
 
