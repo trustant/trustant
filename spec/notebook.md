@@ -122,6 +122,21 @@ back to the first meaningful line, and is bounded to a single concise label.
 The complete unchanged prompt remains available under a collapsed, bounded
 **Task details** disclosure.
 
+Each node shows its run state on its left edge and as a named badge:
+
+| State | Shown as |
+| --- | --- |
+| Not yet run | muted edge, dimmed title, **Not run** |
+| Running | amber edge with a ring, pulsing **Running…** |
+| Already run | green edge, **Run** |
+
+A step counts as run when it has output, so the distinction survives a session
+resume rather than depending on a transient flag. A re-run reads as running, not
+as already run. The state is named as well as coloured, so it does not rely on
+colour perception, and the pulse is suppressed under reduced-motion. Selection
+remains a ring around the node, so selection and run state never compete for the
+same visual channel.
+
 Running the selected node, either from the node or **Run next**:
 
 1. sends exactly that prompt through the existing ACP session;

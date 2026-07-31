@@ -8,9 +8,11 @@
    appears at the workbench root with front matter naming the template, its
    repository and file, and `edited: false`, and that the first radio is
    selected.
-5. Run the first node from its **Run** control, then run the second with
-   **Run next step**. Confirm each response is directly below its prompt and
-   selection advances once.
+5. Confirm every node reads **Not run** with a muted left edge. Run the first
+   node from its **Run** control, then run the second with **Run next step**.
+   Confirm each response is directly below its prompt, selection advances once,
+   the node in flight shows **Running…** with an amber edge, and finished nodes
+   turn green and read **Run** while later ones stay **Not run**.
 6. Enter an ad-hoc prompt. Confirm it is inserted before the selected node,
    runs normally, and does not advance selection.
 7. Pin the ad-hoc node. Press **Edit** on another node and confirm the prompt
