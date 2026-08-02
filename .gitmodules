@@ -12,7 +12,7 @@
         branch = main
 [submodule "olaris-bestia"]
 	path = olaris-bestia
-	url = https://github.com/nuvolaris/olaris-bestia
+	url = https://github.com/trustable-ai/olaris-bestia
         branch = main
 [submodule "mcp"]
 	path = mcp
