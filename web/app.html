@@ -330,7 +330,6 @@
             <div id="envError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
             <div class="flex gap-3 p-4 border-t border-[color:var(--nu-rule)]">
                 <button onclick="saveEnvVars()" class="nu-btn nu-btn-primary flex-1">Save</button>
-                <button id="envLaunchBtn" onclick="launchFromEnvModal()" class="nu-btn nu-btn-primary flex-1 hidden">Launch</button>
                 <button onclick="hideEnvModal()" class="nu-btn nu-btn-secondary flex-1">Close</button>
             </div>
         </div>
@@ -1158,13 +1157,11 @@
 
         // Env functions
         //
-        // The table logic lives in js/envtable.js, shared with appconfig.html.
-        // `envBlockedLaunch` records that the user arrived here because a launch
-        // was refused for missing variables, which is what earns the Launch
-        // button offering an immediate retry once nothing is missing.
+        // The table logic lives in js/envtable.js, shared with appconfig.html and
+        // applist.html. This is the ordinary per-app editor; the blocked-launch
+        // flow belongs to applist.html, which owns the launch.
         // No `const envTable` here: register() puts the instance on window, which
         // is the binding the table's inline handlers resolve to.
-        let envBlockedLaunch = false;
         EnvTable.register('envTable', new EnvTable({
             appName: appName,
             tbodyId: 'envTableBody',
@@ -1174,10 +1171,9 @@
 
         function showEnvModal(options) {
             const opts = options || {};
-            envBlockedLaunch = Boolean(opts.blockedLaunch);
             document.getElementById('envModal').classList.remove('hidden');
             document.getElementById('envModal').classList.add('flex');
-            loadEnvVars(Boolean(opts.highlightMissing) || envBlockedLaunch);
+            loadEnvVars(Boolean(opts.highlightMissing));
         }
 
         function hideEnvModal() {
@@ -1185,14 +1181,12 @@
                 !confirm('You have unsaved changes. Are you sure you want to close?')) {
                 return;
             }
-            envBlockedLaunch = false;
             document.getElementById('envModal').classList.add('hidden');
             document.getElementById('envModal').classList.remove('flex');
         }
 
         function updateEnvMissingBanner() {
             const banner = document.getElementById('envMissingBanner');
-            const launchBtn = document.getElementById('envLaunchBtn');
             const missing = envTable.highlightMissing ? envTable.missingNames() : [];
 
             if (missing.length > 0) {
@@ -1201,8 +1195,6 @@
             } else {
                 banner.classList.add('hidden');
             }
-            // Offering a retry only makes sense for a launch we actually blocked.
-            launchBtn.classList.toggle('hidden', !(envBlockedLaunch && missing.length === 0));
         }
 
         async function loadEnvVars(highlightMissing) {
@@ -1225,24 +1217,14 @@
         async function saveEnvVars() {
             document.getElementById('envError').classList.add('hidden');
             try {
-                const missing = await envTable.save();
+                await envTable.save();
                 // Re-render so rows that were just filled in lose their flag, and
                 // rows still empty keep it.
                 envTable.render();
-                if (missing.length === 0 && envBlockedLaunch) {
-                    document.getElementById('envMissingBanner').classList.add('hidden');
-                }
             } catch (error) {
                 document.getElementById('envError').textContent = error.message;
                 document.getElementById('envError').classList.remove('hidden');
             }
-        }
-
-        function launchFromEnvModal() {
-            envBlockedLaunch = false;
-            document.getElementById('envModal').classList.add('hidden');
-            document.getElementById('envModal').classList.remove('flex');
-            window.location.href = `applist.html?launch=${encodeURIComponent(appName)}`;
         }
 
         // Skills functions
@@ -1851,13 +1833,6 @@
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);
-            }
-
-            // ?env=missing is how applist.html hands off a launch it had to
-            // refuse: open the editor straight on the offending variables.
-            const envParam = new URLSearchParams(window.location.search).get('env');
-            if (envParam === 'missing') {
-                showEnvModal({ blockedLaunch: true, highlightMissing: true });
             }
         })();
     </script>

@@ -110,9 +110,12 @@ immediately, instead of letting the user discover them at the first launch:
 }
 ```
 
-`missing_env` is omitted when nothing is missing. Failure to read `.env.dist` or
-to seed is logged and does not fail the creation — the launch gate
-([4-launch.md](4-launch.md)) still catches the missing values later.
+`missing_env` is omitted when nothing is missing. The app list opens its env
+editor on those keys as soon as creation succeeds, in place, so the app can be
+completed immediately instead of failing into the launch gate later.
+
+Failure to read `.env.dist` or to seed is logged and does not fail the creation —
+the launch gate ([4-launch.md](4-launch.md)) still catches the missing values.
 
 Return success
 

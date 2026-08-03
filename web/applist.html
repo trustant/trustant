@@ -6,6 +6,7 @@
     <title>Trustable</title>
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
+    <script src="js/envtable.js"></script>
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -463,6 +464,42 @@
                     class="nu-btn nu-btn-secondary">
                     Continue
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Missing Environment Variables Modal.
+         Shown in place of the launch modal when the gate stops a launch, and
+         after a clone that seeded empty keys. Saving resumes the launch: this is
+         one step for the user, not a hand-off to another page. -->
+    <div id="missingEnvModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal w-full max-w-4xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-[color:var(--nu-rule)]">
+                <h3 class="text-lg font-medium">Environment Variables for <span id="missingEnvAppName"></span></h3>
+                <button onclick="cancelMissingEnv()" class="nu-close text-2xl leading-none">&times;</button>
+            </div>
+            <div id="missingEnvBanner" class="hidden mx-4 mt-4 p-3 text-sm border border-red-500 text-red-700 rounded"></div>
+            <div id="missingEnvLoading" class="p-8 text-center text-[color:var(--nu-muted)]">Loading...</div>
+            <div id="missingEnvContent" class="hidden flex-1 overflow-y-auto p-4">
+                <table class="nu-table text-sm min-w-[720px]">
+                    <thead>
+                        <tr>
+                            <th class="text-left">Variable</th>
+                            <th class="text-left">Development</th>
+                            <th class="text-left">Production</th>
+                            <th class="text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="missingEnvTableBody"></tbody>
+                </table>
+                <div class="mt-4">
+                    <button onclick="missingEnvTable.add()" class="nu-btn nu-btn-secondary">Add Variable</button>
+                </div>
+            </div>
+            <div id="missingEnvError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+            <div class="flex gap-3 p-4 border-t border-[color:var(--nu-rule)]">
+                <button id="missingEnvSaveBtn" onclick="saveMissingEnv()" class="nu-btn nu-btn-primary flex-1">Save</button>
+                <button onclick="cancelMissingEnv()" class="nu-btn nu-btn-secondary flex-1">Cancel</button>
             </div>
         </div>
     </div>
@@ -1448,11 +1485,13 @@
                     } else {
                         showCreatingResult('Application "' + name + '" created successfully.', 'success');
                     }
-                    // The clone declared variables we cannot fill in. Take the user
-                    // straight to the editor rather than letting them find out at
-                    // the first launch.
+                    // The clone declared variables we cannot fill in. Open the
+                    // editor now rather than letting them find out at the first
+                    // launch. Nothing to resume: no launch was in flight.
                     if (data.missing_env && data.missing_env.length > 0) {
-                        openEnvEditorForMissing(name);
+                        hideCreatingModal();
+                        showMissingEnvModal(name, false);
+                        loadApps();
                         return;
                     }
                 } else {
@@ -1584,12 +1623,102 @@
             document.getElementById('launchModal').classList.remove('flex');
         }
 
-        // app.html reads the app from the NAME cookie, so set it before routing
-        // there: this is a launch we refused, not one that completed, and the
-        // LEFT/RIGHT iframe cookies deliberately stay untouched.
-        function openEnvEditorForMissing(name) {
-            document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
-            window.location.href = `app.html?app=${encodeURIComponent(name)}&env=missing`;
+        // The env editor shown when the launch gate stops a launch, or when a
+        // fresh clone seeded empty keys. It replaces the launch modal in place:
+        // saving the last missing value resumes the very same launch, so the user
+        // performs one action, not two. `missingEnvResumeApp` is the app whose
+        // launch is waiting; null means the editor was opened after a clone and
+        // there is nothing to resume.
+        let missingEnvResumeApp = null;
+
+        // No `const missingEnvTable`: register() puts the instance on window,
+        // which is the binding the table's inline handlers resolve to. appName is
+        // set per-open, since this page edits whichever app is being launched.
+        EnvTable.register('missingEnvTable', new EnvTable({
+            appName: '',
+            tbodyId: 'missingEnvTableBody',
+            columns: 4,
+            highlightMissing: true,
+            onChange: () => updateMissingEnvBanner()
+        }));
+
+        function showMissingEnvModal(name, resumeLaunch) {
+            missingEnvResumeApp = resumeLaunch ? name : null;
+            document.getElementById('missingEnvAppName').textContent = name;
+            document.getElementById('missingEnvError').classList.add('hidden');
+            document.getElementById('missingEnvModal').classList.remove('hidden');
+            document.getElementById('missingEnvModal').classList.add('flex');
+            loadMissingEnv(name);
+        }
+
+        function hideMissingEnvModal() {
+            document.getElementById('missingEnvModal').classList.add('hidden');
+            document.getElementById('missingEnvModal').classList.remove('flex');
+        }
+
+        // Cancelling abandons the launch. The gate ran before anything was
+        // created on the cluster, so there is nothing to undo.
+        function cancelMissingEnv() {
+            if (missingEnvTable.hasUnsavedChanges() &&
+                !confirm('You have unsaved changes. Are you sure you want to close?')) {
+                return;
+            }
+            missingEnvResumeApp = null;
+            hideMissingEnvModal();
+        }
+
+        function updateMissingEnvBanner() {
+            const banner = document.getElementById('missingEnvBanner');
+            const missing = missingEnvTable.missingNames();
+            if (missing.length > 0) {
+                banner.textContent = `${missing.length} required variable${missing.length === 1 ? ' has' : 's have'} no value. Fill them in to launch this app.`;
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        async function loadMissingEnv(name) {
+            document.getElementById('missingEnvLoading').classList.remove('hidden');
+            document.getElementById('missingEnvContent').classList.add('hidden');
+            try {
+                missingEnvTable.appName = name;
+                missingEnvTable.highlightMissing = true;
+                await missingEnvTable.load();
+                document.getElementById('missingEnvLoading').classList.add('hidden');
+                document.getElementById('missingEnvContent').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('missingEnvLoading').classList.add('hidden');
+                document.getElementById('missingEnvError').textContent = error.message;
+                document.getElementById('missingEnvError').classList.remove('hidden');
+            }
+        }
+
+        async function saveMissingEnv() {
+            const errorBox = document.getElementById('missingEnvError');
+            errorBox.classList.add('hidden');
+            const saveBtn = document.getElementById('missingEnvSaveBtn');
+            saveBtn.disabled = true;
+            try {
+                const missing = await missingEnvTable.save();
+                missingEnvTable.render();
+                if (missing.length > 0) {
+                    // Still incomplete: stay here rather than resuming into the
+                    // same refusal.
+                    return;
+                }
+                const resume = missingEnvResumeApp;
+                missingEnvResumeApp = null;
+                hideMissingEnvModal();
+                if (resume) {
+                    launchApp(resume);
+                }
+            } catch (error) {
+                errorBox.textContent = error.message;
+                errorBox.classList.remove('hidden');
+            } finally {
+                saveBtn.disabled = false;
+            }
         }
 
         async function launchApp(name) {
@@ -1619,11 +1748,11 @@
                     return;
                 }
                 // The repo declares variables this installation has no value for.
-                // Nothing was started on the cluster; hand the user to the env
-                // editor opened on exactly those keys instead of showing an error.
+                // Nothing was started on the cluster. Swap the launch modal for
+                // the env editor; saving resumes this same launch.
                 if (data.missing_env && data.missing_env.length > 0) {
                     hideLaunchModal();
-                    openEnvEditorForMissing(name);
+                    showMissingEnvModal(name, true);
                     return;
                 }
                 if (data.error) {
@@ -1860,17 +1989,6 @@
             // Check if SSH key is available and prime inline panels
             await refreshAddAppSshKeyNotice();
             loadApps();
-
-            // Retry handed back by the env editor after the user filled in the
-            // variables that blocked this launch. Strip the marker first so a
-            // reload does not launch the app again.
-            const retryLaunch = bootParams.get('launch');
-            if (retryLaunch) {
-                bootParams.delete('launch');
-                const cleanQuery = bootParams.toString();
-                window.history.replaceState(null, '', 'applist.html' + (cleanQuery ? '?' + cleanQuery : ''));
-                launchApp(retryLaunch);
-            }
         })();
     </script>
 </body>

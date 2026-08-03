@@ -179,25 +179,23 @@ red border and a banner reads "N required variables have no value. Fill them in
 to launch this app." (singular "1 required variable has no value"). The flag
 clears as each value is filled in.
 
-`app.html?app=<name>&env=missing` auto-opens the modal in that state on load.
-This is how [applist.html](../web/applist.html) hands off a launch it had to
-refuse (see [4-launch.md](4-launch.md)); it also sets the `NAME` cookie first,
-since the page reads the current app from there.
-
-After a successful Save with nothing left missing, the banner is dismissed and —
-only when the user arrived via a blocked launch — a **Launch** button appears
-offering an immediate retry. It routes to `applist.html?launch=<name>`, which
-launches the app once and strips the marker so a reload does not relaunch.
+The blocked-launch flow itself does **not** live here — it belongs to the page
+that owns the launch. [applist.html](../web/applist.html) renders the same
+editor in place of the launch modal and resumes the launch on Save, in one
+step (see [4-launch.md](4-launch.md)). This modal is the ordinary per-app
+editor, reachable any time from the Config pulldown.
 
 ## Shared implementation
 
 The render/edit/import/save logic lives in
 [web/js/envtable.js](../web/js/envtable.js) and is shared with
-[appconfig.html](../web/appconfig.html), so the two editors cannot drift apart —
-which is exactly how this modal previously ended up read-only while the app-list
+[appconfig.html](../web/appconfig.html) and
+[applist.html](../web/applist.html), so the editors cannot drift apart — which
+is exactly how this modal previously ended up read-only while the app-list
 editor was editable. The module owns the table; each host page supplies its own
 element ids and buttons (the full page additionally offers `.env` /
-`.env.production` file import).
+`.env.production` file import; the app list adds the missing-variable banner and
+resumes the launch on Save).
 
 The modal can be closed with the X button, Escape key, or clicking the backdrop.
 
