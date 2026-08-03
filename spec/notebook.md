@@ -122,8 +122,8 @@ are local-only.
 ## Conversation model
 
 Loading a notebook renders each prompt as a visually distinct notebook node
-and selects the first node. Each notebook node has radio/select, run, edit, and
-remove controls.
+and selects the first node. Each notebook node has radio/select, run, edit,
+move, and remove controls.
 
 The conversation presents nodes as compact tasks rather than full prompt
 documents. A node title is derived from the first Markdown heading, falling
@@ -176,6 +176,29 @@ commits the prompt, marks the template dirty, and persists it; it does **not**
 run the node — running stays on Run, Run next step, and Run all steps. The
 composer is unaffected and remains available for ad-hoc input while a node is
 being edited.
+
+Move reorders a step and is **modal and keyboard-driven**. Choosing **Move**
+replaces the node's controls with the hint *"use arrow to move, enter to
+confirm esc to cancel"* and marks the node as being repositioned. The arrow
+keys move it one position at a time, so the new order is visible as it is
+chosen; **Enter** commits the order, marks the template dirty, and writes the
+working copy; **Esc** restores the order captured when the move started and
+writes nothing. Move and edit are both modal on a single node, so starting one
+ends the other, and neither is offered while a step is running.
+
+A move swaps the step with the **nearest notebook node** in that direction,
+stepping over any ad-hoc inputs between them. Only notebook nodes are written
+to the template, so a move that merely hopped an ad-hoc input would change the
+on-screen order while leaving the saved prompt order untouched — reading as a
+move that did nothing. Ad-hoc inputs therefore keep their own positions and
+have no move control. A step at either end does not move further in that
+direction; the keystroke does nothing rather than reporting an error.
+
+Only Enter writes `template.md`. This is the one deliberate exception to the
+write-through rule under **Saving**: an in-flight move is not yet a decision,
+and writing each keystroke would make Esc a second edit rather than a cancel.
+Session state still follows the move as it happens, so a restore travels
+through the same sidecar as every other change.
 
 Normal composer input while a notebook is loaded becomes an ad-hoc input node:
 
