@@ -200,15 +200,16 @@ The following issue #57 increments remain explicit:
 
 ## Managed project instructions
 
-The full Trustable guidance is embedded directly in generated `AGENTS.md` and
-mirrored in `CLAUDE.md`. There is no project-local `opencode.md`. The managed
-instructions must therefore identify only these runtime sources:
+The full Trustable guidance is embedded directly in generated `AGENTS.md`.
+There is no project-local `opencode.md`. The managed instructions must
+therefore identify only these runtime sources:
 
 1. the Trustable-managed block in `AGENTS.md`;
 2. `.openserverless-contract.md`;
 3. `.mcp.json`.
 
-`CLAUDE.md` is a compatibility mirror, not a separate authority. Historical
+`CLAUDE.md` is a symlink to `AGENTS.md` and `.claude` a symlink to `.agents`,
+so there is no second file or directory to keep in sync. Historical
 specifications may retain the `opencode.md` name, but generated guidance must
 never tell Pi that the absent file exists or is a recovery source.
 

@@ -14,6 +14,14 @@ and execute the command `git <command>`.
 If the command is `checkout .`, also run `git clean -fd` to remove untracked files, then run `ops ide clean` followed by `ops ide deploy` (both in `<workbenchdir>/<name>`).
 Return the output.
 
+`git clean` here must **never** be given `-x`. Trustable's generated runtime
+state — `.mcp.json`, `.acp-data/`, `.env`, and the `CLAUDE.md`/`.claude` links —
+is deliberately ignored by the managed `.gitignore`
+(see [13-gitignore.md](13-gitignore.md)) precisely so it outlives a revert.
+`-x` would delete exactly those files and leave the app unable to reach its
+services until the next full launch. Committed content such as `AGENTS.md` and
+`.agents/skills/` is not ignored and is restored from HEAD as usual.
+
 # GET /api/git/status/<name>
 
 Change to the folder `<workbenchdir>/<name>`.
@@ -52,6 +60,13 @@ Execute the following git commands in sequence:
    `opencode.json` files, plus `AGENTS.md` when it contains only the
    Trustable-managed block. These files are regenerated on launch and must
    never be committed; `.mcp.json` can contain runtime service credentials.
+   Most of them are also ignored by the managed `.gitignore`
+   (see [13-gitignore.md](13-gitignore.md)), so `git add -A` already skips
+   them; the explicit list still matters for repos created before that block,
+   where the files remain tracked and ignore rules do not apply. The
+   `AGENTS.md` rule cannot move into `.gitignore` at all, because it depends on
+   the file's content rather than its path. `CLAUDE.md` needs no rule: it is an
+   ignored symlink and is never staged.
    An ignored untracked generated file must be left to the repository ignore
    rules instead of being passed as an explicit negative pathspec: Git rejects
    an explicitly mentioned ignored path and may partially update the index

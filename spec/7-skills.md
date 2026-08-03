@@ -8,6 +8,13 @@ On every app launch:
 - if `.agents` exists and is not empty, skip (skills already installed)
 - if `.agents` exists and is empty, proceed to add skills
 
+Because a non-empty `.agents` skips setup entirely, nothing may create that
+directory earlier in the launch sequence. In particular the `.claude` →
+`.agents` symlink (see [13-gitignore.md](13-gitignore.md)) is created **after**
+this step; creating it first would permanently suppress skills installation.
+Once linked, `.claude/skills/` resolves to the same skills, so Claude Code and
+Pi share one set.
+
 # Adding the skills
 
 1. Determine the skills repo: read `OPS_SKILLS` from `.env.production` if available and not empty, otherwise from `.env`, otherwise fall back to the global `OpsSkills` default (`trustable-ai/skills`)

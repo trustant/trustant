@@ -21,8 +21,13 @@ func TestGitSaveGeneratedPathspecsExcludeRuntimeConfig(t *testing.T) {
 			t.Fatalf("git %s: %s: %s", strings.Join(args, " "), err, output)
 		}
 	}
+	// The managed block is what keeps generated files out of a save; the legacy
+	// opencode.* names stay ignored for repos that predate it.
 	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("opencode.json\nopencode.md\n"), 0644); err != nil {
 		t.Fatalf("write .gitignore: %s", err)
+	}
+	if _, err := ensureManagedGitignore(dir); err != nil {
+		t.Fatalf("ensureManagedGitignore: %s", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("initial\n"), 0644); err != nil {
 		t.Fatalf("write README: %s", err)

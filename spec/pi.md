@@ -111,8 +111,9 @@ Launch writes these model-readable files to `<workbench>/<app>` after
 
 - `.mcp.json` in the standard `mcpServers` schema, containing server names and
   credential-free launch descriptors only;
-- `AGENTS.md` and an identical `CLAUDE.md`, with a replaceable
-  Trustable-managed block and preserved app-local notes;
+- `AGENTS.md`, with a replaceable Trustable-managed block and preserved
+  app-local notes. `CLAUDE.md` is a symlink to it, not a second file
+  (see [13-gitignore.md](13-gitignore.md));
 - `.openserverless-contract.md`.
 
 It also installs the three Trustable checker scripts under `~/.local/bin`.

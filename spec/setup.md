@@ -367,9 +367,10 @@ same shell, `run.sh` must also recover the persisted npm prefix itself, prepend
 
 ~/.local/bin:<npm-prefix>/bin:~/.ops/linux-<arch>/bin:<go-bin>:/usr/local/bin:/usr/bin:/bin
 
-Note (no action needed): per-app `AGENTS.md`, its `CLAUDE.md` compatibility
-mirror, `.openserverless-contract.md`, and `.mcp.json` are written at launch by
-the Go binary. There is no project-local `opencode.md`. Skills come from
+Note (no action needed): per-app `AGENTS.md`, `.openserverless-contract.md`,
+and `.mcp.json` are written at launch by the Go binary, which also links
+`CLAUDE.md` to `AGENTS.md` and `.claude` to `.agents`. There is no
+project-local `opencode.md`. Skills come from
 OPS_SKILLS (default `trustable-ai/skills`) cloned at launch by `skills.go`;
 setup does nothing for these, but they are covered when an app is launched.
 

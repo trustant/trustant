@@ -497,7 +497,7 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	}
 	wantContract := filepath.Join(canonicalDurableWorkbench, app, ".openserverless-contract.md")
 
-	// AGENTS.md, CLAUDE.md, and the contract belong in the project directory.
+	// AGENTS.md and the contract belong in the project directory.
 	// Checkers remain user-local executables and are not copied into app repos.
 	agentsData, err := os.ReadFile(filepath.Join(appDir, "AGENTS.md"))
 	if err != nil {
@@ -505,15 +505,17 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	}
 	agents := string(agentsData)
 	if !strings.Contains(agents, "TRUSTABLE-MANAGED-AGENTS-BEGIN") ||
-		!strings.Contains(agents, "Ignore `CLAUDE.md`") ||
+		!strings.Contains(agents, "`CLAUDE.md` is a symlink") ||
 		!strings.Contains(agents, ".openserverless-contract.md") {
 		t.Fatalf("AGENTS.md missing Trustable managed guardrails: %s", agents)
 	}
 	if _, err := os.Stat(wantContract); err != nil {
 		t.Fatalf(".openserverless-contract.md not written to project dir: %s", err)
 	}
-	if _, err := os.Stat(filepath.Join(appDir, "CLAUDE.md")); err != nil {
-		t.Fatalf("CLAUDE.md not written to project dir: %s", err)
+	// CLAUDE.md is no longer generated: launch links it to AGENTS.md instead,
+	// so asset generation must not leave a duplicate behind.
+	if _, err := os.Lstat(filepath.Join(appDir, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Fatalf("CLAUDE.md must not be generated as a copy, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(appDir, "scripts", "check_openserverless_actions.sh")); !os.IsNotExist(err) {
 		t.Fatalf("checker should not be copied into app repo, stat err=%v", err)
@@ -2162,15 +2164,21 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, "opencode.json")); !os.IsNotExist(err) {
 		t.Fatalf("opencode.json must not be generated for TruACP, stat err=%v", err)
 	}
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md", ".openserverless-contract.md", ".mcp.json"} {
+	for _, name := range []string{"AGENTS.md", ".openserverless-contract.md", ".mcp.json"} {
 		if _, err := os.Stat(filepath.Join(projectDir, name)); err != nil {
 			t.Fatalf("%s missing: %s", name, err)
 		}
 	}
 	agents, _ := os.ReadFile(filepath.Join(projectDir, "AGENTS.md"))
-	claude, _ := os.ReadFile(filepath.Join(projectDir, "CLAUDE.md"))
-	if string(agents) != string(claude) || !strings.Contains(string(agents), trustableAgentsBegin) {
-		t.Fatal("managed AGENTS.md/CLAUDE.md are not aligned")
+	if !strings.Contains(string(agents), trustableAgentsBegin) {
+		t.Fatal("managed AGENTS.md is missing its managed block")
+	}
+	// Alignment is now structural rather than a copy: ensureAgentConfigLinks
+	// points CLAUDE.md at AGENTS.md, so the two cannot drift.
+	ensureAgentConfigLinks(projectDir)
+	claude, err := os.ReadFile(filepath.Join(projectDir, "CLAUDE.md"))
+	if err != nil || string(claude) != string(agents) {
+		t.Fatalf("CLAUDE.md must resolve to AGENTS.md content, err=%v", err)
 	}
 	contract, _ := os.ReadFile(filepath.Join(projectDir, ".openserverless-contract.md"))
 	// WHY: generated guidance previously raced the already-running watcher by

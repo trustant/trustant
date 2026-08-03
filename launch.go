@@ -1135,6 +1135,9 @@ func restoreMissingWorkbenchCheckouts() {
 			log.Printf("Warning: failed to restore workbench/%s: %s, output: %s", app, err, string(output))
 			continue
 		}
+		// The restored clone predates the managed block whenever the workspace
+		// repo does, so ignore the generated files before writing .env.
+		ensureWorkbenchGitignore(workbenchPath)
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to generate restored workbench .env for %s: %s", app, err)
 		}
@@ -1280,6 +1283,11 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 
 	// Ensure the required folders exist (packages/, web/) after checkout.
 	ensureRequiredWorkbenchFolders(workbenchPath)
+
+	// Before any generator runs: .mcp.json and friends must already be ignored
+	// when they are written, otherwise they land as untracked files that a
+	// later commit picks up and that revert's `git clean -fd` deletes.
+	ensureWorkbenchGitignore(workbenchPath)
 
 	// Skills remain project-local rather than being baked into Pi's global state,
 	// so each generated app carries the capabilities appropriate to its repo.
@@ -1435,7 +1443,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	// Generate the project assets consumed by Pi: standard .mcp.json,
-	// AGENTS.md/CLAUDE.md, the OpenServerless contract, and local checkers.
+	// AGENTS.md, the OpenServerless contract, and local checkers.
 	// Provider/model configuration is global under ~/.pi/agent.
 	if err := generateProjectAssetsInDir(workbenchPath, buildMCPFromOpsConfig(serviceConfig)); err != nil {
 		log.Printf("Failed to generate project assets: %s", err)
@@ -1444,6 +1452,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		})
 		return
 	}
+	// Link CLAUDE.md -> AGENTS.md and .claude -> .agents so every agent shares
+	// one configuration. Runs here because AGENTS.md must exist first, and
+	// because creating .agents before ensureSkills would suppress skills setup.
+	ensureAgentConfigLinks(workbenchPath)
 	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
 	// MCP servers generated above from ~/.ops/config.json. WHY: these wrappers
 	// are one launch contract with the MCP entries; continuing after a required
