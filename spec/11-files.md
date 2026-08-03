@@ -36,8 +36,11 @@ These directories are never descended into, because they would swamp the
 listing: `.git`, `node_modules`, `dist`, `build`, `.venv`, `__pycache__`,
 `.next`.
 
-Dot-prefixed entries are hidden except `.env`, `.env.production`, and `.agents`
-— the last so assistant-installed skills under `.agents/skills/` stay visible.
+Dot-prefixed entries are hidden except `.env`, `.env.production`, `.agents`,
+and `.claude` — the last two so assistant-installed skills under
+`.agents/skills/` stay visible. `.claude` is a symlink to `.agents`; the walk
+does not follow symlinks, so it is listed as an entry but not descended into,
+and its contents are reached through `.agents`.
 
 The walk stops after 5000 entries and sets `"truncated": true`, so a runaway
 tree cannot wedge the UI. An unreadable subdirectory is skipped rather than

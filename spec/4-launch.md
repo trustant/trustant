@@ -92,6 +92,10 @@ to keep them in sync with the current config. If a restored checkout has
 `package.json` but no `node_modules`, run `npm install` during launch before the
 app runtime starts.
 
+The `package-lock.json` that `npm install` writes is committed later in the
+launch, together with `AGENTS.md` — see "commit the launch-owned project files"
+below. `node_modules/` itself stays ignored.
+
 ## agent project bookkeeping
 
 None. Under pi there is no project-identity bookkeeping at launch: no
@@ -104,11 +108,24 @@ resolves `<workbenchdir>/<app>` through symlinks (the pod's
 `/home/trustable/workbench` may point into the persistent workspace volume) so
 truacp is always launched with the same absolute `--dir`.
 
+## manage the .gitignore
+
+Write the Trustable-managed `.gitignore` block and untrack anything an older
+version committed, then commit both (see [13-gitignore.md](13-gitignore.md)).
+
+This runs **before** the generators: `.mcp.json` and friends must already be
+ignored by the time they are written, or they land as untracked files that a
+later commit picks up and that revert's `git clean -fd` deletes.
+
 ## skills
 
 Clone/refresh the app's bundled skills into `<workbenchdir>/<name>/.agents/skills/`
 (see [7-skills.md](7-skills.md)). Track whether anything was added so it can be
 reported in the launch response (`skills_added`).
+
+The `.claude` → `.agents` symlink is created **after** this step, never before:
+skills setup is skipped when `.agents` already exists and is non-empty, so
+creating the link first would permanently suppress it.
 
 ## ensure OpenWhisk user
 
@@ -172,10 +189,11 @@ What launch writes into `<workbenchdir>/<app>/` is:
   server name is never carried forward and hand-edits are
   discarded. Every entry uses `lifecycle: "eager"` so its initial connection is
   attempted when the Pi session starts;
-- `AGENTS.md` and `CLAUDE.md` — the Trustable-managed instruction block. The
-  long assistant guidance (formerly a separate `opencode.md`) is folded into the
-  managed block; `CLAUDE.md` is a full duplicate. Existing app-local notes
-  outside the markers are preserved;
+- `AGENTS.md` — the Trustable-managed instruction block. The long assistant
+  guidance (formerly a separate `opencode.md`) is folded into the managed
+  block. Existing app-local notes outside the markers are preserved.
+  `CLAUDE.md` is **not** generated: launch links it to `AGENTS.md`
+  (see [13-gitignore.md](13-gitignore.md));
 - `.openserverless-contract.md` — the short critical action/DB recovery
   contract.
 
@@ -230,6 +248,24 @@ and sound behavior instead of relying on source inspection.
 > browser-only phase) was implemented by the OpenCode session plugin and is
 > **gone** — see "Guardrails" in [pi.md](pi.md). The browser
 > tools themselves are unchanged.
+
+## commit the launch-owned project files
+
+After the assets are written and `CLAUDE.md`/`.claude` are linked, commit the
+launch output that is real repository content rather than ignored generated
+state (see [13-gitignore.md](13-gitignore.md)):
+
+- `package-lock.json`, produced by the earlier `npm install`;
+- `AGENTS.md`, which must exist in `HEAD` so a revert restores a correct
+  managed block instead of deleting the file.
+
+Commit message `trustable: update project files`. Skip when neither file
+differs from `HEAD`, so a relaunch adds no empty commit. Staging and commit are
+both scoped to these two paths, leaving any work the user staged by hand for
+their own Save. Best-effort and non-fatal, and it does **not** push.
+
+Together with the managed `.gitignore`, this is what makes `git status` clean
+in the workbench once a launch finishes.
 
 ## MCP servers
 
@@ -648,7 +684,7 @@ otherwise return error.
 
 Before starting truacp, write the per-app project assets into
 `<workbenchdir>/<app>/` as described in "generate the per-app project assets"
-above: `.mcp.json`, the managed `AGENTS.md`/`CLAUDE.md`, and
+above: `.mcp.json`, the managed `AGENTS.md`, and
 `.openserverless-contract.md`, plus the three `~/.local/bin` checkers.
 
 There is **no per-app agent config file** to write. Pi's model configuration is
@@ -657,10 +693,11 @@ only by the configure flow. Launch must not change those files. Do not generate,
 symlink, or copy any `opencode.json`.
 
 `AGENTS.md` is the Trustable-managed app-local rules entrypoint (with the long
-assistant guidance folded into its managed block); `CLAUDE.md` is a full
-duplicate of the same managed content so Claude Code sessions pick up the same
-rules. If an app already has either file, Trustable updates only its managed
-block and preserves app-local notes below it. The action tools come from the
+assistant guidance folded into its managed block). `CLAUDE.md` is a symlink to
+it and `.claude` a symlink to `.agents`, so Pi, Codex, and Claude Code read the
+same instructions and the same skills. If an app already has `AGENTS.md`,
+Trustable updates only its managed block and preserves app-local notes below
+it. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
 
 `.mcp.json` is written in credential-free standard `mcpServers` form (see "MCP servers"

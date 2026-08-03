@@ -41,6 +41,7 @@ var allowedDotEntries = map[string]bool{
 	".env":            true,
 	".env.production": true,
 	".agents":         true,
+	".claude":         true,
 }
 
 // errInvalidPath is returned for any path that does not resolve to a location

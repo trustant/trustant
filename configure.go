@@ -1367,13 +1367,12 @@ func writeManagedInstructionFile(projectDir, filename string) error {
 	return nil
 }
 
-// writeManagedAppAgents emits both standard discovery names because Pi reads
-// AGENTS.md while Claude-compatible ACP agents conventionally read CLAUDE.md.
+// writeManagedAppAgents writes the single instruction file. CLAUDE.md is no
+// longer a generated duplicate: launch links it to AGENTS.md (see
+// ensureAgentConfigLinks), so Claude-compatible agents read the same bytes and
+// the two can never drift.
 func writeManagedAppAgents(projectDir string) error {
-	if err := writeManagedInstructionFile(projectDir, "AGENTS.md"); err != nil {
-		return err
-	}
-	return writeManagedInstructionFile(projectDir, "CLAUDE.md")
+	return writeManagedInstructionFile(projectDir, "AGENTS.md")
 }
 
 // generateProjectAssetsInDir writes only agent-neutral project assets. The MCP
@@ -1436,7 +1435,6 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 		return err
 	}
 	log.Printf("  - Written to %s", filepath.Join(projectDir, "AGENTS.md"))
-	log.Printf("  - Written to %s", filepath.Join(projectDir, "CLAUDE.md"))
 
 	contractPath := filepath.Join(canonicalProjectDir, ".openserverless-contract.md")
 	if err := os.WriteFile(contractPath, []byte(openserverlessContractMd), 0644); err != nil {

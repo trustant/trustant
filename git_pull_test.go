@@ -161,6 +161,10 @@ func TestGitPullCleansGeneratedWorkbenchFiles(t *testing.T) {
 	workspace, workbench := testSetWorkspaceDirs(t)
 	remote := testRemoteRepo(t)
 	testCommitFile(t, remote, ".openserverless-contract.md", "tracked\n", "tracked generated file")
+	// The contract stays tracked here on purpose: this is a repo created before
+	// the managed .gitignore, where Git still reports the generated file as a
+	// modification and pull must clean it rather than refuse.
+	testCommitFile(t, remote, ".gitignore", managedGitignoreBlock(), "managed gitignore")
 	app := "generatedapp"
 	bare := testCloneBareWorkspace(t, remote, workspace, app)
 	workbenchPath := filepath.Join(workbench, app)

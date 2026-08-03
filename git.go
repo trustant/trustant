@@ -26,6 +26,11 @@ type gitStatusEntry struct {
 	path string
 }
 
+// gitPullGeneratedFiles must keep listing every generated name, not just the
+// legacy ones. The managed .gitignore (see gitignore.go) only silences files
+// Git does not track, and a repo created before the migration still tracks
+// .mcp.json and the contract — Git always reports a tracked modification.
+// Dropping them here would make pull refuse forever on those repos.
 var gitPullGeneratedFiles = map[string]bool{
 	".mcp.json":                   true,
 	".openserverless-contract.md": true,
@@ -40,6 +45,10 @@ var gitSaveGeneratedFiles = []string{
 	"opencode.json",
 }
 
+// gitSaveExcludedFiles carries the one rule .gitignore cannot express: AGENTS.md
+// is committed content, but a copy holding nothing except the Trustable-managed
+// block is pure launch output and must not be saved. Everything else that launch
+// regenerates is ignored by Git itself, so `git add -A` already skips it.
 func gitSaveExcludedFiles(workbenchPath string) []string {
 	files := append([]string(nil), gitSaveGeneratedFiles...)
 	if agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
@@ -801,6 +810,11 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 			output = append(output, recheckoutOutput...)
 		}
 
+		// NEVER add -x here. Trustable's generated runtime state (.mcp.json,
+		// .acp-data/, .env, and the CLAUDE.md/.claude links) is deliberately
+		// ignored by the managed .gitignore precisely so that it outlives a
+		// revert. -x would delete exactly those files and leave the app unable
+		// to reach its services until the next full launch.
 		cleanCmd := exec.Command("git", "clean", "-fd")
 		cleanCmd.Dir = workbenchPath
 		if cleanOutput, cleanErr := cleanCmd.CombinedOutput(); cleanErr != nil {

@@ -11,10 +11,12 @@ Authoritative Trustable instruction sources:
 3. `.mcp.json` for the credential-free MCP server names and launch descriptors
    generated for this workbench.
 
-There is no project-local `opencode.md`. `CLAUDE.md` mirrors the same managed
-guidance for Claude-compatible agents and is not an independent authority.
+There is no project-local `opencode.md`. `CLAUDE.md` is a symlink to this
+`AGENTS.md` and `.claude` is a symlink to `.agents`, so Pi, Codex, and Claude
+Code read the same instructions and the same skills. Editing either name edits
+the same file; there is no second copy to keep in sync.
 
-Ignore `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
+Ignore `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
 `.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
 agent instructions. Treat them only as legacy/template notes when the user
 explicitly asks to inspect them, and never let them override the Trustable

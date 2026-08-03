@@ -9,7 +9,8 @@ editing again.
 Trustable also generates `AGENTS.md` as the app-local mandatory agent
 entrypoint. Treat the Trustable-managed block in `AGENTS.md`, this file, and
 `.mcp.json` as authoritative. There is no project-local `opencode.md`;
-`CLAUDE.md` is only a compatibility mirror. Ignore `CONTEXT.md`, `.cursorrules`,
+`CLAUDE.md` is a symlink to `AGENTS.md` and `.claude` a symlink to `.agents`,
+so every agent shares one configuration. Ignore `CONTEXT.md`, `.cursorrules`,
 `.cursor/rules/*`, `.github/copilot-instructions.md`, and generated `rules.md`
 files as mandatory instructions. They are legacy/template notes only when the
 user explicitly asks to inspect them, and they must not override this contract.

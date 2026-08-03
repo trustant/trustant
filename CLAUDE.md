@@ -93,6 +93,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [memory.go](memory.go) | — | `/api/memory/` |
 | [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
 | [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
+| [gitignore.go](gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
 
 When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.
 
@@ -111,6 +112,8 @@ Bare `localhost` or IP requests are 307-redirected to `trustable.<ip>.nip.io:<po
 
 - `$WORKSPACE_DIR/workspace/<name>/` — the **bare git repo** for each app (durable state, what gets published)
 - `$WORKBENCH_DIR/<name>/` — the **active checkout** of whichever app the user is editing (regenerated on launch, holds `.env`/`.env.production`, `node_modules`, `.agents/skills/`)
+
+Inside a workbench checkout, `CLAUDE.md` is a **symlink to `AGENTS.md`** and `.claude` a symlink to `.agents`, so Pi, Codex, and Claude Code share one set of instructions and skills. Everything launch regenerates (`.mcp.json`, `.env`, `.openserverless-contract.md`, the links themselves) is ignored by a managed `.gitignore` block, which is what makes `git status` clean after a launch and stops revert's `git clean -fd` from destroying MCP wiring and agent sessions — see [spec/13-gitignore.md](spec/13-gitignore.md).
 
 Launching an app clones workspace → workbench when missing and regenerates env files every time so config edits propagate. `pgid` in workbench tracks the running ops process group for clean teardown.
 
