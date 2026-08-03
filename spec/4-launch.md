@@ -74,6 +74,61 @@ runtime setup still happens only when `/api/launch/<name>` is called.
 
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
 
+After a fresh workspace→workbench clone, seed the variables the cloned repo
+declares in `.env.dist` but that this installation has no value for
+(`seedMissingEnvKeys`, see [2a-config.md](2a-config.md)) — before generating the
+`.env` files, so the seeded keys are part of the same generation pass.
+
+## check required environment variables
+
+After the workbench exists and the `.env` files have been regenerated, but
+**before** `ops ide login`, check for missing development values
+(`missingAppEnvKeys`, see [2a-config.md](2a-config.md)). A variable declared in
+`.env.dist` with no development value cannot be supplied later — the app would
+deploy and fail at runtime.
+
+When the list is non-empty, abort with a structured error and no side effects on
+the runtime: nothing is created on the cluster, no process group is started.
+
+```json
+{
+  "error": "Missing required environment variables",
+  "missing_env": ["STRIPE_KEY", "SENTRY_DSN"]
+}
+```
+
+HTTP 200 with an `error` field, matching how the rest of the launch handler
+reports errors to the streaming client.
+
+The gate applies to **development** values only. Production values are checked
+at publish time, not launch.
+
+### The user-visible flow is one step
+
+Launching is a single action from the user's point of view. The missing-variable
+check is an interruption inside it, not a second task the user has to start
+again:
+
+1. The user presses Launch.
+2. The workbench is cloned, `.env` / `.env.dist` are generated, and the check runs.
+3. If anything is missing, the launch modal is **replaced in place** by the env
+   editor listing exactly those variables. The user never leaves the page.
+4. On Save, the launch **resumes automatically** — the same launch, continuing
+   from where it stopped. No second button, no navigation, no re-press.
+
+The env editor is therefore rendered on
+[applist.html](../web/applist.html) as well, using the shared table module (see
+[3-app.md](3-app.md)). It must not hand off to another page and must not offer a
+separate "Launch" button to restart the flow: a Save that resolves the last
+missing variable simply continues.
+
+Cancelling the editor abandons the launch. Nothing was started on the cluster,
+so there is nothing to undo.
+
+The same editor opens right after a clone/import that seeded empty keys, so a
+freshly added app can be completed before its first launch rather than failing
+into the gate.
+
 Otherwise, clone the workspace into the workbench:
 
 `git clone <workspacedir>/workspace/<name> <workbenchdir>/<name>`

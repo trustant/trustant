@@ -254,6 +254,14 @@ This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which wa
 - When app config is saved (`POST /api/appconfig/<name>`)
 - When global config is saved (`POST /api/configuration`)
 
+Generation is a **no-op when the app has no workbench checkout**. An app can be
+configured before it has ever been launched — a fresh clone lives in the
+workspace with no checkout, and the missing-variable flow sends the user to the
+env editor in exactly that state. There is nowhere to write yet and nothing is
+lost: launch regenerates `.env`, `.env.production`, and `.env.dist` immediately
+after cloning workspace → workbench. Saving config for a not-yet-launched app
+must therefore succeed silently, not log a write failure.
+
 The Trustable configuration UI and these server-side generators are the only
 owners of application env files. Coding agents and MCP servers must treat
 `.env` and `.env.production` as immutable: they may not read, create, edit,
@@ -297,6 +305,97 @@ Production `.env.production` is written from the per-app `production` values.
 There is no global `env` section: environment variables for an app come only from the fixed vars above and the per-app `development` / `production` maps.
 
 `regenerateAllAppEnvFiles()` iterates all apps and regenerates for each that has a workbench directory.
+
+## .env.dist — the committed key manifest
+
+`generateAppEnvFiles` also writes `$WORKBENCH_DIR/<name>/.env.dist`, the
+**committed** counterpart of `.env`: it declares which variables the app needs
+**from the user**, so a repo cloned anywhere else can be told what to supply.
+
+- Content is the union of the development and production variable names, one
+  `NAME=` per line, sorted alphabetically for a stable diff regardless of Go map
+  iteration order.
+- **Values are always empty.** `.env.dist` is committed and pushed, so no value
+  is ever copied into it — not even one that looks non-secret.
+- The fixed `OPS_*` keys (`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
+  `OPS_SKILLS`) are **excluded**. The server supplies them on every launch from
+  the workspace config, never from user input, so listing them would state a
+  requirement the user is neither able nor ever asked to satisfy. They are not
+  generated into the manifest and are not required when a foreign manifest
+  happens to list them.
+- Keys excluded from `.env` are excluded here too: `isServiceRuntimeEnvKey`
+  (currently `MONGODB_URI`).
+- When nothing is left to declare, **no file is written**, and a stale manifest
+  from an earlier config is removed. An app that requires nothing of the user
+  declares no contract; a zero-byte committed file would assert one.
+- `writeEnvDistFile` reports whether the content changed. An unchanged manifest
+  is not rewritten, so a launch that changes nothing leaves the working tree
+  clean. Removing a stale manifest counts as a change, so the deletion is
+  committed like any other.
+- Like `.env`, it is written **only** by the server-side generator. Coding
+  agents and MCP servers must treat it as immutable.
+
+### Auto-commit
+
+When the manifest changes, the server stages and commits it itself
+(`commitEnvDist`), rather than leaving it dirty until the user next saves code.
+The manifest is the contract a clone reads, so it must track the app's variable
+set at all times. This mirrors the managed `.gitignore` commit described in
+[13-gitignore.md](13-gitignore.md) and carries the same constraints:
+
+- Only when the content actually changed — otherwise every launch would attempt
+  an empty commit.
+- Scoped pathspec (`git add -- .env.dist`, `git commit -- .env.dist`): the
+  commit contains that one file and never sweeps up the user's dirty work.
+- Best-effort and non-fatal. A missing git identity, a rejecting hook, or a
+  workbench that is not yet a git repository is logged and ignored;
+  `generateAppEnvFiles` still succeeds and the file is still written.
+- It never pushes. The commit reaches the workspace bare repo through the
+  normal save/push path.
+
+`.gitignore` already ignores `.env` and `.env.production` and carries an
+explicit `!.env.dist` negation after them (see [13-gitignore.md](13-gitignore.md)),
+which is what keeps the manifest tracked while the generated secrets stay out.
+
+## Missing variables
+
+A variable is **missing** when `.env.dist` declares it but the merged config has
+no development value for it. `missingAppEnvKeys(appName)`:
+
+1. Reads `.env.dist` from the workbench, falling back to
+   `git show HEAD:.env.dist` in the workspace bare repo so an app that has never
+   been launched can still be inspected. No manifest → no missing keys: an app
+   that declares no contract cannot violate one.
+2. Skips the fixed `OPS_*` keys and `isServiceRuntimeEnvKey` keys. The generator
+   no longer writes them, but a repo cloned from elsewhere may carry a
+   hand-written manifest that lists them; they must still never be treated as
+   required, or the gate would block every launch on values the user cannot
+   provide. The same filter keeps them from being seeded into the editable
+   config, where an empty entry would shadow the generated value.
+3. Treats a key as missing when `apps.<name>.development[key]` is absent or
+   empty after trimming.
+4. Returns the keys in `.env.dist` order.
+
+Only development values are checked. Production values are a publish-time
+concern and are not gated at launch.
+
+`seedMissingEnvKeys(appName)` inserts every such key into
+`apps.<name>.development` with an **empty string value** and saves the workspace
+config. The env editor renders one row per config entry, so seeding is what makes
+a declared-but-unset variable appear as an editable blank row instead of being
+invisible. It runs after a clone (`POST /api/repo`, see [2-repo.md](2-repo.md))
+and after the workspace→workbench clone (see [4-launch.md](4-launch.md)), and is
+idempotent.
+
+### Empty values are preserved
+
+`POST /api/appconfig/<name>` keeps a variable whose name is non-empty even when
+its development and production values are both empty. Dropping empty values —
+as it previously did — would silently delete a seeded row on the next save, so
+an unfilled required variable would vanish from the editor and stop being
+reported as missing. Rows with an empty **name** are still discarded, and the
+fixed `OPS_*` keys are never stored as empty development entries because the
+server regenerates them.
 
 ## Current app tracking
 

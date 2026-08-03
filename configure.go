@@ -2559,6 +2559,203 @@ func isServiceRuntimeEnvKey(name string) bool {
 	return name == "MONGODB_URI"
 }
 
+// envDistFixedKeys are the variables the server supplies itself on every launch,
+// from the workspace config rather than from anything the user provides. They are
+// excluded from .env.dist entirely: listing them would state a requirement the
+// user can neither satisfy nor is ever asked to, so they are neither generated
+// into the manifest nor treated as required when one already lists them.
+var envDistFixedKeys = []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS"}
+
+func isEnvDistFixedKey(name string) bool {
+	for _, k := range envDistFixedKeys {
+		if k == name {
+			return true
+		}
+	}
+	return false
+}
+
+// appEnvVarNames returns the app's development and production variable names,
+// sorted so the committed .env.dist has a stable diff regardless of Go's map
+// iteration order. Server-supplied keys are omitted: .env.dist declares only what
+// the user must actually provide.
+func appEnvVarNames(appCfg *AppConfig) []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, set := range []map[string]string{appCfg.Development, appCfg.Production} {
+		for k := range set {
+			if k == "" || seen[k] || isEnvDistFixedKey(k) || isServiceRuntimeEnvKey(k) {
+				continue
+			}
+			seen[k] = true
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// writeEnvDistFile writes the committed key manifest: every variable name with
+// an empty value. Values are never copied — .env.dist is committed to git, so a
+// secret leaking in here would be published. It reports whether the file changed
+// so the caller can skip both the rewrite and the commit on a no-op launch.
+func writeEnvDistFile(path string, names []string) (bool, error) {
+	// An app whose variables are all server-supplied requires nothing of the
+	// user, so it declares no contract. Committing a zero-byte manifest would
+	// state one anyway; leave the file absent, and remove a stale one left by an
+	// earlier config that did have custom variables.
+	if len(names) == 0 {
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+
+	var b strings.Builder
+	for _, name := range names {
+		b.WriteString(name)
+		b.WriteString("=\n")
+	}
+	content := b.String()
+
+	existing, err := os.ReadFile(path)
+	if err == nil && string(existing) == content {
+		return false, nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// parseEnvDistNames returns the variable names declared by a .env.dist body, in
+// file order. Only names are meaningful; any value present is ignored.
+func parseEnvDistNames(content string) []string {
+	var names []string
+	seen := make(map[string]bool)
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.Index(line, "=")
+		if eq <= 0 {
+			continue
+		}
+		name := strings.TrimSpace(line[:eq])
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+// readAppEnvDist returns the .env.dist declared by an app, preferring the
+// workbench checkout and falling back to the workspace bare repo so an app that
+// has never been launched can still be inspected. Missing file → nil, no error.
+func readAppEnvDist(appName string) []string {
+	workbenchPath := filepath.Join(WorkbenchDir, appName, ".env.dist")
+	if data, err := os.ReadFile(workbenchPath); err == nil {
+		return parseEnvDistNames(string(data))
+	}
+
+	workspacePath := filepath.Join(WorkspaceDir, "workspace", appName)
+	if _, err := os.Stat(workspacePath); err != nil {
+		return nil
+	}
+	cmd := exec.Command("git", "show", "HEAD:.env.dist")
+	cmd.Dir = workspacePath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	return parseEnvDistNames(string(output))
+}
+
+// missingAppEnvKeys returns the .env.dist keys that have no development value in
+// the merged config for the app. These are the variables a cloned repo declares
+// but this installation has never been given — launch is blocked until they are
+// filled in. Fixed OPS_* keys are excluded: the server supplies them itself.
+func missingAppEnvKeys(appName string) ([]string, error) {
+	names := readAppEnvDist(appName)
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return nil, err
+	}
+	appCfg := cfg.Apps[appName]
+
+	var missing []string
+	for _, name := range names {
+		if isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
+			continue
+		}
+		if appCfg != nil && strings.TrimSpace(appCfg.Development[name]) != "" {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	return missing, nil
+}
+
+// seedMissingEnvKeys inserts every .env.dist key the app does not yet configure
+// into apps.<name>.development with an empty value. WHY empty entries rather
+// than nothing: the env editor renders one row per config entry, so seeding is
+// what makes an undeclared-but-required variable appear as an editable, visibly
+// blank row instead of being invisible. Returns the keys it added.
+func seedMissingEnvKeys(appName string) ([]string, error) {
+	names := readAppEnvDist(appName)
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return nil, err
+	}
+	if wsCfg.Apps == nil {
+		wsCfg.Apps = make(map[string]*AppConfig)
+	}
+	if wsCfg.Apps[appName] == nil {
+		wsCfg.Apps[appName] = &AppConfig{}
+	}
+	appCfg := wsCfg.Apps[appName]
+	if appCfg.Development == nil {
+		appCfg.Development = make(map[string]string)
+	}
+
+	var seeded []string
+	for _, name := range names {
+		if isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
+			continue
+		}
+		if _, ok := appCfg.Development[name]; ok {
+			continue
+		}
+		appCfg.Development[name] = ""
+		seeded = append(seeded, name)
+	}
+	if len(seeded) == 0 {
+		return nil, nil
+	}
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		return nil, err
+	}
+	return seeded, nil
+}
+
 // generateAppEnvFiles writes .env and .env.production for an app in its workbench directory
 func generateAppEnvFiles(appName string) error {
 	cfg, err := loadTrustableConfig()
@@ -2567,6 +2764,16 @@ func generateAppEnvFiles(appName string) error {
 	}
 
 	workbenchPath := filepath.Join(WorkbenchDir, appName)
+
+	// An app can be configured before it has ever been launched: a fresh clone
+	// exists in the workspace with no workbench checkout, and the missing-variable
+	// flow sends the user to the env editor right then. There is nowhere to write
+	// yet, and nothing is lost — launch regenerates all three files immediately
+	// after cloning workspace → workbench. Treat it as a no-op rather than an
+	// error, so saving config for a not-yet-launched app stays clean.
+	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
+		return nil
+	}
 
 	appCfg := cfg.Apps[appName]
 	if appCfg == nil {
@@ -2615,6 +2822,18 @@ func generateAppEnvFiles(appName string) error {
 		if err := writeEnvFile(prodPath, prodVars, order); err != nil {
 			return fmt.Errorf("failed to write .env.production: %w", err)
 		}
+	}
+
+	// .env.dist is the committed counterpart of .env: the variable names a clone
+	// needs, never their values. It is written from the same union so it can
+	// never drift from what the app actually reads.
+	distPath := filepath.Join(workbenchPath, ".env.dist")
+	distChanged, err := writeEnvDistFile(distPath, appEnvVarNames(appCfg))
+	if err != nil {
+		return fmt.Errorf("failed to write .env.dist: %w", err)
+	}
+	if distChanged {
+		commitEnvDist(workbenchPath)
 	}
 
 	return nil
@@ -2763,6 +2982,12 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 		}
 		if v.DevValue != "" {
 			devVars[v.Name] = v.DevValue
+		} else if !isEnvDistFixedKey(v.Name) {
+			// Keep the key with an empty value rather than dropping it. A required
+			// variable seeded from .env.dist that the user has not filled in yet
+			// must survive a partial save, otherwise it vanishes from the editor
+			// and stops being reported as missing.
+			devVars[v.Name] = ""
 		}
 		if v.ProdValue != "" {
 			prodVars[v.Name] = v.ProdValue

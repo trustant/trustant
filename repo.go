@@ -448,10 +448,25 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Warning: failed to save password to config: %s", err)
 	}
 
+	// A cloned repo declares its required variables in .env.dist. Seed the ones we
+	// cannot populate as empty entries and report them, so the UI can open the env
+	// editor immediately rather than letting the user discover them at launch.
+	var missingEnv []string
+	if _, err := seedMissingEnvKeys(req.Name); err != nil {
+		log.Printf("Warning: failed to seed env keys from .env.dist: %s", err)
+	} else if missing, err := missingAppEnvKeys(req.Name); err != nil {
+		log.Printf("Warning: failed to check missing env keys: %s", err)
+	} else {
+		missingEnv = missing
+	}
+
 	// Return the created application with optional warning
 	result := map[string]interface{}{
 		"name": req.Name,
 		"repo": req.Repo,
+	}
+	if len(missingEnv) > 0 {
+		result["missing_env"] = missingEnv
 	}
 	if defaultBranch != "" {
 		result["default_branch"] = defaultBranch

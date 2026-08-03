@@ -6,6 +6,7 @@
     <title>Trustable App</title>
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
+    <script src="js/envtable.js"></script>
     <script src="js/marked.min.js"></script>
     <script src="js/xterm.min.js"></script>
     <script src="js/xterm-addon-fit.min.js"></script>
@@ -301,28 +302,36 @@
         </div>
     </div>
 
-    <!-- Env Modal (read-only) -->
+    <!-- Env Modal (editable) -->
     <div id="envModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
-        <div class="nu-modal w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+        <div class="nu-modal w-full max-w-4xl mx-4 max-h-[80vh] flex flex-col">
             <div class="flex items-center justify-between p-4 border-b border-[color:var(--nu-rule)]">
                 <h3 class="text-lg font-medium">Environment Variables</h3>
                 <button onclick="hideEnvModal()" class="nu-close text-2xl leading-none">&times;</button>
             </div>
+            <div id="envMissingBanner" class="hidden mx-4 mt-4 p-3 text-sm border border-red-500 text-red-700 rounded"></div>
             <div id="envLoading" class="p-8 text-center text-[color:var(--nu-muted)]">Loading...</div>
             <div id="envContent" class="hidden flex-1 overflow-y-auto p-4">
-                <table class="nu-table text-sm">
+                <table class="nu-table text-sm min-w-[720px]">
                     <thead>
                         <tr>
                             <th class="text-left">Variable</th>
                             <th class="text-left">Development</th>
                             <th class="text-left">Production</th>
+                            <th class="text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="envTableBody"></tbody>
                 </table>
-                <p class="text-sm text-[color:var(--nu-muted)] mt-4 italic">To edit environment variables, use the Env button from the app list.</p>
+                <div class="mt-4">
+                    <button onclick="envTable.add()" class="nu-btn nu-btn-secondary">Add Variable</button>
+                </div>
             </div>
             <div id="envError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+            <div class="flex gap-3 p-4 border-t border-[color:var(--nu-rule)]">
+                <button onclick="saveEnvVars()" class="nu-btn nu-btn-primary flex-1">Save</button>
+                <button onclick="hideEnvModal()" class="nu-btn nu-btn-secondary flex-1">Close</button>
+            </div>
         </div>
     </div>
 
@@ -1147,46 +1156,72 @@
         })();
 
         // Env functions
-        function showEnvModal() {
+        //
+        // The table logic lives in js/envtable.js, shared with appconfig.html and
+        // applist.html. This is the ordinary per-app editor; the blocked-launch
+        // flow belongs to applist.html, which owns the launch.
+        // No `const envTable` here: register() puts the instance on window, which
+        // is the binding the table's inline handlers resolve to.
+        EnvTable.register('envTable', new EnvTable({
+            appName: appName,
+            tbodyId: 'envTableBody',
+            columns: 4,
+            onChange: () => updateEnvMissingBanner()
+        }));
+
+        function showEnvModal(options) {
+            const opts = options || {};
             document.getElementById('envModal').classList.remove('hidden');
             document.getElementById('envModal').classList.add('flex');
-            loadEnvVars();
+            loadEnvVars(Boolean(opts.highlightMissing));
         }
 
         function hideEnvModal() {
+            if (envTable.hasUnsavedChanges() &&
+                !confirm('You have unsaved changes. Are you sure you want to close?')) {
+                return;
+            }
             document.getElementById('envModal').classList.add('hidden');
             document.getElementById('envModal').classList.remove('flex');
         }
 
-        async function loadEnvVars() {
+        function updateEnvMissingBanner() {
+            const banner = document.getElementById('envMissingBanner');
+            const missing = envTable.highlightMissing ? envTable.missingNames() : [];
+
+            if (missing.length > 0) {
+                banner.textContent = `${missing.length} required variable${missing.length === 1 ? ' has' : 's have'} no value. Fill them in to launch this app.`;
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        async function loadEnvVars(highlightMissing) {
             document.getElementById('envLoading').classList.remove('hidden');
             document.getElementById('envContent').classList.add('hidden');
             document.getElementById('envError').classList.add('hidden');
 
             try {
-                const resp = await fetch(`/api/appconfig/${encodeURIComponent(appName)}`);
-                if (!resp.ok) {
-                    throw new Error(await resp.text());
-                }
-                const data = await resp.json();
-                const vars = data.vars || [];
-
-                const tbody = document.getElementById('envTableBody');
-                if (vars.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-[color:var(--nu-muted)]">No variables configured</td></tr>';
-                } else {
-                    tbody.innerHTML = vars.map(v => `
-                        <tr>
-                            <td class="nu-code text-xs">${escapeHtml(v.name)}</td>
-                            <td class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.dev_value)}</td>
-                            <td class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.prod_value)}</td>
-                        </tr>`).join('');
-                }
-
+                envTable.highlightMissing = Boolean(highlightMissing);
+                await envTable.load();
                 document.getElementById('envLoading').classList.add('hidden');
                 document.getElementById('envContent').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('envLoading').classList.add('hidden');
+                document.getElementById('envError').textContent = error.message;
+                document.getElementById('envError').classList.remove('hidden');
+            }
+        }
+
+        async function saveEnvVars() {
+            document.getElementById('envError').classList.add('hidden');
+            try {
+                await envTable.save();
+                // Re-render so rows that were just filled in lose their flag, and
+                // rows still empty keep it.
+                envTable.render();
+            } catch (error) {
                 document.getElementById('envError').textContent = error.message;
                 document.getElementById('envError').classList.remove('hidden');
             }

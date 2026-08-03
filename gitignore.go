@@ -164,6 +164,51 @@ func ensureWorkbenchGitignore(workbenchPath string) {
 	log.Printf("ensureWorkbenchGitignore: committed managed .gitignore")
 }
 
+// commitEnvDist stages and commits .env.dist right after the generator changed
+// it. WHY the server commits instead of waiting for the user's next Save: the
+// manifest is the contract a clone reads to discover which variables it must be
+// given, so it has to track the app's variable set at all times rather than sit
+// dirty until someone happens to save code. Same treatment, and same
+// constraints, as the managed .gitignore above: best-effort, non-fatal, and it
+// never pushes. Callers must invoke it only when the content actually changed,
+// otherwise every launch would attempt an empty commit.
+func commitEnvDist(workbenchPath string) {
+	// A workbench scaffolded before its first clone has no repository to commit
+	// into. Writing .env.dist there is still correct; committing is not.
+	if _, err := os.Stat(filepath.Join(workbenchPath, ".git")); err != nil {
+		return
+	}
+	if err := ensureGitIdentity(workbenchPath); err != nil {
+		log.Printf("commitEnvDist: %s", err)
+		return
+	}
+
+	// Scoped pathspec: whatever else the user has dirty in the workbench is none
+	// of this commit's business.
+	addCmd := exec.Command("git", "add", "--", ".env.dist")
+	addCmd.Dir = workbenchPath
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		log.Printf("commitEnvDist: git add .env.dist failed: %s", strings.TrimSpace(string(output)))
+		return
+	}
+
+	// The file can differ from disk yet match HEAD (a revert restored it), which
+	// leaves nothing staged. Committing then fails; that is a no-op, not an error.
+	diffCmd := exec.Command("git", "diff", "--cached", "--quiet", "--", ".env.dist")
+	diffCmd.Dir = workbenchPath
+	if diffCmd.Run() == nil {
+		return
+	}
+
+	commitCmd := exec.Command("git", "commit", "-m", "trustable: update .env.dist", "--", ".env.dist")
+	commitCmd.Dir = workbenchPath
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		log.Printf("commitEnvDist: git commit failed: %s", strings.TrimSpace(string(output)))
+		return
+	}
+	log.Printf("commitEnvDist: committed .env.dist")
+}
+
 // rescueClaudeAppLocalNotes folds notes from a soon-to-be-displaced CLAUDE.md
 // into AGENTS.md. WHY: CLAUDE.md went through the same managed-block merge as
 // AGENTS.md, so an existing one can hold app-local notes that exist nowhere
