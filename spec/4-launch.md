@@ -74,6 +74,37 @@ runtime setup still happens only when `/api/launch/<name>` is called.
 
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
 
+After a fresh workspace→workbench clone, seed the variables the cloned repo
+declares in `.env.dist` but that this installation has no value for
+(`seedMissingEnvKeys`, see [2a-config.md](2a-config.md)) — before generating the
+`.env` files, so the seeded keys are part of the same generation pass.
+
+## check required environment variables
+
+After the workbench exists and the `.env` files have been regenerated, but
+**before** `ops ide login`, check for missing development values
+(`missingAppEnvKeys`, see [2a-config.md](2a-config.md)). A variable declared in
+`.env.dist` with no development value cannot be supplied later — the app would
+deploy and fail at runtime.
+
+When the list is non-empty, abort with a structured error and no side effects on
+the runtime: nothing is created on the cluster, no process group is started.
+
+```json
+{
+  "error": "Missing required environment variables",
+  "missing_env": ["STRIPE_KEY", "SENTRY_DSN"]
+}
+```
+
+HTTP 200 with an `error` field, matching how the rest of the launch handler
+reports errors to the streaming client. The frontend recognizes `missing_env`
+and routes the user to the editable Env modal opened on those keys (see
+[3-app.md](3-app.md)) instead of showing a raw error.
+
+The gate applies to **development** values only. Production values are checked
+at publish time, not launch.
+
 Otherwise, clone the workspace into the workbench:
 
 `git clone <workspacedir>/workspace/<name> <workbenchdir>/<name>`

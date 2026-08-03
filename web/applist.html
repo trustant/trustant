@@ -1448,6 +1448,13 @@
                     } else {
                         showCreatingResult('Application "' + name + '" created successfully.', 'success');
                     }
+                    // The clone declared variables we cannot fill in. Take the user
+                    // straight to the editor rather than letting them find out at
+                    // the first launch.
+                    if (data.missing_env && data.missing_env.length > 0) {
+                        openEnvEditorForMissing(name);
+                        return;
+                    }
                 } else {
                     const error = await response.text();
                     showCreatingResult('Failed to add application: ' + error, 'error');
@@ -1577,6 +1584,14 @@
             document.getElementById('launchModal').classList.remove('flex');
         }
 
+        // app.html reads the app from the NAME cookie, so set it before routing
+        // there: this is a launch we refused, not one that completed, and the
+        // LEFT/RIGHT iframe cookies deliberately stay untouched.
+        function openEnvEditorForMissing(name) {
+            document.cookie = `NAME=${encodeURIComponent(name)};path=/`;
+            window.location.href = `app.html?app=${encodeURIComponent(name)}&env=missing`;
+        }
+
         async function launchApp(name) {
             showLaunchModal(name);
 
@@ -1601,6 +1616,14 @@
                 // Route to the same explicit hard-cutover flow as page boot.
                 if (data.setup_required) {
                     window.location.href = 'configure.html?setup=1';
+                    return;
+                }
+                // The repo declares variables this installation has no value for.
+                // Nothing was started on the cluster; hand the user to the env
+                // editor opened on exactly those keys instead of showing an error.
+                if (data.missing_env && data.missing_env.length > 0) {
+                    hideLaunchModal();
+                    openEnvEditorForMissing(name);
                     return;
                 }
                 if (data.error) {
@@ -1837,6 +1860,17 @@
             // Check if SSH key is available and prime inline panels
             await refreshAddAppSshKeyNotice();
             loadApps();
+
+            // Retry handed back by the env editor after the user filled in the
+            // variables that blocked this launch. Strip the marker first so a
+            // reload does not launch the app again.
+            const retryLaunch = bootParams.get('launch');
+            if (retryLaunch) {
+                bootParams.delete('launch');
+                const cleanQuery = bootParams.toString();
+                window.history.replaceState(null, '', 'applist.html' + (cleanQuery ? '?' + cleanQuery : ''));
+                launchApp(retryLaunch);
+            }
         })();
     </script>
 </body>

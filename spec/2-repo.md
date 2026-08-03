@@ -91,6 +91,29 @@ Return error if fails.
 
 Store the password and initial app config in `<WorkspaceDir>/trustable.json` under `apps.<name>` with empty `development` and `production` maps.
 
+## Seed the variables the cloned repo requires
+
+A repo cloned from anywhere declares the variables it needs in `.env.dist` (see
+[2a-config.md](2a-config.md)). After the clone lands, seed every declared key
+that this installation has no value for into `apps.<name>.development` with an
+empty value (`seedMissingEnvKeys`), so it shows up as an editable blank row in
+the env editor rather than being invisible.
+
+Report the still-missing keys in the response so the UI can open the env editor
+immediately, instead of letting the user discover them at the first launch:
+
+```json
+{
+  "name": "<name>",
+  "repo": "<repo>",
+  "missing_env": ["STRIPE_KEY", "SENTRY_DSN"]
+}
+```
+
+`missing_env` is omitted when nothing is missing. Failure to read `.env.dist` or
+to seed is logged and does not fail the creation — the launch gate
+([4-launch.md](4-launch.md)) still catches the missing values later.
+
 Return success
 
 # DELETE /api/repo

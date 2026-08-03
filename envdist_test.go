@@ -1,0 +1,313 @@
+package main
+
+import (
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// envDistTestApp wires WorkspaceDir/WorkbenchDir at temp locations, saves an app
+// config, and returns the workbench path for the app.
+func envDistTestApp(t *testing.T, name string, dev, prod map[string]string) string {
+	t.Helper()
+
+	root := t.TempDir()
+	origWorkspace, origWorkbench := WorkspaceDir, WorkbenchDir
+	WorkspaceDir = filepath.Join(root, "workspace")
+	WorkbenchDir = filepath.Join(root, "workbench")
+	t.Cleanup(func() {
+		WorkspaceDir = origWorkspace
+		WorkbenchDir = origWorkbench
+	})
+
+	workbenchPath := filepath.Join(WorkbenchDir, name)
+	if err := os.MkdirAll(workbenchPath, 0755); err != nil {
+		t.Fatalf("create workbench: %s", err)
+	}
+
+	cfg := &trustableConfig{Apps: map[string]*AppConfig{
+		name: {Password: "secret-password", Development: dev, Production: prod},
+	}}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		t.Fatalf("save workspace config: %s", err)
+	}
+	return workbenchPath
+}
+
+func initEnvDistRepo(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.name", "Trustable Test"},
+		{"config", "user.email", "trustable@example.test"},
+		{"commit", "--allow-empty", "-m", "initial"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %s: %s", strings.Join(args, " "), err, output)
+		}
+	}
+}
+
+func envDistGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %s: %s", strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// .env.dist is the committed key manifest: every dev and prod name, fixed keys
+// first, and never a value — it is pushed to git, so a copied secret would leak.
+func TestEnvDistListsAllKeysWithEmptyValues(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo",
+		map[string]string{"STRIPE_KEY": "sk_live_secret", "ALPHA": "a", "MONGODB_URI": "mongodb://runtime"},
+		map[string]string{"SENTRY_DSN": "https://sentry.example.test", "ALPHA": "a-prod"})
+
+	if err := generateAppEnvFiles("demo"); err != nil {
+		t.Fatalf("generateAppEnvFiles: %s", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workbenchPath, ".env.dist"))
+	if err != nil {
+		t.Fatalf("read .env.dist: %s", err)
+	}
+	content := string(data)
+
+	want := "OPS_USER=\nOPS_PASSWORD=\nOPS_APIHOST=\nOPS_REPO=\nOPS_SKILLS=\nALPHA=\nSENTRY_DSN=\nSTRIPE_KEY=\n"
+	if content != want {
+		t.Fatalf(".env.dist =\n%s\nwant\n%s", content, want)
+	}
+	// Service runtime credentials are excluded everywhere, .env.dist included.
+	if strings.Contains(content, "MONGODB_URI") {
+		t.Fatalf(".env.dist must not list MONGODB_URI: %s", content)
+	}
+	for _, secret := range []string{"sk_live_secret", "secret-password", "sentry.example.test"} {
+		if strings.Contains(content, secret) {
+			t.Fatalf(".env.dist leaked a value (%s): %s", secret, content)
+		}
+	}
+}
+
+// An unchanged manifest must not be rewritten: the changed flag is what gates
+// the auto-commit, so a false positive means an empty commit on every launch.
+func TestWriteEnvDistFileReportsUnchanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env.dist")
+	names := []string{"OPS_USER", "STRIPE_KEY"}
+
+	changed, err := writeEnvDistFile(path, names)
+	if err != nil || !changed {
+		t.Fatalf("first write: changed=%v err=%v, want changed", changed, err)
+	}
+	changed, err = writeEnvDistFile(path, names)
+	if err != nil || changed {
+		t.Fatalf("second write: changed=%v err=%v, want unchanged", changed, err)
+	}
+	changed, err = writeEnvDistFile(path, append(names, "SENTRY_DSN"))
+	if err != nil || !changed {
+		t.Fatalf("write after key added: changed=%v err=%v, want changed", changed, err)
+	}
+}
+
+// The manifest is committed by the server as soon as it changes, and the commit
+// contains that one file — never whatever else the user has dirty.
+func TestGenerateAppEnvFilesCommitsEnvDistAlone(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo", map[string]string{"STRIPE_KEY": "sk_live"}, nil)
+	initEnvDistRepo(t, workbenchPath)
+	if _, err := ensureManagedGitignore(workbenchPath); err != nil {
+		t.Fatalf("ensureManagedGitignore: %s", err)
+	}
+
+	// An unrelated dirty file: it must stay out of the .env.dist commit.
+	if err := os.WriteFile(filepath.Join(workbenchPath, "README.md"), []byte("work in progress\n"), 0644); err != nil {
+		t.Fatalf("write README: %s", err)
+	}
+
+	if err := generateAppEnvFiles("demo"); err != nil {
+		t.Fatalf("generateAppEnvFiles: %s", err)
+	}
+
+	touched := envDistGitOutput(t, workbenchPath, "log", "-1", "--name-only", "--pretty=format:")
+	if touched != ".env.dist" {
+		t.Fatalf("commit touched %q, want only .env.dist", touched)
+	}
+	if status := envDistGitOutput(t, workbenchPath, "status", "--porcelain", "--", ".env.dist"); status != "" {
+		t.Fatalf(".env.dist still dirty after generate: %q", status)
+	}
+	// The generated secrets stay ignored; only the manifest is tracked.
+	if status := envDistGitOutput(t, workbenchPath, "status", "--porcelain", "--", ".env"); status != "" {
+		t.Fatalf(".env must be ignored, got %q", status)
+	}
+	if untracked := envDistGitOutput(t, workbenchPath, "status", "--porcelain", "--", "README.md"); untracked == "" {
+		t.Fatal("README.md should still be uncommitted; the commit was not scoped")
+	}
+}
+
+// Regenerating with the same config must not add a commit per launch.
+func TestGenerateAppEnvFilesDoesNotRecommitUnchangedEnvDist(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo", map[string]string{"STRIPE_KEY": "sk_live"}, nil)
+	initEnvDistRepo(t, workbenchPath)
+
+	if err := generateAppEnvFiles("demo"); err != nil {
+		t.Fatalf("first generateAppEnvFiles: %s", err)
+	}
+	first := envDistGitOutput(t, workbenchPath, "rev-list", "--count", "HEAD")
+
+	if err := generateAppEnvFiles("demo"); err != nil {
+		t.Fatalf("second generateAppEnvFiles: %s", err)
+	}
+	if second := envDistGitOutput(t, workbenchPath, "rev-list", "--count", "HEAD"); second != first {
+		t.Fatalf("commit count went %s -> %s, want no new commit", first, second)
+	}
+}
+
+// Committing is best-effort: a workbench that is not a git repository must still
+// get its .env.dist, and generation must not fail.
+func TestGenerateAppEnvFilesEnvDistOutsideGitRepo(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo", map[string]string{"STRIPE_KEY": "sk_live"}, nil)
+
+	if err := generateAppEnvFiles("demo"); err != nil {
+		t.Fatalf("generateAppEnvFiles outside a repo must not fail: %s", err)
+	}
+	if _, err := os.Stat(filepath.Join(workbenchPath, ".env.dist")); err != nil {
+		t.Fatalf(".env.dist not written: %s", err)
+	}
+}
+
+// Missing = declared in .env.dist but with no development value. Fixed OPS_*
+// keys never count: the server supplies them on every launch.
+func TestMissingAppEnvKeys(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo", map[string]string{
+		"STRIPE_KEY": "",
+		"ALPHA":      "set",
+		"SPACES":     "   ",
+	}, nil)
+
+	manifest := "OPS_USER=\nOPS_PASSWORD=\nALPHA=\nSTRIPE_KEY=\nSENTRY_DSN=\nSPACES=\nMONGODB_URI=\n"
+	if err := os.WriteFile(filepath.Join(workbenchPath, ".env.dist"), []byte(manifest), 0644); err != nil {
+		t.Fatalf("write .env.dist: %s", err)
+	}
+
+	missing, err := missingAppEnvKeys("demo")
+	if err != nil {
+		t.Fatalf("missingAppEnvKeys: %s", err)
+	}
+	// .env.dist order, empty/whitespace/absent values only.
+	want := []string{"STRIPE_KEY", "SENTRY_DSN", "SPACES"}
+	if strings.Join(missing, ",") != strings.Join(want, ",") {
+		t.Fatalf("missing = %v, want %v", missing, want)
+	}
+}
+
+func TestMissingAppEnvKeysWithoutManifest(t *testing.T) {
+	envDistTestApp(t, "demo", map[string]string{"STRIPE_KEY": ""}, nil)
+
+	// Nothing to compare against: an app with no .env.dist declares no contract.
+	missing, err := missingAppEnvKeys("demo")
+	if err != nil {
+		t.Fatalf("missingAppEnvKeys: %s", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("missing = %v, want none", missing)
+	}
+}
+
+// Seeding is what turns a declared-but-unset variable into a visible blank row
+// in the env editor.
+func TestSeedMissingEnvKeys(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo", map[string]string{"ALPHA": "set"}, nil)
+
+	manifest := "OPS_USER=\nALPHA=\nSTRIPE_KEY=\nMONGODB_URI=\n"
+	if err := os.WriteFile(filepath.Join(workbenchPath, ".env.dist"), []byte(manifest), 0644); err != nil {
+		t.Fatalf("write .env.dist: %s", err)
+	}
+
+	seeded, err := seedMissingEnvKeys("demo")
+	if err != nil {
+		t.Fatalf("seedMissingEnvKeys: %s", err)
+	}
+	if strings.Join(seeded, ",") != "STRIPE_KEY" {
+		t.Fatalf("seeded = %v, want [STRIPE_KEY]", seeded)
+	}
+
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		t.Fatalf("load config: %s", err)
+	}
+	dev := cfg.Apps["demo"].Development
+	if v, ok := dev["STRIPE_KEY"]; !ok || v != "" {
+		t.Fatalf("STRIPE_KEY = %q (present=%v), want seeded empty", v, ok)
+	}
+	if dev["ALPHA"] != "set" {
+		t.Fatalf("seeding overwrote an existing value: ALPHA=%q", dev["ALPHA"])
+	}
+	// Fixed and service-runtime keys are supplied by the server, never seeded.
+	for _, key := range []string{"OPS_USER", "MONGODB_URI"} {
+		if _, ok := dev[key]; ok {
+			t.Fatalf("%s must not be seeded into development config", key)
+		}
+	}
+
+	// Idempotent: a second pass has nothing left to add.
+	again, err := seedMissingEnvKeys("demo")
+	if err != nil {
+		t.Fatalf("second seedMissingEnvKeys: %s", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("second seed added %v, want none", again)
+	}
+}
+
+// A partial save must not delete a required variable the user has not filled in
+// yet, otherwise it disappears from the editor and stops being reported missing.
+func TestPostAppConfigPreservesEmptyValuedKeys(t *testing.T) {
+	envDistTestApp(t, "demo", map[string]string{"STRIPE_KEY": ""}, nil)
+
+	body := `{"vars":[
+		{"name":"STRIPE_KEY","dev_value":"","prod_value":""},
+		{"name":"SENTRY_DSN","dev_value":"","prod_value":"https://prod.example.test"},
+		{"name":"ALPHA","dev_value":"a","prod_value":""},
+		{"name":"","dev_value":"ignored","prod_value":""}
+	]}`
+	req := httptest.NewRequest("POST", "/api/appconfig/demo", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	handlePostAppConfig(rec, req, "demo", filepath.Join(WorkspaceDir, "workspace", "demo"))
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		t.Fatalf("load config: %s", err)
+	}
+	dev := cfg.Apps["demo"].Development
+	for _, key := range []string{"STRIPE_KEY", "SENTRY_DSN"} {
+		if v, ok := dev[key]; !ok || v != "" {
+			t.Fatalf("%s = %q (present=%v), want preserved as empty", key, v, ok)
+		}
+	}
+	if dev["ALPHA"] != "a" {
+		t.Fatalf("ALPHA = %q, want a", dev["ALPHA"])
+	}
+	// An unnamed row is not a variable.
+	if _, ok := dev[""]; ok {
+		t.Fatal("empty variable name must not be stored")
+	}
+	// The empty rows still count as missing, which is what keeps the gate closed.
+	missingRoundTrip, err := json.Marshal(dev)
+	if err != nil {
+		t.Fatalf("marshal dev: %s", err)
+	}
+	if !strings.Contains(string(missingRoundTrip), `"STRIPE_KEY":""`) {
+		t.Fatalf("dev config lost the empty key: %s", missingRoundTrip)
+	}
+}

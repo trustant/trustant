@@ -1261,6 +1261,15 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			return
 		}
 
+		// A repo cloned from anywhere declares its variables in .env.dist. Seed the
+		// ones this installation has no value for as empty config entries, so they
+		// surface as blank rows in the env editor instead of being invisible.
+		if seeded, err := seedMissingEnvKeys(app); err != nil {
+			log.Printf("Warning: failed to seed env keys from .env.dist: %s", err)
+		} else if len(seeded) > 0 {
+			log.Printf("Seeded %d env keys from .env.dist for %s: %v", len(seeded), app, seeded)
+		}
+
 		// Generate .env and .env.production from config
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to generate workbench .env: %s", err)
@@ -1288,6 +1297,22 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// when they are written, otherwise they land as untracked files that a
 	// later commit picks up and that revert's `git clean -fd` deletes.
 	ensureWorkbenchGitignore(workbenchPath)
+
+	// Gate: a variable the repo declares in .env.dist but that has no development
+	// value cannot be supplied later — the app would deploy and fail at runtime.
+	// Abort before ops ide login so nothing is touched on the cluster, and hand
+	// the frontend the key list so it can open the env editor on them.
+	// Development values only: production is a publish-time concern.
+	if missing, err := missingAppEnvKeys(app); err != nil {
+		log.Printf("Warning: failed to check missing env keys for %s: %s", app, err)
+	} else if len(missing) > 0 {
+		log.Printf("Launch of %s blocked, missing env values: %v", app, missing)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":       "Missing required environment variables",
+			"missing_env": missing,
+		})
+		return
+	}
 
 	// Skills remain project-local rather than being baked into Pi's global state,
 	// so each generated app carries the capabilities appropriate to its repo.

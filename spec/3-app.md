@@ -39,7 +39,7 @@ The **Config** pulldown groups the three configuration entries (Env, Skills, Mem
 
 The button shows a gear icon, the label "Config", and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
 
-1. **Env** (gear icon) — opens the read-only environment-variables modal described in "Env (Read-only)".
+1. **Env** (gear icon) — opens the editable environment-variables modal described in "Env (Editable)".
 2. **Skills** (book icon) — opens the Skills modal described in "Skills" ([7-skills.md](7-skills.md)).
 3. **Memory** (brain icon) — opens the AGENTS.md editor described in "Memory".
 
@@ -86,8 +86,8 @@ Nuvolaris-style Trustable visual system defined in
 [1-applist.md](1-applist.md) under "Shared Trustable visual system" and loaded
 from `web/trustable-ui.css`. The top bar uses the shared near-paper surface,
 thin border, Work Sans typography, compact app identity, status pill, restrained
-buttons, and shared dropdown/menu styling. Dialogs, read-only environment and
-skills views, memory editor shell, top-up iframe shell, route/query popup, and
+buttons, and shared dropdown/menu styling. Dialogs, the environment editor and
+read-only skills view, memory editor shell, top-up iframe shell, route/query popup, and
 git/upload/revert/skills result boxes use the same modal, input, table, button,
 and code-output primitives. Preserve the full-height two-iframe layout and all
 existing ids, cookies, launch URLs, git/status polling, route/query controls,
@@ -150,13 +150,54 @@ Clicking on the button back will:
   - invoke the DELETE /api/launch to stop running subprocess
   - navigate to applist.html
 
-# Env (Read-only)
+# Env (Editable)
 
-Add an Env button to the toolbar. Clicking it opens a modal showing environment variables (development and production) in a read-only table.
+Add an Env button to the toolbar. Clicking it opens a modal for editing the
+app's environment variables. It is a full editor, not a viewer: it is where the
+missing-variable flow lands, so the user can fix a blocked launch without
+leaving the app.
 
-The modal fetches data from `GET /api/appconfig/<name>` and displays a table with columns: VARIABLE, Development, Production.
+The modal fetches `GET /api/appconfig/<name>` and renders a table with columns:
+VARIABLE, Development, Production, Actions.
 
-All values are displayed as plain text (not editable). A note at the bottom says: "To edit environment variables, use the Env button from the app list."
+- Development and Production cells are `<input>`s, except rows flagged
+  `readonly` (`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
+  `OPS_SKILLS`) whose Development value stays a static label — the server
+  regenerates it on every launch, so an edit would be discarded. Rows flagged
+  `readonly` or `fixed` also keep a static name and no Remove button.
+- **Add Variable** appends a blank row; each editable row has a **Remove**
+  button.
+- **Save** posts the whole `vars` array to `POST /api/appconfig/<name>`. No new
+  API is introduced.
+- Closing with unsaved changes asks for confirmation, matching
+  [appconfig.html](../web/appconfig.html).
+
+## Missing variables
+
+When the modal is opened for missing variables, empty Development inputs get a
+red border and a banner reads "N required variables have no value. Fill them in
+to launch this app." (singular "1 required variable has no value"). The flag
+clears as each value is filled in.
+
+`app.html?app=<name>&env=missing` auto-opens the modal in that state on load.
+This is how [applist.html](../web/applist.html) hands off a launch it had to
+refuse (see [4-launch.md](4-launch.md)); it also sets the `NAME` cookie first,
+since the page reads the current app from there.
+
+After a successful Save with nothing left missing, the banner is dismissed and —
+only when the user arrived via a blocked launch — a **Launch** button appears
+offering an immediate retry. It routes to `applist.html?launch=<name>`, which
+launches the app once and strips the marker so a reload does not relaunch.
+
+## Shared implementation
+
+The render/edit/import/save logic lives in
+[web/js/envtable.js](../web/js/envtable.js) and is shared with
+[appconfig.html](../web/appconfig.html), so the two editors cannot drift apart —
+which is exactly how this modal previously ended up read-only while the app-list
+editor was editable. The module owns the table; each host page supplies its own
+element ids and buttons (the full page additionally offers `.env` /
+`.env.production` file import).
 
 The modal can be closed with the X button, Escape key, or clicking the backdrop.
 
