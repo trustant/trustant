@@ -1456,6 +1456,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// one configuration. Runs here because AGENTS.md must exist first, and
 	// because creating .agents before ensureSkills would suppress skills setup.
 	ensureAgentConfigLinks(workbenchPath)
+	// Commit the launch-owned content that belongs in the repo: the lock file
+	// npm install produced earlier and the freshly written AGENTS.md. Last,
+	// because only now are both in their final state.
+	commitLaunchProjectFiles(workbenchPath)
 	// Configure the CLI tooling (rclone, psql, redis-cli) that accompanies the
 	// MCP servers generated above from ~/.ops/config.json. WHY: these wrappers
 	// are one launch contract with the MCP entries; continuing after a required

@@ -115,6 +115,32 @@ Note that this commit, like the existing `ensureRequiredWorkbenchFolders` and
 skills commits, makes the workbench diverge from its remote until something
 pushes. That is pre-existing launch behaviour, not introduced here.
 
+# Committed launch output
+
+Not everything launch produces is generated churn. Two files are real content
+and must end up in the repo, so launch commits them once both are in their
+final state (after the links are created):
+
+- `package-lock.json` — written by `npm install` (see
+  [4-launch.md](4-launch.md)); it pins the exact dependency tree that was
+  resolved. `node_modules/` itself stays ignored.
+- `AGENTS.md` — regenerated every launch. It must exist in `HEAD`, or
+  `git checkout .` on revert deletes it outright instead of restoring a correct
+  managed block.
+
+The commit is `trustable: update project files`, reuses `ensureGitIdentity`, is
+best-effort and non-fatal, and does not push. It is skipped when neither file
+differs from `HEAD`, so a relaunch adds no empty commit. Both the staging and
+the commit are scoped to these paths, so work the user staged by hand is left
+for their own Save.
+
+Note the deliberate asymmetry with `gitSaveExcludedFiles` in
+[git.go](../git.go): a user-initiated Save **skips** an `AGENTS.md` holding
+only the managed block, treating it as regenerated noise, while this launch
+commit includes it unconditionally. The two rules serve different goals and
+must not be merged — dropping the launch commit would leave revert able to
+delete the file.
+
 # Interaction with git save and pull
 
 `.gitignore` silences only files Git does not track, so both

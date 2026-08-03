@@ -225,6 +225,68 @@ func extractAppLocalNotes(content string) string {
 	return strings.TrimSpace(content)
 }
 
+// launchCommittedFiles is content launch produces that belongs in the repo,
+// as opposed to the ignored generated set. package-lock.json pins the exact
+// dependency tree npm install resolved; AGENTS.md must exist in HEAD so a
+// revert restores a correct managed block instead of deleting the file.
+var launchCommittedFiles = []string{
+	"package-lock.json",
+	"AGENTS.md",
+}
+
+// commitLaunchProjectFiles commits the files launch owns but that must live in
+// git. Best-effort and non-fatal, like the other launch scaffolding steps, and
+// it never pushes.
+//
+// Unlike gitSaveExcludedFiles, this commits AGENTS.md even when it holds only
+// the managed block. WHY the two rules differ: a user-initiated Save skips a
+// managed-block-only AGENTS.md as regenerated noise, but launch needs the file
+// present in HEAD, or `git checkout .` on revert would delete it outright.
+func commitLaunchProjectFiles(workbenchPath string) {
+	var present []string
+	for _, name := range launchCommittedFiles {
+		if _, err := os.Stat(filepath.Join(workbenchPath, name)); err == nil {
+			present = append(present, name)
+		}
+	}
+	if len(present) == 0 {
+		return
+	}
+
+	addArgs := append([]string{"add", "--"}, present...)
+	addCmd := exec.Command("git", addArgs...)
+	addCmd.Dir = workbenchPath
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		log.Printf("commitLaunchProjectFiles: git add failed: %s", strings.TrimSpace(string(output)))
+		return
+	}
+
+	// Nothing staged for these paths means they already match HEAD; committing
+	// anyway would add an empty commit on every launch. The pathspec keeps an
+	// unrelated file the user staged by hand from triggering a commit here.
+	diffArgs := append([]string{"diff", "--cached", "--quiet", "--"}, present...)
+	diffCmd := exec.Command("git", diffArgs...)
+	diffCmd.Dir = workbenchPath
+	if diffCmd.Run() == nil {
+		return
+	}
+
+	if err := ensureGitIdentity(workbenchPath); err != nil {
+		log.Printf("commitLaunchProjectFiles: %s", err)
+		return
+	}
+	// Scoped to these paths so a launch never sweeps in unrelated work the user
+	// had staged; that belongs to their own Save.
+	commitArgs := append([]string{"commit", "-m", "trustable: update project files", "--"}, present...)
+	commitCmd := exec.Command("git", commitArgs...)
+	commitCmd.Dir = workbenchPath
+	if output, err := commitCmd.CombinedOutput(); err != nil {
+		log.Printf("commitLaunchProjectFiles: git commit failed: %s", strings.TrimSpace(string(output)))
+		return
+	}
+	log.Printf("commitLaunchProjectFiles: committed %v", present)
+}
+
 // ensureManagedSymlink points name at target, renaming any real entry to
 // <name>.removed first. WHY rename instead of merge or delete: the rule stays
 // the same for a file and a directory, it always converges, and the previous

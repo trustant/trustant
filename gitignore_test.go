@@ -275,6 +275,106 @@ func TestEnsureAgentConfigLinksIgnoresManagedOnlyClaude(t *testing.T) {
 	}
 }
 
+// package-lock.json and AGENTS.md are content, not generated churn: launch must
+// leave them committed so git is clean afterwards.
+func TestCommitLaunchProjectFilesLeavesWorkbenchClean(t *testing.T) {
+	dir := gitignoreTestRepo(t)
+	writeTestFile(t, filepath.Join(dir, "package.json"), `{"name":"app"}`)
+	writeTestFile(t, filepath.Join(dir, "app.js"), "src\n")
+	ensureWorkbenchGitignore(dir)
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "initial")
+
+	// What launch produces: npm install's lock file plus the regenerated
+	// instruction file.
+	writeTestFile(t, filepath.Join(dir, "package-lock.json"), `{"lockfileVersion":3}`)
+	writeTestFile(t, filepath.Join(dir, "AGENTS.md"), managedAppAgentsContent())
+
+	commitLaunchProjectFiles(dir)
+
+	if status := gitRun(t, dir, "status", "--porcelain"); strings.TrimSpace(status) != "" {
+		t.Fatalf("workbench must be clean after launch, got:\n%s", status)
+	}
+	for _, name := range []string{"package-lock.json", "AGENTS.md"} {
+		if !gitPathIsTracked(dir, name) {
+			t.Fatalf("%s must be committed by launch", name)
+		}
+	}
+
+	// A relaunch with nothing changed must not add an empty commit.
+	before := gitRun(t, dir, "rev-parse", "HEAD")
+	commitLaunchProjectFiles(dir)
+	if after := gitRun(t, dir, "rev-parse", "HEAD"); after != before {
+		t.Fatal("second run must not create another commit")
+	}
+}
+
+// An app with no package.json has no lock file; the step must still commit
+// AGENTS.md rather than failing on the missing path.
+func TestCommitLaunchProjectFilesWithoutLockFile(t *testing.T) {
+	dir := gitignoreTestRepo(t)
+	writeTestFile(t, filepath.Join(dir, "app.js"), "src\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "initial")
+	writeTestFile(t, filepath.Join(dir, "AGENTS.md"), managedAppAgentsContent())
+
+	commitLaunchProjectFiles(dir)
+
+	if !gitPathIsTracked(dir, "AGENTS.md") {
+		t.Fatal("AGENTS.md must be committed even with no lock file")
+	}
+	if status := gitRun(t, dir, "status", "--porcelain"); strings.TrimSpace(status) != "" {
+		t.Fatalf("workbench must be clean, got:\n%s", status)
+	}
+}
+
+// The launch commit is scoped: work the user staged by hand is theirs to save.
+func TestCommitLaunchProjectFilesLeavesUserStagedWorkAlone(t *testing.T) {
+	dir := gitignoreTestRepo(t)
+	writeTestFile(t, filepath.Join(dir, "app.js"), "src\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "initial")
+
+	writeTestFile(t, filepath.Join(dir, "app.js"), "user edit\n")
+	gitRun(t, dir, "add", "app.js")
+	writeTestFile(t, filepath.Join(dir, "AGENTS.md"), managedAppAgentsContent())
+
+	commitLaunchProjectFiles(dir)
+
+	if !gitPathIsTracked(dir, "AGENTS.md") {
+		t.Fatal("AGENTS.md must still be committed")
+	}
+	staged := gitRun(t, dir, "diff", "--cached", "--name-only")
+	if !strings.Contains(staged, "app.js") {
+		t.Fatalf("user's staged edit must remain staged, not committed: %q", staged)
+	}
+}
+
+// AGENTS.md must be in HEAD, or `git checkout .` on revert deletes it.
+func TestRevertRestoresAgentsAfterLaunchCommit(t *testing.T) {
+	dir := gitignoreTestRepo(t)
+	writeTestFile(t, filepath.Join(dir, "app.js"), "src\n")
+	ensureWorkbenchGitignore(dir)
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-m", "initial")
+	writeTestFile(t, filepath.Join(dir, "AGENTS.md"), managedAppAgentsContent())
+	commitLaunchProjectFiles(dir)
+
+	// Simulate an agent mangling the instruction file, then a revert.
+	writeTestFile(t, filepath.Join(dir, "AGENTS.md"), "clobbered\n")
+	gitRun(t, dir, "reset", "HEAD")
+	gitRun(t, dir, "checkout", ".")
+	gitRun(t, dir, "clean", "-fd")
+
+	restored, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("AGENTS.md must be restored by revert, not deleted: %s", err)
+	}
+	if string(restored) != managedAppAgentsContent() {
+		t.Fatalf("revert must restore the managed block, got: %s", restored)
+	}
+}
+
 // The whole point of the managed block: revert must not destroy runtime state.
 func TestRevertPreservesIgnoredRuntimeState(t *testing.T) {
 	dir := gitignoreTestRepo(t)

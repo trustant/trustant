@@ -92,6 +92,10 @@ to keep them in sync with the current config. If a restored checkout has
 `package.json` but no `node_modules`, run `npm install` during launch before the
 app runtime starts.
 
+The `package-lock.json` that `npm install` writes is committed later in the
+launch, together with `AGENTS.md` — see "commit the launch-owned project files"
+below. `node_modules/` itself stays ignored.
+
 ## agent project bookkeeping
 
 None. Under pi there is no project-identity bookkeeping at launch: no
@@ -244,6 +248,24 @@ and sound behavior instead of relying on source inspection.
 > browser-only phase) was implemented by the OpenCode session plugin and is
 > **gone** — see "Guardrails" in [pi.md](pi.md). The browser
 > tools themselves are unchanged.
+
+## commit the launch-owned project files
+
+After the assets are written and `CLAUDE.md`/`.claude` are linked, commit the
+launch output that is real repository content rather than ignored generated
+state (see [13-gitignore.md](13-gitignore.md)):
+
+- `package-lock.json`, produced by the earlier `npm install`;
+- `AGENTS.md`, which must exist in `HEAD` so a revert restores a correct
+  managed block instead of deleting the file.
+
+Commit message `trustable: update project files`. Skip when neither file
+differs from `HEAD`, so a relaunch adds no empty commit. Staging and commit are
+both scoped to these two paths, leaving any work the user staged by hand for
+their own Save. Best-effort and non-fatal, and it does **not** push.
+
+Together with the managed `.gitignore`, this is what makes `git status` clean
+in the workbench once a launch finishes.
 
 ## MCP servers
 
