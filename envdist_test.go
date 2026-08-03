@@ -65,9 +65,10 @@ func envDistGitOutput(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// .env.dist is the committed key manifest: every dev and prod name, fixed keys
-// first, and never a value — it is pushed to git, so a copied secret would leak.
-func TestEnvDistListsAllKeysWithEmptyValues(t *testing.T) {
+// .env.dist declares only what the user must supply: every custom dev and prod
+// name, sorted, never a value — it is pushed to git, so a copied secret would
+// leak. The server-supplied OPS_* keys are excluded entirely.
+func TestEnvDistListsOnlyUserSuppliedKeys(t *testing.T) {
 	workbenchPath := envDistTestApp(t, "demo",
 		map[string]string{"STRIPE_KEY": "sk_live_secret", "ALPHA": "a", "MONGODB_URI": "mongodb://runtime"},
 		map[string]string{"SENTRY_DSN": "https://sentry.example.test", "ALPHA": "a-prod"})
@@ -82,9 +83,16 @@ func TestEnvDistListsAllKeysWithEmptyValues(t *testing.T) {
 	}
 	content := string(data)
 
-	want := "OPS_USER=\nOPS_PASSWORD=\nOPS_APIHOST=\nOPS_REPO=\nOPS_SKILLS=\nALPHA=\nSENTRY_DSN=\nSTRIPE_KEY=\n"
+	want := "ALPHA=\nSENTRY_DSN=\nSTRIPE_KEY=\n"
 	if content != want {
 		t.Fatalf(".env.dist =\n%s\nwant\n%s", content, want)
+	}
+	// The server supplies these on every launch; listing them would state a
+	// requirement the user is never asked to satisfy.
+	for _, fixed := range envDistFixedKeys {
+		if strings.Contains(content, fixed) {
+			t.Fatalf(".env.dist must not list the server-supplied key %s: %s", fixed, content)
+		}
 	}
 	// Service runtime credentials are excluded everywhere, .env.dist included.
 	if strings.Contains(content, "MONGODB_URI") {
@@ -97,11 +105,50 @@ func TestEnvDistListsAllKeysWithEmptyValues(t *testing.T) {
 	}
 }
 
+// An app that requires nothing of the user declares no contract: no manifest is
+// written, and a stale one from an earlier config is removed.
+func TestEnvDistAbsentWhenOnlyServerSuppliedKeys(t *testing.T) {
+	workbenchPath := envDistTestApp(t, "demo", map[string]string{"STRIPE_KEY": "sk_live"}, nil)
+	distPath := filepath.Join(workbenchPath, ".env.dist")
+
+	if err := generateAppEnvFiles("demo"); err != nil {
+		t.Fatalf("generateAppEnvFiles: %s", err)
+	}
+	if _, err := os.Stat(distPath); err != nil {
+		t.Fatalf("manifest should exist while a custom key is configured: %s", err)
+	}
+
+	// The user removes their only custom variable.
+	cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		t.Fatalf("load config: %s", err)
+	}
+	cfg.Apps["demo"].Development = map[string]string{}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		t.Fatalf("save config: %s", err)
+	}
+
+	changed, err := writeEnvDistFile(distPath, appEnvVarNames(cfg.Apps["demo"]))
+	if err != nil {
+		t.Fatalf("writeEnvDistFile: %s", err)
+	}
+	if !changed {
+		t.Fatal("removing the last custom key must report a change so it gets committed")
+	}
+	if _, err := os.Stat(distPath); !os.IsNotExist(err) {
+		t.Fatalf("stale manifest not removed: err=%v", err)
+	}
+	// Already absent: nothing to do, and no commit to trigger.
+	if changed, err = writeEnvDistFile(distPath, nil); err != nil || changed {
+		t.Fatalf("absent manifest: changed=%v err=%v, want no change", changed, err)
+	}
+}
+
 // An unchanged manifest must not be rewritten: the changed flag is what gates
 // the auto-commit, so a false positive means an empty commit on every launch.
 func TestWriteEnvDistFileReportsUnchanged(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env.dist")
-	names := []string{"OPS_USER", "STRIPE_KEY"}
+	names := []string{"ALPHA", "STRIPE_KEY"}
 
 	changed, err := writeEnvDistFile(path, names)
 	if err != nil || !changed {
@@ -182,8 +229,12 @@ func TestGenerateAppEnvFilesEnvDistOutsideGitRepo(t *testing.T) {
 	}
 }
 
-// Missing = declared in .env.dist but with no development value. Fixed OPS_*
-// keys never count: the server supplies them on every launch.
+// Missing = declared in .env.dist but with no development value.
+//
+// The manifest here deliberately lists OPS_* and MONGODB_URI even though the
+// generator no longer emits them: a repo cloned from elsewhere may carry a
+// hand-written or pre-existing .env.dist that does, and those keys must still
+// never be treated as required — the server supplies them on every launch.
 func TestMissingAppEnvKeys(t *testing.T) {
 	workbenchPath := envDistTestApp(t, "demo", map[string]string{
 		"STRIPE_KEY": "",
@@ -221,7 +272,9 @@ func TestMissingAppEnvKeysWithoutManifest(t *testing.T) {
 }
 
 // Seeding is what turns a declared-but-unset variable into a visible blank row
-// in the env editor.
+// in the env editor. As above, the manifest lists server-supplied keys on
+// purpose: a foreign .env.dist may, and they must not be seeded into the
+// editable config where they would shadow the generated values.
 func TestSeedMissingEnvKeys(t *testing.T) {
 	workbenchPath := envDistTestApp(t, "demo", map[string]string{"ALPHA": "set"}, nil)
 

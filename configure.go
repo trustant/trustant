@@ -2559,9 +2559,11 @@ func isServiceRuntimeEnvKey(name string) bool {
 	return name == "MONGODB_URI"
 }
 
-// envDistFixedKeys are the variables the server always supplies itself. They are
-// listed in .env.dist so a clone knows they exist, but they are never reported
-// as missing: launch regenerates them from the workspace config every time.
+// envDistFixedKeys are the variables the server supplies itself on every launch,
+// from the workspace config rather than from anything the user provides. They are
+// excluded from .env.dist entirely: listing them would state a requirement the
+// user can neither satisfy nor is ever asked to, so they are neither generated
+// into the manifest nor treated as required when one already lists them.
 var envDistFixedKeys = []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS"}
 
 func isEnvDistFixedKey(name string) bool {
@@ -2573,28 +2575,24 @@ func isEnvDistFixedKey(name string) bool {
 	return false
 }
 
-// appEnvVarNames returns the union of the app's development and production
-// variable names: the fixed OPS_* keys first, then the custom keys sorted so the
-// committed .env.dist has a stable diff regardless of Go's map iteration order.
+// appEnvVarNames returns the app's development and production variable names,
+// sorted so the committed .env.dist has a stable diff regardless of Go's map
+// iteration order. Server-supplied keys are omitted: .env.dist declares only what
+// the user must actually provide.
 func appEnvVarNames(appCfg *AppConfig) []string {
-	names := append([]string(nil), envDistFixedKeys...)
-	seen := make(map[string]bool, len(names))
-	for _, k := range names {
-		seen[k] = true
-	}
-
-	var custom []string
+	seen := make(map[string]bool)
+	var names []string
 	for _, set := range []map[string]string{appCfg.Development, appCfg.Production} {
 		for k := range set {
-			if k == "" || seen[k] || isServiceRuntimeEnvKey(k) {
+			if k == "" || seen[k] || isEnvDistFixedKey(k) || isServiceRuntimeEnvKey(k) {
 				continue
 			}
 			seen[k] = true
-			custom = append(custom, k)
+			names = append(names, k)
 		}
 	}
-	sort.Strings(custom)
-	return append(names, custom...)
+	sort.Strings(names)
+	return names
 }
 
 // writeEnvDistFile writes the committed key manifest: every variable name with
@@ -2602,6 +2600,20 @@ func appEnvVarNames(appCfg *AppConfig) []string {
 // secret leaking in here would be published. It reports whether the file changed
 // so the caller can skip both the rewrite and the commit on a no-op launch.
 func writeEnvDistFile(path string, names []string) (bool, error) {
+	// An app whose variables are all server-supplied requires nothing of the
+	// user, so it declares no contract. Committing a zero-byte manifest would
+	// state one anyway; leave the file absent, and remove a stale one left by an
+	// earlier config that did have custom variables.
+	if len(names) == 0 {
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+
 	var b strings.Builder
 	for _, name := range names {
 		b.WriteString(name)

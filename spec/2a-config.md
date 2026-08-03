@@ -302,19 +302,28 @@ There is no global `env` section: environment variables for an app come only fro
 
 `generateAppEnvFiles` also writes `$WORKBENCH_DIR/<name>/.env.dist`, the
 **committed** counterpart of `.env`: it declares which variables the app needs
-so a repo cloned anywhere else can be told what to supply.
+**from the user**, so a repo cloned anywhere else can be told what to supply.
 
-- Content is the **union** of the development and production variable names,
-  one `NAME=` per line. The fixed `OPS_*` keys come first, in the same order
-  `writeEnvFile` uses, then the custom keys sorted alphabetically for a stable
-  diff regardless of Go map iteration order.
+- Content is the union of the development and production variable names, one
+  `NAME=` per line, sorted alphabetically for a stable diff regardless of Go map
+  iteration order.
 - **Values are always empty.** `.env.dist` is committed and pushed, so no value
   is ever copied into it — not even one that looks non-secret.
+- The fixed `OPS_*` keys (`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
+  `OPS_SKILLS`) are **excluded**. The server supplies them on every launch from
+  the workspace config, never from user input, so listing them would state a
+  requirement the user is neither able nor ever asked to satisfy. They are not
+  generated into the manifest and are not required when a foreign manifest
+  happens to list them.
 - Keys excluded from `.env` are excluded here too: `isServiceRuntimeEnvKey`
   (currently `MONGODB_URI`).
+- When nothing is left to declare, **no file is written**, and a stale manifest
+  from an earlier config is removed. An app that requires nothing of the user
+  declares no contract; a zero-byte committed file would assert one.
 - `writeEnvDistFile` reports whether the content changed. An unchanged manifest
   is not rewritten, so a launch that changes nothing leaves the working tree
-  clean.
+  clean. Removing a stale manifest counts as a change, so the deletion is
+  committed like any other.
 - Like `.env`, it is written **only** by the server-side generator. Coding
   agents and MCP servers must treat it as immutable.
 
@@ -349,8 +358,12 @@ no development value for it. `missingAppEnvKeys(appName)`:
    `git show HEAD:.env.dist` in the workspace bare repo so an app that has never
    been launched can still be inspected. No manifest → no missing keys: an app
    that declares no contract cannot violate one.
-2. Skips the fixed `OPS_*` keys (the server supplies them on every launch) and
-   `isServiceRuntimeEnvKey` keys.
+2. Skips the fixed `OPS_*` keys and `isServiceRuntimeEnvKey` keys. The generator
+   no longer writes them, but a repo cloned from elsewhere may carry a
+   hand-written manifest that lists them; they must still never be treated as
+   required, or the gate would block every launch on values the user cannot
+   provide. The same filter keeps them from being seeded into the editable
+   config, where an empty entry would shadow the generated value.
 3. Treats a key as missing when `apps.<name>.development[key]` is absent or
    empty after trimming.
 4. Returns the keys in `.env.dist` order.
