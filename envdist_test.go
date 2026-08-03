@@ -229,6 +229,52 @@ func TestGenerateAppEnvFilesEnvDistOutsideGitRepo(t *testing.T) {
 	}
 }
 
+// An app cloned into the workspace but never launched has no workbench checkout.
+// Saving its config must not fail: the missing-variable flow sends the user to
+// the env editor in exactly that state, and launch regenerates the files as soon
+// as it clones workspace → workbench.
+func TestGenerateAppEnvFilesSkipsMissingWorkbench(t *testing.T) {
+	root := t.TempDir()
+	origWorkspace, origWorkbench := WorkspaceDir, WorkbenchDir
+	WorkspaceDir = filepath.Join(root, "workspace")
+	WorkbenchDir = filepath.Join(root, "workbench")
+	t.Cleanup(func() {
+		WorkspaceDir = origWorkspace
+		WorkbenchDir = origWorkbench
+	})
+	if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
+		t.Fatalf("create workbench root: %s", err)
+	}
+	if err := saveWorkspaceConfig(&trustableConfig{Apps: map[string]*AppConfig{
+		"truchat": {Password: "p", Development: map[string]string{"STRIPE_KEY": "sk"}},
+	}}); err != nil {
+		t.Fatalf("save config: %s", err)
+	}
+
+	if err := generateAppEnvFiles("truchat"); err != nil {
+		t.Fatalf("generateAppEnvFiles without a workbench checkout: %s", err)
+	}
+	// Nothing was created outside the checkout that does not exist.
+	if _, err := os.Stat(filepath.Join(WorkbenchDir, "truchat")); !os.IsNotExist(err) {
+		t.Fatalf("workbench checkout must not be created here: err=%v", err)
+	}
+
+	// Once the checkout exists (launch cloned it), generation proceeds normally.
+	if err := os.MkdirAll(filepath.Join(WorkbenchDir, "truchat"), 0755); err != nil {
+		t.Fatalf("create checkout: %s", err)
+	}
+	if err := generateAppEnvFiles("truchat"); err != nil {
+		t.Fatalf("generateAppEnvFiles after checkout exists: %s", err)
+	}
+	env, err := os.ReadFile(filepath.Join(WorkbenchDir, "truchat", ".env"))
+	if err != nil {
+		t.Fatalf("read .env: %s", err)
+	}
+	if !strings.Contains(string(env), "STRIPE_KEY=sk") || !strings.Contains(string(env), "OPS_USER=truchat") {
+		t.Fatalf(".env not fully generated: %s", env)
+	}
+}
+
 // Missing = declared in .env.dist but with no development value.
 //
 // The manifest here deliberately lists OPS_* and MONGODB_URI even though the

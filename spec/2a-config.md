@@ -254,6 +254,14 @@ This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which wa
 - When app config is saved (`POST /api/appconfig/<name>`)
 - When global config is saved (`POST /api/configuration`)
 
+Generation is a **no-op when the app has no workbench checkout**. An app can be
+configured before it has ever been launched — a fresh clone lives in the
+workspace with no checkout, and the missing-variable flow sends the user to the
+env editor in exactly that state. There is nowhere to write yet and nothing is
+lost: launch regenerates `.env`, `.env.production`, and `.env.dist` immediately
+after cloning workspace → workbench. Saving config for a not-yet-launched app
+must therefore succeed silently, not log a write failure.
+
 The Trustable configuration UI and these server-side generators are the only
 owners of application env files. Coding agents and MCP servers must treat
 `.env` and `.env.production` as immutable: they may not read, create, edit,

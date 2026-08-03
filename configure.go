@@ -2765,6 +2765,16 @@ func generateAppEnvFiles(appName string) error {
 
 	workbenchPath := filepath.Join(WorkbenchDir, appName)
 
+	// An app can be configured before it has ever been launched: a fresh clone
+	// exists in the workspace with no workbench checkout, and the missing-variable
+	// flow sends the user to the env editor right then. There is nowhere to write
+	// yet, and nothing is lost — launch regenerates all three files immediately
+	// after cloning workspace → workbench. Treat it as a no-op rather than an
+	// error, so saving config for a not-yet-launched app stays clean.
+	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
+		return nil
+	}
+
 	appCfg := cfg.Apps[appName]
 	if appCfg == nil {
 		appCfg = &AppConfig{
