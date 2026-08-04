@@ -97,6 +97,10 @@ type trustableConfig struct {
 	// Trustable: posted by the ai-proxy registration iframe.
 	BaseURL string `json:"base_url,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
+	// License is the signed "lic_<payload>.<sig>" token gating git push and
+	// production publishing. Workspace-only, like Provider and Apps: the base
+	// trustable.json never carries it. See spec/14-license.md.
+	License string `json:"license,omitempty"`
 	// ModelVersions is keyed by provider name ("ollama", "trustable", ...) and
 	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
 	// On every splash boot and every applist load the frontend compares the

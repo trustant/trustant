@@ -1,6 +1,6 @@
 # Checking credits from a client
 
-Client contract for the credit-gating endpoints exposed by the ai-proxy. Companion to [CREDITS.md](CREDITS.md) (which is the server-side spec) and [validate_key.md](validate_key.md) (which covers offline key validation).
+Client contract for the credit-gating endpoints exposed by the ai-proxy. Companion to [CREDITS.md](CREDITS.md) (which is the server-side spec). Offline publishing authorization is unrelated and lives in [14-license.md](14-license.md).
 
 This document is implementation-language agnostic and aimed at SDK authors and integrators who already hold an API key (`aip_<id>.<sig>`) and want to:
 
@@ -345,7 +345,7 @@ func IsOutOfCredit(resp *http.Response) bool {
 | `credits` is `null` | Server-side gate disabled (`credit_value` missing/zero in `cost.json`). | Treat as unlimited; hide the balance widget. Not a client bug. |
 | `out_of_credit: true` immediately after a successful top-up | Stale read against an async accounting goroutine, or the user spent more than the top-up covers. | Re-`GET /api/v2/credits` after a short delay (~250ms); top up again if still true. |
 | `400 invalid_amount` on top-up | `amount` not in server `TOPUP_AMOUNTS` whitelist. | Use one of the supported values; mirror the server config in your UI. |
-| `401 invalid_api_key` on a key that worked yesterday | Admin soft-disabled the user (`active=0`) or rotated `SIGN_KEY`. | User must re-register / contact admin; offline validation per [validate_key.md](validate_key.md) can't detect this. |
+| `401 invalid_api_key` on a key that worked yesterday | Admin soft-disabled the user (`active=0`) or rotated `SIGN_KEY`. | User must re-register / contact admin; the client cannot detect this offline. |
 | `402 out_of_credit` keeps firing after top-up | Looking at `/v1/*` response cached by an intermediate proxy. | Don't cache `/v1/*` responses; retry the original request. |
 | `spent` parses as `5` not `5.000000` | Client used `parseFloat` / `json.Number` and dropped trailing zeros. | Treat `spent` and `credit_value` as opaque decimal strings; parse with a `Decimal` type, never `float`. |
 

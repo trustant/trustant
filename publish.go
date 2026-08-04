@@ -34,9 +34,12 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePublishPush handles POST /api/publish/push
-// Pushes code to a production GitHub repository. Git push is always allowed —
-// publishing-auth gating applies only to /api/publish/remote (OpenServerless deploy).
+// Pushes code to a production GitHub repository. Requires a valid license; the
+// license `hosts` list is not consulted for push. See spec/14-license.md.
 func handlePublishPush(w http.ResponseWriter, r *http.Request) {
+	if !requireValidLicense(w) {
+		return
+	}
 	var req struct {
 		Name string `json:"name"`
 		Repo string `json:"repo"`
@@ -129,9 +132,12 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePublishForcePush handles POST /api/publish/force-push
-// Force pushes code to the production GitHub repository. Git push is always allowed —
-// publishing-auth gating applies only to /api/publish/remote (OpenServerless deploy).
+// Force pushes code to the production GitHub repository. Requires a valid
+// license; the license `hosts` list is not consulted for push.
 func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
+	if !requireValidLicense(w) {
+		return
+	}
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -202,7 +208,7 @@ func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
 // handlePublishRemote handles POST /api/publish/remote
 // Deploys to a production OpenServerless environment
 func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
-	if !requirePublishingAuth(w) {
+	if !requireValidLicense(w) {
 		return
 	}
 	var req struct {
@@ -265,6 +271,12 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	if prod["OPS_APIHOST"] == "" || prod["OPS_USER"] == "" || prod["OPS_PASSWORD"] == "" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"needs_config": true})
+		return
+	}
+
+	// The target apihost must be covered by the license before anything
+	// touches the cluster. Local apihosts are always allowed.
+	if !requireLicensedHost(w, prod["OPS_APIHOST"]) {
 		return
 	}
 

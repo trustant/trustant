@@ -115,6 +115,31 @@
             </div>
         </div>
 
+        <!-- License: gates git push and production publishing (spec/14-license.md) -->
+        <div class="nu-card p-5 mb-4">
+            <h2 class="text-lg font-medium mb-1">License</h2>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+                A license enables Git push and publishing to production. To obtain one, write to
+                <a class="underline" href="mailto:info@nuvolaris.io">info@nuvolaris.io</a>
+                or visit <a class="underline" href="https://nuvolaris.io" target="_blank">nuvolaris.io</a>.
+            </p>
+            <div id="licenseStatus" class="text-sm mb-4 text-[color:var(--nu-muted)]">Loading...</div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1"
+                        for="licenseToken">License</label>
+                    <textarea id="licenseToken" rows="3" placeholder="lic_..."
+                        class="nu-input w-full px-3 py-2 font-mono text-xs"></textarea>
+                </div>
+                <div id="licenseFeedback" class="hidden"></div>
+                <div class="flex gap-3">
+                    <button type="button" onclick="saveLicense()" class="nu-btn nu-btn-primary">Save license</button>
+                    <button type="button" id="licenseRemoveBtn" onclick="removeLicense()"
+                        class="nu-btn nu-btn-secondary hidden">Remove</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Template repository -->
         <div class="nu-card p-5 mb-4">
             <h2 class="text-lg font-medium mb-1">Template Repository</h2>
@@ -408,11 +433,92 @@
                 document.getElementById('notebookGitHubToken').value = '';
                 document.getElementById('notebookClearToken').checked = false;
                 renderNotebookTokenStatus();
+                loadLicenseStatus();
                 if (config.provider === 'bestia') {
                     await loadBestiaModels();
                 }
             } catch (e) {
                 console.error('Failed to load config:', e);
+            }
+        }
+
+        // ---- License (spec/14-license.md) ----
+
+        async function loadLicenseStatus() {
+            const el = document.getElementById('licenseStatus');
+            const removeBtn = document.getElementById('licenseRemoveBtn');
+            try {
+                const resp = await fetch('/api/license');
+                const st = await resp.json();
+                if (!st.present) {
+                    el.textContent = 'No license installed. Git push and publishing are disabled.';
+                    removeBtn.classList.add('hidden');
+                    return;
+                }
+                removeBtn.classList.remove('hidden');
+                const lines = [];
+                lines.push(st.valid ? 'Licensed to: ' + (st.sub || 'unknown')
+                    : 'License NOT valid: ' + (st.reason || 'unknown reason'));
+                if (st.hosts && st.hosts.length) {
+                    lines.push('Covered hosts: ' + st.hosts.join(', '));
+                }
+                lines.push('Expires: ' + (st.exp ? st.exp : 'never'));
+                el.textContent = lines.join('\n');
+                el.style.whiteSpace = 'pre-wrap';
+            } catch (e) {
+                el.textContent = 'Failed to load license status: ' + e.message;
+                removeBtn.classList.add('hidden');
+            }
+        }
+
+        function showLicenseFeedback(message, ok) {
+            const el = document.getElementById('licenseFeedback');
+            el.className = 'nu-feedback ' + (ok ? 'nu-feedback-success' : 'nu-feedback-error') +
+                ' text-sm p-3 whitespace-pre-wrap';
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        async function saveLicense() {
+            const input = document.getElementById('licenseToken');
+            const token = (input.value || '').trim();
+            if (!token) {
+                showLicenseFeedback('Paste a license first.', false);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/license', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ license: token })
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) {
+                    showLicenseFeedback(data.error || ('HTTP ' + resp.status), false);
+                    return;
+                }
+                input.value = '';
+                showLicenseFeedback('License saved.', true);
+                loadLicenseStatus();
+            } catch (e) {
+                showLicenseFeedback('Failed to save license: ' + e.message, false);
+            }
+        }
+
+        async function removeLicense() {
+            if (!confirm('Remove the installed license? Git push and publishing will be disabled.')) {
+                return;
+            }
+            try {
+                const resp = await fetch('/api/license', { method: 'DELETE' });
+                if (!resp.ok) {
+                    showLicenseFeedback('Failed to remove license: HTTP ' + resp.status, false);
+                    return;
+                }
+                showLicenseFeedback('License removed.', true);
+                loadLicenseStatus();
+            } catch (e) {
+                showLicenseFeedback('Failed to remove license: ' + e.message, false);
             }
         }
 

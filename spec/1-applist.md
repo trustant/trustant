@@ -160,7 +160,7 @@ in Work Sans.
 
 ## Publishing gate
 
-The Git Push and Publish buttons are always rendered and always call their respective backend APIs. The backend verifies the user's ai-proxy API key signature (see [6-publish.md](6-publish.md) and [10-validate_key.md](10-validate_key.md)) and returns HTTP 403 with `{"error": "Publishing not authorized: ..."}` when the key cannot be verified. The frontend surfaces that error verbatim in the existing result modal — no separate "publishing disabled" UI.
+The Git Push and Publish buttons are always rendered and always call their respective backend APIs. The backend verifies the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) and returns HTTP 402 with `{"error": "License required: ..."}`, or `{"error": "Host not licensed: ..."}` when publishing to an apihost the license does not cover. `isLicenseError` recognizes both prefixes and `showLicenseModal` offers to paste a license; any other error is surfaced verbatim in the existing result modal.
 
 ## Adding an application
 
@@ -333,7 +333,7 @@ has never been launched the backend returns HTTP 400 with
 message. The frontend does not provision a workbench.
 
 Undeploy is not part of the publishing gate: `/api/undeploy` does not call
-`requirePublishingAuth`.
+`requireValidLicense`.
 
 The app list is not reloaded after an undeploy — the set of applications is unchanged.
 
@@ -395,7 +395,7 @@ A compact **Credits box** is shown on this page right after the title (below the
 
 The box is a rounded pill (light background, border) showing the label `Credits:` followed by the current credit value (e.g. `Credits: 873`). While the value has not yet been fetched, show `Credits: …`. On error, show `Credits: —` and put the error text in the element's `title` attribute (tooltip).
 
-The frontend fetches credits from the local backend endpoint `GET /api/credits` (which proxies the ai-proxy's `GET /api/v2/credits` — see [3-app.md](3-app.md) "Credits" for the endpoint contract and [10-validate_key.md](10-validate_key.md) for the upstream API). It calls the endpoint when the page loads and then re-fetches **every 60 seconds** with `setInterval`. Clear the interval on page unload.
+The frontend fetches credits from the local backend endpoint `GET /api/credits` (which proxies the ai-proxy's `GET /api/v2/credits` — see [3-app.md](3-app.md) "Credits" for the endpoint contract). It calls the endpoint when the page loads and then re-fetches **every 60 seconds** with `setInterval`. Clear the interval on page unload.
 
 ## Optional deploy after Git Pull
 

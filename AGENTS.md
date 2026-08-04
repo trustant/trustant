@@ -77,8 +77,8 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config (base `trustable.json` + workspace `trustable.json`), `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` — also writes per-app `.env`/`.env.production` files |
 | [launch.go](launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clones workspace → workbench, runs `ops ide login/clean/deploy`, owns the pgid file for orderly shutdown |
 | [git.go](git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
-| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — **every endpoint calls `requirePublishingAuth` first** |
-| [validate_key.go](validate_key.go) | [10-validate_key.md](spec/10-validate_key.md) | Ed25519 verification of the `aip_<id>.<sig>` API key against the proxy's `/.well-known/ai-proxy-pubkey` |
+| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — **every endpoint calls `requireValidLicense` first** |
+| [license.go](license.go) | [14-license.md](spec/14-license.md) | Offline Ed25519 license: `/api/license`, the valid-license and licensed-host publish gates |
 | [skills.go](skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones the skills repo into the app's `.agents/skills/` |
 | [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
 | [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog (powers the splash screen) |
@@ -127,16 +127,18 @@ Config is loaded by merging two `trustable.json` files (see [spec/2a-config.md](
 
 Maps merge key-by-key. The workspace file uses `omitempty` so it stays small. `provider`, `apps`, and chosen models live only in the workspace layer. There is no global `env` block — per-app env vars live under `apps.<name>.development` / `apps.<name>.production`.
 
-### Publishing authorization (server-side, signature-based)
+### Publishing authorization (server-side, license-based)
 
-There is **no client-side gate** on publishing. The frontend always renders Git Push / Publish and always calls the backend. Every `/api/publish/*` handler calls `requirePublishingAuth` ([validate_key.go:122](validate_key.go#L122)), which:
+There is **no client-side gate** on publishing. The frontend always renders Git Push / Publish and always calls the backend. Authorization is an offline, Ed25519-signed **license** (`lic_<payload>.<sig>`) stored in the workspace config and verified against `master_key_pub`, which is committed and embedded in the binary — no network access. Two gates live in [license.go](license.go), both returning HTTP 402:
 
-1. Reads the merged config's `api_key` and `base_url`
-2. Fetches `<origin>/.well-known/ai-proxy-pubkey` (cached for the process lifetime)
-3. Validates the Ed25519 signature embedded in the `aip_<id>.<sig>` key
-4. On any failure, returns HTTP 403 `{"error": "Publishing not authorized: <reason>"}`
+1. `requireValidLicense` — called by **all three** `/api/publish/*` handlers. Signature + expiry only; the `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`
+2. `requireLicensedHost` — called by `handlePublishRemote` only, after config resolution and before `ops ide login`, so nothing touches an unlicensed cluster. On mismatch: `{"error": "Host not licensed: <apihost> is not covered by your license"}`
 
-The frontend recognizes the `"Publishing not authorized"` prefix and shows a friendly modal (see `showPublishAuthModal` in [web/applist.html](web/applist.html)). When changing the error wording in `writePublishAuthError`, keep the prefix intact or the frontend gate breaks.
+An expired license invalidates everything, git push included. Local apihosts (`miniops.me`, `localhost`, `127.0.0.1`, `::1`) skip **only** the host gate — a valid license is still required. `/api/git/deploy` is not gated at all.
+
+The frontend recognizes the `"License required"` and `"Host not licensed"` prefixes and shows a license modal (see `showLicenseModal` in [web/applist.html](web/applist.html)). When changing the error wording, keep those prefixes intact or the frontend gate breaks.
+
+Licenses are issued by the `trulicense` CLI ([cmd/trulicense/](cmd/trulicense/)), which keeps the signing key in 1Password (vault `NuvolarisLicenses`) and archives every license it issues. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 

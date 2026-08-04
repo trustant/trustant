@@ -25,3 +25,9 @@ Trustable
 /dist/
 /opencode.sh
 .ghtoken
+.1pw
+# Holds a live 1Password service token for the NuvolarisLicenses vault
+# (see spec/14-license.md). Never commit it.
+.op.json
+# Compiled trulicense CLI
+/trulicense
