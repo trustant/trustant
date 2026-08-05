@@ -20,52 +20,37 @@
 
     <!-- Provider Choice Modal -->
     <div id="providerModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-40">
-        <div class="nu-modal p-6 w-full max-w-2xl mx-4">
-            <h3 class="text-xl font-light mb-2 text-center">Choose your AI provider</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-5 items-stretch">
-                <div class="flex flex-col items-center h-full">
-                    <img src="regolo-head.png" alt="Trustable Cloud powered by Regolo.AI" class="h-24 w-auto mb-3">
-                    <button onclick="selectTrustable()"
-                        class="nu-card w-full flex-1 text-left p-5 transition-colors">
-                        <div class="font-medium text-lg mb-2">Register on Trustable Cloud,</div>
-                        <div class="text-sm text-[color:var(--nu-muted)]">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="nu-link">Regolo.AI</a></div>
-                        <div class="text-sm text-[color:var(--nu-muted)] mt-2">100 Credits FREE when registering</div>
-                        <div class="text-sm text-[color:var(--nu-ink)] font-medium">Special Offer until September 2026</div>
-                        <ul class="text-sm text-[color:var(--nu-muted)] list-disc list-inside mt-2">
-                            <li>FREE Credits Top Up (fair use policy applies)</li>
-                            <li>FREE App for publishing (request it emailing <a href="mailto:redeem@nuvolaris.io" onclick="event.stopPropagation()" class="nu-link">redeem@nuvolaris.io</a>)</li>
-                        </ul>
-                    </button>
-                </div>
-                <div class="flex flex-col items-center h-full">
-                    <img src="ollama-head.png" alt="Ollama" class="h-24 w-auto mb-3">
-                    <button onclick="selectOllama()"
-                        class="nu-card w-full flex-1 text-left p-5 transition-colors">
-                        <div class="font-medium text-lg mb-2">Ollama</div>
-                        <div class="text-sm text-[color:var(--nu-muted)]">You can use Trustable for free for local use <strong>without publishing</strong></div>
-                        <div class="text-sm text-[color:var(--nu-muted)] mt-2">You can use:</div>
-                        <ul class="text-sm text-[color:var(--nu-muted)] list-disc list-inside mt-2">
-                            <li>Our embedded ollama server using <strong>your Ollama cloud account</strong></li>
-                            <li>Your local server, only if <strong>accessible in HTTP without authentication</strong></li>
-                        </ul>
-                    </button>
-                </div>
-            </div>
+        <div class="nu-modal p-6 w-full max-w-4xl mx-4">
+            <h3 class="text-xl font-light mb-2 text-center">Select your AI provider</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-5 items-stretch">
 
-            <div onclick="selectBestia()" role="button"
-                class="nu-card mt-4 grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)] gap-4 p-4 transition-colors cursor-pointer">
-                <img src="bestia-head.png" alt="Bestia" class="h-16 w-auto flex-shrink-0">
-                <div class="min-w-0">
-                    <p class="text-sm text-[color:var(--nu-muted)]">
-                        For our BestIA customers with dedicated GPU and unlimited app publishing.
-                    </p>
-                    <div class="mt-3 flex sm:justify-start">
-                        <button onclick="event.stopPropagation(); window.open('https://nuvolaris.io/bestia', '_blank')"
-                            class="nu-btn nu-btn-secondary w-full sm:w-auto">
-                            Contact Us for our Deployment Solutions
-                        </button>
-                    </div>
-                </div>
+                <button onclick="selectOllama()"
+                    class="nu-card flex flex-col h-full text-left p-5 transition-colors">
+                    <div class="font-medium text-lg mb-1">Cloud AI</div>
+                    <div class="text-sm text-[color:var(--nu-ink)]">subscription based AI</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">powered by Ollama Cloud</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">you need to register in Ollama Cloud to use cloud models, signing is free and include a free allowance that you can upgrade for more capacity</div>
+                    <img src="ollama-head.png" alt="Ollama Cloud" class="h-20 w-auto mt-auto pt-5 self-center">
+                </button>
+
+                <button onclick="selectTrustable()"
+                    class="nu-card flex flex-col h-full text-left p-5 transition-colors">
+                    <div class="font-medium text-lg mb-1">Sovereign AI</div>
+                    <div class="text-sm text-[color:var(--nu-ink)]">credit based AI</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="nu-link">Regolo.AI</a></div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">100 Credits FREE when registering</div>
+                    <img src="regolo-head.png" alt="Regolo.AI" class="h-20 w-auto mt-auto pt-5 self-center">
+                </button>
+
+                <button onclick="selectPrivate()"
+                    class="nu-card flex flex-col h-full text-left p-5 transition-colors">
+                    <div class="font-medium text-lg mb-1">Private AI</div>
+                    <div class="text-sm text-[color:var(--nu-ink)]">no token required</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">your own AI hardware</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">Connect your own OpenAI-compatible endpoint. Nothing leaves your infrastructure — models are discovered directly from the endpoint you provide.</div>
+                    <img src="privateai-head.png" alt="Private AI" class="h-20 w-auto mt-auto pt-5 self-center">
+                </button>
+
             </div>
         </div>
     </div>
@@ -98,6 +83,34 @@
                 <button onclick="confirmOllamaMode()"
                     class="nu-btn nu-btn-primary flex-1">
                     Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Private AI Endpoint Sub-Modal -->
+    <div id="privateModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-md mx-4">
+            <h3 class="text-xl font-light mb-4 text-center">Private AI endpoint</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="privateBaseUrl" class="block text-sm font-medium mb-1">Base URL</label>
+                    <input id="privateBaseUrl" type="text" placeholder="https://host/v1"
+                        class="nu-input w-full" autocomplete="off" spellcheck="false">
+                </div>
+                <div>
+                    <label for="privateApiKey" class="block text-sm font-medium mb-1">API key</label>
+                    <input id="privateApiKey" type="text" placeholder="optional"
+                        class="nu-input w-full" autocomplete="off" spellcheck="false">
+                </div>
+                <div id="privateError" class="hidden text-sm text-[color:var(--nu-danger)]"></div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button onclick="cancelPrivate()" class="nu-btn nu-btn-secondary flex-1">
+                    Cancel
+                </button>
+                <button id="privateSaveBtn" onclick="confirmPrivate()" class="nu-btn nu-btn-primary flex-1">
+                    Save
                 </button>
             </div>
         </div>
@@ -185,7 +198,6 @@
         }
 
         function cancelRegister() {
-            _bestiaPending = false;
             hideRegisterOverlay();
             showProviderModal();
         }
@@ -323,32 +335,104 @@
             showRegisterOverlay(url);
         }
 
-        async function selectBestia() {
+        // Private AI: the user supplies an OpenAI-compatible endpoint. Unlike
+        // own-host Ollama, models are discovered here in the dialog, so a
+        // broken endpoint is never persisted and the user goes straight through
+        // the normal Configuration flow instead of via configure.html.
+        const PRIVATE_BASE_URL_RE = /^https?:\/\/[^\s]+\/v1\/?$/;
+
+        function selectPrivate() {
             hideProviderModal();
-            const url = (currentConfig && currentConfig.register_url) || '';
-            if (!url) {
-                alert('REGISTER_URL environment variable is not set');
-                showProviderModal();
+            showPrivateError('');
+            const modal = document.getElementById('privateModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.getElementById('privateBaseUrl').focus();
+        }
+
+        function hidePrivateModal() {
+            const modal = document.getElementById('privateModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function cancelPrivate() {
+            hidePrivateModal();
+            showProviderModal();
+        }
+
+        function showPrivateError(msg) {
+            const el = document.getElementById('privateError');
+            if (!el) return;
+            el.textContent = msg || '';
+            el.classList.toggle('hidden', !msg);
+        }
+
+        async function confirmPrivate() {
+            const baseUrl = document.getElementById('privateBaseUrl').value.trim();
+            const apiKey = document.getElementById('privateApiKey').value.trim();
+
+            // 1. Base URL format — blocking.
+            if (!PRIVATE_BASE_URL_RE.test(baseUrl)) {
+                showPrivateError('Are you sure? The format is usually http(s)://.../v1');
                 return;
             }
-            // Before anything else, verify the dedicated BestIA host is
-            // reachable (server-side probe — the browser cannot reach it).
-            let available = false;
+            // 2. HTTPS without a key — confirmation, not blocking. An http://
+            //    endpoint with no key is the normal local case and saves silently.
+            if (baseUrl.toLowerCase().startsWith('https://') && !apiKey) {
+                if (!confirm('Are you sure there is no API key required? An https:// endpoint usually requires one.')) {
+                    return;
+                }
+            }
+
+            const btn = document.getElementById('privateSaveBtn');
+            const label = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Discovering models...'; }
+            showPrivateError('');
+
+            let models;
             try {
-                const resp = await fetch('/api/bestia-check');
-                const data = await resp.json();
-                available = !!(data && data.available);
+                const resp = await fetch('/api/discover-models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
+                });
+                const data = await resp.json().catch(() => null);
+                if (!resp.ok || !data || data.error) {
+                    throw new Error((data && data.error) || ('HTTP ' + resp.status));
+                }
+                models = Array.isArray(data.models) ? data.models : [];
             } catch (e) {
-                available = false;
-            }
-            if (!available) {
-                alert('You are not running a BestIA');
-                showProviderModal();
+                if (btn) { btn.disabled = false; btn.textContent = label; }
+                showPrivateError('Could not discover models: ' + e.message);
                 return;
             }
-            _bestiaPending = true;
-            const sep = url.includes('?') ? '&' : '?';
-            showRegisterOverlay(url + sep + 'bestia=1');
+            if (btn) { btn.disabled = false; btn.textContent = label; }
+            if (models.length === 0) {
+                showPrivateError('The endpoint returned no models.');
+                return;
+            }
+
+            const modelMap = {};
+            models.forEach(name => {
+                modelMap[name] = { maxToken: 131072, maxOutput: 32768 };
+            });
+
+            const cfg = Object.assign({}, currentConfig || {}, {
+                provider: 'private',
+                base_url: baseUrl,
+                // Pi needs a non-empty key to consider the provider configured.
+                api_key: apiKey || 'dummy',
+                models: modelMap,
+                pi: { default: models[0] }
+            });
+            // Drop legacy fields if present.
+            delete cfg.opencode;
+            delete cfg.model_version;
+            delete cfg.env;
+
+            hidePrivateModal();
+            await saveAndRunConfiguration(cfg);
         }
 
         function isAcceptableRegisterPayload(data) {
@@ -358,55 +442,12 @@
         }
 
         let _trustableReauthResolve = null;
-        let _bestiaPending = false;
 
         window.addEventListener('message', async (event) => {
             // Only react when the iframe overlay is open.
             const overlay = document.getElementById('registerOverlay');
             if (overlay.classList.contains('hidden')) return;
             const data = event.data;
-
-            // BestIA branch — MUST run before isAcceptableRegisterPayload (the
-            // proxy may omit base_url for BestIA) and before the reauth /
-            // Trustable branches. Only api_key is required; base_url is forced
-            // to the fixed internal host.
-            if (_bestiaPending) {
-                if (!data || typeof data !== 'object'
-                    || typeof data.api_key !== 'string' || data.api_key.length === 0) {
-                    return; // keep waiting for a well-formed payload
-                }
-                _bestiaPending = false;
-                const cfg = Object.assign({}, currentConfig || {}, {
-                    provider: 'bestia',
-                    base_url: 'http://bestia:11434/v1',
-                    api_key: data.api_key,
-                    models: {},
-                    pi: { default: '' }
-                });
-                cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
-                delete cfg.opencode;
-                delete cfg.model_version;
-                delete cfg.env;
-                hideRegisterOverlay();
-                try {
-                    const resp = await fetch('/api/configuration', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(cfg)
-                    });
-                    if (!resp.ok) {
-                        alert('Failed to save configuration: ' + (await resp.text()));
-                        showProviderModal();
-                        return;
-                    }
-                } catch (e) {
-                    alert('Failed to save configuration: ' + e.message);
-                    showProviderModal();
-                    return;
-                }
-                window.location.href = 'configure.html?bestia=1';
-                return;
-            }
 
             if (!isAcceptableRegisterPayload(data)) return;
 

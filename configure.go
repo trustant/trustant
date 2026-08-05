@@ -692,8 +692,9 @@ func validatePiModelSelection(cfg *trustableConfig) error {
 		defaultModel = strings.TrimSpace(cfg.Pi.Default)
 	}
 
-	// Provider choice flows for BestIA / own-host Ollama intentionally persist
-	// an empty model set first; configure.html discovers models in the next step.
+	// The own-host Ollama choice intentionally persists an empty model set
+	// first; configure.html discovers models in the next step. Private AI does
+	// not appear here — it discovers its models before persisting anything.
 	if len(models) == 0 && defaultModel == "" {
 		// Trustable Cloud is catalog-backed and has no deferred discovery page.
 		// Rejecting its empty state here prevents a partial status response or
@@ -1199,9 +1200,11 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if cfg.Provider == "trustable" || cfg.Provider == "bestia" {
-		if cfg.Provider == "bestia" {
-			sendMsg("OK: Skipping Ollama setup (BestIA)")
+	if cfg.Provider == "trustable" || cfg.Provider == "private" {
+		if cfg.Provider == "private" {
+			// A user-supplied OpenAI-compatible endpoint must not go through
+			// the Ollama connectivity check and model-pull loop.
+			sendMsg("OK: Skipping Ollama setup (Private AI)")
 		} else {
 			sendMsg("OK: Skipping Ollama setup (Trustable Cloud)")
 		}
@@ -2342,27 +2345,6 @@ func handleDiscoverModels(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(names)
 	log.Printf("discover-models: %s returned %d models", target, len(names))
 	json.NewEncoder(w).Encode(map[string]interface{}{"models": names})
-}
-
-// handleBestiaCheck handles GET /api/bestia-check. It probes the fixed BestIA
-// inference host (http://bestia:11434) server-side — the browser cannot reach
-// it because the GPU box is only routable from inside the VM. Reachability,
-// not authorization, is what we test: any HTTP response (even 401/403, since
-// we have no api_key yet) means a BestIA is running; only a connection /
-// timeout error means the user is not running a BestIA.
-func handleBestiaCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	const target = "http://bestia:11434/v1/models"
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(target)
-	if err != nil {
-		log.Printf("bestia-check: %s unreachable: %s", target, err)
-		json.NewEncoder(w).Encode(map[string]interface{}{"available": false})
-		return
-	}
-	resp.Body.Close()
-	log.Printf("bestia-check: %s answered %d", target, resp.StatusCode)
-	json.NewEncoder(w).Encode(map[string]interface{}{"available": true})
 }
 
 // handleConfiguration handles GET and POST /api/configuration

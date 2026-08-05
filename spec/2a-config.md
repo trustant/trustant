@@ -13,7 +13,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 
 ```json
 {
-    "provider": "ollama" | "trustable" | "bestia",
+    "provider": "ollama" | "trustable" | "private",
     "base_url": "<provider base URL>",
     "api_key": "<provider API key>",
     "models": {
@@ -43,11 +43,11 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 }
 ```
 
-- `provider` — `ollama`, `trustable`, or `bestia`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) — there is no separate `publishing` flag, and `api_key` has no bearing on publishing.
+- `provider` — `ollama`, `trustable`, or `private`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) — there is no separate `publishing` flag, and `api_key` has no bearing on publishing.
 - `base_url` and `api_key` — top-level provider credentials. Set when a provider is chosen:
   - **Ollama** — `api_key = "dummy"`. `base_url` depends on the Ollama mode picked on the splash sub-modal (see "Ollama mode selection"). For **internal** Ollama it is fixed to `http://localhost:11434/v1`; for **own host** the user enters host and port and `base_url` becomes `http://<host>:<port>/v1`. Scheme is always `http://` and path is always `/v1` — no HTTPS, no auth, no other paths.
   - **Trustable** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
-  - **BestIA** — `base_url` is fixed to `http://bestia:11434/v1` (the dedicated GPU inference host; the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve). The configure UI displays and **locks** it as `http://bestia:11434` (not editable). `api_key` is the proxy-signed `aip_` key taken from the BestIA registration iframe message; any `base_url` the proxy posts is ignored. **Publishing note:** the BestIA `base_url` is the GPU box, not the ai-proxy, so the publish-key pubkey origin is derived from `AIP_BASE_URL` instead of `base_url` — see [6-publish.md](6-publish.md).
+  - **Private AI** — both are supplied by the user in the Private AI dialog on the splash (see [1-index.md](1-index.md)). `base_url` is any OpenAI-compatible endpoint matching `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve. `api_key` is optional and is persisted as `"dummy"` when left empty, because Pi requires a non-empty value to consider the provider configured (see [pi.md](pi.md)).
   There is **no** global `env` section in `trustable.json`. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
 - `pi.default` — must be a name that exists as a key in `models`. The
@@ -119,12 +119,12 @@ non-null `thinkingLevelMap.xhigh`; a missing or null entry must never be
 presented as Extra high. Trustable Cloud is the managed compatibility
 exception: its OpenAI-compatible proxy supports the standard `high`
 reasoning-effort contract for coding models, so the Pi writer treats a missing
-`reasoning` value as `true` for provider `trustable`. Ollama, BestIA, and
-user-provided endpoints remain capability-driven and are not assumed to support
+`reasoning` value as `true` for provider `trustable`. Ollama and
+user-provided endpoints (including Private AI) remain capability-driven and are not assumed to support
 reasoning. An explicit `reasoning: false` always wins, including for Trustable
 Cloud.
 
-When a provider does not return policy metadata (for example BestIA or
+When a provider does not return policy metadata (for example Private AI or
 own-host Ollama discovery), Trustable applies a conservative local policy:
 embedding/rerank/vector models, obvious tiny/small non-agent models, vision,
 audio, TTS/Whisper-style models, and models below roughly 20B parameters are
@@ -205,13 +205,35 @@ On `configure.html?ollama=own` the Ollama Host section is shown with empty input
 
 After **Save & Configure**, `GET /api/configure` reaches the user's host (via `cfg.base_url` stripped of `/v1`) for the connectivity check and for capability discovery via `/api/show`. The model-pull loop (Step 2) is **skipped** when the resolved host is not localhost — the user's host already has the models installed locally; pulling them again would be wasteful. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)` instead.
 
-## BestIA host
+## Private AI endpoint
 
-When the user clicks the **BestIA** card on the splash, the frontend first calls `GET /api/bestia-check`. This is a server-side reachability probe of the fixed BestIA host `http://bestia:11434` (the browser cannot reach the GPU box — it is only routable from inside the VM). The handler does a short `GET http://bestia:11434/v1/models`; **any** HTTP response (including 401/403 — there is no api_key yet) means a BestIA is running and it returns `{ "available": true }`; only a connection/timeout error returns `{ "available": false }`. If not available, the splash shows an alert "You are not running a BestIA" and returns to the Provider Choice modal without opening the registration iframe.
+The user supplies an OpenAI-compatible endpoint in the Private AI dialog on the
+splash (see [1-index.md](1-index.md)). There is no reachability pre-check and no
+registration iframe: the dialog itself calls `POST /api/discover-models`, so an
+endpoint that answers with no models is never persisted.
 
-Once availability is confirmed, the register iframe runs with `?bestia=1` and posts back an `api_key`. A minimal workspace config is persisted (`provider="bestia"`, `base_url="http://bestia:11434/v1"`, `api_key=<from message>`, `models={}`, `pi={default:""}`) and the user is routed to `configure.html?bestia=1`.
+`base_url` must match `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so
+`/models` and `/chat/completions` resolve. `api_key` is optional and is stored as
+`"dummy"` when left empty. An `https://` endpoint with no key asks for
+confirmation; an `http://` one does not.
 
-On that screen the **BestIA Host** section shows a fixed read-only note "Using BestIA dedicated infrastructure" (no input, cannot be changed — mirrors the internal-Ollama read-only note). On load the screen calls `POST /api/discover-models` with `base_url = "http://bestia:11434/v1"` and the stored `api_key` (the real proxy key — sent as `Authorization: Bearer`), populating `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}` while preserving any previously-saved limits and Pi selection. The model table is **editable** (Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is hidden (there is no `status.bestia` catalog). `model_versions` and the `?reselect=1` redirect do not apply to BestIA (discover-models-backed, like own-host Ollama). **Save & Configure** runs the say-hello test against `http://bestia:11434/v1/chat/completions`.
+Because discovery already ran, a Private AI user lands on `applist.html` through
+the normal splash Configuration flow rather than being routed to
+`configure.html` for setup.
+
+On the configure screen the **Private AI Endpoint** section shows the stored
+`base_url` as a **read-only** note (the value is user-supplied, unlike the fixed
+internal-Ollama host, but is changed by re-picking the provider rather than
+edited in place — keeping this issue's diff contained). `loadPrivateModels`
+calls `POST /api/discover-models` with the stored `base_url` and `api_key`,
+populating `config.models` with one entry per discovered model using default
+limits `{maxToken: 131072, maxOutput: 32768}` while preserving any
+previously-saved limits and Pi selection. The model table is **editable**
+(Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is
+hidden (there is no `status.private` catalog). `model_versions` and the
+`?reselect=1` redirect do not apply (discover-models-backed, like own-host
+Ollama). **Save & Configure** runs the say-hello test against the stored
+endpoint's `/chat/completions`.
 
 ## POST /api/discover-models
 
@@ -415,7 +437,7 @@ The behaviour depends on the merged config's `provider`:
 
 - **`provider == "ollama"`** — run Step 1 and Step 2 below.
 - **`provider == "trustable"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustable Cloud)` so the UI shows progress, then write global Pi configuration when `pi.default` is present.
-- **`provider == "bestia"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (BestIA)`, then write global Pi configuration when `pi.default` is present.
+- **`provider == "private"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Private AI)`, then write global Pi configuration when `pi.default` is present. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop.
 
 In both cases the frontend separately calls `GET /api/testmodel` after the configure stream ends to run the say-hello connection test.
 
@@ -449,7 +471,7 @@ The writer merges only Trustable-owned keys, preserves unrelated Pi providers
 and settings, and uses the file modes and credential boundary defined in
 [pi.md](pi.md). It writes the selected endpoint under `trustable` for the
 Trustable status catalog, `ollama` for embedded/status-backed Ollama, or `local`
-for user-provided endpoints and BestIA, then limits runtime selection to that
+for user-provided endpoints including Private AI, then limits runtime selection to that
 single active prefix. Generated model entries preserve `reasoning` and a
 sanitized Pi `thinkingLevelMap`. A Trustable Cloud coding model with no
 capability metadata receives the managed `reasoning: true` baseline, which
@@ -521,7 +543,7 @@ Tests the AI model connection by sending a "hello" prompt to `pi.default` from
 the merged config, using the resolved provider URL and `api_key`. For internal
 Ollama, the resolved URL is derived from `OLLAMA_ENDPOINT` rather than the
 persisted localhost `base_url`; in the Trustable pod that endpoint is the
-pod-local `ollama serve` process. For own-host Ollama, Trustable, and BestIA it
+pod-local `ollama serve` process. For own-host Ollama, Trustable, and Private AI it
 is the configured provider URL. There is no separate `testmodel` field.
 
 # Per-app configuration: GET /api/appconfig/<name>
@@ -558,7 +580,7 @@ from `web/trustable-ui.css`. Keep the configuration UI compact and operational:
 neutral panels, thin table rules, Work Sans typography, restrained buttons, 4px
 radii, and no marketing hero. Restyling must preserve all existing field ids,
 provider switching,
-own-host/BestIA discovery, model table editing, dropdown selection, save/test
+own-host/Private AI discovery, model table editing, dropdown selection, save/test
 behavior, and redirects.
 
 Sections (rendered top to bottom in this order):

@@ -69,27 +69,27 @@ func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *tes
 func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 	cases := []string{
 		"Qwen3-Embedding-8B",
-		"bestia/embedding:952mb",
-		"bestia/rerank:q8",
-		"bestia/tiny:1b",
-		"bestia/small:3b",
+		"myhost/embedding:952mb",
+		"myhost/rerank:q8",
+		"myhost/tiny:1b",
+		"myhost/small:3b",
 		"nomic-embed-text:latest",
 		"gte-Qwen2",
 	}
 	for _, model := range cases {
-		if ok, reason := modelAllowedForPi("bestia", model, nil); ok || reason == "" {
+		if ok, reason := modelAllowedForPi("myhost", model, nil); ok || reason == "" {
 			t.Fatalf("%s should be blocked for Pi, ok=%v reason=%q", model, ok, reason)
 		}
 	}
 
 	allowed := []string{
-		"bestia/coding:30b",
+		"myhost/coding:30b",
 		"qwen3.6:35b",
 		"qwen3.6-27b",
 		"gpt-oss-20b",
 	}
 	for _, model := range allowed {
-		if ok, reason := modelAllowedForPi("bestia", model, nil); !ok {
+		if ok, reason := modelAllowedForPi("myhost", model, nil); !ok {
 			t.Fatalf("%s should be allowed for Pi, reason=%q", model, reason)
 		}
 	}
@@ -114,12 +114,12 @@ func TestModelAllowedForPiHonorsCatalogMetadata(t *testing.T) {
 
 func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 	cfg := &trustableConfig{
-		Provider: "bestia",
+		Provider: "private",
 		Models: map[string]*ModelLimits{
-			"bestia/embedding:952mb": {MaxInput: 8192},
+			"myhost/embedding:952mb": {MaxInput: 8192},
 			"qwen3.6:35b":            {MaxInput: 131072},
 		},
-		Pi: &piConfig{Default: "bestia/embedding:952mb"},
+		Pi: &piConfig{Default: "myhost/embedding:952mb"},
 	}
 	err := validatePiModelSelection(cfg)
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
@@ -129,7 +129,7 @@ func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 
 func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
 	cfg := &trustableConfig{
-		Provider: "bestia",
+		Provider: "private",
 		Models:   map[string]*ModelLimits{},
 		Pi:       &piConfig{Default: ""},
 	}
@@ -2082,8 +2082,8 @@ func TestPiProviderNameForConfigMatchesEndpointOrigin(t *testing.T) {
 			want: piLocalProviderName,
 		},
 		{
-			name: "bestia direct endpoint",
-			cfg:  &trustableConfig{Provider: "bestia", BaseURL: "http://bestia:11434/v1"},
+			name: "private user-supplied endpoint",
+			cfg:  &trustableConfig{Provider: "private", BaseURL: "http://my-gpu:11434/v1"},
 			want: piLocalProviderName,
 		},
 	}

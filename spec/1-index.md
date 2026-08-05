@@ -53,15 +53,38 @@ Before opening a catalog-backed provider flow (Trustable Cloud or internal
 Ollama), validate that its `/api/status` section has a non-empty `models`
 object, a non-empty `default`, and that `default` is a key in `models`. An
 incomplete section is unavailable and must not be persisted. Own-host Ollama
-and BestIA keep their intentional empty intermediate configurations because
-their models are discovered on `configure.html`.
+keeps its intentional empty intermediate configuration because its models are
+discovered on `configure.html`.
 
-The Provider Choice modal is centered and shows two cards:
+The Provider Choice modal is centered, headed **Select your AI provider**, and
+shows exactly three equal cards in a `grid-cols-1 md:grid-cols-3` row:
 
-- **Ollama** — "Free forever. Publishing not available." Picking this card opens a second sub-modal that asks the user to pick between **Use internal Ollama with recommended cloud models** and **Use my own Ollama with currently installed models** (see "Ollama mode selection" in [2a-config.md](2a-config.md)).
-- **Trustable Cloud** — "Free until 30 June 2026, then \$20/month. Includes 1000 credits/month and one app published on nuvolaris.dev."
+| Card | Subtitle | Attribution | Logo | Stored provider |
+|---|---|---|---|---|
+| **Cloud AI** | subscription based AI | powered by Ollama Cloud | `ollama-head.png` | `ollama` |
+| **Sovereign AI** | credit based AI | powered by Regolo.AI | `regolo-head.png` | `trustable` |
+| **Private AI** | no token required | your own AI hardware | `privateai-head.png` | `private` |
 
-Below the two cards, a third full-width **BestIA** card is shown for dedicated-GPU customers. Its body reads "For our BestIA customers with dedicated GPU and unlimited app publishing." and it has a **Contact Us for our Deployment Solutions** button. Keep the body text and contact button in the same content column beside/below the BestIA image so the body text does not collapse into a narrow desktop column. The button opens `https://nuvolaris.io/bestia` in a new tab and does **not** trigger card selection (it stops event propagation); clicking anywhere else on the card starts the BestIA flow (see "## BestIA selected").
+Note the naming: the card labelled **Cloud AI** stores `provider: "ollama"` and
+**Sovereign AI** stores `provider: "trustable"`. Only the labels changed — the
+persisted values are unchanged, so existing workspaces keep working.
+
+Each card is laid out **heading → subtitle → attribution → body copy → logo**,
+with the logo as the last element *inside* the card body and bottom-aligned
+(`flex flex-col h-full` on the card, `mt-auto` on the `<img>`) so the three logos
+line up across the row regardless of how much copy each card carries.
+
+Card body copy:
+
+- **Cloud AI** — "you need to register in Ollama Cloud to use cloud models,
+  signing is free and include a free allowance that you can upgrade for more
+  capacity". Picking this card opens a second sub-modal that asks the user to
+  pick between **Use internal Ollama with recommended cloud models** and **Use my
+  own Ollama with currently installed models** (see "Ollama mode selection" in
+  [2a-config.md](2a-config.md)).
+- **Sovereign AI** — "100 Credits FREE when registering", and nothing else.
+- **Private AI** — describes the user-supplied OpenAI-compatible endpoint. Opens
+  the Private AI dialog (see "## Private AI selected").
 
 ## Ollama selected
 
@@ -114,13 +137,50 @@ After the user picks one of the two Ollama-mode cards, branch:
    then `POST /api/configuration`.
 4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-hello test runs.
 
-## BestIA selected
+## Private AI selected
 
-0. **Availability pre-check.** Before opening the registration iframe, call `GET /api/bestia-check` (a server-side reachability probe of the fixed BestIA host — the browser cannot reach it directly). If the response is not `{ "available": true }`, show an alert "You are not running a BestIA", return to the Provider Choice modal, and do **not** proceed. Only if the host is reachable continue with step 1.
-1. Open the same centered register iframe overlay used by Trustable, loading `register_url` with `bestia=1` appended to the query string (e.g. `<register_url>?bestia=1`, or `&bestia=1` if the URL already has a query) so the proxy can tailor the BestIA sign-up. The Cancel button closes the iframe and returns to the choice modal without saving.
-2. Listen for the `message` event. For BestIA **only `api_key` (non-empty string) is required**; any `base_url` the proxy posts is **ignored** — BestIA inference is always the fixed internal host.
-3. On message: merge into the workspace config `provider: "bestia"`, `base_url: "http://bestia:11434/v1"`, `api_key` from the payload, empty `models`, and `pi: {default:""}`; `POST /api/configuration`; then navigate to `configure.html?bestia=1`. The splash Configuration flow does **not** run on this turn — like own-host Ollama, setup completes on the configure screen where the model list is discovered.
-4. The configure screen shows a fixed read-only "Using BestIA dedicated infrastructure" note (no editable host field) while the stored `base_url` is `http://bestia:11434/v1` (the `/v1` suffix is required so `/models` and `/chat/completions` resolve).
+Opens the **Private AI endpoint** dialog, a sub-modal of the choice screen with:
+
+- **Base URL** — text input, placeholder `https://host/v1`, required.
+- **API key** — text input, optional, placeholder "optional".
+- **Cancel** (returns to the Provider Choice modal) and **Save**.
+
+### Validation on Save
+
+Checked in this order:
+
+1. **Base URL format — blocking.** The value must match
+   `^https?://[^\s]+/v1/?$`. If it does not, refuse to save and show
+   *"Are you sure? The format is usually `http(s)://.../v1`"*. The user cannot
+   proceed until the URL matches.
+2. **HTTPS without an API key — confirmation, not blocking.** When the scheme is
+   `https://` and the API key is empty, confirm with *"Are you sure there is no
+   API key required? An `https://` endpoint usually requires one."* Cancel
+   returns to the dialog with the values preserved; OK proceeds.
+
+An `http://` endpoint with no API key saves with no confirmation — that is the
+normal local case, matching the card's "no token required" subtitle.
+
+### On save
+
+Model discovery happens **in the dialog**, so a broken endpoint is never
+persisted:
+
+1. `POST /api/discover-models` with `{base_url, api_key}`. On error, show the
+   message inline in the dialog and keep it open.
+2. Build `models` as `{name: {maxToken: 131072, maxOutput: 32768}}` for each
+   discovered model.
+3. Seed `pi.default` with the first discovered model.
+4. `POST /api/configuration` with the merged config plus `provider: "private"`,
+   `base_url` as entered, `api_key` as entered or `"dummy"` when left empty (Pi
+   requires a non-empty value to consider the provider configured — see
+   [pi.md](pi.md)), and the `models` / `pi.default` computed above. The legacy
+   `opencode` / `model_version` / `env` fields are dropped as in the other flows.
+5. Run the normal `saveAndRunConfiguration(cfg)` path so the streamed
+   Configuration flow and the say-hello test run, then land on `applist.html`.
+
+Unlike own-host Ollama, Private AI does **not** route through `configure.html`
+for setup: the endpoint is known and its models are already discovered.
 
 # Configuration
 
@@ -129,7 +189,7 @@ Expect a streamed answer and show the messages with a modal while it is configur
 
 When `provider == "trustable"` the backend skips the Ollama connectivity check and model-pull steps and streams a single `OK: Skipping Ollama setup (Trustable Cloud)` line — see [2a-config.md](2a-config.md).
 
-The same applies when `provider == "bestia"`: the backend skips the Ollama connectivity check and model-pull and streams `OK: Skipping Ollama setup (BestIA)`. The BestIA model list is supplied by `POST /api/discover-models` (run on `configure.html?bestia=1`), not the status catalog.
+The same applies when `provider == "private"`: the backend skips the Ollama connectivity check and model-pull and streams `OK: Skipping Ollama setup (Private AI)`. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop. Its model list comes from `POST /api/discover-models` (run in the Private AI dialog), not the status catalog.
 
 Then invoke the OpenAI-compatible API using `base_url`, `api_key`, and
 `pi.default` from `trustable.json`, asking hello.

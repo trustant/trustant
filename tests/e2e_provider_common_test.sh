@@ -25,11 +25,15 @@ test_noninteractive_missing_value() {
 test_profiles() {
   unset TRUSTABLE_E2E_BASE_URL
   TRUSTABLE_E2E_API_KEY="residual-provider-secret"
-  TRUSTABLE_E2E_MODEL="bestia-model"
-  e2e_resolve_profile bestia
-  [ "$E2E_PROVIDER" = "bestia" ] || fail "wrong BestIA provider"
-  [ "$E2E_API_KEY" = "" ] || fail "BestIA inherited a provider credential"
-  [ "$E2E_CREDENTIAL_REQUIRED" = "false" ] || fail "BestIA unexpectedly requires a credential"
+  TRUSTABLE_E2E_MODEL="private-model"
+  # A private endpoint has no canonical host, so the base URL is required.
+  TRUSTABLE_E2E_BASE_URL="http://my-gpu:11434/v1"
+  e2e_resolve_profile private
+  [ "$E2E_PROVIDER" = "private" ] || fail "wrong Private AI provider"
+  [ "$E2E_BASE_URL" = "http://my-gpu:11434/v1" ] || fail "Private AI ignored the supplied base URL"
+  [ "$E2E_API_KEY" = "" ] || fail "Private AI inherited a provider credential"
+  [ "$E2E_CREDENTIAL_REQUIRED" = "false" ] || fail "Private AI unexpectedly requires a credential"
+  unset TRUSTABLE_E2E_BASE_URL
 
   TRUSTABLE_E2E_MODEL="coding-model"
   TRUSTABLE_E2E_API_KEY="regolo-secret"
@@ -48,15 +52,15 @@ test_profiles() {
 }
 
 test_profile_preflight() {
-  E2E_PROVIDER="bestia"
-  E2E_BASE_URL="http://bestia:11434/v1"
+  E2E_PROVIDER="private"
+  E2E_BASE_URL="http://my-gpu:11434/v1"
   E2E_MODEL="coding-model"
   E2E_MAX_TOKEN=131072
   E2E_MAX_OUTPUT=32768
   E2E_CREDENTIAL_REQUIRED=false
   local config
-  config='{"provider":"bestia","base_url":"http://bestia:11434/v1","model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
-  e2e_preflight_profile "$config" || fail "valid BestIA preflight failed"
+  config='{"provider":"private","base_url":"http://my-gpu:11434/v1","model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
+  e2e_preflight_profile "$config" || fail "valid Private AI preflight failed"
   if e2e_preflight_profile "$(jq '.provider = "trustable"' <<<"$config")" 2>/dev/null; then
     fail "preflight accepted the wrong effective provider"
   fi
@@ -66,16 +70,16 @@ test_report() {
   local temp report
   temp="$(mktemp -d)"
   report="$temp/report.json"
-  E2E_PROVIDER="bestia"
+  E2E_PROVIDER="private"
   E2E_MODEL="coding-model"
-  E2E_BASE_URL="http://bestia:11434/v1"
-  E2E_EFFECTIVE_CONFIG_JSON='{"provider":"bestia","base_url":"http://bestia:11434/v1","model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
-  e2e_write_report "$report" "run-1" bestia "2026-01-01T00:00:00Z" \
+  E2E_BASE_URL="http://my-gpu:11434/v1"
+  E2E_EFFECTIVE_CONFIG_JSON='{"provider":"private","base_url":"http://my-gpu:11434/v1","model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
+  e2e_write_report "$report" "run-1" private "2026-01-01T00:00:00Z" \
     "2026-01-01T00:00:07Z" 7 0 "benchmark-results/run-1/run.log" \
     "benchmark-results/run-1/playwright"
   jq -e '.schema == "trustable-e2e-benchmark/v1" and .outcome == "passed" and
-    .duration_seconds == 7 and .provider == "bestia" and
-    .effective_config.provider == "bestia" and
+    .duration_seconds == 7 and .provider == "private" and
+    .effective_config.provider == "private" and
     .effective_config.credential == {"required":false,"configured":false} and
     (.checks | map(select(.name == "provider_profile_preflight" and .result == "passed")) | length == 1)' \
     "$report" >/dev/null || fail "invalid normalized report"
@@ -87,7 +91,7 @@ test_report() {
   rm -rf "$temp"
 }
 
-test_bestia_profile_clears_and_restores_credential() {
+test_private_profile_clears_and_restores_credential() {
   local temp original_hash
   temp="$(mktemp -d)"
   printf '%s\n' '{"provider":"trustable","base_url":"https://api.nuvolaris.io/v1","api_key":"residual-secret","models":{"old":{}},"opencode":{"default":"old","small":"old"}}' >"$temp/config.json"
@@ -98,21 +102,21 @@ test_bestia_profile_clears_and_restores_credential() {
     export PATH="$temp/bin:$PATH"
     export FAKE_TRUSTABLE_CONFIG="$temp/config.json"
     E2E_LOCK_DIR="$temp/lock"
-    E2E_PROVIDER="bestia"
-    E2E_BASE_URL="http://bestia:11434/v1"
+    E2E_PROVIDER="private"
+    E2E_BASE_URL="http://my-gpu:11434/v1"
     E2E_API_KEY=""
     E2E_CREDENTIAL_REQUIRED=false
     E2E_MODEL="coding-model"
     E2E_MAX_TOKEN=131072
     E2E_MAX_OUTPUT=32768
     e2e_apply_profile
-    jq -e '(.api_key | not) and .provider == "bestia"' "$temp/config.json" >/dev/null
-    jq -e '.provider == "bestia" and .credential.configured == false' \
+    jq -e '(.api_key | not) and .provider == "private"' "$temp/config.json" >/dev/null
+    jq -e '.provider == "private" and .credential.configured == false' \
       <<<"$E2E_EFFECTIVE_CONFIG_JSON" >/dev/null
   )
 
   [ "$(sha256sum "$temp/config.json" | awk '{print $1}')" = "$original_hash" ] ||
-    fail "BestIA profile did not restore the exact original config"
+    fail "Private AI profile did not restore the exact original config"
   rm -rf "$temp"
 }
 
@@ -178,6 +182,6 @@ test_noninteractive_missing_value
 test_profiles
 test_profile_preflight
 test_report
-test_bestia_profile_clears_and_restores_credential
+test_private_profile_clears_and_restores_credential
 test_profile_is_restored
 echo "Provider E2E helper tests passed"
