@@ -69,27 +69,27 @@ func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *tes
 func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 	cases := []string{
 		"Qwen3-Embedding-8B",
-		"bestia/embedding:952mb",
-		"bestia/rerank:q8",
-		"bestia/tiny:1b",
-		"bestia/small:3b",
+		"myhost/embedding:952mb",
+		"myhost/rerank:q8",
+		"myhost/tiny:1b",
+		"myhost/small:3b",
 		"nomic-embed-text:latest",
 		"gte-Qwen2",
 	}
 	for _, model := range cases {
-		if ok, reason := modelAllowedForPi("bestia", model, nil); ok || reason == "" {
+		if ok, reason := modelAllowedForPi("myhost", model, nil); ok || reason == "" {
 			t.Fatalf("%s should be blocked for Pi, ok=%v reason=%q", model, ok, reason)
 		}
 	}
 
 	allowed := []string{
-		"bestia/coding:30b",
+		"myhost/coding:30b",
 		"qwen3.6:35b",
 		"qwen3.6-27b",
 		"gpt-oss-20b",
 	}
 	for _, model := range allowed {
-		if ok, reason := modelAllowedForPi("bestia", model, nil); !ok {
+		if ok, reason := modelAllowedForPi("myhost", model, nil); !ok {
 			t.Fatalf("%s should be allowed for Pi, reason=%q", model, reason)
 		}
 	}
@@ -114,12 +114,12 @@ func TestModelAllowedForPiHonorsCatalogMetadata(t *testing.T) {
 
 func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 	cfg := &trustableConfig{
-		Provider: "bestia",
+		Provider: "private",
 		Models: map[string]*ModelLimits{
-			"bestia/embedding:952mb": {MaxInput: 8192},
+			"myhost/embedding:952mb": {MaxInput: 8192},
 			"qwen3.6:35b":            {MaxInput: 131072},
 		},
-		Pi: &piConfig{Default: "bestia/embedding:952mb"},
+		Pi: &piConfig{Default: "myhost/embedding:952mb"},
 	}
 	err := validatePiModelSelection(cfg)
 	if err == nil || !strings.Contains(err.Error(), "not allowed") {
@@ -129,12 +129,45 @@ func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 
 func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
 	cfg := &trustableConfig{
-		Provider: "bestia",
+		Provider: "private",
 		Models:   map[string]*ModelLimits{},
 		Pi:       &piConfig{Default: ""},
 	}
 	if err := validatePiModelSelection(cfg); err != nil {
 		t.Fatalf("empty provider-choice config should be allowed before discovery: %s", err)
+	}
+}
+
+// Private AI discovers models in the splash dialog but leaves pi.default empty
+// on purpose — the user picks it on configure.html?setup=1. Models-without-a-
+// default must therefore save for this provider, and only this provider.
+func TestValidatePiModelSelectionAllowsPrivateDeferredDefault(t *testing.T) {
+	models := map[string]*ModelLimits{
+		"qwen3-coder:30b": {MaxToken: 131072, MaxOutput: 32768},
+	}
+
+	if err := validatePiModelSelection(&trustableConfig{
+		Provider: "private",
+		Models:   models,
+		Pi:       &piConfig{Default: ""},
+	}); err != nil {
+		t.Fatalf("private endpoint must save before the default is chosen: %s", err)
+	}
+
+	if err := validatePiModelSelection(&trustableConfig{
+		Provider: "private",
+		Models:   models,
+		Pi:       &piConfig{Default: "qwen3-coder:30b"},
+	}); err != nil {
+		t.Fatalf("private endpoint must save once the default is chosen: %s", err)
+	}
+
+	if err := validatePiModelSelection(&trustableConfig{
+		Provider: "ollama",
+		Models:   models,
+		Pi:       &piConfig{Default: ""},
+	}); err == nil {
+		t.Fatal("a non-private provider with models but no default must still be rejected")
 	}
 }
 
@@ -197,6 +230,166 @@ func TestConfigurePiTestFailureLinePreservesOllamaAuthentication(t *testing.T) {
 	got = configurePiTestFailureLine(testModelResult{Warning: "upstream unavailable"})
 	if got != "ERROR: Pi model test failed: upstream unavailable" {
 		t.Fatalf("ordinary failure should remain a generic error: %q", got)
+	}
+}
+
+// configureOllamaPullFixture stands up a fake Ollama endpoint and a workspace
+// configured with the given models, then runs the streamed configure handler.
+// It returns the stream body and the models that were actually pulled.
+func configureOllamaPullFixture(t *testing.T, tags string, tagsStatus int, models ...string) (string, []string) {
+	t.Helper()
+	var pulled []string
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"data":[]}`)
+		case "/api/tags":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tagsStatus)
+			fmt.Fprint(w, tags)
+		case "/api/pull":
+			var body struct {
+				Name string `json:"name"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			pulled = append(pulled, body.Name)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintln(w, `{"status":"success"}`)
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"OK"}}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	originalWorkspace, originalEndpoint := WorkspaceDir, OllamaEndpoint
+	WorkspaceDir, OllamaEndpoint = t.TempDir(), ollama.URL
+	t.Cleanup(func() {
+		WorkspaceDir, OllamaEndpoint = originalWorkspace, originalEndpoint
+	})
+
+	limits := map[string]*ModelLimits{}
+	for _, m := range models {
+		limits[m] = &ModelLimits{MaxToken: 131072, MaxOutput: 32768}
+	}
+	if err := saveWorkspaceConfig(&trustableConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		APIKey:   "dummy",
+		Models:   limits,
+		Pi:       &piConfig{Default: models[0]},
+		Git:      &GitConfig{},
+	}); err != nil {
+		t.Fatalf("save test configuration: %s", err)
+	}
+
+	response := httptest.NewRecorder()
+	handleConfigure(response, httptest.NewRequest(http.MethodGet, "/api/configure", nil))
+	return response.Body.String(), pulled
+}
+
+func TestConfigurePullsOnlyMissingOllamaModels(t *testing.T) {
+	tags := `{"models":[{"name":"present:cloud"}]}`
+	body, pulled := configureOllamaPullFixture(t, tags, http.StatusOK, "present:cloud", "missing:cloud")
+
+	if len(pulled) != 1 || pulled[0] != "missing:cloud" {
+		t.Fatalf("expected only the missing model to be pulled, got %v", pulled)
+	}
+	if !strings.Contains(body, "OK: present:cloud already installed") {
+		t.Fatalf("installed model was not reported as such: %q", body)
+	}
+	if !strings.Contains(body, "OK: missing:cloud pulled") {
+		t.Fatalf("missing model was not pulled: %q", body)
+	}
+}
+
+func TestConfigurePullsEverythingWhenTagsUnavailable(t *testing.T) {
+	body, pulled := configureOllamaPullFixture(t, `{}`, http.StatusInternalServerError, "one:cloud", "two:cloud")
+
+	if len(pulled) != 2 {
+		t.Fatalf("a /api/tags failure must fall back to pulling every model, got %v", pulled)
+	}
+	if !strings.Contains(body, "Could not list installed models") {
+		t.Fatalf("fail-open fallback was not reported: %q", body)
+	}
+}
+
+func TestConfigureTreatsLatestSuffixAsInstalled(t *testing.T) {
+	tags := `{"models":[{"name":"foo:latest"}]}`
+	_, pulled := configureOllamaPullFixture(t, tags, http.StatusOK, "foo")
+
+	if len(pulled) != 0 {
+		t.Fatalf("a model reported as foo:latest must satisfy a configured \"foo\", got %v", pulled)
+	}
+}
+
+func TestRunTestModelRequiresTheModelToConfirm(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		reply   string
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "bare ok", reply: "OK", wantOK: true},
+		{name: "ok with filler", reply: "Sure! OK.", wantOK: true},
+		{name: "refusal", reply: "I cannot do that", wantOK: false},
+		{name: "empty completion", reply: "", wantOK: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				payload, _ := json.Marshal(map[string]any{
+					"choices": []map[string]any{
+						{"message": map[string]string{"content": tc.reply}},
+					},
+				})
+				w.Write(payload)
+			}))
+			defer server.Close()
+
+			res := runTestModel(&trustableConfig{
+				Provider: "trustable",
+				BaseURL:  server.URL + "/v1",
+				APIKey:   "key",
+				Pi:       &piConfig{Default: "model"},
+			})
+			if res.OK != tc.wantOK {
+				t.Fatalf("reply %q: OK = %v, want %v (warning %q)", tc.reply, res.OK, tc.wantOK, res.Warning)
+			}
+			if !tc.wantOK && res.Warning == "" {
+				t.Fatalf("a non-confirming reply must carry a warning")
+			}
+		})
+	}
+}
+
+// The say-OK assertion must not shadow the sign-in classification: the splash
+// relies on auth_required to open the Ollama Cloud sign-in modal.
+func TestRunTestModelKeepsAuthRequiredPrecedence(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":"you are not logged in"}`)
+	}))
+	defer server.Close()
+
+	// provider == "ollama" resolves the probe URL through resolveOllamaRoot,
+	// which rewrites a localhost base_url to OllamaEndpoint.
+	originalEndpoint := OllamaEndpoint
+	OllamaEndpoint = server.URL
+	t.Cleanup(func() { OllamaEndpoint = originalEndpoint })
+
+	res := runTestModel(&trustableConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		APIKey:   "dummy",
+		Pi:       &piConfig{Default: "model"},
+	})
+	if !res.AuthRequired {
+		t.Fatalf("sign-in failure was not classified as auth_required: %+v", res)
 	}
 }
 
@@ -2082,8 +2275,8 @@ func TestPiProviderNameForConfigMatchesEndpointOrigin(t *testing.T) {
 			want: piLocalProviderName,
 		},
 		{
-			name: "bestia direct endpoint",
-			cfg:  &trustableConfig{Provider: "bestia", BaseURL: "http://bestia:11434/v1"},
+			name: "private user-supplied endpoint",
+			cfg:  &trustableConfig{Provider: "private", BaseURL: "http://my-gpu:11434/v1"},
 			want: piLocalProviderName,
 		},
 	}
@@ -2110,7 +2303,7 @@ func TestPostConfigurationWritesPiConfigOnlyAfterSuccessfulProbe(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hi"}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"OK"}}]}`)
 	}))
 	t.Cleanup(stub.Close)
 

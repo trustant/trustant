@@ -45,7 +45,7 @@ variable is unset, `~/.pi/agent`:
 
 Provider identity describes the endpoint origin: the Trustable status catalog
 uses `trustable`, the embedded/status-backed Ollama catalog uses `ollama`, and
-user-provided endpoints (including own-host Ollama) plus BestIA use `local`.
+user-provided endpoints (including own-host Ollama and Private AI) use `local`.
 `settings.enabledModels` contains only `<active-provider>/*`. `models.json`
 stores the literal `$OPENAI_API_KEY` reference; the real key is only in
 `auth.json`. Keyless providers use `dummy` so Pi considers the provider

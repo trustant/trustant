@@ -172,7 +172,7 @@ All endpoints are JSON under `/api/*`, registered in [main.go](main.go):
 | `/api/memory/` | memory.go | App memory |
 | `/api/credits`, `/api/topup` | credits.go | Credits & top-up (ai-proxy) |
 | `/api/sshkey` | — | SSH key handling |
-| `/api/redeploy`, `/api/activations/poll`, `/api/bestia-check` | — | Deploy & activation polling |
+| `/api/redeploy`, `/api/activations/poll` | — | Deploy & activation polling |
 
 ### Publishing authorization
 
@@ -200,7 +200,7 @@ git submodule update --init --recursive
 ## Testing
 
 - **Unit and component tests:** `go test ./...` runs the Go test suite. `npm run test:e2e-providers` and `npm --prefix browser-mcp test` cover the legacy provider runner and browser MCP contracts. Pi has no OpenCode guardrail-plugin test suite.
-- **End-to-end scenarios:** [tests/](tests/) contains runnable cluster tests for issue 98, action workflows, compaction recovery, generated authentication, and the BestIA, Ollama Cloud, and Regolo providers. They are intentionally separate from `go test` because they launch applications and may invoke a model. See [tests/issue98-e2e.md](tests/issue98-e2e.md) and [spec/8-e2e.md](spec/8-e2e.md).
+- **End-to-end scenarios:** [tests/](tests/) contains runnable cluster tests for issue 98, action workflows, compaction recovery, generated authentication, and the Private AI, Ollama Cloud, and Regolo providers. They are intentionally separate from `go test` because they launch applications and may invoke a model. See [tests/issue98-e2e.md](tests/issue98-e2e.md) and [spec/8-e2e.md](spec/8-e2e.md).
 
 ## Conventions
 

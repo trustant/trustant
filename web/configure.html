@@ -65,11 +65,14 @@
             </div>
         </div>
 
-        <!-- BestIA Host (only when provider == "bestia") -->
-        <div id="bestiaHostSection" class="nu-card p-5 mb-4 hidden">
-            <h2 class="text-lg font-medium mb-4">BestIA Host</h2>
+        <!-- Private AI Endpoint (only when provider == "private") -->
+        <div id="privateHostSection" class="nu-card p-5 mb-4 hidden">
+            <h2 class="text-lg font-medium mb-4">Private AI Endpoint</h2>
             <p class="text-sm text-[color:var(--nu-muted)]">
-                Using BestIA dedicated infrastructure
+                Using your own endpoint at <span id="privateHostValue" class="nu-code"></span>
+            </p>
+            <p class="text-sm text-[color:var(--nu-muted)] mt-2">
+                To point Trustable at a different endpoint, use Change Provider and pick Private AI again.
             </p>
         </div>
 
@@ -393,14 +396,14 @@
         function providerLabel(name) {
             if (name === 'trustable') return 'Trustable Cloud <br> powered by Regolo.AI';
             if (name === 'ollama') return 'Ollama';
-            if (name === 'bestia') return 'BestIA';
+            if (name === 'private') return 'Private AI';
             return 'not set';
         }
 
         function modelsHeading(name) {
             if (name === 'trustable') return 'Trustable Models';
             if (name === 'ollama') return 'Ollama Models';
-            if (name === 'bestia') return 'BestIA Models';
+            if (name === 'private') return 'Private AI Models';
             return 'Models';
         }
 
@@ -421,7 +424,7 @@
                 document.getElementById('currentProvider').innerHTML = providerLabel(config.provider);
                 document.getElementById('modelsHeading').textContent = modelsHeading(config.provider);
                 renderOllamaHost();
-                renderBestiaHost();
+                renderPrivateHost();
                 renderModels();
                 renderPiSelect();
                 document.getElementById('gitUser').value = config.git?.user || '';
@@ -434,8 +437,8 @@
                 document.getElementById('notebookClearToken').checked = false;
                 renderNotebookTokenStatus();
                 loadLicenseStatus();
-                if (config.provider === 'bestia') {
-                    await loadBestiaModels();
+                if (config.provider === 'private') {
+                    await loadPrivateModels();
                 }
             } catch (e) {
                 console.error('Failed to load config:', e);
@@ -540,16 +543,18 @@
                 : 'No token configured. Template save, add, and remove actions will stay disabled.';
         }
 
-        function renderBestiaHost() {
-            const section = document.getElementById('bestiaHostSection');
-            section.classList.toggle('hidden', config.provider !== 'bestia');
+        function renderPrivateHost() {
+            const section = document.getElementById('privateHostSection');
+            section.classList.toggle('hidden', config.provider !== 'private');
+            const value = document.getElementById('privateHostValue');
+            if (value) value.textContent = String(config.base_url || '');
         }
 
-        // BestIA: discover the model list from the fixed GPU host using the
-        // proxy-issued api_key (sent as Authorization: Bearer because it is not
+        // Private AI: discover the model list from the user-supplied endpoint
+        // using the stored api_key (sent as Authorization: Bearer unless it is
         // the literal "dummy"). Preserve any previously-saved per-model limits
         // so a returning user keeps the selected Pi model.
-        async function loadBestiaModels() {
+        async function loadPrivateModels() {
             try {
                 const resp = await fetch('/api/discover-models', {
                     method: 'POST',
@@ -558,7 +563,7 @@
                 });
                 const data = await resp.json().catch(() => ({}));
                 if (!resp.ok || data.error) {
-                    setSaveStatus('Could not load BestIA models: ' + (data.error || ('HTTP ' + resp.status)), 'error');
+                    setSaveStatus('Could not load Private AI models: ' + (data.error || ('HTTP ' + resp.status)), 'error');
                     return;
                 }
                 const models = Array.isArray(data.models) ? data.models : [];
@@ -571,7 +576,7 @@
                 renderModels();
                 renderPiSelect();
             } catch (e) {
-                setSaveStatus('Could not load BestIA models: ' + e.message, 'error');
+                setSaveStatus('Could not load Private AI models: ' + e.message, 'error');
             }
         }
 
@@ -678,15 +683,15 @@
             const tbody = document.getElementById('modelTableBody');
             const models = config.models || {};
             const keys = Object.keys(models);
-            const editable = config.provider === 'ollama' || config.provider === 'bestia';
+            const editable = config.provider === 'ollama' || config.provider === 'private';
 
-            // Toggle header buttons: Add for Ollama/BestIA (manual model entry);
-            // Refresh for catalog-backed providers only. Ollama and BestIA model
+            // Toggle header buttons: Add for Ollama/Private AI (manual model entry);
+            // Refresh for catalog-backed providers only. Ollama and Private AI model
             // lists must never be overwritten from /api/status (Ollama is
-            // user-controlled; BestIA is discover-models-backed and has no
-            // status.bestia catalog) — see also splash boot logic.
+            // user-controlled; Private AI is discover-models-backed and has no
+            // status.private catalog) — see also splash boot logic.
             document.getElementById('addModelBtn').classList.toggle('hidden', !editable);
-            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama' || config.provider === 'bestia');
+            document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama' || config.provider === 'private');
 
             if (keys.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">No models configured</td></tr>';
@@ -953,6 +958,14 @@
             return null;
         }
 
+        // Without a default model the save would fail deep in the probe with
+        // "pi.default not defined". Catch it here so the user gets an
+        // actionable message instead of an internal diagnostic.
+        function validatePiDefault() {
+            if (document.getElementById('piDefault').value.trim()) return null;
+            return 'Please select the default model before saving.';
+        }
+
         function validateOllamaHost() {
             if (config.provider !== 'ollama') return null;
             if (!isOwnHostMode()) return null;
@@ -991,7 +1004,7 @@
         }
 
         async function saveAndConfigure() {
-            const err = validateOllamaHost() || validateNotebookConfiguration();
+            const err = validatePiDefault() || validateOllamaHost() || validateNotebookConfiguration();
             if (err) {
                 alert(err);
                 return;
@@ -1078,7 +1091,7 @@
             const setupRequired = params.get('setup') === '1';
             const catalogReselect = params.get('reselect') === '1'
                 && config.provider !== 'ollama'
-                && config.provider !== 'bestia';
+                && config.provider !== 'private';
             if (setupRequired || catalogReselect) {
                 if (setupRequired) {
                     document.getElementById('configurationBannerMessage').innerHTML =

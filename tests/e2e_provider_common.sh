@@ -74,9 +74,12 @@ e2e_resolve_profile() {
   E2E_MAX_OUTPUT="${TRUSTABLE_E2E_MAX_OUTPUT:-32768}"
 
   case "$mode" in
-    bestia)
-      E2E_PROVIDER="bestia"
-      E2E_BASE_URL="${TRUSTABLE_E2E_BASE_URL:-http://bestia:11434/v1}"
+    private)
+      # A user-supplied endpoint has no canonical host, so require the base URL
+      # rather than guessing one.
+      e2e_require_value TRUSTABLE_E2E_BASE_URL "Private AI base URL" 0
+      E2E_PROVIDER="private"
+      E2E_BASE_URL="$TRUSTABLE_E2E_BASE_URL"
       E2E_API_KEY=""
       E2E_CREDENTIAL_REQUIRED=false
       ;;
@@ -337,6 +340,6 @@ e2e_provider_main() {
 }
 
 if [ "${TRUSTABLE_E2E_COMMON_LIBRARY:-0}" != "1" ]; then
-  e2e_error "run one of tests/e2e_bestia_app.sh, tests/e2e_ollama_cloud_app.sh, or tests/e2e_regolo_app.sh"
+  e2e_error "run one of tests/e2e_private_app.sh, tests/e2e_ollama_cloud_app.sh, or tests/e2e_regolo_app.sh"
   exit 2
 fi
