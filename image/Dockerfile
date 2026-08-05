@@ -8,6 +8,10 @@ ARG MILVUS_MCP_REF=a7e624f3057a0d739528bca3ed92504943224ceb
 ARG GH_VERSION=2.96.0
 ARG GH_SHA_AMD64=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
 ARG GH_SHA_ARM64=06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909
+# The 1Password CLI signs and archives licenses via cmd/trulicense (spec/14-license.md).
+ARG OP_VERSION=2.38.1
+ARG OP_SHA_AMD64=7a7b7168f521d31838f0cc59abf172527853308c9b9cceee34895121acb0be0f
+ARG OP_SHA_ARM64=854f92932dcfebc26434e83e426729933a8d0aae447889e439cf01f1b213a7fd
 
 ########################################################## loader
 FROM ubuntu:24.04 AS loader

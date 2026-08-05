@@ -504,28 +504,24 @@
         </div>
     </div>
 
-    <!-- Publishing Not Authorized Modal -->
-    <div id="publishAuthModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
-        <div class="nu-modal p-6 w-full max-w-lg mx-4 text-center">
-            <h3 class="text-lg font-medium mb-4">Publishing not available</h3>
-            <p class="text-[color:var(--nu-muted)] mb-6">
-                Publishing is not available when you use your self-hosted local AI.
-                Please consider <span class="font-semibold">Trustable Cloud</span>, which includes
-                one application, or our <span class="font-semibold">BestIA Private AI</span>.
+    <!-- License Modal -->
+    <div id="licenseModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-6 w-full max-w-lg mx-4">
+            <h3 id="licenseModalTitle" class="text-lg font-medium mb-4">License required</h3>
+            <p id="licenseModalBody" class="text-[color:var(--nu-muted)] mb-4"></p>
+            <div id="licenseModalHosts" class="hidden mb-4 text-sm nu-code p-3 text-left"></div>
+            <label class="block text-sm mb-2" for="licenseInput">Paste your license</label>
+            <textarea id="licenseInput" rows="4" placeholder="lic_..."
+                class="nu-input w-full font-mono text-xs mb-2"></textarea>
+            <div id="licenseModalFeedback" class="hidden mb-4"></div>
+            <p class="text-[color:var(--nu-muted)] text-sm mb-6">
+                To obtain a license, write to
+                <a class="underline" href="mailto:info@nuvolaris.io">info@nuvolaris.io</a>
+                or visit <a class="underline" href="https://nuvolaris.io" target="_blank">nuvolaris.io</a>.
             </p>
-            <div class="flex flex-wrap gap-3 justify-center">
-                <button onclick="goToTrustableCloud()"
-                    class="nu-btn nu-btn-primary">
-                    Trustable Cloud
-                </button>
-                <button onclick="window.open('https://nuvolaris.io/bestia', '_blank')"
-                    class="nu-btn nu-btn-secondary">
-                    BestIA
-                </button>
-                <button onclick="hidePublishAuthModal()"
-                    class="nu-btn nu-btn-secondary">
-                    Continue
-                </button>
+            <div class="flex flex-wrap gap-3 justify-end">
+                <button onclick="saveLicense()" class="nu-btn nu-btn-primary">Save license</button>
+                <button onclick="hideLicenseModal()" class="nu-btn nu-btn-secondary">Close</button>
             </div>
         </div>
     </div>
@@ -539,8 +535,13 @@
         let appView = 'list';
         let githubAccountAuthenticated = false;
 
-        function isPublishAuthError(msg) {
-            return typeof msg === 'string' && msg.indexOf('Publishing not authorized') !== -1;
+        // The server error prefixes below are a contract with license.go:
+        // requireValidLicense writes "License required: ..." and
+        // requireLicensedHost writes "Host not licensed: ...". Changing the
+        // wording server-side breaks this modal. See spec/14-license.md.
+        function isLicenseError(msg) {
+            return typeof msg === 'string' &&
+                (msg.indexOf('License required') !== -1 || msg.indexOf('Host not licensed') !== -1);
         }
 
         function feedbackClass(type) {
@@ -552,7 +553,9 @@
             return `mb-4 nu-feedback ${tone} max-h-48 overflow-y-auto text-left text-sm nu-code p-3 whitespace-pre-wrap`;
         }
 
-        function showPublishAuthModal() {
+        // showLicenseModal explains what is missing. `detail` is the raw server
+        // error, used to name the rejected apihost in the host-gate case.
+        function showLicenseModal(kind, detail) {
             const ids = ['gitPushModal', 'publishModal'];
             ids.forEach(id => {
                 const el = document.getElementById(id);
@@ -561,19 +564,83 @@
                     el.classList.remove('flex');
                 }
             });
-            const m = document.getElementById('publishAuthModal');
+
+            const title = document.getElementById('licenseModalTitle');
+            const body = document.getElementById('licenseModalBody');
+            const hostsBox = document.getElementById('licenseModalHosts');
+            hostsBox.classList.add('hidden');
+            hostsBox.textContent = '';
+
+            if (kind === 'host') {
+                title.textContent = 'Host not licensed';
+                body.textContent = detail
+                    ? detail.replace(/^.*?Host not licensed:\s*/, 'Your license does not cover ')
+                    : 'Your license does not cover this OpenServerless host.';
+                // List the hosts the current license does cover.
+                fetch('/api/license')
+                    .then(r => r.json())
+                    .then(st => {
+                        if (st && st.hosts && st.hosts.length) {
+                            hostsBox.textContent = 'Licensed hosts:\n' + st.hosts.join('\n');
+                            hostsBox.classList.remove('hidden');
+                        }
+                    })
+                    .catch(() => { });
+            } else {
+                title.textContent = 'License required';
+                body.textContent = detail
+                    ? detail.replace(/^.*?License required:\s*/, 'Publishing requires a valid license — ')
+                    : 'Publishing requires a valid Trustable license.';
+            }
+
+            const feedback = document.getElementById('licenseModalFeedback');
+            feedback.classList.add('hidden');
+            feedback.textContent = '';
+
+            const m = document.getElementById('licenseModal');
             m.classList.remove('hidden');
             m.classList.add('flex');
         }
 
-        function hidePublishAuthModal() {
-            const m = document.getElementById('publishAuthModal');
+        function hideLicenseModal() {
+            const m = document.getElementById('licenseModal');
             m.classList.add('hidden');
             m.classList.remove('flex');
         }
 
-        function goToTrustableCloud() {
-            window.location.href = 'index.html?choose=1';
+        async function saveLicense() {
+            const input = document.getElementById('licenseInput');
+            const feedback = document.getElementById('licenseModalFeedback');
+            const token = (input.value || '').trim();
+            if (!token) {
+                feedback.className = feedbackClass('error');
+                feedback.textContent = 'Paste a license first.';
+                feedback.classList.remove('hidden');
+                return;
+            }
+            try {
+                const res = await fetch('/api/license', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ license: token })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    feedback.className = feedbackClass('error');
+                    feedback.textContent = data.error || ('HTTP ' + res.status);
+                    feedback.classList.remove('hidden');
+                    return;
+                }
+                feedback.className = feedbackClass('success');
+                feedback.textContent = 'License accepted. Reloading...';
+                feedback.classList.remove('hidden');
+                input.value = '';
+                setTimeout(() => window.location.reload(), 900);
+            } catch (e) {
+                feedback.className = feedbackClass('error');
+                feedback.textContent = 'Failed to save license: ' + e.message;
+                feedback.classList.remove('hidden');
+            }
         }
 
         function fillApp(name) {
@@ -923,8 +990,9 @@
         }
 
         function showGitPushResult(message, type) {
-            if (type === 'error' && isPublishAuthError(message)) {
-                showPublishAuthModal();
+            if (type === 'error' && isLicenseError(message)) {
+                // Git push is gated by the valid-license check only.
+                showLicenseModal('license', message);
                 return;
             }
             document.getElementById('gitPushSpinner').classList.add('hidden');
@@ -1046,8 +1114,9 @@
         }
 
         function showPublishResult(message, type) {
-            if (type === 'error' && isPublishAuthError(message)) {
-                showPublishAuthModal();
+            if (type === 'error' && isLicenseError(message)) {
+                const kind = message.indexOf('Host not licensed') !== -1 ? 'host' : 'license';
+                showLicenseModal(kind, message);
                 return;
             }
             document.getElementById('publishSpinner').classList.add('hidden');

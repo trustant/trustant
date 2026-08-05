@@ -3,20 +3,19 @@ Put the code in the file `publish.go`
 
 # Publishing authorization
 
-Only `/api/publish/remote` (OpenServerless deploy) is gated by publishing authorization. The Git-push endpoints `/api/publish/push` and `/api/publish/force-push` are always allowed — pushing to a user-owned GitHub repository requires no proxy entitlement. Authentication comes from the managed personal GitHub account when connected, with the existing SSH key as fallback.
+Authorization is an offline, Ed25519-signed **license**, fully specified in [14-license.md](14-license.md). The `api_key` is no longer involved: it keeps its inference and credits role only. The frontend does not gate these calls; every check below runs server-side, before any work is done.
 
-For `/api/publish/remote` the server-side check below runs **before** doing any work; the frontend does not gate this call.
+Two gates, both answering **HTTP 402**:
 
-The check:
+1. `requireValidLicense` runs at the top of **all three** handlers — `/api/publish/push`, `/api/publish/force-push` and `/api/publish/remote`. It verifies the stored license's signature and expiry; the license's `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`. An expired license is invalid outright, so git push stops too.
 
-1. Load the merged config and read `env.OPENAI_API_KEY` (the `aip_...` bearer) and `env.OPENAI_BASE_URL`.
-2. Derive the proxy origin. For `provider == "trustable"` this is `OPENAI_BASE_URL` reduced to `scheme://host` (a trailing `/v1` is stripped). For `provider == "bestia"` the inference `base_url` (`http://bestia:11434/v1`) is the dedicated GPU box, **not** the ai-proxy, and does not serve the well-known; the proxy origin is instead `AIP_BASE_URL` reduced to `scheme://host`. The well-known is then `<origin>/.well-known/ai-proxy-pubkey`. In both cases the `aip_` key is the one issued by the ai-proxy and verifies against that proxy's public key.
-3. Fetch the public key once and cache it in process memory for the lifetime of the process. Do not re-fetch on verification failure.
-4. Verify the key signature per [10-validate_key.md](10-validate_key.md) (Ed25519 over `id_bytes`).
+2. `requireLicensedHost` runs in `/api/publish/remote` only, **after** the production config is resolved (after the `needs_config` check) and **before** `ops ide login --mode=production`, so nothing touches the target cluster when the host is unlicensed. It matches `OPS_APIHOST` against the license `hosts` — exact match on scheme + host + port, no wildcards. On mismatch: `{"error": "Host not licensed: <apihost> is not covered by your license"}`.
 
-If any step fails — missing key, missing/unparseable base URL, well-known fetch error, malformed key, signature mismatch — return HTTP 403 with `{"error": "Publishing not authorized: <reason>"}` and **do not** perform any publish action. There is no `needs_config` fallback for an authorization failure; the user must reconfigure to a publishing-capable provider.
+The local apihosts (`miniops.me`, `localhost`, `127.0.0.1`, `::1`) skip the **host** gate only; a valid license is still required to publish to them.
 
-The legacy `publishing` flag in the workspace config is removed. Whether publishing is allowed is determined entirely by signature verification at request time.
+There is no `needs_config` fallback for an authorization failure — the user must install a valid license, which the frontend offers through the license modal. The legacy `publishing` flag in the workspace config is removed.
+
+Git-push authentication itself is unchanged: it comes from the managed personal GitHub account when connected, with the existing SSH key as fallback.
 
 # POST /api/publish/push
 

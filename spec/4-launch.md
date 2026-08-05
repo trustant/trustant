@@ -1031,7 +1031,7 @@ Behaviour:
 - On failure return HTTP 500 `{"error": "ops ide undeploy failed: <err>", "output": "<output>"}`.
 
 This endpoint is not part of the publishing gate; it does not call
-`requirePublishingAuth`.
+`requireValidLicense`.
 
 # POST /api/clean
 

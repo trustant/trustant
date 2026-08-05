@@ -66,7 +66,7 @@ read_arg() {
 
 # WHY: source identity is owned by the image contract even in development.
 # Reading the same pinned fork here keeps clean VM and pod installations equal.
-for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF GH_VERSION GH_SHA_AMD64 GH_SHA_ARM64; do
+for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF GH_VERSION GH_SHA_AMD64 GH_SHA_ARM64 OP_VERSION OP_SHA_AMD64 OP_SHA_ARM64; do
   val=$(read_arg "$v")
   [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
   export "$v=$val"
@@ -374,12 +374,14 @@ command -v rclone    &>/dev/null || APT_MISSING+=(rclone)
 # image and a clean VM must both reclaim an orphaned TruACP/Vite listener rather
 # than depend on lsof happening to exist in a developer's base environment.
 command -v lsof      &>/dev/null || APT_MISSING+=(lsof)
+# The 1Password CLI ships as a zip, so unzip is needed to install it below.
+command -v unzip     &>/dev/null || APT_MISSING+=(unzip)
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
   sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
-ok "psql, redis-cli, rclone, lsof available"
+ok "psql, redis-cli, rclone, lsof, unzip available"
 
 case "$ARCH" in
   amd64) GH_SHA="$GH_SHA_AMD64" ;;
@@ -405,6 +407,40 @@ fi
 [[ "$(gh --version 2>/dev/null | awk 'NR==1{print $3}')" == "$GH_VERSION" ]] \
   || fail "GitHub CLI version mismatch after installation"
 ok "GitHub CLI ${GH_VERSION} available globally in /usr/local/bin"
+
+# --- 1Password CLI (op) ---
+# WHY: cmd/trulicense signs licenses with the Ed25519 master key held in the
+# TrustableLicenses vault and never on disk, so `op` is required to issue one.
+# See spec/14-license.md.
+case "$ARCH" in
+  amd64) OP_SHA="$OP_SHA_AMD64" ;;
+  arm64) OP_SHA="$OP_SHA_ARM64" ;;
+  *) fail "unsupported 1Password CLI architecture: $ARCH" ;;
+esac
+OP_INSTALLED_VERSION="$(op --version 2>/dev/null | tr -d 'v' || true)"
+if [[ "$OP_INSTALLED_VERSION" != "$OP_VERSION" ]]; then
+  warn "installing verified 1Password CLI ${OP_VERSION}..."
+  OP_TMP="$(mktemp -d)"
+  OP_ARCHIVE="op_linux_${ARCH}_v${OP_VERSION}.zip"
+  curl -fsSL -o "$OP_TMP/$OP_ARCHIVE" \
+    "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VERSION}/${OP_ARCHIVE}" \
+    || fail "1Password CLI ${OP_VERSION} download failed"
+  echo "$OP_SHA  $OP_TMP/$OP_ARCHIVE" | sha256sum -c - \
+    || fail "1Password CLI ${OP_VERSION} checksum verification failed"
+  unzip -q -o -d "$OP_TMP" "$OP_TMP/$OP_ARCHIVE" \
+    || fail "1Password CLI ${OP_VERSION} extraction failed"
+  sudo install -m 0755 "$OP_TMP/op" /usr/local/bin/op \
+    || fail "1Password CLI ${OP_VERSION} installation failed"
+  # op refuses to run set-gid to a group it is not in, so create the group and
+  # apply both together — matching 1Password's own documented Linux install.
+  sudo groupadd -f onepassword-cli || fail "creating the onepassword-cli group failed"
+  sudo chgrp onepassword-cli /usr/local/bin/op || fail "setting the op group failed"
+  sudo chmod g+s /usr/local/bin/op || fail "setting the op set-gid bit failed"
+  rm -rf "$OP_TMP"
+fi
+[[ "$(op --version 2>/dev/null | tr -d 'v')" == "$OP_VERSION" ]] \
+  || fail "1Password CLI version mismatch after installation"
+ok "1Password CLI ${OP_VERSION} available globally in /usr/local/bin"
 
 MILVUS_CLI_VERSION="1.2.1"
 UV_BIN="$(command -v uv)"

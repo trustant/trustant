@@ -238,6 +238,38 @@ func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
 	}
 }
 
+// trulicense cannot sign a license without op, so a VM setup must install it
+// with the same pin-and-verify treatment as the other downloaded binaries.
+func TestOnePasswordCLIIsPinnedAndVerifiedForVM(t *testing.T) {
+	setupContent, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	// The version and both checksums are owned by the image contract, so a VM
+	// install cannot drift from the pinned release.
+	for _, required := range []string{"OP_VERSION=", "OP_SHA_AMD64=", "OP_SHA_ARM64="} {
+		if !strings.Contains(string(dockerContent), required) {
+			t.Fatalf("image/Dockerfile is missing pinned 1Password CLI fragment %q", required)
+		}
+	}
+	for _, required := range []string{
+		"OP_VERSION",
+		"op_linux_${ARCH}_v${OP_VERSION}.zip",
+		"sha256sum -c -",
+		"unzip",
+		"/usr/local/bin/op",
+		"groupadd -f onepassword-cli",
+	} {
+		if !strings.Contains(string(setupContent), required) {
+			t.Fatalf("setup.sh is missing 1Password CLI fragment %q", required)
+		}
+	}
+}
+
 func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
 	setupContent, err := os.ReadFile("setup.sh")
 	if err != nil {

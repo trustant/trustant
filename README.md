@@ -43,8 +43,8 @@ Everything lives in `package main`. Rather than splitting into many packages, th
 | [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config, `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` |
 | [launch.go](launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clone → checkout, `ops ide` lifecycle, pgid teardown |
 | [git.go](git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
-| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — every endpoint gated by `requirePublishingAuth` |
-| [validate_key.go](validate_key.go) | [10-validate_key.md](spec/10-validate_key.md) | Ed25519 verification of the `aip_<id>.<sig>` API key |
+| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — every endpoint gated by `requireValidLicense` |
+| [license.go](license.go) | [14-license.md](spec/14-license.md) | Offline Ed25519 license verification and the publishing gates |
 | [skills.go](skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones skills into the app's `.agents/skills/` |
 | [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to ai-proxy |
 | [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog |
@@ -176,14 +176,16 @@ All endpoints are JSON under `/api/*`, registered in [main.go](main.go):
 
 ### Publishing authorization
 
-There is **no client-side gate** on publishing. The frontend always renders the Git Push / Publish controls and always calls the backend — the authorization decision lives entirely on the server. Every `/api/publish/*` handler calls `requirePublishingAuth` ([validate_key.go](validate_key.go)), which:
+There is **no client-side gate** on publishing. The frontend always renders the Git Push / Publish controls and always calls the backend — the authorization decision lives entirely on the server. It is an offline, Ed25519-signed **license** (`lic_<payload>.<sig>`) held in the workspace config and verified against `master_key_pub`, which is committed and embedded in the binary, so no network access is involved. Two gates live in [license.go](license.go), both answering **HTTP 402**:
 
-1. Reads the merged config's `api_key` and `base_url`.
-2. Fetches `<origin>/.well-known/ai-proxy-pubkey` (cached for the lifetime of the process).
-3. Validates the Ed25519 signature embedded in the `aip_<id>.<sig>` key against that public key.
-4. On **any** failure, returns `403 {"error": "Publishing not authorized: <reason>"}`.
+1. `requireValidLicense` — called by **all three** `/api/publish/*` handlers. It checks the signature and the expiry only; the license's `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`.
+2. `requireLicensedHost` — called by `handlePublishRemote` alone, after the production config is resolved and before `ops ide login` runs, so nothing touches an unlicensed cluster. It matches `OPS_APIHOST` against the license `hosts` exactly — no wildcards. On mismatch: `{"error": "Host not licensed: <apihost> is not covered by your license"}`.
 
-The frontend keys off the exact `"Publishing not authorized"` prefix to show a friendly modal instead of a raw error. **When changing this wording, keep the prefix intact** — otherwise the frontend gate breaks.
+An expired license is invalid outright, so git push stops too. The local apihosts (`miniops.me`, `localhost`, `127.0.0.1`, `::1`) skip **only** the host gate — a valid license is still required to publish to them. `/api/git/deploy` (development launch) is not gated at all.
+
+The frontend keys off the exact `"License required"` and `"Host not licensed"` prefixes to show a license modal instead of a raw error. **When changing this wording, keep the prefixes intact** — otherwise the frontend gate breaks.
+
+Licenses are issued with the `trulicense` CLI ([cmd/trulicense/](cmd/trulicense/)), which keeps the Ed25519 signing key in 1Password (vault `TrustableLicenses`, item `MasterKey Trustable`) rather than on disk, and archives every issued license in the same vault. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 
