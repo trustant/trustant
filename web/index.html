@@ -21,12 +21,12 @@
     <!-- Provider Choice Modal -->
     <div id="providerModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-40">
         <div class="nu-modal p-6 w-full max-w-4xl mx-4">
-            <h3 class="text-xl font-light mb-2 text-center">Select your AI provider</h3>
+            <h3 class="text-3xl font-light mb-2 text-center">Select your AI provider</h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-5 items-stretch">
 
                 <button onclick="selectOllama()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
-                    <div class="font-medium text-lg mb-1">Cloud AI</div>
+                    <div class="font-medium text-2xl mb-1">Cloud AI</div>
                     <div class="text-sm text-[color:var(--nu-ink)]">subscription based AI</div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-1">powered by Ollama Cloud</div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-3">you need to register in Ollama Cloud to use cloud models, signing is free and include a free allowance that you can upgrade for more capacity</div>
@@ -35,7 +35,7 @@
 
                 <button onclick="selectTrustable()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
-                    <div class="font-medium text-lg mb-1">Sovereign AI</div>
+                    <div class="font-medium text-2xl mb-1">Sovereign AI</div>
                     <div class="text-sm text-[color:var(--nu-ink)]">credit based AI</div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-1">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="nu-link">Regolo.AI</a></div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-3">100 Credits FREE when registering</div>
@@ -44,46 +44,13 @@
 
                 <button onclick="selectPrivate()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
-                    <div class="font-medium text-lg mb-1">Private AI</div>
+                    <div class="font-medium text-2xl mb-1">Private AI</div>
                     <div class="text-sm text-[color:var(--nu-ink)]">no token required</div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-1">your own AI hardware</div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-3">Connect your own OpenAI-compatible endpoint. Nothing leaves your infrastructure — models are discovered directly from the endpoint you provide.</div>
                     <img src="privateai-head.png" alt="Private AI" class="h-20 w-auto mt-auto pt-5 self-center">
                 </button>
 
-            </div>
-        </div>
-    </div>
-
-    <!-- Ollama Mode Sub-Modal -->
-    <div id="ollamaModeModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
-        <div class="nu-modal p-6 w-full max-w-md mx-4">
-            <h3 class="text-xl font-light mb-4 text-center">Choose Ollama mode</h3>
-            <div class="space-y-3">
-                <label class="nu-card flex items-start gap-3 p-3 cursor-pointer">
-                    <input type="radio" name="ollamaMode" value="internal" class="mt-1" checked>
-                    <span>
-                        <span class="block font-medium">Use internal Ollama with recommended cloud models</span>
-                        <span class="block text-sm text-[color:var(--nu-muted)]">Embedded Ollama server bundled with Trustable.</span>
-                    </span>
-                </label>
-                <label class="nu-card flex items-start gap-3 p-3 cursor-pointer">
-                    <input type="radio" name="ollamaMode" value="own" class="mt-1">
-                    <span>
-                        <span class="block font-medium">Use my own Ollama with currently installed models</span>
-                        <span class="block text-sm text-[color:var(--nu-muted)]">Point Trustable at an Ollama server on your network. You'll be asked for its host on the next screen.</span>
-                    </span>
-                </label>
-            </div>
-            <div class="flex gap-3 mt-6">
-                <button onclick="cancelOllamaMode()"
-                    class="nu-btn nu-btn-secondary flex-1">
-                    Back
-                </button>
-                <button onclick="confirmOllamaMode()"
-                    class="nu-btn nu-btn-primary flex-1">
-                    Continue
-                </button>
             </div>
         </div>
     </div>
@@ -230,31 +197,12 @@
             return '';
         }
 
-        function selectOllama() {
+        // Cloud AI is always the internal Ollama server with the recommended
+        // cloud models. Pointing Trustable at a user-supplied Ollama host is
+        // now covered by the Private AI card, so there is no mode sub-modal.
+        async function selectOllama() {
             hideProviderModal();
-            const modal = document.getElementById('ollamaModeModal');
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        }
-
-        function cancelOllamaMode() {
-            const modal = document.getElementById('ollamaModeModal');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-            showProviderModal();
-        }
-
-        async function confirmOllamaMode() {
-            const choice = document.querySelector('input[name="ollamaMode"]:checked');
-            const mode = choice ? choice.value : 'internal';
-            const modal = document.getElementById('ollamaModeModal');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-            if (mode === 'own') {
-                await selectOllamaOwnHost();
-            } else {
-                await selectOllamaInternal();
-            }
+            await selectOllamaInternal();
         }
 
         async function selectOllamaInternal() {
@@ -281,41 +229,6 @@
             delete cfg.model_version;
             delete cfg.env;
             await saveAndRunConfiguration(cfg);
-        }
-
-        // "Own host" mode: persist a minimal ollama config (empty base_url,
-        // empty models) and route the user to configure.html where they
-        // enter the LAN host, test it, and pull /api/tags.
-        async function selectOllamaOwnHost() {
-            const cfg = Object.assign({}, currentConfig || {}, {
-                provider: 'ollama',
-                base_url: '',
-                api_key: 'dummy',
-                models: {},
-                pi: { default: '' }
-            });
-            cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
-            // Drop legacy fields if present.
-            delete cfg.opencode;
-            delete cfg.model_version;
-            delete cfg.env;
-            try {
-                const resp = await fetch('/api/configuration', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(cfg)
-                });
-                if (!resp.ok) {
-                    alert('Failed to save configuration: ' + (await resp.text()));
-                    showProviderModal();
-                    return;
-                }
-            } catch (e) {
-                alert('Failed to save configuration: ' + e.message);
-                showProviderModal();
-                return;
-            }
-            window.location.href = 'configure.html?ollama=own';
         }
 
         async function selectTrustable() {

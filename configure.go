@@ -769,6 +769,46 @@ func resolveOllamaRoot(cfg *trustableConfig) (root string, isOwnHost bool) {
 	return stripped, true
 }
 
+// normalizeOllamaModelName collapses the two spellings Ollama uses for the same
+// model: a model pulled as "foo" is reported by /api/tags as "foo:latest".
+func normalizeOllamaModelName(name string) string {
+	return strings.TrimSuffix(strings.TrimSpace(name), ":latest")
+}
+
+// installedOllamaModels lists the model names already present on the target
+// Ollama endpoint via GET <root>/api/tags. A failure returns a nil set and a
+// non-nil error: callers fall back to pulling everything rather than silently
+// skipping an install that never happened.
+func installedOllamaModels(root string) (map[string]bool, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(strings.TrimRight(root, "/") + "/api/tags")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var payload struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	installed := make(map[string]bool, len(payload.Models)*2)
+	for _, m := range payload.Models {
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			continue
+		}
+		installed[name] = true
+		installed[normalizeOllamaModelName(name)] = true
+	}
+	return installed, nil
+}
+
 const (
 	piLocalProviderName     = "local"
 	piOllamaProviderName    = "ollama"
@@ -1247,8 +1287,23 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		if isOwnHost {
 			sendMsg("OK: Skipping model pull (using your own Ollama host — models are already installed there)")
 		} else {
+			// Pull only what is missing. The models are already present after
+			// the first configuration, and this loop reruns on every provider
+			// re-selection, every retry after a sign-in, and every catalog
+			// version bump — at 600s per model on a path the user watches.
+			// A /api/tags failure fails open (pull everything) so an
+			// unexpected endpoint keeps the previous behaviour.
+			installed, tagsErr := installedOllamaModels(ollamaRoot)
+			if tagsErr != nil {
+				sendMsg("OK: Could not list installed models (" + tagsErr.Error() + ") — pulling all")
+			}
 			client := &http.Client{Timeout: 600 * time.Second}
 			for modelName := range cfg.Models {
+				if installed[modelName] || installed[normalizeOllamaModelName(modelName)] {
+					sendMsg("OK: " + modelName + " already installed")
+					log.Printf("  - ✓ %s already installed", modelName)
+					continue
+				}
 				sendMsg("Pulling model " + modelName)
 				log.Printf("  - Pulling %s...", modelName)
 
@@ -2047,9 +2102,11 @@ type testModelResult struct {
 	Error        string
 }
 
-// runTestModel sends a "hello" prompt to Pi's configured default model using
-// the resolved provider URL and cfg.APIKey. Pi has no small-model role, so the
+// runTestModel asks Pi's configured default model to reply "OK" using the
+// resolved provider URL and cfg.APIKey. Pi has no small-model role, so the
 // connectivity probe must exercise the exact model the coding session will use.
+// Asserting on the reply content — not merely on a well-formed response —
+// catches a model that answers but is not actually usable.
 func runTestModel(cfg *trustableConfig) testModelResult {
 	if cfg == nil {
 		return testModelResult{Error: "configuration not loaded"}
@@ -2074,7 +2131,7 @@ func runTestModel(cfg *trustableConfig) testModelResult {
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{
-			{"role": "user", "content": "hello"},
+			{"role": "user", "content": "Reply with exactly: OK"},
 		},
 		"stream": false,
 	})
@@ -2105,7 +2162,35 @@ func runTestModel(cfg *trustableConfig) testModelResult {
 		return testModelResult{Warning: message}
 	}
 
+	// A well-formed completion is not proof the model is usable. Require it to
+	// actually confirm. "Contains ok" tolerates small models adding punctuation
+	// or a stray word while still failing on refusals and empty completions.
+	var completion struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &completion); err != nil || len(completion.Choices) == 0 {
+		return testModelResult{Warning: "model did not confirm: " + truncateForWarning(bodyStr)}
+	}
+	content := strings.TrimSpace(completion.Choices[0].Message.Content)
+	if !strings.Contains(strings.ToLower(content), "ok") {
+		return testModelResult{Warning: "model did not confirm: " + truncateForWarning(content)}
+	}
+
 	return testModelResult{OK: true}
+}
+
+// truncateForWarning keeps a failed probe's reply short enough to render in the
+// configure stream and the splash alert.
+func truncateForWarning(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 80 {
+		return s[:80]
+	}
+	return s
 }
 
 func handleTestModel(w http.ResponseWriter, r *http.Request) {

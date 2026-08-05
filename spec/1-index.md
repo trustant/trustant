@@ -78,19 +78,17 @@ Card body copy:
 
 - **Cloud AI** — "you need to register in Ollama Cloud to use cloud models,
   signing is free and include a free allowance that you can upgrade for more
-  capacity". Picking this card opens a second sub-modal that asks the user to
-  pick between **Use internal Ollama with recommended cloud models** and **Use my
-  own Ollama with currently installed models** (see "Ollama mode selection" in
-  [2a-config.md](2a-config.md)).
+  capacity". Picking this card goes straight to the internal-Ollama flow below —
+  there is no mode sub-modal.
 - **Sovereign AI** — "100 Credits FREE when registering", and nothing else.
 - **Private AI** — describes the user-supplied OpenAI-compatible endpoint. Opens
   the Private AI dialog (see "## Private AI selected").
 
-## Ollama selected
+## Cloud AI selected
 
-After the user picks one of the two Ollama-mode cards, branch:
-
-### Internal selected
+Cloud AI is always the internal Ollama server with the recommended cloud models.
+Pointing Trustable at a user-supplied Ollama host is covered by the **Private
+AI** card, so the splash asks no further questions:
 
 1. `POST /api/configuration` with the merged config plus:
    - `provider: "ollama"`
@@ -100,18 +98,12 @@ After the user picks one of the two Ollama-mode cards, branch:
    - `model_versions.ollama = status.ollama.modelsVersion`
 
    The dummy `api_key` will fail Ed25519 verification at the publish endpoints, which is the intended behavior for Ollama — see [6-publish.md](6-publish.md).
-2. Hide the modal and run the **full** Configuration flow (connectivity check + model pull + say-hello test).
+2. Hide the modal and run the **full** Configuration flow (connectivity check + model pull + say-OK test).
 
-### My own selected
-
-1. `POST /api/configuration` with the merged config plus:
-   - `provider: "ollama"`
-   - `base_url: ""`
-   - `api_key: "dummy"`
-   - `models: {}`
-   - `pi: { "default": "" }`
-   - `model_versions.ollama = status.ollama.modelsVersion` (recorded so a future bump doesn't trigger a reselect — own-host is exempt regardless)
-2. Navigate to `configure.html?ollama=own`. The splash Configuration flow does **not** run; the user completes setup on the configure screen by entering their LAN host, clicking Test to discover models, picking the Pi model, and clicking Save & Configure.
+There is no splash path that persists an own-host Ollama configuration. Existing
+workspaces saved that way before this change keep working — `configure.html`
+still honours `?ollama=own` and the reselect exemption below still applies to
+them — but new users reach the same outcome through **Private AI**.
 
 ## Trustable Cloud selected
 
@@ -135,7 +127,7 @@ After the user picks one of the two Ollama-mode cards, branch:
    - `model_versions.trustable = status.trustable.modelsVersion`
 
    then `POST /api/configuration`.
-4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-hello test runs.
+4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-OK test runs.
 
 ## Private AI selected
 
@@ -177,7 +169,7 @@ persisted:
    [pi.md](pi.md)), and the `models` / `pi.default` computed above. The legacy
    `opencode` / `model_version` / `env` fields are dropped as in the other flows.
 5. Run the normal `saveAndRunConfiguration(cfg)` path so the streamed
-   Configuration flow and the say-hello test run, then land on `applist.html`.
+   Configuration flow and the say-OK test run, then land on `applist.html`.
 
 Unlike own-host Ollama, Private AI does **not** route through `configure.html`
 for setup: the endpoint is known and its models are already discovered.
@@ -192,7 +184,9 @@ When `provider == "trustable"` the backend skips the Ollama connectivity check a
 The same applies when `provider == "private"`: the backend skips the Ollama connectivity check and model-pull and streams `OK: Skipping Ollama setup (Private AI)`. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop. Its model list comes from `POST /api/discover-models` (run in the Private AI dialog), not the status catalog.
 
 Then invoke the OpenAI-compatible API using `base_url`, `api_key`, and
-`pi.default` from `trustable.json`, asking hello.
+`pi.default` from `trustable.json`, prompting `Reply with exactly: OK` and
+requiring the reply to contain `ok` (see "GET /api/testmodel" in
+[2a-config.md](2a-config.md)).
 
 If the connectivity probe returns an authentication error **and** `provider == "ollama"`, show a sign-in required popup. This applies both to the structured `testmodel.auth_required` result returned while saving configuration and to the `AUTH_REQUIRED:` marker emitted by the streamed `/api/configure` Pi gate. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
 

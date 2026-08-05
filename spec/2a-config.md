@@ -66,7 +66,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 
 The base config has no `apps` or `provider` section. Those live only in the workspace config.
 
-There is no top-level `testmodel` field. The model used for the say-hello
+There is no top-level `testmodel` field. The model used for the say-OK
 connection test is always `pi.default`.
 
 All fields in the workspace config use `omitempty` — absent fields inherit from the base.
@@ -196,10 +196,22 @@ current `status.ollama.modelsVersion`.
 
 ## Ollama mode selection
 
-When the user picks **Ollama** on the splash provider-choice modal, a sub-modal asks them to pick between two modes:
+Picking **Cloud AI** on the splash provider-choice modal always selects the
+internal Ollama server: `base_url = "http://localhost:11434/v1"`, `models` and
+`pi.default` seeded from `status.ollama` (see "Per-provider seeding"), and `GET
+/api/configure` proceeds to check connectivity and pull each model. There is no
+mode sub-modal.
 
-- **Use internal Ollama with recommended cloud models** — the existing behavior: `base_url = "http://localhost:11434/v1"`, `models` and `pi.default` are seeded from `status.ollama` (see "Per-provider seeding"), and `GET /api/configure` proceeds to check connectivity and pull each model.
-- **Use my own Ollama with currently installed models** — a minimal workspace config is persisted (`provider="ollama"`, `base_url=""`, `models={}`, `pi={default:""}`, `model_versions.ollama = status.ollama.modelsVersion`) and the user is routed to `configure.html?ollama=own` to enter their LAN host. No model pull runs at this stage. The recorded `modelsVersion` is never used as a reselect trigger for this mode (own-host is exempt).
+Pointing Trustable at a user-supplied Ollama host is superseded by the **Private
+AI** card, which accepts any OpenAI-compatible endpoint (Ollama's `/v1` included)
+and discovers its models the same way. The splash therefore never persists a new
+own-host Ollama configuration.
+
+The own-host machinery below is retained for **workspaces already configured
+that way** before this change: `configure.html?ollama=own` still renders the
+host editor, `resolveOllamaRoot` still resolves a non-localhost host, and the
+reselect exemption in "Exception — own-host Ollama" still applies. Those paths
+are no longer reachable from a first-run provider choice.
 
 On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** builds `base_url = "http://<host>:<port>/v1"` from the inputs and calls `POST /api/discover-models` with that `base_url` and `api_key = "dummy"`. On success the frontend writes the same `base_url` into `config.base_url`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.pi.default` so the user makes an explicit selection.
 
@@ -232,7 +244,7 @@ previously-saved limits and Pi selection. The model table is **editable**
 (Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is
 hidden (there is no `status.private` catalog). `model_versions` and the
 `?reselect=1` redirect do not apply (discover-models-backed, like own-host
-Ollama). **Save & Configure** runs the say-hello test against the stored
+Ollama). **Save & Configure** runs the say-OK test against the stored
 endpoint's `/chat/completions`.
 
 ## POST /api/discover-models
@@ -439,7 +451,7 @@ The behaviour depends on the merged config's `provider`:
 - **`provider == "trustable"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustable Cloud)` so the UI shows progress, then write global Pi configuration when `pi.default` is present.
 - **`provider == "private"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Private AI)`, then write global Pi configuration when `pi.default` is present. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop.
 
-In both cases the frontend separately calls `GET /api/testmodel` after the configure stream ends to run the say-hello connection test.
+In both cases the frontend separately calls `GET /api/testmodel` after the configure stream ends to run the say-OK connection test.
 
 ## Step 1: Check Ollama connectivity (with retries) — Ollama only
 
@@ -453,7 +465,16 @@ If Ollama cannot be reached, stop here — do not proceed to pull models. The fr
 
 ## Step 2: Pull models — Ollama, internal mode only
 
-For **internal** Ollama, connect to the resolved Ollama endpoint and pull every model listed under `models`, returning in streaming mode messages `Pulling model <name>`.
+For **internal** Ollama, connect to the resolved Ollama endpoint and pull the models listed under `models` that are **not already installed**.
+
+Installed models are detected by a single `GET <root>/api/tags` call before the loop. Ollama reports a model pulled as `foo` under the name `foo:latest`, so both the raw name and the `:latest`-stripped name are indexed and the configured id is looked up under the same normalisation. Then, per model:
+
+- already installed → stream `OK: <name> already installed`, no HTTP pull;
+- missing → pull as before, streaming `Pulling model <name>` then `OK: <name> pulled`.
+
+If `/api/tags` itself fails, stream `OK: Could not list installed models (<err>) — pulling all` and pull every model. Failing open keeps the previous behaviour on an unexpected endpoint rather than silently skipping an install that never happened.
+
+This matters because the models are already present after the first configuration, while the flow reruns on every provider re-selection, every retry after an `AUTH_REQUIRED` sign-in, and every catalog version bump — at a 600s client timeout per model, on a screen the user sits and watches. No pull state is persisted in `trustable.json`: the `/api/tags` check is self-healing, so a manually deleted model is re-pulled and the detection cannot go stale.
 
 For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this step is skipped — the models were discovered via `POST /api/discover-models` against `<base_url>/models` on that host and are already installed there. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)`.
 
@@ -513,7 +534,7 @@ The unified save endpoint used by `configure.html` and by the splash provider-ch
    Omitting it preserves the current token; `notebook.clear_token=true`
    explicitly removes it. Repository/ref are validated and normalized before
    persistence.
-2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (hello prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process. An Ollama authentication failure is preserved as `testmodel.auth_required` in the save response and as `AUTH_REQUIRED:` in the streamed Configure gate. The browser opens the managed Ollama Cloud sign-in modal and reruns the complete gate after Retry, ensuring the Pi global configuration is written only after the model succeeds.
+2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (say-OK prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process. An Ollama authentication failure is preserved as `testmodel.auth_required` in the save response and as `AUTH_REQUIRED:` in the streamed Configure gate. The browser opens the managed Ollama Cloud sign-in modal and reruns the complete gate after Retry, ensuring the Pi global configuration is written only after the model succeeds.
 3. **Write global Pi configuration** — only when testmodel succeeds, merge the Trustable provider into `models.json`, `settings.json`, and `auth.json`. On test failure the previously working files remain unchanged.
 
 This endpoint does not write any per-app agent configuration. App launch does
@@ -539,8 +560,23 @@ Rationale for the single endpoint: testmodel must see the just-persisted config.
 
 # GET /api/testmodel
 
-Tests the AI model connection by sending a "hello" prompt to `pi.default` from
-the merged config, using the resolved provider URL and `api_key`. For internal
+Tests the AI model connection by prompting `pi.default` from the merged config
+with `Reply with exactly: OK`, using the resolved provider URL and `api_key`.
+
+The reply is asserted, not merely its shape: the probe passes when
+`choices[0].message.content`, trimmed and lowercased, **contains** `ok`. That
+tolerates a small model adding punctuation or a stray word while still failing
+on errors, refusals, and empty completions — a well-formed completion alone is
+not proof the model is usable for coding. A non-confirming reply becomes
+`model did not confirm: <first 80 chars of the reply>`.
+
+The same probe is shared by `GET /api/configure` and `POST /api/configuration`,
+so all three entry points apply one consistent gate. Authentication failures
+still take precedence over the content assertion: an Ollama sign-in error is
+classified `auth_required` so the splash opens the Ollama Cloud sign-in modal
+instead of showing a generic failure.
+
+For internal
 Ollama, the resolved URL is derived from `OLLAMA_ENDPOINT` rather than the
 persisted localhost `base_url`; in the Trustable pod that endpoint is the
 pod-local `ollama serve` process. For own-host Ollama, Trustable, and Private AI it
