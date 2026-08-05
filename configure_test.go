@@ -138,6 +138,39 @@ func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
 	}
 }
 
+// Private AI discovers models in the splash dialog but leaves pi.default empty
+// on purpose — the user picks it on configure.html?setup=1. Models-without-a-
+// default must therefore save for this provider, and only this provider.
+func TestValidatePiModelSelectionAllowsPrivateDeferredDefault(t *testing.T) {
+	models := map[string]*ModelLimits{
+		"qwen3-coder:30b": {MaxToken: 131072, MaxOutput: 32768},
+	}
+
+	if err := validatePiModelSelection(&trustableConfig{
+		Provider: "private",
+		Models:   models,
+		Pi:       &piConfig{Default: ""},
+	}); err != nil {
+		t.Fatalf("private endpoint must save before the default is chosen: %s", err)
+	}
+
+	if err := validatePiModelSelection(&trustableConfig{
+		Provider: "private",
+		Models:   models,
+		Pi:       &piConfig{Default: "qwen3-coder:30b"},
+	}); err != nil {
+		t.Fatalf("private endpoint must save once the default is chosen: %s", err)
+	}
+
+	if err := validatePiModelSelection(&trustableConfig{
+		Provider: "ollama",
+		Models:   models,
+		Pi:       &piConfig{Default: ""},
+	}); err == nil {
+		t.Fatal("a non-private provider with models but no default must still be rejected")
+	}
+}
+
 func TestValidatePiModelSelectionRejectsIncompleteTrustableCatalog(t *testing.T) {
 	tests := []struct {
 		name string

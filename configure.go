@@ -693,8 +693,7 @@ func validatePiModelSelection(cfg *trustableConfig) error {
 	}
 
 	// The own-host Ollama choice intentionally persists an empty model set
-	// first; configure.html discovers models in the next step. Private AI does
-	// not appear here — it discovers its models before persisting anything.
+	// first; configure.html discovers models in the next step.
 	if len(models) == 0 && defaultModel == "" {
 		// Trustable Cloud is catalog-backed and has no deferred discovery page.
 		// Rejecting its empty state here prevents a partial status response or
@@ -702,6 +701,14 @@ func validatePiModelSelection(cfg *trustableConfig) error {
 		if cfg.Provider == "trustable" {
 			return fmt.Errorf("Trustable model catalog is empty")
 		}
+		return nil
+	}
+	// Private AI discovers its models in the splash dialog but deliberately
+	// leaves pi.default empty: a user-supplied endpoint publishes no metadata
+	// saying which model suits coding, so the user picks it on
+	// configure.html?setup=1. Models-without-a-default is therefore a valid
+	// intermediate state for this provider only.
+	if defaultModel == "" && cfg.Provider == "private" {
 		return nil
 	}
 	if defaultModel == "" {
