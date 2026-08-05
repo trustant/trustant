@@ -164,7 +164,7 @@ covered hosts and expiry, with controls to replace or remove the license.
 # CLI: `trulicense`
 
 The signing key never touches the local disk in plaintext and issued licenses are
-always archived. Both live in 1Password, vault `NuvolarisLicenses`, reached
+always archived. Both live in 1Password, vault `TrustableLicenses`, reached
 through the `op` CLI with a service-account token. `.op.json` at the repo root
 holds **only** the service token; it is gitignored and is never a key store.
 
@@ -180,13 +180,43 @@ trulicense verify <token>               print payload + validity using master_ke
 Idempotent. In order:
 
 1. **`op` on PATH** — otherwise exit non-zero; nothing else is attempted.
-2. **Service token** — read `{"service_token": "..."}` from `.op.json`. If
-   absent, prompt with terminal echo disabled, verify it reaches the vault, and
-   only then write `.op.json` with mode `0600`. A token that fails the check is
-   **not** saved and `op`'s stderr is shown.
+   [setup.sh](../setup.sh) installs it into `/usr/local/bin`, pinned and
+   checksum-verified against `OP_VERSION` / `OP_SHA_AMD64` / `OP_SHA_ARM64` in
+   [image/Dockerfile](../image/Dockerfile), the same way it installs the GitHub
+   CLI.
+2. **Service token** — read `{"service_token": "..."}` from `.op.json`, else
+   `$OP_SERVICE_ACCOUNT_TOKEN` (the CI path), else prompt with terminal echo
+   disabled. The prompt states that input is hidden and echoes the character
+   count once the line is read, so a blank screen while pasting cannot be
+   mistaken for a hang. The token must start with `ops_`; an empty or malformed one is
+   rejected **before** `op` is invoked, because for such a token `op` reports
+   only *"No accounts configured for use with 1Password CLI"* and offers to add
+   an account — which would send the operator down a sign-in path they do not
+   need. A token that passes the shape check is written to `.op.json` with mode
+   `0600` **before** `op` is invoked, and is kept even when the vault check
+   fails: re-pasting an ~850-character secret to retry is worse than leaving it
+   on disk, and the error names the file to delete in order to enter a different
+   one. `.op.json` is then the single source of `OP_SERVICE_ACCOUNT_TOKEN` for
+   every `op` child process.
+
+   When `op` answers the vault check with *"No accounts configured"* — which it
+   does for any token it cannot decode, most often one truncated on paste — the
+   CLI translates it, since the advice to add an account does not apply to a
+   service account.
+
+   A service account token is sufficient on its own to read and write the vault:
+   no `op account add`, and no 1Password desktop app. `op` is therefore always
+   run with **empty stdin** when no payload is piped, so it can never take over
+   the operator's terminal with an interactive prompt, and `OP_ACCOUNT` is
+   cleared from its environment so a stray account cannot shadow the token.
 3. **`MasterKey Trustable`** — read the keypair if the item exists; otherwise
-   generate a fresh Ed25519 pair and create the item with `private_key`
-   (concealed) and `public_key` (text), both base64.
+   generate a fresh Ed25519 pair and create an **`API Credential`** item with the
+   base64 keys in `private_key` (concealed) and `public_key` (text).
+
+   Items created before this category switch are `Password`-category and keep
+   their secret in the primary password field, so `opItem.field` falls back to
+   that field when `private_key` or `license` is absent. Existing vaults
+   therefore need no migration.
 4. **`master_key_pub`** — write the public key to the repo root, refusing to
    replace a mismatched one without `-force`.
 
@@ -203,8 +233,26 @@ before signing. `-email` / `-hosts` / `-exp` skip the prompts.
 The private key is fetched from the vault at signing time and held in memory
 only. The CLI then prints the token to stdout (summary on stderr, so
 `trulicense ... > out.lic` stays clean) and archives it as an item named
-`Trustable License: <email>`, category `Password`, with fields `email`, `hosts`
-and `license` (concealed).
+`Trustable License: <email>`, category **`API Credential`**, with the token in a
+concealed field named **`license`** and `email` / `hosts` as text fields.
+
+The category matters: `Password` items are only valid with a primary password
+field (`purpose: PASSWORD`), which would force the token to be stored a second
+time under a misleading label. `API Credential` has no such requirement, so every
+secret sits once, in a field named for what it is.
+
+### Share link
+
+After archiving, the CLI creates a 1Password share link for the item, restricted
+to the customer's email and valid for **7 days**, and prints it on stderr.
+
+1Password does **not** send any mail: `--emails` only restricts *who may open*
+the link (the recipient verifies the address with a one-time code). Delivering it
+is the operator's job.
+
+Sharing is a delivery convenience, so a failure never fails the run — the token
+is already printed and archived by then. The CLI reports the problem as a warning
+and exits zero.
 
 ### Progressive suffix
 
@@ -235,7 +283,7 @@ operator never assumes an unarchived license was recorded.
 - `op` stderr is surfaced verbatim on failure — vault-permission problems are the
   most likely error and must not be swallowed.
 
-A 1Password **service account cannot create vaults**, so `NuvolarisLicenses` must
+A 1Password **service account cannot create vaults**, so `TrustableLicenses` must
 already exist and the token must be scoped to it with write access.
 
 # Tests

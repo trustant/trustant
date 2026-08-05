@@ -3,14 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
 const (
-	vaultName     = "NuvolarisLicenses"
+	vaultName     = "TrustableLicenses"
 	masterKeyItem = "MasterKey Trustable"
 	opTokenFile   = ".op.json"
 )
@@ -34,11 +36,25 @@ func (execOpRunner) lookPath() error {
 }
 
 func (execOpRunner) run(token string, stdin string, args ...string) (string, error) {
+	// Every caller obtains this token from ensureToken, which sources it from
+	// .op.json (writing it there first when it came from a prompt or the
+	// environment). An empty one would make op fall back to interactive
+	// sign-in, so refuse rather than let it reach the CLI.
+	if strings.TrimSpace(token) == "" {
+		return "", fmt.Errorf("internal: op invoked without a service token (op %s)", strings.Join(args, " "))
+	}
 	cmd := exec.Command("op", args...)
 	// The token goes through the environment, never on the command line.
-	cmd.Env = append(os.Environ(), "OP_SERVICE_ACCOUNT_TOKEN="+token)
+	// OP_ACCOUNT is cleared so a stray desktop-app account cannot shadow the
+	// service token and send op down the interactive sign-in path.
+	cmd.Env = append(filterEnv(os.Environ(), "OP_ACCOUNT", "OP_SERVICE_ACCOUNT_TOKEN"),
+		"OP_SERVICE_ACCOUNT_TOKEN="+token)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
+	} else {
+		// Never hand op the terminal: without a usable token it would otherwise
+		// prompt for a sign-in address and hang on the operator's TTY.
+		cmd.Stdin = strings.NewReader("")
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -53,6 +69,35 @@ func (execOpRunner) run(token string, stdin string, args ...string) (string, err
 		return "", fmt.Errorf("op %s: %s", strings.Join(args, " "), msg)
 	}
 	return stdout.String(), nil
+}
+
+// filterEnv returns env without any of the named variables.
+func filterEnv(env []string, drop ...string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(drop, name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+// serviceTokenPrefix is the prefix of every 1Password service account token.
+// Checking it locally turns "op has no accounts configured" — which op prints
+// for an empty or malformed token, never naming the token as the cause — into a
+// message that says what is actually wrong.
+const serviceTokenPrefix = "ops_"
+
+func validateServiceToken(token string) error {
+	switch {
+	case token == "":
+		return errors.New("the service token is empty (a terminal paste with echo off can silently produce nothing)")
+	case !strings.HasPrefix(token, serviceTokenPrefix):
+		return fmt.Errorf("does not look like a 1Password service account token: expected it to start with %q", serviceTokenPrefix)
+	}
+	return nil
 }
 
 // opField is one field of a 1Password item.
@@ -81,6 +126,16 @@ func (i *opItem) field(label string) string {
 	for _, f := range i.Fields {
 		if strings.EqualFold(f.Label, label) || strings.EqualFold(f.ID, label) {
 			return f.Value
+		}
+	}
+	// Items created before the switch to API_CREDENTIAL are PASSWORD-category
+	// and keep their secret in the primary password field. Keep reading those
+	// so an existing vault does not need migrating.
+	if strings.EqualFold(label, "private_key") || strings.EqualFold(label, "license") {
+		for _, f := range i.Fields {
+			if f.Purpose == "PASSWORD" {
+				return f.Value
+			}
 		}
 	}
 	return ""
@@ -161,6 +216,25 @@ func listItemTitles(r opRunner, token string) ([]string, error) {
 		titles = append(titles, it.Title)
 	}
 	return titles, nil
+}
+
+// shareExpiry is how long an issued license's share link stays valid.
+const shareExpiry = "7d"
+
+// shareItem returns a 1Password share link for an item, restricted to the
+// customer's email so only they can open it. 1Password does NOT send the mail:
+// the link is printed for the operator to deliver.
+func shareItem(r opRunner, token, title, email string) (string, error) {
+	out, err := r.run(token, "", "item", "share", title,
+		"--vault", vaultName, "--emails", email, "--expires-in", shareExpiry)
+	if err != nil {
+		return "", err
+	}
+	link := strings.TrimSpace(out)
+	if link == "" {
+		return "", errors.New("op returned no share link")
+	}
+	return link, nil
 }
 
 // createItem creates an item from a JSON template piped on stdin, so secret

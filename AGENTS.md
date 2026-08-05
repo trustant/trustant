@@ -138,7 +138,7 @@ An expired license invalidates everything, git push included. Local apihosts (`m
 
 The frontend recognizes the `"License required"` and `"Host not licensed"` prefixes and shows a license modal (see `showLicenseModal` in [web/applist.html](web/applist.html)). When changing the error wording, keep those prefixes intact or the frontend gate breaks.
 
-Licenses are issued by the `trulicense` CLI ([cmd/trulicense/](cmd/trulicense/)), which keeps the signing key in 1Password (vault `NuvolarisLicenses`) and archives every license it issues. See [spec/14-license.md](spec/14-license.md).
+Licenses are issued by the `trulicense` CLI ([cmd/trulicense/](cmd/trulicense/)), which keeps the signing key in 1Password (vault `TrustableLicenses`) and archives every license it issues. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 

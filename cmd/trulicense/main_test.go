@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,12 +15,14 @@ import (
 // fakeOp is an in-memory stand-in for the `op` CLI, so tests never touch a real
 // vault. It records every invocation for argv assertions.
 type fakeOp struct {
-	items     map[string]opItem // by title
-	calls     [][]string        // recorded argv
-	stdins    []string          // recorded stdin
-	missing   bool              // simulate op not on PATH
-	listFails bool              // simulate `op item list` failing
-	badToken  string            // this token is rejected by `vault get`
+	items       map[string]opItem // by title
+	calls       [][]string        // recorded argv
+	stdins      []string          // recorded stdin
+	missing     bool              // simulate op not on PATH
+	listFails   bool              // simulate `op item list` failing
+	badToken    string            // this token is rejected by `vault get`
+	badTokenErr error             // what `vault get` returns for it (default: auth failure)
+	shareFails  bool              // simulate `op item share` being refused
 }
 
 func newFakeOp() *fakeOp {
@@ -40,6 +43,9 @@ func (f *fakeOp) run(token, stdin string, args ...string) (string, error) {
 	switch {
 	case len(args) >= 2 && args[0] == "vault" && args[1] == "get":
 		if f.badToken != "" && token == f.badToken {
+			if f.badTokenErr != nil {
+				return "", f.badTokenErr
+			}
 			return "", fmt.Errorf("authentication failed")
 		}
 		return `{"name":"` + vaultName + `"}`, nil
@@ -63,6 +69,15 @@ func (f *fakeOp) run(token, stdin string, args ...string) (string, error) {
 		out, _ := json.Marshal(list)
 		return string(out), nil
 
+	case len(args) >= 2 && args[0] == "item" && args[1] == "share":
+		if f.shareFails {
+			return "", fmt.Errorf("sharing is not permitted for this account")
+		}
+		if _, ok := f.items[args[2]]; !ok {
+			return "", fmt.Errorf("%q isn't an item in the %q vault", args[2], vaultName)
+		}
+		return "https://share.1password.com/s#fake-link\n", nil
+
 	case len(args) >= 2 && args[0] == "item" && args[1] == "create":
 		var item opItem
 		if err := json.Unmarshal([]byte(stdin), &item); err != nil {
@@ -71,10 +86,24 @@ func (f *fakeOp) run(token, stdin string, args ...string) (string, error) {
 		if _, exists := f.items[item.Title]; exists {
 			return "", fmt.Errorf("item %q already exists", item.Title)
 		}
+		// Mirror the real CLI's validator: a PASSWORD-category item without a
+		// primary password field is rejected.
+		if item.Category == "PASSWORD" && !hasPrimaryPassword(item) {
+			return "", fmt.Errorf(`[ERROR] Validation: Couldn't validate the item: "Password item requires ps value"`)
+		}
 		f.items[item.Title] = item
 		return stdin, nil
 	}
 	return "", fmt.Errorf("unexpected op invocation: %v", args)
+}
+
+func hasPrimaryPassword(item opItem) bool {
+	for _, fld := range item.Fields {
+		if fld.Purpose == "PASSWORD" && fld.Value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *fakeOp) createdTitles() []string {
@@ -247,7 +276,10 @@ func TestMissingOpBinaryFails(t *testing.T) {
 	}
 }
 
-func TestRejectedServiceTokenIsNotSaved(t *testing.T) {
+// A well-formed token that the vault rejects is still kept: re-pasting an
+// ~850-character secret to retry is worse than leaving it on disk, and the
+// error tells the operator to delete the file to enter a different one.
+func TestRejectedServiceTokenIsSavedForRetry(t *testing.T) {
 	f := newFakeOp()
 	f.badToken = "ops_wrong"
 	dir := t.TempDir() // no .op.json
@@ -256,8 +288,56 @@ func TestRejectedServiceTokenIsNotSaved(t *testing.T) {
 	if err == nil {
 		t.Fatal("keygen accepted a token that cannot reach the vault")
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, opTokenFile)); statErr == nil {
-		t.Error(".op.json was written for a rejected token")
+	saved, readErr := readToken(filepath.Join(dir, opTokenFile))
+	if readErr != nil || saved != "ops_wrong" {
+		t.Errorf("token was not persisted for retry: got %q, %v", saved, readErr)
+	}
+	if !strings.Contains(err.Error(), opTokenFile) {
+		t.Errorf("error does not tell the operator where the token was saved: %v", err)
+	}
+}
+
+// op answers an undecodable token with advice about configuring an account,
+// which does not apply to a service account. That must be translated.
+func TestNoAccountsConfiguredIsExplained(t *testing.T) {
+	f := newFakeOp()
+	f.badToken = "ops_undecodable"
+	f.badTokenErr = errors.New("No accounts configured for use with 1Password CLI.")
+	dir := t.TempDir()
+
+	_, _, err := runCLI(t, f, dir, "ops_undecodable\n", "keygen")
+	if err == nil {
+		t.Fatal("keygen accepted an undecodable token")
+	}
+	if !strings.Contains(err.Error(), "it is the token that is wrong") {
+		t.Errorf("the \"No accounts configured\" message was passed through unexplained: %v", err)
+	}
+}
+
+// A hidden paste that lands as nothing, or a token pasted in the wrong shape,
+// must be named as such. Handing either to op yields only "No accounts
+// configured for use with 1Password CLI", which sends the operator off adding
+// an account they do not need.
+func TestMalformedServiceTokenIsRejectedWithoutCallingOp(t *testing.T) {
+	for _, tc := range []struct{ name, typed string }{
+		{"empty paste", "\n"},
+		{"not a service token", "my.1password.com\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeOp()
+			dir := t.TempDir() // no .op.json
+
+			_, _, err := runCLI(t, f, dir, tc.typed, "keygen")
+			if err == nil {
+				t.Fatal("keygen accepted a malformed service token")
+			}
+			if len(f.calls) != 0 {
+				t.Errorf("op was invoked with an unusable token: %v", f.calls)
+			}
+			if _, statErr := os.Stat(filepath.Join(dir, opTokenFile)); statErr == nil {
+				t.Error(".op.json was written for a malformed token")
+			}
+		})
 	}
 }
 
@@ -354,6 +434,135 @@ func TestIssueSignsAndArchives(t *testing.T) {
 				t.Fatal("license token leaked into the op command line")
 			}
 		}
+	}
+}
+
+// The token belongs in exactly one field, named "license". Storing it a second
+// time in a primary "password" field — which the PASSWORD category would have
+// required — is what API_CREDENTIAL avoids.
+func TestArchivedItemStoresTokenOnlyInLicenseField(t *testing.T) {
+	f := newFakeOp()
+	dir := testDir(t)
+	seedMasterKey(t, f, dir)
+
+	stdout, _, err := runCLI(t, f, dir, "", "-email", "a@b.c", "-hosts", "https://a.example.com")
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	token := strings.TrimSpace(stdout)
+
+	item := f.items[licenseItemPrefix+"a@b.c"]
+	if item.Category != "API_CREDENTIAL" {
+		t.Errorf("category = %q, want API_CREDENTIAL", item.Category)
+	}
+	var holding []string
+	for _, fld := range item.Fields {
+		if fld.Value == token {
+			holding = append(holding, fld.Label)
+		}
+		if fld.Purpose == "PASSWORD" {
+			t.Errorf("item still carries a primary password field (%q)", fld.Label)
+		}
+	}
+	if len(holding) != 1 || holding[0] != "license" {
+		t.Errorf("token is held by fields %v, want exactly [license]", holding)
+	}
+}
+
+// The master key gets the same treatment: named fields, no "password" label.
+func TestMasterKeyStoresNamedFieldsOnly(t *testing.T) {
+	f := newFakeOp()
+	dir := t.TempDir()
+	if err := writeToken(filepath.Join(dir, opTokenFile), "ops_test_token"); err != nil {
+		t.Fatalf("seed token: %v", err)
+	}
+
+	if _, _, err := runCLI(t, f, dir, "", "keygen"); err != nil {
+		t.Fatalf("keygen: %v", err)
+	}
+	item := f.items[masterKeyItem]
+	if item.Category != "API_CREDENTIAL" {
+		t.Errorf("category = %q, want API_CREDENTIAL", item.Category)
+	}
+	for _, fld := range item.Fields {
+		if fld.Purpose == "PASSWORD" || strings.EqualFold(fld.Label, "password") {
+			t.Errorf("master key still uses a password field (%q)", fld.Label)
+		}
+	}
+	if item.field("private_key") == "" {
+		t.Error("private_key field is empty")
+	}
+	if item.field("public_key") == "" {
+		t.Error("public_key field is empty")
+	}
+}
+
+// Items created before the API_CREDENTIAL switch keep their secret in the
+// primary password field and must still be readable without migration.
+func TestLegacyPasswordItemIsStillReadable(t *testing.T) {
+	legacy := opItem{
+		Title:    masterKeyItem,
+		Category: "PASSWORD",
+		Fields: []opField{
+			{ID: "password", Label: "password", Type: "CONCEALED", Purpose: "PASSWORD", Value: "legacy-secret"},
+			{Label: "public_key", Type: "STRING", Value: "pub"},
+		},
+	}
+	if got := legacy.field("private_key"); got != "legacy-secret" {
+		t.Errorf("private_key = %q, want the primary password value", got)
+	}
+}
+
+func TestIssuePrintsShareLink(t *testing.T) {
+	f := newFakeOp()
+	dir := testDir(t)
+	seedMasterKey(t, f, dir)
+
+	_, stderr, err := runCLI(t, f, dir, "", "-email", "a@b.c", "-hosts", "https://a.example.com")
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	if !strings.Contains(stderr, "https://share.1password.com/s#fake-link") {
+		t.Errorf("share link was not printed:\n%s", stderr)
+	}
+
+	// The link must be restricted to the customer and expire in 7 days.
+	var shareArgs []string
+	for _, args := range f.calls {
+		if len(args) >= 2 && args[0] == "item" && args[1] == "share" {
+			shareArgs = args
+		}
+	}
+	if shareArgs == nil {
+		t.Fatal("op item share was never invoked")
+	}
+	joined := strings.Join(shareArgs, " ")
+	for _, want := range []string{"--emails a@b.c", "--expires-in 7d", "--vault " + vaultName} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("share argv %q is missing %q", joined, want)
+		}
+	}
+}
+
+// Sharing is a delivery convenience; losing it must not fail an issued license.
+func TestShareFailureDoesNotFailIssuing(t *testing.T) {
+	f := newFakeOp()
+	f.shareFails = true
+	dir := testDir(t)
+	seedMasterKey(t, f, dir)
+
+	stdout, stderr, err := runCLI(t, f, dir, "", "-email", "a@b.c", "-hosts", "https://a.example.com")
+	if err != nil {
+		t.Fatalf("a failed share aborted issuing: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(stdout), licensePrefix) {
+		t.Error("the token must still be printed when sharing fails")
+	}
+	if _, ok := f.items[licenseItemPrefix+"a@b.c"]; !ok {
+		t.Error("the license must still be archived when sharing fails")
+	}
+	if !strings.Contains(stderr, "could not create a share link") {
+		t.Errorf("the share failure was not reported:\n%s", stderr)
 	}
 }
 
@@ -530,11 +739,26 @@ func TestVerifyCommand(t *testing.T) {
 		t.Errorf("verify output = %q", out)
 	}
 
-	// A tampered token must fail.
-	tampered := token[:len(token)-2] + "AA"
+	// A tampered token must fail. Edit the payload, not the trailing signature
+	// character: base64 is unpadded here, so the final character carries spare
+	// bits and flipping it can decode to the very same signature bytes.
+	body, sigPart, _ := strings.Cut(strings.TrimPrefix(token, licensePrefix), ".")
+	tampered := licensePrefix + flipFirstRune(body) + "." + sigPart
 	if _, _, err := runCLI(t, f, dir, "", "verify", tampered); err == nil {
 		t.Error("verify accepted a tampered token")
 	}
+}
+
+// flipFirstRune changes the first character to a different base64url one, so
+// the decoded bytes genuinely differ.
+func flipFirstRune(s string) string {
+	if s == "" {
+		return s
+	}
+	if s[0] == 'e' {
+		return "f" + s[1:]
+	}
+	return "e" + s[1:]
 }
 
 func TestNormalizeHosts(t *testing.T) {

@@ -1,6 +1,6 @@
 // Command trulicense issues Trustable licenses.
 //
-// The Ed25519 signing key lives in 1Password (vault NuvolarisLicenses, item
+// The Ed25519 signing key lives in 1Password (vault TrustableLicenses, item
 // "MasterKey Trustable") and is never written to disk. Issued licenses are
 // archived in the same vault. See spec/14-license.md.
 package main
@@ -130,8 +130,12 @@ func hoistFlags(args []string) []string {
 
 // ---------------------------------------------------------------- bootstrap
 
-// ensureToken loads the service token, prompting for one when absent. A token
-// that cannot reach the vault is rejected and never written to disk.
+// ensureToken loads the service token, prompting for one when absent.
+//
+// A freshly typed token is written to .op.json *before* op is invoked, so a
+// vault failure never costs the operator the paste: the token is on disk and
+// the run can simply be retried. The file is the single source of truth for
+// OP_SERVICE_ACCOUNT_TOKEN in the child environment (see execOpRunner.run).
 func ensureToken(runner opRunner, dir string, stdin *os.File, stderr *os.File) (string, error) {
 	if err := runner.lookPath(); err != nil {
 		return "", err
@@ -142,30 +146,82 @@ func ensureToken(runner opRunner, dir string, stdin *os.File, stderr *os.File) (
 		return "", err
 	}
 	if token != "" {
+		if err := validateServiceToken(token); err != nil {
+			return "", fmt.Errorf("the token in %s is unusable: %w — delete the file to be prompted again", path, err)
+		}
+		if err := checkVaultAccess(runner, token); err != nil {
+			return "", vaultAccessError(path, err)
+		}
 		return token, nil
 	}
+	// An exported token is the natural source in CI, where nothing can be typed.
+	// It is persisted like a typed one so every later run uses the same source.
+	if envToken := strings.TrimSpace(os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")); envToken != "" {
+		if err := validateServiceToken(envToken); err != nil {
+			return "", fmt.Errorf("OP_SERVICE_ACCOUNT_TOKEN is set but unusable: %w", err)
+		}
+		if err := writeToken(path, envToken); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(stderr, "saved OP_SERVICE_ACCOUNT_TOKEN to %s\n", path)
+		if err := checkVaultAccess(runner, envToken); err != nil {
+			return "", vaultAccessError(path, err)
+		}
+		return envToken, nil
+	}
 
-	fmt.Fprintf(stderr, "1Password service token for vault %s: ", vaultName)
+	fmt.Fprintf(stderr, "1Password service token for vault %s\n", vaultName)
+	fmt.Fprintf(stderr, "(input is hidden — the screen stays blank while you paste; press Enter when done)\n")
+	fmt.Fprint(stderr, "token: ")
 	token, err = readSecret(stdin)
 	fmt.Fprintln(stderr)
 	if err != nil {
 		return "", err
 	}
 	token = strings.TrimSpace(token)
-	if token == "" {
-		return "", errors.New("no service token provided")
+	// Echo is off, so confirm something was actually captured; a silent prompt
+	// followed by a silent failure gives the operator nothing to act on.
+	if token != "" {
+		fmt.Fprintf(stderr, "read %d characters\n", len(token))
 	}
-	if err := checkVaultAccess(runner, token); err != nil {
-		return "", fmt.Errorf("service token cannot reach vault %s (not saved): %w", vaultName, err)
+	// Check the shape before invoking op: for an empty or malformed token op
+	// reports only "No accounts configured for use with 1Password CLI", which
+	// sends the operator off configuring an account they do not need.
+	if err := validateServiceToken(token); err != nil {
+		return "", fmt.Errorf("%w — a service token alone can read and write the vault; no `op account add` and no desktop app is needed", err)
 	}
+	// Save before touching op, so a rejected token still does not have to be
+	// pasted a second time.
 	if err := writeToken(path, token); err != nil {
 		return "", err
 	}
 	fmt.Fprintf(stderr, "saved service token to %s\n", path)
+	if err := checkVaultAccess(runner, token); err != nil {
+		return "", vaultAccessError(path, err)
+	}
 	return token, nil
 }
 
+// vaultAccessError explains a failed vault check. op answers a token it cannot
+// decode with "No accounts configured for use with 1Password CLI" — advice for
+// a human sign-in that does not apply to a service account — so that specific
+// message is translated rather than passed through bare.
+func vaultAccessError(path string, err error) error {
+	if strings.Contains(err.Error(), "No accounts configured") {
+		return fmt.Errorf("1Password rejected the service token (saved in %s).\n"+
+			"op reports \"No accounts configured\" for any token it cannot decode; it is the token that is wrong, not your setup —\n"+
+			"a valid service token needs no `op account add` and no desktop app.\n"+
+			"Check it was copied whole (they are ~850 characters, start with ops_, and are shown only once at creation),\n"+
+			"then delete %s and re-run. Original: %w", path, path, err)
+	}
+	return fmt.Errorf("service token cannot reach vault %s (saved in %s; delete it to re-enter): %w", vaultName, path, err)
+}
+
 // readSecret reads a line with terminal echo disabled where possible.
+//
+// With echo off the terminal shows nothing at all while the token is typed or
+// pasted, which is indistinguishable from a hung program. Callers therefore say
+// so in the prompt, and confirm the length once the line is read.
 func readSecret(stdin *os.File) (string, error) {
 	fd := int(stdin.Fd())
 	if term.IsTerminal(fd) {
@@ -209,9 +265,11 @@ func keygen(runner opRunner, dir string, force bool, stdin *os.File, stderr *os.
 		if err != nil {
 			return nil, err
 		}
+		// API_CREDENTIAL needs no primary password field, so each key sits in a
+		// field named for what it is.
 		err = createItem(runner, token, opItem{
 			Title:    masterKeyItem,
-			Category: "PASSWORD",
+			Category: "API_CREDENTIAL",
 			Fields: []opField{
 				{Label: "private_key", Type: "CONCEALED", Value: base64.StdEncoding.EncodeToString(priv)},
 				{Label: "public_key", Type: "STRING", Value: base64.StdEncoding.EncodeToString(pub)},
@@ -302,19 +360,31 @@ func issue(runner opRunner, dir, email, hostsArg, exp string, stdin *os.File, st
 	if err != nil {
 		return fmt.Errorf("license issued but NOT archived (cannot list vault %s): %w", vaultName, err)
 	}
+	// API_CREDENTIAL rather than PASSWORD: it needs no primary password field,
+	// so the token is stored once, in a field named for what it actually is.
 	err = createItem(runner, token, opItem{
 		Title:    title,
-		Category: "PASSWORD",
+		Category: "API_CREDENTIAL",
 		Fields: []opField{
+			{Label: "license", Type: "CONCEALED", Value: licenseToken},
 			{Label: "email", Type: "STRING", Value: email},
 			{Label: "hosts", Type: "STRING", Value: strings.Join(hosts, ",")},
-			{Label: "license", Type: "CONCEALED", Value: licenseToken},
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("license issued but NOT archived: %w", err)
 	}
 	fmt.Fprintf(stderr, "archived as %q in vault %s\n", title, vaultName)
+
+	// The share link is a convenience for delivering the license, so a failure
+	// here must not fail the run: the token is already printed and archived.
+	link, shareErr := shareItem(runner, token, title, email)
+	if shareErr != nil {
+		fmt.Fprintf(stderr, "warning: could not create a share link (the license is issued and archived): %s\n", shareErr)
+		return nil
+	}
+	fmt.Fprintf(stderr, "\nshare link (valid %s, opens only for %s):\n%s\n", shareExpiry, email, link)
+	fmt.Fprintf(stderr, "1Password does not send this — mail it to the customer yourself.\n")
 	return nil
 }
 
