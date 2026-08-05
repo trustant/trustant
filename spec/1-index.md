@@ -79,11 +79,26 @@ with the logo as the last element *inside* the card body and bottom-aligned
 (`flex flex-col h-full` on the card, `mt-auto` on the `<img>`) so the three logos
 line up across the row regardless of how much copy each card carries.
 
-The Cloud AI and Sovereign AI logos are height-constrained (`h-20 w-auto`). The
-Private AI logo is **width**-constrained instead (`w-[90%] h-auto`), occupying
-about 90% of its card: its source art is squatter than the other two (aspect
-ratio ~2.16 against ~2.64 and ~3.32), so at an equal height it would render
-noticeably narrower than its neighbours.
+All three logos use **identical** CSS (`w-full h-auto mt-auto pt-5`) because the
+alignment is baked into the assets rather than corrected per image. Each
+`*-head.png` is a 1200×300 canvas with the lockup cropped to its ink, scaled,
+and centred with transparent padding, so equal CSS yields equal rendering.
+
+Regenerate them with ImageMagick if a logo is ever replaced — the source art has
+wildly different intrinsic padding (before normalisation the Private AI ink
+filled only 31% of its canvas height against Ollama's 82%), and CSS alone cannot
+compensate:
+
+```sh
+BOX=$(convert src.png -alpha extract -threshold 15% -format "%@" info:)   # ink bounds
+convert src.png -crop "$BOX" +repage -resize 1080x240 \
+        -background none -gravity center -extent 1200x300 out-head.png
+```
+
+Use a `240` inner height for icon+wordmark lockups (Cloud AI, Private AI) and
+`200` for a pure wordmark (Sovereign AI): text-only marks read heavier at equal
+height, so they need slightly less. Keep the alpha channel — a flattened white
+background would show as a box in dark theme.
 
 Card body copy:
 
