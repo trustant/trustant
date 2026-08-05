@@ -958,6 +958,14 @@
             return null;
         }
 
+        // Without a default model the save would fail deep in the probe with
+        // "pi.default not defined". Catch it here so the user gets an
+        // actionable message instead of an internal diagnostic.
+        function validatePiDefault() {
+            if (document.getElementById('piDefault').value.trim()) return null;
+            return 'Please select the default model before saving.';
+        }
+
         function validateOllamaHost() {
             if (config.provider !== 'ollama') return null;
             if (!isOwnHostMode()) return null;
@@ -996,7 +1004,7 @@
         }
 
         async function saveAndConfigure() {
-            const err = validateOllamaHost() || validateNotebookConfiguration();
+            const err = validatePiDefault() || validateOllamaHost() || validateNotebookConfiguration();
             if (err) {
                 alert(err);
                 return;

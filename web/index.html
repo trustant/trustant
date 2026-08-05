@@ -27,28 +27,28 @@
                 <button onclick="selectOllama()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
                     <div class="font-medium text-2xl mb-1">Cloud AI</div>
-                    <div class="text-sm text-[color:var(--nu-ink)]">subscription based AI</div>
-                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">powered by Ollama Cloud</div>
-                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">you need to register in Ollama Cloud to use cloud models, signing is free and include a free allowance that you can upgrade for more capacity</div>
+                    <div class="text-sm text-[color:var(--nu-ink)]">Subscription-based AI.</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">Powered by Ollama Cloud.</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">Requires an Ollama Cloud account to use cloud models. Signing up is free and includes a free allowance, which you can upgrade for more capacity.</div>
                     <img src="ollama-head.png" alt="Ollama Cloud" class="h-20 w-auto mt-auto pt-5 self-center">
                 </button>
 
                 <button onclick="selectTrustable()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
                     <div class="font-medium text-2xl mb-1">Sovereign AI</div>
-                    <div class="text-sm text-[color:var(--nu-ink)]">credit based AI</div>
-                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="nu-link">Regolo.AI</a></div>
-                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">100 Credits FREE when registering</div>
+                    <div class="text-sm text-[color:var(--nu-ink)]">Credit-based AI.</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">Powered by <a href="https://regolo.ai" target="_blank" onclick="event.stopPropagation()" class="nu-link">Regolo.AI</a>.</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-3">100 credits free when you register.</div>
                     <img src="regolo-head.png" alt="Regolo.AI" class="h-20 w-auto mt-auto pt-5 self-center">
                 </button>
 
                 <button onclick="selectPrivate()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
                     <div class="font-medium text-2xl mb-1">Private AI</div>
-                    <div class="text-sm text-[color:var(--nu-ink)]">no token required</div>
-                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">your own AI hardware</div>
+                    <div class="text-sm text-[color:var(--nu-ink)]">No token required.</div>
+                    <div class="text-sm text-[color:var(--nu-muted)] mt-1">Your own AI hardware.</div>
                     <div class="text-sm text-[color:var(--nu-muted)] mt-3">Connect your own OpenAI-compatible endpoint. Nothing leaves your infrastructure — models are discovered directly from the endpoint you provide.</div>
-                    <img src="privateai-head.png" alt="Private AI" class="h-20 w-auto mt-auto pt-5 self-center">
+                    <img src="privateai-head.png" alt="Private AI" class="w-[90%] h-auto mt-auto pt-5 self-center">
                 </button>
 
             </div>
@@ -67,7 +67,7 @@
                 </div>
                 <div>
                     <label for="privateApiKey" class="block text-sm font-medium mb-1">API key</label>
-                    <input id="privateApiKey" type="text" placeholder="optional"
+                    <input id="privateApiKey" type="text" placeholder="Optional"
                         class="nu-input w-full" autocomplete="off" spellcheck="false">
                 </div>
                 <div id="privateError" class="hidden text-sm text-[color:var(--nu-danger)]"></div>
@@ -105,7 +105,7 @@
                 </svg>
             </div>
             <h3 class="text-lg font-medium mb-2">Configuring</h3>
-            <p class="text-sm text-[color:var(--nu-muted)] mb-3">Pulling models and generating configuration...</p>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-3">Pulling models and generating configuration…</p>
             <div id="configMessages" class="nu-code text-left text-sm nu-panel p-3 max-h-48 overflow-y-auto mb-4"></div>
             <div id="configDone" class="hidden flex gap-3 justify-center">
                 <button id="configRetryBtn" onclick="runConfiguration()" class="hidden nu-btn nu-btn-primary">
@@ -122,13 +122,13 @@
     <!-- Sign-in Required Modal -->
     <div id="signinModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
         <div class="nu-modal p-6 w-full max-w-md mx-4 text-center">
-            <h3 class="text-lg font-medium mb-4 text-[color:var(--nu-danger)]">Sign-in Required</h3>
+            <h3 class="text-lg font-medium mb-4 text-[color:var(--nu-danger)]">Sign-in required</h3>
             <div id="signinWithLink" class="hidden mb-6">
                 <a id="ollamaConnectLink" href="#" target="_blank"
-                    class="text-lg nu-link font-medium">Click here to login to Ollama Cloud</a>
+                    class="text-lg nu-link font-medium">Click here to log in to Ollama Cloud</a>
             </div>
             <div id="signinWithoutLink" class="mb-6">
-                <p class="text-[color:var(--nu-muted)] mb-2">You are not logged in to ollama cloud.</p>
+                <p class="text-[color:var(--nu-muted)] mb-2">You are not logged in to Ollama Cloud.</p>
                 <p class="text-[color:var(--nu-muted)]">Please execute <code class="nu-code nu-panel px-2 py-1 text-sm">ollama signin</code> and click Retry.</p>
             </div>
             <button onclick="retryOpenAITest()"
@@ -235,7 +235,7 @@
             hideProviderModal();
             const url = (currentConfig && currentConfig.register_url) || '';
             if (!url) {
-                alert('REGISTER_URL environment variable is not set');
+                alert('The AIP_REGISTER_URL environment variable is not set.');
                 showProviderModal();
                 return;
             }
@@ -287,7 +287,7 @@
 
             // 1. Base URL format — blocking.
             if (!PRIVATE_BASE_URL_RE.test(baseUrl)) {
-                showPrivateError('Are you sure? The format is usually http(s)://.../v1');
+                showPrivateError('That does not look like a valid endpoint. The format is usually http(s)://.../v1');
                 return;
             }
             // 2. HTTPS without a key — confirmation, not blocking. An http://
@@ -300,7 +300,7 @@
 
             const btn = document.getElementById('privateSaveBtn');
             const label = btn ? btn.textContent : '';
-            if (btn) { btn.disabled = true; btn.textContent = 'Discovering models...'; }
+            if (btn) { btn.disabled = true; btn.textContent = 'Discovering models…'; }
             showPrivateError('');
 
             let models;
@@ -337,7 +337,11 @@
                 // Pi needs a non-empty key to consider the provider configured.
                 api_key: apiKey || 'dummy',
                 models: modelMap,
-                pi: { default: models[0] }
+                // A user-supplied endpoint carries no catalog metadata saying
+                // which model is suitable for coding, so guessing the first
+                // discovered one would silently pick an embedding or tiny
+                // model. Leave the default empty and make the user choose.
+                pi: { default: '' }
             });
             // Drop legacy fields if present.
             delete cfg.opencode;
@@ -345,7 +349,29 @@
             delete cfg.env;
 
             hidePrivateModal();
-            await saveAndRunConfiguration(cfg);
+            try {
+                const resp = await fetch('/api/configuration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cfg)
+                });
+                if (!resp.ok) {
+                    alert('Failed to save configuration: ' + (await resp.text()));
+                    showProviderModal();
+                    return;
+                }
+            } catch (e) {
+                alert('Failed to save configuration: ' + e.message);
+                showProviderModal();
+                return;
+            }
+            // The splash Configuration flow does not run on this turn: without
+            // a pi.default there is nothing to probe. Setup completes on the
+            // configure screen.
+            alert('Connected. ' + models.length + ' model'
+                + (models.length === 1 ? '' : 's')
+                + ' found — select the default model to finish the setup.');
+            window.location.href = 'configure.html?setup=1';
         }
 
         function isAcceptableRegisterPayload(data) {
@@ -656,7 +682,7 @@
                 // Test OpenAI API connection
                 const testDiv = document.createElement('div');
                 testDiv.className = 'text-[color:var(--nu-muted)]';
-                testDiv.textContent = 'Testing AI model connection...';
+                testDiv.textContent = 'Testing AI model connection…';
                 msgEl.appendChild(testDiv);
                 msgEl.scrollTop = msgEl.scrollHeight;
 

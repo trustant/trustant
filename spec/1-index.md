@@ -61,9 +61,14 @@ shows exactly three equal cards in a `grid-cols-1 md:grid-cols-3` row:
 
 | Card | Subtitle | Attribution | Logo | Stored provider |
 |---|---|---|---|---|
-| **Cloud AI** | subscription based AI | powered by Ollama Cloud | `ollama-head.png` | `ollama` |
-| **Sovereign AI** | credit based AI | powered by Regolo.AI | `regolo-head.png` | `trustable` |
-| **Private AI** | no token required | your own AI hardware | `privateai-head.png` | `private` |
+| **Cloud AI** | Subscription-based AI. | Powered by Ollama Cloud. | `ollama-head.png` | `ollama` |
+| **Sovereign AI** | Credit-based AI. | Powered by Regolo.AI. | `regolo-head.png` | `trustable` |
+| **Private AI** | No token required. | Your own AI hardware. | `privateai-head.png` | `private` |
+
+All user-facing copy on this page uses sentence case with terminal punctuation.
+Product names (Ollama Cloud, Regolo.AI, Trustable Cloud) keep their own
+capitalization; progress messages end in an ellipsis character (`…`), not three
+dots.
 
 Note the naming: the card labelled **Cloud AI** stores `provider: "ollama"` and
 **Sovereign AI** stores `provider: "trustable"`. Only the labels changed — the
@@ -74,13 +79,19 @@ with the logo as the last element *inside* the card body and bottom-aligned
 (`flex flex-col h-full` on the card, `mt-auto` on the `<img>`) so the three logos
 line up across the row regardless of how much copy each card carries.
 
+The Cloud AI and Sovereign AI logos are height-constrained (`h-20 w-auto`). The
+Private AI logo is **width**-constrained instead (`w-[90%] h-auto`), occupying
+about 90% of its card: its source art is squatter than the other two (aspect
+ratio ~2.16 against ~2.64 and ~3.32), so at an equal height it would render
+noticeably narrower than its neighbours.
+
 Card body copy:
 
-- **Cloud AI** — "you need to register in Ollama Cloud to use cloud models,
-  signing is free and include a free allowance that you can upgrade for more
-  capacity". Picking this card goes straight to the internal-Ollama flow below —
+- **Cloud AI** — "Requires an Ollama Cloud account to use cloud models. Signing
+  up is free and includes a free allowance, which you can upgrade for more
+  capacity." Picking this card goes straight to the internal-Ollama flow below —
   there is no mode sub-modal.
-- **Sovereign AI** — "100 Credits FREE when registering", and nothing else.
+- **Sovereign AI** — "100 credits free when you register.", and nothing else.
 - **Private AI** — describes the user-supplied OpenAI-compatible endpoint. Opens
   the Private AI dialog (see "## Private AI selected").
 
@@ -142,9 +153,9 @@ Opens the **Private AI endpoint** dialog, a sub-modal of the choice screen with:
 Checked in this order:
 
 1. **Base URL format — blocking.** The value must match
-   `^https?://[^\s]+/v1/?$`. If it does not, refuse to save and show
-   *"Are you sure? The format is usually `http(s)://.../v1`"*. The user cannot
-   proceed until the URL matches.
+   `^https?://[^\s]+/v1/?$`. If it does not, refuse to save and show *"That does
+   not look like a valid endpoint. The format is usually `http(s)://.../v1`"*.
+   The user cannot proceed until the URL matches.
 2. **HTTPS without an API key — confirmation, not blocking.** When the scheme is
    `https://` and the API key is empty, confirm with *"Are you sure there is no
    API key required? An `https://` endpoint usually requires one."* Cancel
@@ -161,18 +172,35 @@ persisted:
 1. `POST /api/discover-models` with `{base_url, api_key}`. On error, show the
    message inline in the dialog and keep it open.
 2. Build `models` as `{name: {maxToken: 131072, maxOutput: 32768}}` for each
-   discovered model.
-3. Seed `pi.default` with the first discovered model.
+   discovered model. An endpoint that returns no models is an error: show *"The
+   endpoint returned no models."* inline and keep the dialog open.
+3. Set `pi.default` to `""`. The default model is **not** guessed — see
+   "No default model is chosen" below.
 4. `POST /api/configuration` with the merged config plus `provider: "private"`,
    `base_url` as entered, `api_key` as entered or `"dummy"` when left empty (Pi
    requires a non-empty value to consider the provider configured — see
-   [pi.md](pi.md)), and the `models` / `pi.default` computed above. The legacy
+   [pi.md](pi.md)), and the `models` / empty `pi.default` above. The legacy
    `opencode` / `model_version` / `env` fields are dropped as in the other flows.
-5. Run the normal `saveAndRunConfiguration(cfg)` path so the streamed
-   Configuration flow and the say-OK test run, then land on `applist.html`.
+5. Alert *"Connected. N models found — select the default model to finish the
+   setup."*, then navigate to `configure.html?setup=1`.
 
-Unlike own-host Ollama, Private AI does **not** route through `configure.html`
-for setup: the endpoint is known and its models are already discovered.
+### No default model is chosen
+
+A user-supplied endpoint carries no catalog metadata saying which of its models
+is suitable for coding, so picking the first discovered one would silently select
+an embedding, rerank, or tiny model and fail later in a confusing place. The
+splash therefore persists an empty `pi.default` and hands off to the configure
+screen, where `?setup=1` already shows the banner *"Choose the Pi model to
+complete the runtime setup, then click **Save & Configure**"*.
+
+The splash **Configuration flow does not run on this turn** — with no
+`pi.default` there is nothing to probe. This matches own-host Ollama, and it is
+also what the existing splash guard does for any provider whose `pi.default` is
+absent, so a page reload lands on the same screen.
+
+`configure.html` blocks **Save & Configure** while no model is selected, showing
+*"Please select the default model before saving."* Without that guard the save
+reaches the probe and surfaces the internal `pi.default not defined` diagnostic.
 
 # Configuration
 

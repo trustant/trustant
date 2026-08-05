@@ -229,9 +229,13 @@ endpoint that answers with no models is never persisted.
 `"dummy"` when left empty. An `https://` endpoint with no key asks for
 confirmation; an `http://` one does not.
 
-Because discovery already ran, a Private AI user lands on `applist.html` through
-the normal splash Configuration flow rather than being routed to
-`configure.html` for setup.
+Discovery runs in the dialog, but `pi.default` is **not** seeded from it: a
+user-supplied endpoint publishes no metadata saying which model is suitable for
+coding, so guessing the first one would silently select an embedding or tiny
+model. The splash persists `pi.default: ""`, alerts that a default model must be
+chosen, and routes to `configure.html?setup=1` — like own-host Ollama, setup
+completes on the configure screen. The splash Configuration flow does not run on
+that turn (there is nothing to probe without a default model).
 
 On the configure screen the **Private AI Endpoint** section shows the stored
 `base_url` as a **read-only** note (the value is user-supplied, unlike the fixed
