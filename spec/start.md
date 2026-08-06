@@ -170,9 +170,27 @@ failure are warning-only and must not block startup — the token itself has
 already been gated up front (see below). VS Code opens by
 default; `./start.sh -n` skips opening VS Code.
 
-## GitHub token gate (first step)
+## .env seeding (first step)
 
-The **first step** of any real start, on both hosts, is checking the
+Before anything else on either host, `start.sh` ensures a repository-root `.env`
+exists, seeding it from `.env.dist` when absent. An existing `.env` is **never**
+overwritten — it holds the user's real credentials. A missing `.env.dist` is a
+hard failure.
+
+The copy is verbatim. `.env.dist` ships no `<placeholder>` values, so the seeded
+file already satisfies `setup.sh` step 1, which hard-fails on any value still in
+that shape. As a guard against a placeholder being reintroduced to the template
+later, any line matching `KEY=<...>` is reported as a warning naming the
+offending lines — surfacing it at the start of the run rather than letting
+`setup.sh` abort minutes in.
+
+Note the two `.env` creators differ by design: `setup.sh` generates in-VM values
+rooted at the guest `$HOME`, whereas this step only materializes the shipped
+template so the file exists from the very start of the run.
+
+## GitHub token gate (second step)
+
+Immediately after `.env` seeding, on both hosts, `start.sh` checks the
 repository-root `.ghtoken`. A run provisions a cluster and clones private
 sources, so an absent token must surface immediately rather than minutes later
 at the login step.

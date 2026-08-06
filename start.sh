@@ -89,6 +89,8 @@ HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
 GH_TOKEN_FILE="$MOUNT_DIR/.ghtoken"
+ENV_FILE="$MOUNT_DIR/.env"
+ENV_DIST_FILE="$MOUNT_DIR/.env.dist"
 
 # setup.sh runs inside a VM that only mounts this worktree. A worktree's .git
 # file may point outside that mount, so source submodules must be initialized on
@@ -432,8 +434,31 @@ GUEST
   fi
 }
 
-# Attempt a non-interactive gh login from a repo-local token file. Missing token,
-# missing gh, or login errors are warning-only so start.sh can still continue.
+# Seed .env from .env.dist when absent, so the file exists before anything reads
+# it. Never overwrite an existing .env — it holds the user's real credentials.
+#
+# A straight copy: .env.dist ships no <placeholder> values, so the result already
+# satisfies setup.sh step 1, which hard-fails on any value still in that shape.
+# Should a placeholder ever be reintroduced there, the check below names it
+# rather than letting setup.sh abort mid-run.
+ensure_env_file() {
+  echo "--- Checking .env ---"
+  if [[ -f "$ENV_FILE" ]]; then
+    ok ".env already present at $ENV_FILE"
+    return 0
+  fi
+  [[ -f "$ENV_DIST_FILE" ]] || fail ".env.dist not found at $ENV_DIST_FILE — cannot seed .env"
+
+  cp "$ENV_DIST_FILE" "$ENV_FILE" || fail "could not write $ENV_FILE"
+  ok "created .env from .env.dist"
+
+  # Anything <placeholder>-shaped would abort setup.sh; surface it now.
+  if grep -qE '^[A-Za-z_][A-Za-z0-9_]*=<.*>$' "$ENV_FILE"; then
+    warn "set these values in .env before continuing:"
+    grep -nE '^[A-Za-z_][A-Za-z0-9_]*=<.*>$' "$ENV_FILE" | sed 's/^/    /'
+  fi
+}
+
 # First real step of every start: the run provisions a cluster and clones private
 # sources, so a missing GitHub token is worth catching up front rather than 10
 # minutes later at login_github_from_token. Prompt for it when absent and persist
@@ -469,6 +494,9 @@ require_gh_token() {
   ok "token saved to $GH_TOKEN_FILE"
 }
 
+# Attempt a non-interactive gh login from a repo-local token file. Missing gh or
+# login errors are warning-only so start.sh can still continue; the token itself
+# is already guaranteed by require_gh_token.
 login_github_from_token() {
   local where=" in VM"
   if $NATIVE_LINUX; then where=""; fi
@@ -1069,8 +1097,9 @@ if [[ "${1:-}" == "-k" ]]; then
   exit 0
 fi
 
-# First step of a real start on either host. Placed after the -s/-k branches,
-# which exit above and must not require a token to stop or destroy a VM.
+# First steps of a real start on either host. Placed after the -s/-k branches,
+# which exit above and must not need a .env or a token to stop or destroy a VM.
+ensure_env_file
 require_gh_token
 
 # --- native Linux: no VM, initialize this host directly ----------------------
