@@ -219,9 +219,10 @@ notebook/templates repository.
 The managed GitHub datalist and the SSH key notice described below apply **only
 in "My Application Starter" mode**, where the user supplies the repository;
 both are hidden while a starter is selected, since the repository is then fixed
-and public. Note the boundary with starter discovery: the datalist keeps using
-the authenticated managed-GitHub listing because it suggests the user's own,
-possibly private, repositories, whereas `GET /api/starters` is always anonymous
+and public. Note the boundary with starter discovery: the datalist uses the
+authenticated managed-GitHub listing because it suggests the user's own,
+possibly private, repositories, whereas `GET /api/starters` only reads a static
+published index and never touches the GitHub API
 ([15-starters.md](15-starters.md)). The two must not share a code path.
 
 When `GET /api/github/status` reports an authenticated managed GitHub account,
