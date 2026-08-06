@@ -201,7 +201,9 @@ Abort with an actionable message unless all of the following hold:
 
 - `/etc/os-release` identifies Ubuntu or Debian (`ID`/`ID_LIKE`). Every install
   step below is `apt-get`/`dpkg`, and the Trustable package is a `.deb`.
-- the architecture is amd64 or arm64.
+- the architecture reported by `dpkg --print-architecture` is amd64 or arm64.
+  This is the same source `ensure_deb` uses, so the preflight gate and the
+  package actually selected can never disagree.
 - `sudo -n true` succeeds. Passwordless sudo is already assumed by `setup.sh`,
   by `run.sh`'s kubefwd supervisor, and by the package install.
 - systemd is running (`/run/systemd/system` exists and `systemctl
@@ -214,9 +216,23 @@ this step is host-agnostic.
 
 ## Cluster
 
-If `dpkg -l trustable` does not report `ii`, download and cache the `.deb`
-(identical arch mapping and `dist/` cache as the macOS path) and install it on
-this machine. Print an explicit banner naming the package and what it installs
+If `dpkg -l trustable` does not report `ii`, download and cache the `.deb` and
+install it on this machine.
+
+The package must match the host architecture. On Linux, detect it with
+`dpkg --print-architecture` — that is what governs whether `apt-get install`
+will accept the package, and it stays correct on a multiarch host where `uname`
+reports the kernel's architecture. It emits exactly the strings the filenames
+use, so:
+
+- arm64 -> `dist/trustable_<version>_arm64.deb` (download `linux-arm`)
+- amd64 -> `dist/trustable_<version>_amd64.deb` (download `linux-amd`)
+
+macOS has no `dpkg` — the `.deb` is installed inside the VM, which runs the host
+architecture under vz — so the macOS path keeps mapping from `uname -m`
+(`arm64`/`aarch64` -> arm64, `x86_64`/`amd64` -> amd64) onto the same two
+filenames. Anything else aborts as an unsupported architecture. The resolved
+architecture is echoed before the download so a wrong-arch cache hit is visible. Print an explicit banner naming the package and what it installs
 first — this is the one step that mutates the host outside the repository.
 
 Two deliberate differences from the in-VM install:

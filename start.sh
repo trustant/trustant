@@ -603,12 +603,24 @@ finish_native() {
 # Sets the global DEB_FILE. The deb arch matches the HOST arch (the VM runs the
 # host arch under vz): arm64 on Apple Silicon, amd64 on Intel.
 ensure_deb() {
-  local DEB_ARCH DL_SUFFIX TMP_DEB
-  case "$(uname -m)" in
+  local DEB_ARCH DL_SUFFIX TMP_DEB HOST_ARCH
+  # On Linux the package is installed by dpkg on THIS machine, so ask dpkg which
+  # architecture it will accept — that is what governs `apt-get install`, and it
+  # is authoritative on a multiarch host where uname reports the kernel's arch.
+  # macOS has no dpkg (the .deb is installed inside the VM), so fall back to
+  # uname -m there; the VM runs the host arch under vz.
+  if $NATIVE_LINUX; then
+    HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || true)"
+    [[ -n "$HOST_ARCH" ]] || fail "dpkg --print-architecture failed — is this a Debian/Ubuntu host?"
+  else
+    HOST_ARCH="$(uname -m)"
+  fi
+  case "$HOST_ARCH" in
     arm64|aarch64) DEB_ARCH=arm64; DL_SUFFIX=linux-arm ;;
     x86_64|amd64)  DEB_ARCH=amd64; DL_SUFFIX=linux-amd ;;
-    *) fail "unsupported host arch: $(uname -m)" ;;
+    *) fail "unsupported host arch: $HOST_ARCH" ;;
   esac
+  ok "package architecture: $DEB_ARCH (detected: $HOST_ARCH)"
   DEB_FILE="${DIST_DIR}/trustable_${TRUSTABLE_VERSION}_${DEB_ARCH}.deb"
   mkdir -p "$DIST_DIR"
   if [[ -s "$DEB_FILE" ]]; then
@@ -814,10 +826,16 @@ preflight_native() {
   esac
   ok "distribution: ${PRETTY_NAME:-${ID:-unknown}}"
 
-  case "$(uname -m)" in
-    x86_64|amd64|aarch64|arm64) ;;
-    *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
+  # Same source of truth as ensure_deb, so the preflight gate and the package
+  # actually selected can never disagree.
+  local dpkg_arch
+  dpkg_arch="$(dpkg --print-architecture 2>/dev/null || true)"
+  [[ -n "$dpkg_arch" ]] || fail "dpkg --print-architecture failed — is this a Debian/Ubuntu host?"
+  case "$dpkg_arch" in
+    amd64|arm64) ;;
+    *) fail "unsupported architecture: $dpkg_arch (expected amd64 or arm64)" ;;
   esac
+  ok "architecture: $dpkg_arch"
 
   # setup.sh, run.sh and the package install all assume passwordless sudo.
   sudo -n true 2>/dev/null \
