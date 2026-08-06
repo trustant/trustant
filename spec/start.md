@@ -165,9 +165,28 @@ This applies to provisioning flows that execute `setup.sh` (fresh VM creation).
 On provisioning flows that execute `setup.sh` (fresh VM creation), `start.sh`
 attempts non-interactive GitHub
 authentication inside the VM using repository-root `.ghtoken`
-(`gh auth login --with-token`). Missing `.ghtoken`, empty token, missing `gh`,
-or login failures are warning-only and must not block startup. VS Code opens by
+(`gh auth login --with-token`). At that late point, missing `gh` or a login
+failure are warning-only and must not block startup — the token itself has
+already been gated up front (see below). VS Code opens by
 default; `./start.sh -n` skips opening VS Code.
+
+## GitHub token gate (first step)
+
+The **first step** of any real start, on both hosts, is checking the
+repository-root `.ghtoken`. A run provisions a cluster and clones private
+sources, so an absent token must surface immediately rather than minutes later
+at the login step.
+
+- Present and non-empty: report it and continue.
+- Absent or empty, with a terminal: prompt for the token on `/dev/tty` with echo
+  **off** (it is a credential and must not reach scrollback), then persist it to
+  `.ghtoken` created under `umask 077` / mode `0600`. `.ghtoken` is git-ignored.
+- Empty input at the prompt: **stop the run** non-zero without writing a file.
+- Absent or empty with no TTY (CI, piped): do not hang waiting on input — fail
+  immediately, naming the file to create and where to get a token.
+
+The check sits after the `-s`/`-k` branches, which exit earlier: stopping or
+destroying a VM must never require a token.
 
 ## Re-running when the VM already exists
 
@@ -252,6 +271,16 @@ Then wait for the local k3s to serve `/readyz` and for the `nuvolaris` namespace
 to appear. A fresh install needs 60–90s before OpenWhisk is up, and `setup.sh`
 step 7 curls the apihost, so it must not run against a booting cluster.
 
+Probe with `sudo -n k3s kubectl`, which points itself at
+`/etc/rancher/k3s/k3s.yaml`. Only fall back to a plain `kubectl` when `k3s` is
+absent, and then pass `--kubeconfig /etc/rancher/k3s/k3s.yaml` explicitly: this
+step runs before `setup.sh` writes `~/.ops/tmp/kubeconfig`, so k3s.yaml is the
+only kubeconfig that exists yet, and a bare `sudo -n kubectl` would run as root
+with no `KUBECONFIG` and probe the default `localhost:8080` — hanging the full
+180s timeout against a perfectly healthy cluster. Hosts with a snap-installed
+`kubectl` on `PATH` hit exactly this. The timeout message names the command it
+probed with, so the failure is diagnosable.
+
 ## Support files
 
 Resolve the host-reachable address as the source address of the default route
@@ -303,9 +332,17 @@ Then run `./setup.sh` directly (not through `limactl shell`), verify the pinned
 
 ## Summary
 
-Print the apihost, the host-rewrite URL pattern, the ollama endpoint, and
-`./run.sh` as the next step. Omit the ssh, mount, VS Code, stop, and destroy
+Print the apihost, the host-rewrite URL pattern, the ollama endpoint, a `vscode`
+line, and `./run.sh` as the next step. Omit the ssh, mount, stop, and destroy
 lines — none of them exist here.
+
+The `vscode` line prints the command that opens the sources, not a Remote-SSH
+hop: on a native host the repo is already local, so connecting is just
+`code <repo dir>`. When `code` is not on `PATH`, print that same command as a
+hint plus the "Shell Command: Install 'code' command in PATH" pointer, and carry
+on. Unlike the macOS path — where a missing `code` is a hard `fail` because
+Remote-SSH is the only way in — VS Code is never required here, so its absence
+must never abort a run that has otherwise succeeded.
 
 Re-running is fully idempotent: an installed package, a ready cluster, and an
 already-provisioned toolchain are all verified rather than redone.

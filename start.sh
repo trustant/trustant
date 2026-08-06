@@ -434,6 +434,41 @@ GUEST
 
 # Attempt a non-interactive gh login from a repo-local token file. Missing token,
 # missing gh, or login errors are warning-only so start.sh can still continue.
+# First real step of every start: the run provisions a cluster and clones private
+# sources, so a missing GitHub token is worth catching up front rather than 10
+# minutes later at login_github_from_token. Prompt for it when absent and persist
+# it to .ghtoken; stop the run outright when nothing usable is provided.
+require_gh_token() {
+  echo "--- Checking GitHub token ---"
+  if [[ -s "$GH_TOKEN_FILE" ]]; then
+    ok ".ghtoken found at $GH_TOKEN_FILE"
+    return 0
+  fi
+
+  if [[ -f "$GH_TOKEN_FILE" ]]; then
+    warn ".ghtoken at $GH_TOKEN_FILE is empty"
+  else
+    warn ".ghtoken not found at $GH_TOKEN_FILE"
+  fi
+
+  # No TTY (CI, piped run): there is nobody to ask, so fail with the fix.
+  [[ -t 0 ]] || fail "no .ghtoken and no terminal to prompt on — create $GH_TOKEN_FILE with a GitHub token (https://github.com/settings/tokens) and re-run"
+
+  echo "  Create one at https://github.com/settings/tokens (scopes: repo, read:org)."
+  echo "  It will be saved to $GH_TOKEN_FILE (git-ignored)."
+  local token=""
+  # -s: the token is a credential and must not echo or land in scrollback.
+  read -r -s -p "  GitHub token (empty to abort): " token < /dev/tty || true
+  echo
+
+  [[ -n "$token" ]] || fail "no GitHub token provided — aborting"
+
+  ( umask 077; printf '%s\n' "$token" > "$GH_TOKEN_FILE" ) \
+    || fail "could not write $GH_TOKEN_FILE"
+  chmod 600 "$GH_TOKEN_FILE" 2>/dev/null || true
+  ok "token saved to $GH_TOKEN_FILE"
+}
+
 login_github_from_token() {
   local where=" in VM"
   if $NATIVE_LINUX; then where=""; fi
@@ -596,6 +631,15 @@ finish_native() {
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
   echo "  ollama:       http://localhost:11434"
+  # There is no Remote-SSH hop on a native host: the sources are right here, so
+  # the "connect" step is just opening this directory. Print the command rather
+  # than failing when `code` is not on PATH — it is not required on this path.
+  if command -v code >/dev/null 2>&1; then
+    echo "  vscode:       code $MOUNT_DIR"
+  else
+    echo "  vscode:       'code' not on PATH — open this folder with:  code $MOUNT_DIR"
+    echo "                (VS Code: Command Palette > Shell Command: Install 'code' command in PATH)"
+  fi
   echo "  next:         ./run.sh"
 }
 
@@ -749,13 +793,18 @@ GUEST
 # setup.sh step 7 curls the apihost, so it must not run against a booting cluster.
 wait_for_local_k3s() {
   echo "--- Waiting for local k3s ---"
+  # Prefer `k3s kubectl`: it points itself at /etc/rancher/k3s/k3s.yaml. A plain
+  # kubectl under `sudo -n` runs as root with no KUBECONFIG and would talk to the
+  # default localhost:8080 instead, failing against a perfectly healthy cluster.
+  # This runs before setup.sh writes ~/.ops/tmp/kubeconfig, so k3s.yaml is the
+  # only kubeconfig that exists yet.
   local kubectl_cmd
-  if command -v kubectl >/dev/null 2>&1; then
-    kubectl_cmd=(sudo -n kubectl)
-  elif command -v k3s >/dev/null 2>&1; then
+  if command -v k3s >/dev/null 2>&1; then
     kubectl_cmd=(sudo -n k3s kubectl)
+  elif command -v kubectl >/dev/null 2>&1; then
+    kubectl_cmd=(sudo -n kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml)
   else
-    fail "neither kubectl nor k3s is installed — the Trustable package did not install correctly"
+    fail "neither k3s nor kubectl is installed — the Trustable package did not install correctly"
   fi
 
   local ready=false
@@ -767,8 +816,9 @@ wait_for_local_k3s() {
     sleep 2
   done
   $ready || {
+    echo "last probe: ${kubectl_cmd[*]} get --raw=/readyz" >&2
     "${kubectl_cmd[@]}" get --raw='/readyz' || true
-    fail "local k3s API did not become ready"
+    fail "local k3s API did not become ready (probed with: ${kubectl_cmd[*]})"
   }
   ok "k3s API is ready"
 
@@ -1018,6 +1068,10 @@ if [[ "${1:-}" == "-k" ]]; then
   fi
   exit 0
 fi
+
+# First step of a real start on either host. Placed after the -s/-k branches,
+# which exit above and must not require a token to stop or destroy a VM.
+require_gh_token
 
 # --- native Linux: no VM, initialize this host directly ----------------------
 if $NATIVE_LINUX; then
