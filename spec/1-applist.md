@@ -164,19 +164,66 @@ The Git Push and Publish buttons are always rendered and always call their respe
 
 ## Adding an application
 
-Below the "Add Application" heading, show an explanatory note:
+The modal is starter-driven. Under the heading **"Add an application starter"**
+it shows a vertical radio list built from `GET /api/starters`
+([15-starters.md](15-starters.md)): one row per starter with the **Name** as a
+link to `https://github.com/<repo>` (opens in a new tab and must not toggle the
+radio), followed by the **Description**. The last row is always **"My
+Application Starter"**.
 
-> **Important:** you need a template compatible with [Trustable conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable). It is recommended you use this starter: trureact (click the link to use it). If you provide an empty repo we will try to make it compatible.
+The first row is preselected. When the starter list cannot be loaded the
+endpoint returns a warning, which is shown under the list; "My Application
+Starter" is then the only row and is preselected, so the modal stays usable.
 
-The "trureact" word in the note is a clickable link that fills the form: Name with "trureact", Password with "trureact", and Repo with "trustable-ai/trureact".
+Below the list there are two fields:
 
-When you add an application it will ask for:
+- **Application Name** — always editable. It follows the selected starter's
+  name, defaulting to `myapp` for "My Application Starter", **until the user
+  types into it**; from then on the user's value is never overwritten.
+- **GitHub Repository** — in format `<org>/<repo>`. Filled from the selected
+  starter and read-only (visibly greyed). Editable only when "My Application
+  Starter" is selected.
 
-- an application name
-- a password
-- a github repo in format <org>/<repo>
+There is no password field: the backend reuses an existing user's password or
+generates one ([2-repo.md](2-repo.md)).
 
 with a button "Create" and "Cancel"
+
+Selecting **"My Application Starter"** opens a warning dialog:
+
+> Warning: if you use your own starter, it must be derived by a standard
+> application starter or be compatible with
+> [Trustable Conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable).
+> The repo must exist; you can access the repo with the ssh key shown below. If
+> you use a standard template you can save in your repo later.
+
+The dialog embeds a read-only textarea with the SSH public key and a **Copy
+Key** button when `GET /api/sshkey` returns one, and is dismissed with
+"Understood".
+
+On **Create** the browser checks, before calling the backend:
+
+- the name matches `[a-zA-Z][a-zA-Z0-9]{5,19}` (6-20 alphanumeric characters
+  starting with a letter);
+- no application with that name already exists — compared case-insensitively
+  against the loaded list and re-checked against `GET /api/repo`, since a
+  workspace app may not be rendered in the current list.
+
+A failed check shows an inline message under the name field asking for a
+different name and does **not** submit.
+
+When the selected starter carries a `templates` value it is sent to
+`POST /api/repo` as the `templates` field, so the app inherits the starter's
+notebook/templates repository.
+
+The managed GitHub datalist and the SSH key notice described below apply **only
+in "My Application Starter" mode**, where the user supplies the repository;
+both are hidden while a starter is selected, since the repository is then fixed
+and public. Note the boundary with starter discovery: the datalist uses the
+authenticated managed-GitHub listing because it suggests the user's own,
+possibly private, repositories, whereas `GET /api/starters` only reads a static
+published index and never touches the GitHub API
+([15-starters.md](15-starters.md)). The two must not share a code path.
 
 When `GET /api/github/status` reports an authenticated managed GitHub account,
 the repository input remains an editable `org/repo` field but is backed by a

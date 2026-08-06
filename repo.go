@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +18,28 @@ import (
 	"strings"
 	"time"
 )
+
+// appPasswordAlphabet is deliberately alphanumeric: the value is passed to
+// `ops admin adduser` on a command line and stored in trustable.json, so
+// shell-significant characters would only create quoting hazards.
+const appPasswordAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+const appPasswordLength = 20
+
+// generateAppPassword returns a random password for a newly created
+// OpenServerless user. The browser no longer supplies one — see spec/2-repo.md.
+func generateAppPassword() (string, error) {
+	limit := big.NewInt(int64(len(appPasswordAlphabet)))
+	out := make([]byte, appPasswordLength)
+	for i := range out {
+		n, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		out[i] = appPasswordAlphabet[n.Int64()]
+	}
+	return string(out), nil
+}
 
 // Version and expiry info parsed from _build.txt
 var (
@@ -294,9 +318,14 @@ func extractRepoFromURL(url string) string {
 
 func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name     string `json:"name"`
-		Repo     string `json:"repo"`
+		Name string `json:"name"`
+		Repo string `json:"repo"`
+		// Password is accepted for backwards compatibility but ignored: the
+		// password is either reused from an existing user or generated here.
 		Password string `json:"password"`
+		// Templates is the starter's notebook/templates repository. Empty means
+		// the app inherits the global notebook.repository default.
+		Templates string `json:"templates"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -315,10 +344,16 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate password: required
-	if req.Password == "" {
-		http.Error(w, "Password is required", http.StatusBadRequest)
-		return
+	// Validate the optional starter templates repository up front, so a bad
+	// value fails before any user or clone is created.
+	appTemplates := ""
+	if strings.TrimSpace(req.Templates) != "" {
+		normalized, err := normalizeNotebookRepository(req.Templates)
+		if err != nil {
+			http.Error(w, "Invalid templates repository: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		appTemplates = normalized
 	}
 
 	// Resolve managed GitHub metadata before creating an OpenServerless user.
@@ -351,9 +386,10 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create or retrieve the password
-	// Try to retrieve existing password with ops util kubeget
-	localPassword := req.Password
+	// Create or retrieve the password. The browser never supplies one: an
+	// existing OpenServerless user keeps its password, a new one gets a
+	// server-generated random password.
+	localPassword := ""
 	userExisted := false
 	kubegetCmd := exec.Command("ops", "util", "kubeget", "whiskuser/"+req.Name, ".spec.password")
 	if output, err := kubegetCmd.Output(); err == nil {
@@ -363,6 +399,12 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("User %s exists, using existing password", req.Name)
 	} else {
 		// User doesn't exist, create the user
+		generated, err := generateAppPassword()
+		if err != nil {
+			http.Error(w, "Failed to generate password", http.StatusInternalServerError)
+			return
+		}
+		localPassword = generated
 		email := req.Name + "@n7s.co"
 		addUserCmd := exec.Command("ops", "admin", "adduser", req.Name, email, localPassword, "--all")
 		if output, err := addUserCmd.CombinedOutput(); err != nil {
@@ -441,6 +483,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	wsCfg.Apps[req.Name] = &AppConfig{
 		Password:    localPassword,
+		Templates:   appTemplates,
 		Development: make(map[string]string),
 		Production:  make(map[string]string),
 	}
@@ -473,7 +516,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		result["github_account"] = githubStatus.Login
 	}
 	if userExisted {
-		result["warning"] = "The provided password was ignored because the user already existed. The existing local password was reused."
+		result["warning"] = "A user with this name already existed. Its existing local password was reused."
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

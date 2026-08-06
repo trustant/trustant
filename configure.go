@@ -70,7 +70,12 @@ func (m *ModelLimits) UnmarshalJSON(data []byte) error {
 
 // AppConfig holds per-app configuration within trustable.json
 type AppConfig struct {
-	Password    string            `json:"password"`
+	Password string `json:"password"`
+	// Templates is the notebook/templates repository inherited from the
+	// application starter this app was created from. It overrides the global
+	// notebook.repository for this app only; empty means "use the global one".
+	// See spec/15-starters.md.
+	Templates   string            `json:"templates,omitempty"`
 	Development map[string]string `json:"development"`
 	Production  map[string]string `json:"production"`
 }
@@ -482,7 +487,11 @@ func normalizeNotebookConfig(cfg *trustableConfig) error {
 	return nil
 }
 
-func notebookRuntimeEnvironment() ([]string, error) {
+// notebookRuntimeEnvironment resolves the notebook source for a launched app.
+// An app created from a starter carries that starter's templates repository in
+// apps.<name>.templates, which takes precedence over the global
+// notebook.repository. Pass an empty app name for the global value.
+func notebookRuntimeEnvironment(app string) ([]string, error) {
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		return nil, err
@@ -490,12 +499,23 @@ func notebookRuntimeEnvironment() ([]string, error) {
 	if err := normalizeNotebookConfig(cfg); err != nil {
 		return nil, err
 	}
+	repository := cfg.Notebook.Repository
+	if app != "" && cfg.Apps != nil {
+		if appCfg := cfg.Apps[app]; appCfg != nil && strings.TrimSpace(appCfg.Templates) != "" {
+			// Already normalized when stored; ignore a value that somehow is not.
+			if normalized, err := normalizeNotebookRepository(appCfg.Templates); err == nil {
+				repository = normalized
+			} else {
+				log.Printf("Warning: app %s has an invalid templates repository %q, using the global default", app, appCfg.Templates)
+			}
+		}
+	}
 	token, err := readNotebookGitHubToken()
 	if err != nil {
 		return nil, err
 	}
 	return []string{
-		"NOTEBOOK_GITHUB_REPOSITORY=" + cfg.Notebook.Repository,
+		"NOTEBOOK_GITHUB_REPOSITORY=" + repository,
 		"NOTEBOOK_GITHUB_REF=" + cfg.Notebook.Ref,
 		"NOTEBOOK_GITHUB_TOKEN=" + token,
 	}, nil

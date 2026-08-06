@@ -1540,7 +1540,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		})
 		return
 	}
-	notebookEnv, err := notebookRuntimeEnvironment()
+	notebookEnv, err := notebookRuntimeEnvironment(app)
 	if err != nil {
 		log.Printf("Trustable notebook configuration failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
