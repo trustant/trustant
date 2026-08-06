@@ -325,6 +325,11 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 - by env variables OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST/OPERATOR_CONFIG_APIHOST
 - on Mac by the content of file ~/Library/Application Support/Trustable/apihost if the file is present
 - on Windows by the content of %APPDATA%/Trustable/apihost  if it is present
+- on Linux by the content of ${XDG_CONFIG_HOME:-$HOME/.config}/trustable/apihost if it is present.
+  There is no Trustable macOS app on Linux, so this is where the native path of
+  `start.sh` writes it (see [start.md](start.md)); this case must not be left
+  unresolved, or the value written there is silently ignored in favour of the
+  default below.
 - defaults to http://miniops.me
 
 `OPS_APIHOST` configures Trustable and `ops ide` orchestration. It is not an

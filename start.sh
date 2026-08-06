@@ -1,31 +1,42 @@
 #!/bin/bash
 #
-# start.sh — provision a local Trustable VM with Lima and wire it up so the
-# rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it exactly
-# where the macOS app would put it: ~/Library/Application Support/Trustable/.
+# start.sh — bring up a Trustable development environment. Two hosts, one script,
+# selected by `uname -s` (see spec/start.md):
 #
-# Plain run:   boots a plain Ubuntu VM (vz), then installs the Trustable .deb
-#              (k3s + helpers) inside it, installs a CPU-only ollama host
+#   macOS  — provisions a local Trustable VM with Lima and wires it up so the
+#            rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds
+#            it exactly where the macOS app would put it:
+#            ~/Library/Application Support/Trustable/.
+#   Linux  — no VM. Ubuntu/Debian already IS the environment, so the same
+#            initialization runs directly on this host: install the Trustable
+#            .deb when k3s is absent, then ollama/kubefwd/gh, the k3s host-rewrite
+#            proxy, the support files, and setup.sh.
+#
+# Plain run:   macOS boots a plain Ubuntu VM (vz), then installs the Trustable
+#              .deb (k3s + helpers) inside it, installs a CPU-only ollama host
 #              (localhost:11434, pinned to the image's OLLAMA_VERSION), ensures
 #              gh via apt in-VM, writes the VM ip/apihost/ssh key to the
 #              Trustable support dir, runs setup.sh in-VM, and finally opens this
-#              folder in the VM over Remote-SSH in VS Code.
+#              folder in the VM over Remote-SSH in VS Code. Linux does the same
+#              minus everything that only makes sense against a VM.
 #   ./start.sh
 #
 # No VS Code:  same as a plain run, but skips opening VS Code at the end.
+#              Accepted and ignored on Linux, which never opens VS Code.
 #   ./start.sh -n
 #
 # Stop:        stops the VM without deleting it, so a later ./start.sh restarts
-#              it (no reinstall).
+#              it (no reinstall). macOS only.
 #   ./start.sh -s
 #
-# Teardown:    stops and deletes the VM.
+# Teardown:    stops and deletes the VM. macOS only.
 #   ./start.sh -k
 #
 # The ~3.6GB package is downloaded+cached on the HOST (under dist/) before the
 # VM boots, then copied in and installed over `limactl shell`. Installing this
 # way — rather than as a Lima `provision` script — avoids limactl start's ~10min
 # readiness timeout, and caching on the host makes re-runs skip the download.
+# On Linux the same cached .deb is installed straight into this machine.
 #
 set -euo pipefail
 
@@ -36,8 +47,24 @@ fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
 cd "$(dirname "$0")"
 
+# Host dispatch. macOS runs the Lima path; Ubuntu/Debian runs everything
+# natively. Any other OS is unsupported — the whole flow is apt/dpkg-based.
+NATIVE_LINUX=false
+case "$(uname -s)" in
+  Darwin) ;;
+  Linux)  NATIVE_LINUX=true ;;
+  *) fail "start.sh supports macOS (Lima VM) and Ubuntu Linux, not $(uname -s)" ;;
+esac
+
 VM_NAME="trudev"
-SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
+# The macOS app's support dir is a fixed Apple location; on Linux there is no
+# such app, so the same two files (current.ip, apihost) live under XDG config.
+# configure.go's apihostFilePath() resolves the identical path per OS.
+if $NATIVE_LINUX; then
+  SUPPORT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/trustable"
+else
+  SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
+fi
 LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
 DOWNLOAD_BASE="https://landing2.nuvolaris.org/api/my/v1/download"
 TRUSTABLE_VERSION="0.4.0"
@@ -84,6 +111,28 @@ ensure_source_submodules() {
   ok "runtime source submodules are available"
 }
 
+# The provisioning payloads below are plain Ubuntu bash and identical on both
+# hosts — the only difference is WHERE they run. These two wrappers are that
+# difference, so every payload heredoc stays host-agnostic.
+#
+#   run_privileged VAR=val ... <<'GUEST'   — as root, in the VM (macOS) or here (Linux)
+#   run_guest      <cmd> [args...]         — as the normal user, same choice
+run_privileged() {
+  if $NATIVE_LINUX; then
+    sudo -n env "$@" bash -euo pipefail -s
+  else
+    limactl shell "$VM_NAME" sudo env "$@" bash -euo pipefail -s
+  fi
+}
+
+run_guest() {
+  if $NATIVE_LINUX; then
+    "$@"
+  else
+    limactl shell "$VM_NAME" "$@"
+  fi
+}
+
 # Ensure the k3s API serving cert covers the host-reachable lima0 IP, so any
 # host-side kubeconfig using that address verifies. The in-VM setup keeps its
 # local 127.0.0.1 endpoint; this SAN is only for host-side `kubectl`/`ops`.
@@ -91,7 +140,7 @@ ensure_source_submodules() {
 ensure_tls_san() {
   local IP="$1"
   echo "--- Ensuring k3s API cert covers $IP ---"
-  limactl shell "$VM_NAME" sudo IP="$IP" bash -euo pipefail -s <<'GUEST'
+  run_privileged IP="$IP" <<'GUEST'
 # Already a SAN on the live cert? then nothing to do.
 if echo | openssl s_client -connect "127.0.0.1:6443" 2>/dev/null \
      | openssl x509 -noout -text 2>/dev/null \
@@ -134,7 +183,7 @@ apply_reverse_proxy() {
   local IP="$1"
   local ipre="${IP//./\\.}"   # dotted IP escaped for the nginx regex
   echo "--- Deploying host-rewrite reverse proxy into k3s ---"
-  limactl shell "$VM_NAME" sudo IP="$IP" IPRE="$ipre" bash -euo pipefail -s <<'GUEST'
+  run_privileged IP="$IP" IPRE="$ipre" <<'GUEST'
 # Resolve traefik's ClusterIP:port (the upstream we proxy to).
 TRAEFIK_IP="$(k3s kubectl get svc -n kube-system traefik -o jsonpath='{.spec.clusterIP}')"
 [ -n "$TRAEFIK_IP" ] || { echo "traefik ClusterIP not found" >&2; exit 1; }
@@ -230,14 +279,19 @@ GUEST
   ok "reverse proxy listening on :8080"
 }
 
-# Install a CPU-only ollama as a host process inside the VM, pinned to
-# OLLAMA_VERSION, and enable its service so it serves on localhost:11434 (the
-# app's OLLAMA_ENDPOINT). Apple's vz gives the Linux guest no GPU passthrough, so
-# this is CPU-only — fine, since the app mostly uses cloud models. Idempotent:
-# skips the install when ollama is already present at the pinned version.
+# Install ollama as a host process, pinned to OLLAMA_VERSION, and enable its
+# service so it serves on localhost:11434 (the app's OLLAMA_ENDPOINT).
+# In the VM this is necessarily CPU-only — Apple's vz gives the Linux guest no
+# GPU passthrough — which is fine since the app mostly uses cloud models. On a
+# native Linux host the upstream installer detects CUDA/ROCm by itself.
+# Idempotent: skips the install when ollama is already present at the pinned version.
 ensure_ollama() {
-  echo "--- Ensuring CPU ollama in the VM (localhost:11434) ---"
-  limactl shell "$VM_NAME" sudo OLLAMA_VERSION="${OLLAMA_VERSION:-}" bash -euo pipefail -s <<'GUEST'
+  if $NATIVE_LINUX; then
+    echo "--- Ensuring ollama on this host (localhost:11434) ---"
+  else
+    echo "--- Ensuring CPU ollama in the VM (localhost:11434) ---"
+  fi
+  run_privileged OLLAMA_VERSION="${OLLAMA_VERSION:-}" <<'GUEST'
 have="$(command -v ollama >/dev/null 2>&1 && ollama --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 if [ -n "$have" ] && { [ -z "$OLLAMA_VERSION" ] || [ "$have" = "$OLLAMA_VERSION" ]; }; then
   echo "ollama already installed (${have})"
@@ -249,20 +303,29 @@ fi
 # The installer registers a systemd service; make sure it is up on 127.0.0.1:11434.
 systemctl enable --now ollama 2>/dev/null || true
 GUEST
-  ok "ollama serving on localhost:11434 in the VM"
+  if $NATIVE_LINUX; then
+    ok "ollama serving on localhost:11434"
+  else
+    ok "ollama serving on localhost:11434 in the VM"
+  fi
 }
 
 # Install the exact Linux kubefwd consumed by repository-root run.sh. WHY:
-# Trustable and its MCP children execute outside k3s in trudev, while production
-# runs inside a pod; a checked release binary gives the VM temporary service
-# reachability without mutating its permanent resolver configuration.
+# Trustable and its MCP children execute outside k3s in development, while
+# production runs inside a pod; a checked release binary gives the development
+# host temporary service reachability without mutating its permanent resolver
+# configuration.
 ensure_kubefwd() {
-  echo "--- Ensuring kubefwd ${KUBEFWD_VERSION} in the VM ---"
-  limactl shell "$VM_NAME" sudo \
+  if $NATIVE_LINUX; then
+    echo "--- Ensuring kubefwd ${KUBEFWD_VERSION} on this host ---"
+  else
+    echo "--- Ensuring kubefwd ${KUBEFWD_VERSION} in the VM ---"
+  fi
+  run_privileged \
     KUBEFWD_VERSION="$KUBEFWD_VERSION" \
     KUBEFWD_SHA_AMD64="$KUBEFWD_SHA_AMD64" \
     KUBEFWD_SHA_ARM64="$KUBEFWD_SHA_ARM64" \
-    bash -euo pipefail -s <<'GUEST'
+    <<'GUEST'
 installed_version="$(
   /usr/local/bin/kubefwd version 2>/dev/null \
     | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
@@ -315,11 +378,15 @@ GUEST
   ok "kubefwd ${KUBEFWD_VERSION} installed at /usr/local/bin/kubefwd"
 }
 
-# Bootstrap gh with apt during VM provisioning so fresh instances have the CLI
+# Bootstrap gh with apt during provisioning so a fresh environment has the CLI
 # even before setup.sh applies the pinned runtime convergence.
 ensure_gh_apt() {
-  echo "--- Ensuring GitHub CLI via apt in the VM ---"
-  limactl shell "$VM_NAME" sudo bash -euo pipefail -s <<'GUEST'
+  if $NATIVE_LINUX; then
+    echo "--- Ensuring GitHub CLI via apt on this host ---"
+  else
+    echo "--- Ensuring GitHub CLI via apt in the VM ---"
+  fi
+  run_privileged <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 if dpkg-query -W -f='${Status}' gh 2>/dev/null | grep -q 'install ok installed'; then
   echo "gh apt package already installed"
@@ -328,14 +395,22 @@ fi
 apt-get update -qq
 apt-get install -y -qq gh
 GUEST
-  ok "GitHub CLI apt package is installed in the VM"
+  if $NATIVE_LINUX; then
+    ok "GitHub CLI apt package is installed"
+  else
+    ok "GitHub CLI apt package is installed in the VM"
+  fi
 }
 
 # setup.sh enforces the pinned gh runtime version from image/Dockerfile. start.sh
-# must fail before declaring "VM ready" when gh is missing or drifted.
+# must fail before declaring the environment ready when gh is missing or drifted.
 ensure_gh() {
-  echo "--- Verifying GitHub CLI in the VM ---"
-  limactl shell "$VM_NAME" sudo GH_VERSION="${GH_VERSION:-}" bash -euo pipefail -s <<'GUEST'
+  if $NATIVE_LINUX; then
+    echo "--- Verifying GitHub CLI ---"
+  else
+    echo "--- Verifying GitHub CLI in the VM ---"
+  fi
+  run_privileged GH_VERSION="${GH_VERSION:-}" <<'GUEST'
 command -v gh >/dev/null 2>&1 || {
   echo "gh is missing after setup.sh" >&2
   exit 1
@@ -348,17 +423,21 @@ if [ -n "${GH_VERSION:-}" ]; then
   }
 fi
 GUEST
+  local where=" in the VM"
+  if $NATIVE_LINUX; then where=""; fi
   if [[ -n "${GH_VERSION:-}" ]]; then
-    ok "GitHub CLI ${GH_VERSION} available in the VM"
+    ok "GitHub CLI ${GH_VERSION} available${where}"
   else
-    ok "GitHub CLI available in the VM"
+    ok "GitHub CLI available${where}"
   fi
 }
 
 # Attempt a non-interactive gh login from a repo-local token file. Missing token,
 # missing gh, or login errors are warning-only so start.sh can still continue.
 login_github_from_token() {
-  echo "--- Attempting GitHub login in VM from .ghtoken ---"
+  local where=" in VM"
+  if $NATIVE_LINUX; then where=""; fi
+  echo "--- Attempting GitHub login${where} from .ghtoken ---"
   if [[ ! -f "$GH_TOKEN_FILE" ]]; then
     warn ".ghtoken not found at $GH_TOKEN_FILE; cannot login gh"
     return 0
@@ -367,12 +446,12 @@ login_github_from_token() {
     warn ".ghtoken is empty; cannot login gh"
     return 0
   fi
-  if ! limactl shell "$VM_NAME" command -v gh >/dev/null 2>&1; then
-    warn "gh is not installed in the VM; cannot login gh"
+  if ! run_guest command -v gh >/dev/null 2>&1; then
+    warn "gh is not installed${where}; cannot login gh"
     return 0
   fi
-  if limactl shell "$VM_NAME" bash -euo pipefail -c 'gh auth login --with-token >/dev/null 2>&1' < "$GH_TOKEN_FILE"; then
-    ok "GitHub CLI authenticated in the VM"
+  if run_guest bash -euo pipefail -c 'gh auth login --with-token >/dev/null 2>&1' < "$GH_TOKEN_FILE"; then
+    ok "GitHub CLI authenticated${where}"
   else
     warn "GitHub CLI login failed using .ghtoken"
   fi
@@ -476,6 +555,50 @@ finish() {
   if [[ "$OPEN_VSCODE" == 1 ]]; then open_vscode; fi
 }
 
+# Native-Linux counterpart of finish(). Same ordering and the same shared
+# helpers, minus everything that only exists to bridge a Mac to a VM: no Lima
+# boot, no virtiofs mount, no mirrored guest user, no ssh key or ~/.ssh/config,
+# no VS Code Remote-SSH.
+finish_native() {
+  preflight_native
+  ensure_source_submodules
+
+  # Install the cluster only when it is absent; otherwise just confirm it runs.
+  if run_guest dpkg -l trustable 2>/dev/null | grep -q '^ii'; then
+    ok "Trustable package already installed"
+  else
+    ensure_deb   # sets DEB_FILE
+    install_package_native
+  fi
+  wait_for_local_k3s
+
+  refresh_support_files_native
+  local IP APIHOST
+  IP="$(cat "$SUPPORT_DIR/current.ip")"
+  APIHOST="$(cat "$SUPPORT_DIR/apihost")"
+
+  ensure_ollama
+  ensure_kubefwd
+  ensure_gh_apt
+  ensure_tls_san "$IP"
+  apply_reverse_proxy "$IP"
+
+  # Provision the toolchain (ops/go/air/uv/node/pi + MCP servers). Same script
+  # the VM path runs, just invoked directly. Idempotent — re-runs just verify.
+  echo "--- Running setup.sh as $(id -un) ---"
+  ./setup.sh || fail "setup.sh failed"
+  ok "setup.sh completed"
+  ensure_gh
+  login_github_from_token
+
+  echo
+  echo -e "${GREEN}=== Trustable environment ready ===${NC}"
+  echo "  apihost:      $APIHOST"
+  echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
+  echo "  ollama:       http://localhost:11434"
+  echo "  next:         ./run.sh"
+}
+
 # Resolve + cache the .deb for the host arch into dist/, downloading if absent.
 # Sets the global DEB_FILE. The deb arch matches the HOST arch (the VM runs the
 # host arch under vz): arm64 on Apple Silicon, amd64 on Intel.
@@ -567,6 +690,146 @@ chmod 0600 /home/trustable/.ssh/authorized_keys
 echo "install complete"
 GUEST
   ok "Trustable package installed and ssh key authorized"
+}
+
+# Native-Linux counterpart of install_package: install the cached .deb straight
+# into THIS machine. Two deliberate carve-outs versus the VM path:
+#
+#  * No netplan override. The VM needs one only because Lima gives it two
+#    interfaces and defaults the route to the host-facing lima0, which would put
+#    the package's :80/:443/:6443 firewall DROP between the Mac and k3s. A native
+#    host has no such split — its real default route is the correct one to
+#    protect, which is exactly what the package's postinst already picks.
+#  * No authorized_keys grafting for the package's 'trustable' user. That exists
+#    so ssh.sh can reach the VM; nobody ssh's into the machine they are sitting at.
+#
+# Requires DEB_FILE (call ensure_deb first). No-op if already installed.
+install_package_native() {
+  echo
+  warn "About to install the Trustable package on THIS machine:"
+  warn "  package:  $DEB_FILE"
+  warn "  installs: k3s + the Trustable service stack, and a firewall dropin"
+  warn "            that DROPs :80/:443/:6443 on the default-route interface"
+  echo
+
+  run_privileged DEB_FILE="$(cd "$(dirname "$DEB_FILE")" && pwd)/$(basename "$DEB_FILE")" <<'GUEST'
+export DEBIAN_FRONTEND=noninteractive
+
+if dpkg -l trustable 2>/dev/null | grep -q '^ii'; then
+  echo "trustable already installed"; exit 0
+fi
+
+apt-get update -qq
+apt-get install -y -qq iptables
+
+DEF_IFACE=$(ip -4 route show default | awk 'NR==1{print $5}')
+echo "default-route interface: ${DEF_IFACE:-none}"
+
+[ -s "$DEB_FILE" ] || { echo "package not found at $DEB_FILE" >&2; exit 1; }
+apt-get install -y "$DEB_FILE"
+echo "install complete"
+GUEST
+  ok "Trustable package installed on this host"
+}
+
+# Wait for the local k3s to serve /readyz and for the nuvolaris namespace to
+# exist. A fresh package install needs 60-90s before OpenWhisk is up, and
+# setup.sh step 7 curls the apihost, so it must not run against a booting cluster.
+wait_for_local_k3s() {
+  echo "--- Waiting for local k3s ---"
+  local kubectl_cmd
+  if command -v kubectl >/dev/null 2>&1; then
+    kubectl_cmd=(sudo -n kubectl)
+  elif command -v k3s >/dev/null 2>&1; then
+    kubectl_cmd=(sudo -n k3s kubectl)
+  else
+    fail "neither kubectl nor k3s is installed — the Trustable package did not install correctly"
+  fi
+
+  local ready=false
+  for _ in $(seq 1 90); do
+    if "${kubectl_cmd[@]}" get --raw='/readyz' >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 2
+  done
+  $ready || {
+    "${kubectl_cmd[@]}" get --raw='/readyz' || true
+    fail "local k3s API did not become ready"
+  }
+  ok "k3s API is ready"
+
+  ready=false
+  for _ in $(seq 1 90); do
+    if "${kubectl_cmd[@]}" get ns nuvolaris >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 2
+  done
+  $ready || fail "the nuvolaris namespace never appeared — is the Trustable package healthy?"
+  ok "nuvolaris namespace is present"
+}
+
+# Resolve the address other machines (and the browser) can reach this host on:
+# the source address of the default route. Falls back to loopback on a host with
+# no default route, which still serves a local-only browser correctly.
+native_host_ip() {
+  local ip
+  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src") {print $(i+1); exit}}')"
+  [[ -n "$ip" ]] || ip="127.0.0.1"
+  printf '%s' "$ip"
+}
+
+# Native counterpart of refresh_support_files. Writes the same two files the Go
+# server and the tooling read, at the XDG location resolved by SUPPORT_DIR.
+# There is no id_ed25519: nothing ssh's anywhere on this path.
+refresh_support_files_native() {
+  echo "--- Writing Trustable support files ---"
+  local IP APIHOST
+  IP="$(native_host_ip)"
+  ok "host IP: $IP"
+
+  mkdir -p "$SUPPORT_DIR"
+  printf '%s' "$IP" > "$SUPPORT_DIR/current.ip"
+  ok "wrote current.ip -> $IP"
+
+  # Same reasoning as the VM path: a bare http://<ip>/api/info sends Host: <ip>,
+  # which traefik does not match. Go through the host-rewrite proxy on :8080.
+  APIHOST="http://${IP}.nip.io:8080"
+  printf '%s' "$APIHOST" > "$SUPPORT_DIR/apihost"
+  ok "wrote apihost -> $APIHOST"
+}
+
+# Preflight for the native path: everything the rest of the flow assumes.
+preflight_native() {
+  echo "--- Checking this host ---"
+  [[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  case " ${ID:-} ${ID_LIKE:-} " in
+    *ubuntu*|*debian*) ;;
+    *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
+  esac
+  ok "distribution: ${PRETTY_NAME:-${ID:-unknown}}"
+
+  case "$(uname -m)" in
+    x86_64|amd64|aarch64|arm64) ;;
+    *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
+  esac
+
+  # setup.sh, run.sh and the package install all assume passwordless sudo.
+  sudo -n true 2>/dev/null \
+    || fail "passwordless sudo is required (add: $(id -un) ALL=(ALL) NOPASSWD:ALL to /etc/sudoers.d/)"
+  ok "passwordless sudo works"
+
+  # k3s is a systemd service; a container/WSL instance without systemd cannot run it.
+  local systemd_state
+  systemd_state="$(systemctl is-system-running 2>/dev/null || true)"
+  [[ "$systemd_state" != "offline" && -d /run/systemd/system ]] \
+    || fail "systemd is not running — k3s cannot be managed on this host"
+  ok "systemd is available"
 }
 
 # A dedicated host key for passwordless access as the mirrored user. The Lima
@@ -666,7 +929,16 @@ package_installed() {
   limactl shell "$VM_NAME" dpkg -l trustable 2>/dev/null | grep -q '^ii'
 }
 
-command -v limactl >/dev/null 2>&1 || fail "limactl not found (brew install lima)"
+# -s and -k are VM lifecycle operations. On a native host there is no VM, and
+# they must never be reinterpreted as "stop/destroy this machine's k3s" — refuse
+# instead of silently succeeding.
+if $NATIVE_LINUX; then
+  case "${1:-}" in
+    -s|-k) fail "$1 manages the Lima VM and does not apply on a native Linux host" ;;
+  esac
+else
+  command -v limactl >/dev/null 2>&1 || fail "limactl not found (brew install lima)"
+fi
 
 # --- stop (keep the VM): ./start.sh -s --------------------------------------
 if [[ "${1:-}" == "-s" ]]; then
@@ -697,6 +969,9 @@ case "${1:-}" in
   # -s/-k never reach the finish path, so they must not require `code` on PATH.
   -s|-k) OPEN_VSCODE=0 ;;
 esac
+# The native path never opens VS Code (you are already on the machine), so -n is
+# accepted and ignored there and `code` is never required.
+if $NATIVE_LINUX; then OPEN_VSCODE=0; fi
 if [[ "$OPEN_VSCODE" == 1 ]]; then
   command -v code >/dev/null 2>&1 \
     || fail "'code' not found — enable it in VS Code: Shell Command: Install 'code' command in PATH, or run ./start.sh -n"
@@ -726,7 +1001,12 @@ if [[ "${1:-}" == "-k" ]]; then
   exit 0
 fi
 
-[[ "$(uname -s)" == "Darwin" ]] || fail "start.sh is macOS-only (needs the Trustable support dir + vz)"
+# --- native Linux: no VM, initialize this host directly ----------------------
+if $NATIVE_LINUX; then
+  finish_native
+  exit 0
+fi
+
 ensure_source_submodules
 
 # If the VM already exists, don't re-provision. Start it when needed, refresh

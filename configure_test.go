@@ -503,10 +503,10 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	}
 	redisEnv := redis["environment"].(map[string]string)
 	wantRedisEnv := map[string]string{
-		"REDIS_USERNAME": "app",
-		"REDIS_HOST":     "redis",
-		"REDIS_PORT":     "6379",
-		"REDIS_PWD":      "pw",
+		"REDIS_USERNAME":         "app",
+		"REDIS_HOST":             "redis",
+		"REDIS_PORT":             "6379",
+		"REDIS_PWD":              "pw",
 		"TRUSTABLE_REDIS_PREFIX": "app:",
 	}
 	if !reflect.DeepEqual(redisEnv, wantRedisEnv) {
@@ -2428,5 +2428,63 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 		config.Servers["browser"]["command"] != "trustable-browser-mcp" ||
 		config.Servers["react"]["command"] != "trustable-react-mcp" {
 		t.Fatalf("unexpected managed MCP commands: %#v", config.Servers)
+	}
+}
+
+func TestApihostFilePathFor(t *testing.T) {
+	const home = "/home/dev"
+	cases := []struct {
+		name          string
+		goos          string
+		home          string
+		appData       string
+		xdgConfigHome string
+		want          string
+	}{
+		{
+			name: "darwin uses the macOS app support dir",
+			goos: "darwin", home: home,
+			want: filepath.Join(home, "Library", "Application Support", "Trustable", "apihost"),
+		},
+		{
+			name: "windows uses APPDATA",
+			goos: "windows", appData: `C:\Users\dev\AppData\Roaming`,
+			want: filepath.Join(`C:\Users\dev\AppData\Roaming`, "Trustable", "apihost"),
+		},
+		{
+			// start.sh writes this file natively on Linux; an empty result here
+			// would make the server silently fall back to http://miniops.me.
+			name: "linux defaults to ~/.config",
+			goos: "linux", home: home,
+			want: filepath.Join(home, ".config", "trustable", "apihost"),
+		},
+		{
+			name: "linux honours XDG_CONFIG_HOME",
+			goos: "linux", home: home, xdgConfigHome: "/custom/config",
+			want: filepath.Join("/custom/config", "trustable", "apihost"),
+		},
+		{
+			name: "linux without a resolvable home has no location",
+			goos: "linux",
+			want: "",
+		},
+		{
+			name: "windows without APPDATA has no location",
+			goos: "windows", home: home,
+			want: "",
+		},
+		{
+			name: "unsupported platform has no location",
+			goos: "plan9", home: home,
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := apihostFilePathFor(tc.goos, tc.home, tc.appData, tc.xdgConfigHome)
+			if got != tc.want {
+				t.Errorf("apihostFilePathFor(%q) = %q, want %q", tc.goos, got, tc.want)
+			}
+		})
 	}
 }

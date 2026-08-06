@@ -1,9 +1,27 @@
 # Repository-root `start.sh`
 
-This specification defines the repository-root `start.sh`. It provisions a
-local Trustable VM with Lima and wires it up
-so the rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
-~/Library/Application Support/Trustable/ — the same place the macOS app writes.
+This specification defines the repository-root `start.sh`, which brings up a
+Trustable development environment. It supports two hosts, selected
+automatically by `uname -s`:
+
+- **macOS** — provisions a local Trustable VM with Lima and wires it up so the
+  rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
+  ~/Library/Application Support/Trustable/ — the same place the macOS app writes.
+  This is the whole of the "macOS (Lima VM)" section below.
+- **native Ubuntu Linux** — there is nothing to virtualize, so VM creation is
+  skipped entirely and only the environment initialization runs, directly on
+  this host. See "Native Ubuntu Linux" at the end.
+
+Any other operating system is unsupported and aborts: the entire flow is
+apt/dpkg-based.
+
+The two paths share every provisioning payload — the k3s cert SAN, the
+host-rewrite reverse proxy, ollama, kubefwd, and gh are the same Ubuntu bash on
+both, differing only in whether they run in the VM or on this machine. They are
+therefore implemented once and dispatched through a single indirection, rather
+than duplicated per host.
+
+# macOS (Lima VM)
 
 ## Download + cache the package (host side, before booting the VM)
 
@@ -170,3 +188,108 @@ it (no reinstall) — the Stopped path above.
 
 ---
 add user in group sudo and do not create another group (use useradd -g sudo)
+
+# Native Ubuntu Linux
+
+On a Linux host `./start.sh` **skips VM creation entirely** and initializes this
+machine directly, so that `./setup.sh` and `./run.sh` are then usable exactly as
+they are inside `trudev`.
+
+## Preflight
+
+Abort with an actionable message unless all of the following hold:
+
+- `/etc/os-release` identifies Ubuntu or Debian (`ID`/`ID_LIKE`). Every install
+  step below is `apt-get`/`dpkg`, and the Trustable package is a `.deb`.
+- the architecture is amd64 or arm64.
+- `sudo -n true` succeeds. Passwordless sudo is already assumed by `setup.sh`,
+  by `run.sh`'s kubefwd supervisor, and by the package install.
+- systemd is running (`/run/systemd/system` exists and `systemctl
+  is-system-running` is not `offline`). k3s is a systemd service.
+
+Then initialize the runtime source submodules, exactly as the macOS path does —
+this step is host-agnostic.
+
+`limactl` is NOT required, and neither is `code`.
+
+## Cluster
+
+If `dpkg -l trustable` does not report `ii`, download and cache the `.deb`
+(identical arch mapping and `dist/` cache as the macOS path) and install it on
+this machine. Print an explicit banner naming the package and what it installs
+first — this is the one step that mutates the host outside the repository.
+
+Two deliberate differences from the in-VM install:
+
+- **No netplan override.** The VM needs one only because Lima gives it two
+  interfaces and defaults the route to the host-facing lima0, which would put
+  the package's :80/:443/:6443 firewall DROP between the Mac and k3s. A native
+  host has no such split — its real default route is the correct one to protect,
+  which is what the package's postinst already selects.
+- **No authorized_keys grafting** for the package-created `trustable` user. That
+  exists so `ssh.sh` can reach the VM; nobody ssh's into the machine they are
+  sitting at.
+
+If the package is already installed, skip straight to verification.
+
+Then wait for the local k3s to serve `/readyz` and for the `nuvolaris` namespace
+to appear. A fresh install needs 60–90s before OpenWhisk is up, and `setup.sh`
+step 7 curls the apihost, so it must not run against a booting cluster.
+
+## Support files
+
+Resolve the host-reachable address as the source address of the default route
+(`ip -4 route get`), falling back to `127.0.0.1` on a host with no default route.
+Write, under `${XDG_CONFIG_HOME:-$HOME/.config}/trustable/`:
+
+- `current.ip` -> `<ip>`
+- `apihost`    -> `http://<ip>.nip.io:8080`
+
+There is no `id_ed25519`: nothing ssh's anywhere on this path.
+
+The apihost goes through the host-rewrite proxy for the same reason as on macOS —
+a bare `http://<ip>/api/info` sends `Host: <ip>`, which traefik does not match.
+
+`configure.go`'s `apihostFilePath()` resolves this identical location for
+`GOOS=linux`, so the Go server honours the written value. Leaving that case
+empty would make the server silently fall back to `http://miniops.me`.
+
+`build.sh` deliberately needs no change: it keys its "ship the image over ssh to
+the Mac VM" branch on `id_ed25519` **and** `current.ip` both existing under the
+*macOS* support path. The Linux support dir is elsewhere and carries no key, so
+`build.sh` keeps taking its local-k3s branch. Do not "fix" this by teaching
+`build.sh` about the Linux support dir.
+
+## Shared provisioning
+
+Run the same helpers the macOS finish path runs, against this host:
+
+- the k3s API cert SAN for the resolved IP;
+- the host-rewrite reverse proxy on `:8080`, so
+  `http://<label>.<ip>.nip.io:8080` reaches `<label>.miniops.me`. This is what
+  makes the app reachable from another machine on the network;
+- ollama on `localhost:11434`, pinned to the image's `OLLAMA_VERSION`. Unlike
+  the VM, a native host is not restricted to CPU — the upstream installer
+  detects CUDA/ROCm by itself, which needs no special handling here;
+- the pinned `kubefwd` 1.25.16 with its SHA-256 verification;
+- the `gh` apt package.
+
+Then run `./setup.sh` directly (not through `limactl shell`), verify the pinned
+`gh` runtime version, and attempt the warning-only `.ghtoken` login.
+
+## Flags
+
+- `-s` and `-k` are VM lifecycle operations with no native equivalent. They must
+  exit non-zero with an explanatory message and must never be reinterpreted as
+  "stop or destroy this machine's k3s".
+- `-n` is accepted and ignored: VS Code is never opened on this path, so a
+  habitual `./start.sh -n` still works.
+
+## Summary
+
+Print the apihost, the host-rewrite URL pattern, the ollama endpoint, and
+`./run.sh` as the next step. Omit the ssh, mount, VS Code, stop, and destroy
+lines — none of them exist here.
+
+Re-running is fully idempotent: an installed package, a ready cluster, and an
+already-provisioned toolchain are all verified rather than redone.

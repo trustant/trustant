@@ -182,7 +182,7 @@ fi
 # processes each allocate their first service to the same loopback address and
 # race for ports; trustable-svc is excluded because it would steal 8910/4096/5173.
 command -v kubefwd &>/dev/null \
-    || { echo "kubefwd is missing — run ./start.sh on macOS or install the pinned version before run.sh" >&2; exit 1; }
+    || { echo "kubefwd is missing — run ./start.sh (macOS or native Linux) or install the pinned version before run.sh" >&2; exit 1; }
 FORWARD_PROBE_SERVICE="$(
     kube -n nuvolaris get services \
         -o custom-columns=NAME:.metadata.name --no-headers 2>/dev/null \
@@ -266,10 +266,15 @@ AIR_PID=$!
 #    can invoke legacy Docker-based Ollama commands that are not valid for Lima
 #    dev environments.
 #
-# Resolve the host-reachable URL. lima0 is the host<->guest interface start.sh
-# sets up; its address is what the Mac browser can reach. Fall back to 127.0.0.1
-# when there is no lima0 (e.g. a plain Linux server VM).
-IP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
+# Resolve the host-reachable URL, in order:
+#   1. the current.ip start.sh wrote — on a native Linux host this is the LAN
+#      address, so the printed URL also works from another machine;
+#   2. lima0, the host<->guest interface start.sh sets up in the VM, whose
+#      address is what the Mac browser can reach;
+#   3. 127.0.0.1, correct for a local-only browser.
+SUPPORT_IP_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/trustable/current.ip"
+IP="$(cat "$SUPPORT_IP_FILE" 2>/dev/null | tr -d '[:space:]')"
+[[ -n "$IP" ]] || IP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
 [[ -n "$IP" ]] || IP="127.0.0.1"
 URL="http://trustable.${IP}.nip.io:8910/"
 

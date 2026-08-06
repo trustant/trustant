@@ -29,7 +29,7 @@ case "$ARCH" in
   *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
 esac
 
-[[ "$OS" == "linux" ]] || fail "setup.sh supports Ubuntu Linux in Lima or WSL, not ${OS}"
+[[ "$OS" == "linux" ]] || fail "setup.sh supports Ubuntu Linux natively, in Lima, or in WSL, not ${OS}"
 [[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
 # shellcheck disable=SC1091
 source /etc/os-release
@@ -348,7 +348,7 @@ ok "local k3s API is ready"
 # explicitly so WSL/local-k3s fails before run.sh can leave a partial dev loop.
 KUBEFWD_VERSION="1.25.16"
 command -v kubefwd &>/dev/null \
-  || fail "kubefwd ${KUBEFWD_VERSION} is required (trudev: run start.sh on macOS; WSL: install the pinned Linux release)"
+  || fail "kubefwd ${KUBEFWD_VERSION} is required (trudev: run start.sh on macOS; native Linux: run ./start.sh; WSL: install the pinned Linux release)"
 KUBEFWD_INSTALLED_VERSION="$(
   kubefwd version 2>/dev/null \
     | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true
