@@ -179,19 +179,42 @@ func developmentAPIHost() string {
 // apihostFilePath returns the OS-specific path to the user-level apihost file,
 // or "" if the platform has no defined location.
 func apihostFilePath() string {
-	switch runtime.GOOS {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	return apihostFilePathFor(runtime.GOOS, home,
+		os.Getenv("APPDATA"), os.Getenv("XDG_CONFIG_HOME"))
+}
+
+// apihostFilePathFor resolves the apihost file location for a given platform.
+// Split out from apihostFilePath so the per-OS layout is testable without
+// building for each GOOS. Returns "" when the location cannot be determined.
+//
+// The Linux path is the one start.sh writes on a native host (no Trustable
+// macOS app, so no "Application Support" dir); leaving it empty would make the
+// server silently ignore the file and fall back to http://miniops.me.
+func apihostFilePathFor(goos, home, appData, xdgConfigHome string) string {
+	switch goos {
 	case "darwin":
-		home, err := os.UserHomeDir()
-		if err != nil {
+		if home == "" {
 			return ""
 		}
 		return filepath.Join(home, "Library", "Application Support", "Trustable", "apihost")
 	case "windows":
-		appData := strings.TrimSpace(os.Getenv("APPDATA"))
+		appData = strings.TrimSpace(appData)
 		if appData == "" {
 			return ""
 		}
 		return filepath.Join(appData, "Trustable", "apihost")
+	case "linux":
+		if xdg := strings.TrimSpace(xdgConfigHome); xdg != "" {
+			return filepath.Join(xdg, "trustable", "apihost")
+		}
+		if home == "" {
+			return ""
+		}
+		return filepath.Join(home, ".config", "trustable", "apihost")
 	default:
 		return ""
 	}

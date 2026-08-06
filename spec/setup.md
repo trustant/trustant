@@ -4,8 +4,9 @@ This specification defines the repository-root `setup.sh`. The script recreates,
 inside a supported Ubuntu development
 target, the same environment that `image/Dockerfile` builds, so that `./run.sh`
 can be run with all MCP servers and references ready. Supported targets are the
-Ubuntu `trudev` Lima VM created by `./start.sh` and Ubuntu on WSL with local k3s,
-passwordless sudo, and systemd enabled.
+Ubuntu `trudev` Lima VM created by `./start.sh`, a native Ubuntu Linux host
+initialized by the same `./start.sh` (see [start.md](start.md)), and Ubuntu on
+WSL — each with local k3s, passwordless sudo, and systemd enabled.
 
 setup.sh runs INSIDE the VM, as the mirrored guest user (the macOS user that
 `start.sh` recreated in the VM with the same UID + passwordless sudo). `start.sh`
@@ -189,9 +190,9 @@ connection error behind a generic CoreDNS message.
 After kubeconfig is valid, do not modify resolver configuration or restart
 resolver services. Processes outside the cluster reach service names through
 the single namespace-wide `kubefwd` process owned by repository-root `run.sh`.
-The `trudev` provisioning path installs the pinned forwarder through
-repository-root `start.sh`; WSL must provide that same executable before
-`run.sh` starts.
+The `trudev` and native-Linux provisioning paths both install the pinned
+forwarder through repository-root `start.sh`; WSL must provide that same
+executable before `run.sh` starts.
 
 9. check you have administrative power
 ensuring `ops admin listuser` does not return error

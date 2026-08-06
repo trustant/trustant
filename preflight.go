@@ -15,10 +15,14 @@ import (
 
 // Environment configuration loaded from .env
 var (
-	WorkspaceDir   string
-	WorkbenchDir   string
-	OpenAIBaseUrl  string
-	OpenAIApiKey   string
+	WorkspaceDir string
+	WorkbenchDir string
+	// OPENAI_BASE_URL / OPENAI_API_KEY are deliberately not mirrored into globals:
+	// the provider base URL comes from cfg.BaseURL in the layered trustable.json,
+	// and the real key is resolved by Pi through auth.json from the literal
+	// "$OPENAI_API_KEY" reference. Both still reach subprocesses via the process
+	// environment that loadEnv sets, and are stripped from the user-visible shell
+	// by terminalEnvironment.
 	OllamaEndpoint string
 	AIPRegisterURL string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
 	AIPBaseURL     string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
@@ -59,8 +63,6 @@ func loadEnv() error {
 	// Set package-level variables from environment
 	WorkspaceDir = os.Getenv("WORKSPACE_DIR")
 	WorkbenchDir = os.Getenv("WORKBENCH_DIR")
-	OpenAIBaseUrl = os.Getenv("OPENAI_BASE_URL")
-	OpenAIApiKey = os.Getenv("OPENAI_API_KEY")
 	OllamaEndpoint = os.Getenv("OLLAMA_ENDPOINT")
 	AIPRegisterURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AIP_REGISTER_URL")), "/")
 	AIPBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AIP_BASE_URL")), "/")
@@ -117,7 +119,6 @@ func runPreflight() error {
 	log.Printf("  WorkspaceDir:       %s", WorkspaceDir)
 	log.Printf("  WorkbenchDir:       %s", WorkbenchDir)
 	log.Printf("  OllamaEndpoint:     %s", OllamaEndpoint)
-	log.Printf("  OpenAIBaseUrl:      %s", OpenAIBaseUrl)
 	log.Printf("  AIPRegisterURL:     %s", AIPRegisterURL)
 	log.Printf("  AIPBaseURL:         %s", AIPBaseURL)
 	log.Printf("  OpsSkills:          %s", OpsSkills)

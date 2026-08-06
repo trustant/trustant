@@ -1,9 +1,27 @@
 # Repository-root `start.sh`
 
-This specification defines the repository-root `start.sh`. It provisions a
-local Trustable VM with Lima and wires it up
-so the rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
-~/Library/Application Support/Trustable/ — the same place the macOS app writes.
+This specification defines the repository-root `start.sh`, which brings up a
+Trustable development environment. It supports two hosts, selected
+automatically by `uname -s`:
+
+- **macOS** — provisions a local Trustable VM with Lima and wires it up so the
+  rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
+  ~/Library/Application Support/Trustable/ — the same place the macOS app writes.
+  This is the whole of the "macOS (Lima VM)" section below.
+- **native Ubuntu Linux** — there is nothing to virtualize, so VM creation is
+  skipped entirely and only the environment initialization runs, directly on
+  this host. See "Native Ubuntu Linux" at the end.
+
+Any other operating system is unsupported and aborts: the entire flow is
+apt/dpkg-based.
+
+The two paths share every provisioning payload — the k3s cert SAN, the
+host-rewrite reverse proxy, ollama, kubefwd, and gh are the same Ubuntu bash on
+both, differing only in whether they run in the VM or on this machine. They are
+therefore implemented once and dispatched through a single indirection, rather
+than duplicated per host.
+
+# macOS (Lima VM)
 
 ## Download + cache the package (host side, before booting the VM)
 
@@ -147,9 +165,46 @@ This applies to provisioning flows that execute `setup.sh` (fresh VM creation).
 On provisioning flows that execute `setup.sh` (fresh VM creation), `start.sh`
 attempts non-interactive GitHub
 authentication inside the VM using repository-root `.ghtoken`
-(`gh auth login --with-token`). Missing `.ghtoken`, empty token, missing `gh`,
-or login failures are warning-only and must not block startup. VS Code opens by
+(`gh auth login --with-token`). At that late point, missing `gh` or a login
+failure are warning-only and must not block startup — the token itself has
+already been gated up front (see below). VS Code opens by
 default; `./start.sh -n` skips opening VS Code.
+
+## .env seeding (first step)
+
+Before anything else on either host, `start.sh` ensures a repository-root `.env`
+exists, seeding it from `.env.dist` when absent. An existing `.env` is **never**
+overwritten — it holds the user's real credentials. A missing `.env.dist` is a
+hard failure.
+
+The copy is verbatim. `.env.dist` ships no `<placeholder>` values, so the seeded
+file already satisfies `setup.sh` step 1, which hard-fails on any value still in
+that shape. As a guard against a placeholder being reintroduced to the template
+later, any line matching `KEY=<...>` is reported as a warning naming the
+offending lines — surfacing it at the start of the run rather than letting
+`setup.sh` abort minutes in.
+
+Note the two `.env` creators differ by design: `setup.sh` generates in-VM values
+rooted at the guest `$HOME`, whereas this step only materializes the shipped
+template so the file exists from the very start of the run.
+
+## GitHub token gate (second step)
+
+Immediately after `.env` seeding, on both hosts, `start.sh` checks the
+repository-root `.ghtoken`. A run provisions a cluster and clones private
+sources, so an absent token must surface immediately rather than minutes later
+at the login step.
+
+- Present and non-empty: report it and continue.
+- Absent or empty, with a terminal: prompt for the token on `/dev/tty` with echo
+  **off** (it is a credential and must not reach scrollback), then persist it to
+  `.ghtoken` created under `umask 077` / mode `0600`. `.ghtoken` is git-ignored.
+- Empty input at the prompt: **stop the run** non-zero without writing a file.
+- Absent or empty with no TTY (CI, piped): do not hang waiting on input — fail
+  immediately, naming the file to create and where to get a token.
+
+The check sits after the `-s`/`-k` branches, which exit earlier: stopping or
+destroying a VM must never require a token.
 
 ## Re-running when the VM already exists
 
@@ -170,3 +225,142 @@ it (no reinstall) — the Stopped path above.
 
 ---
 add user in group sudo and do not create another group (use useradd -g sudo)
+
+# Native Ubuntu Linux
+
+On a Linux host `./start.sh` **skips VM creation entirely** and initializes this
+machine directly, so that `./setup.sh` and `./run.sh` are then usable exactly as
+they are inside `trudev`.
+
+## Preflight
+
+Abort with an actionable message unless all of the following hold:
+
+- `/etc/os-release` identifies Ubuntu or Debian (`ID`/`ID_LIKE`). Every install
+  step below is `apt-get`/`dpkg`, and the Trustable package is a `.deb`.
+- the architecture reported by `dpkg --print-architecture` is amd64 or arm64.
+  This is the same source `ensure_deb` uses, so the preflight gate and the
+  package actually selected can never disagree.
+- `sudo -n true` succeeds. Passwordless sudo is already assumed by `setup.sh`,
+  by `run.sh`'s kubefwd supervisor, and by the package install.
+- systemd is running (`/run/systemd/system` exists and `systemctl
+  is-system-running` is not `offline`). k3s is a systemd service.
+
+Then initialize the runtime source submodules, exactly as the macOS path does —
+this step is host-agnostic.
+
+`limactl` is NOT required, and neither is `code`.
+
+## Cluster
+
+If `dpkg -l trustable` does not report `ii`, download and cache the `.deb` and
+install it on this machine.
+
+The package must match the host architecture. On Linux, detect it with
+`dpkg --print-architecture` — that is what governs whether `apt-get install`
+will accept the package, and it stays correct on a multiarch host where `uname`
+reports the kernel's architecture. It emits exactly the strings the filenames
+use, so:
+
+- arm64 -> `dist/trustable_<version>_arm64.deb` (download `linux-arm`)
+- amd64 -> `dist/trustable_<version>_amd64.deb` (download `linux-amd`)
+
+macOS has no `dpkg` — the `.deb` is installed inside the VM, which runs the host
+architecture under vz — so the macOS path keeps mapping from `uname -m`
+(`arm64`/`aarch64` -> arm64, `x86_64`/`amd64` -> amd64) onto the same two
+filenames. Anything else aborts as an unsupported architecture. The resolved
+architecture is echoed before the download so a wrong-arch cache hit is visible. Print an explicit banner naming the package and what it installs
+first — this is the one step that mutates the host outside the repository.
+
+Two deliberate differences from the in-VM install:
+
+- **No netplan override.** The VM needs one only because Lima gives it two
+  interfaces and defaults the route to the host-facing lima0, which would put
+  the package's :80/:443/:6443 firewall DROP between the Mac and k3s. A native
+  host has no such split — its real default route is the correct one to protect,
+  which is what the package's postinst already selects.
+- **No authorized_keys grafting** for the package-created `trustable` user. That
+  exists so `ssh.sh` can reach the VM; nobody ssh's into the machine they are
+  sitting at.
+
+If the package is already installed, skip straight to verification.
+
+Then wait for the local k3s to serve `/readyz` and for the `nuvolaris` namespace
+to appear. A fresh install needs 60–90s before OpenWhisk is up, and `setup.sh`
+step 7 curls the apihost, so it must not run against a booting cluster.
+
+Probe with `sudo -n k3s kubectl`, which points itself at
+`/etc/rancher/k3s/k3s.yaml`. Only fall back to a plain `kubectl` when `k3s` is
+absent, and then pass `--kubeconfig /etc/rancher/k3s/k3s.yaml` explicitly: this
+step runs before `setup.sh` writes `~/.ops/tmp/kubeconfig`, so k3s.yaml is the
+only kubeconfig that exists yet, and a bare `sudo -n kubectl` would run as root
+with no `KUBECONFIG` and probe the default `localhost:8080` — hanging the full
+180s timeout against a perfectly healthy cluster. Hosts with a snap-installed
+`kubectl` on `PATH` hit exactly this. The timeout message names the command it
+probed with, so the failure is diagnosable.
+
+## Support files
+
+Resolve the host-reachable address as the source address of the default route
+(`ip -4 route get`), falling back to `127.0.0.1` on a host with no default route.
+Write, under `${XDG_CONFIG_HOME:-$HOME/.config}/trustable/`:
+
+- `current.ip` -> `<ip>`
+- `apihost`    -> `http://<ip>.nip.io:8080`
+
+There is no `id_ed25519`: nothing ssh's anywhere on this path.
+
+The apihost goes through the host-rewrite proxy for the same reason as on macOS —
+a bare `http://<ip>/api/info` sends `Host: <ip>`, which traefik does not match.
+
+`configure.go`'s `apihostFilePath()` resolves this identical location for
+`GOOS=linux`, so the Go server honours the written value. Leaving that case
+empty would make the server silently fall back to `http://miniops.me`.
+
+`build.sh` deliberately needs no change: it keys its "ship the image over ssh to
+the Mac VM" branch on `id_ed25519` **and** `current.ip` both existing under the
+*macOS* support path. The Linux support dir is elsewhere and carries no key, so
+`build.sh` keeps taking its local-k3s branch. Do not "fix" this by teaching
+`build.sh` about the Linux support dir.
+
+## Shared provisioning
+
+Run the same helpers the macOS finish path runs, against this host:
+
+- the k3s API cert SAN for the resolved IP;
+- the host-rewrite reverse proxy on `:8080`, so
+  `http://<label>.<ip>.nip.io:8080` reaches `<label>.miniops.me`. This is what
+  makes the app reachable from another machine on the network;
+- ollama on `localhost:11434`, pinned to the image's `OLLAMA_VERSION`. Unlike
+  the VM, a native host is not restricted to CPU — the upstream installer
+  detects CUDA/ROCm by itself, which needs no special handling here;
+- the pinned `kubefwd` 1.25.16 with its SHA-256 verification;
+- the `gh` apt package.
+
+Then run `./setup.sh` directly (not through `limactl shell`), verify the pinned
+`gh` runtime version, and attempt the warning-only `.ghtoken` login.
+
+## Flags
+
+- `-s` and `-k` are VM lifecycle operations with no native equivalent. They must
+  exit non-zero with an explanatory message and must never be reinterpreted as
+  "stop or destroy this machine's k3s".
+- `-n` is accepted and ignored: VS Code is never opened on this path, so a
+  habitual `./start.sh -n` still works.
+
+## Summary
+
+Print the apihost, the host-rewrite URL pattern, the ollama endpoint, a `vscode`
+line, and `./run.sh` as the next step. Omit the ssh, mount, stop, and destroy
+lines — none of them exist here.
+
+The `vscode` line prints the command that opens the sources, not a Remote-SSH
+hop: on a native host the repo is already local, so connecting is just
+`code <repo dir>`. When `code` is not on `PATH`, print that same command as a
+hint plus the "Shell Command: Install 'code' command in PATH" pointer, and carry
+on. Unlike the macOS path — where a missing `code` is a hard `fail` because
+Remote-SSH is the only way in — VS Code is never required here, so its absence
+must never abort a run that has otherwise succeeded.
+
+Re-running is fully idempotent: an installed package, a ready cluster, and an
+already-provisioned toolchain are all verified rather than redone.

@@ -1,7 +1,12 @@
 # Repository-root `run.sh`
 
 This specification defines the repository-root `run.sh`, which invokes the app
-with Air inside the `trudev` VM (see [setup.md](setup.md)):
+with Air inside the `trudev` VM (see [setup.md](setup.md)). On a native Ubuntu
+Linux host there is no VM, so the same dev loop runs directly: `uname` is not
+`Darwin`, step 0 is skipped, and execution falls straight through to the steps
+below. That host is initialized by the native path of `./start.sh` (see
+[start.md](start.md)), which supplies the same kubeconfig, `kubefwd`, and
+toolchain the VM path provides.
 
 Before Air starts, every development invocation must regenerate `_build.txt`
 from `version.txt` and `expiry.txt`; it must never reuse metadata left by an
@@ -67,7 +72,10 @@ that subrepo is built by setup and can contain ignored Bun `.bun-build` marker
 files with mode `000`, which must not enter Air's checksum scan.
 
 4. print the browser URL as http://trustable.<ip>.nip.io:8910/ where <ip> is the
-host-reachable lima0 address (fall back to 127.0.0.1 if there is no lima0);
+host-reachable address, resolved in this order: the `current.ip` written by
+`start.sh` under `${XDG_CONFIG_HOME:-$HOME/.config}/trustable/` (on a native
+Linux host this is the LAN address, so the printed URL also works from another
+machine), then the lima0 address inside the VM, then 127.0.0.1;
 Trustable handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
 
 5. wait until you press ^c and terminate everything

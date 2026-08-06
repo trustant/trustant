@@ -16,10 +16,16 @@ expanding them also using environment variables for:
 
 WorkspaceDir
 WorkbenchDir
-OpenAIBaseUrl
-OpenAIApiKey
 OllamaEndpoint
 OpsSkills (defaults to "trustable-ai/skills", not editable in development)
+
+`OPENAI_BASE_URL` and `OPENAI_API_KEY` are deliberately **not** mirrored into
+internal variables. The provider base URL is read from `cfg.BaseURL` in the
+layered `trustable.json`, and the real key is resolved by Pi through `auth.json`
+from the literal `$OPENAI_API_KEY` reference stored in its model catalog — the
+server never substitutes it. Both variables are still propagated to subcommands
+through the process environment, and both are stripped from the user-visible
+shell by the terminal (see [12-terminal.md](12-terminal.md)).
 
 - Run migration: if the workspace `trustable.json` does not yet have an `apps` section, scan `<WorkspaceDir>/workspace/*/` for existing app directories, retrieve each app's password via `ops util kubeget whiskuser/<name> .spec.password`, build `apps` entries, strip fields that match the base config, and save the updated workspace `trustable.json`.
 
