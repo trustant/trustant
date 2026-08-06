@@ -30,21 +30,31 @@ otherwise returns
 `{
   "name: <name>
   "repo": <repo>
-  "password": <password>
+  "templates": <templates>
 }`
 
-where <apihost> is optional
+where `<templates>` is optional.
+
+`"password"` is still accepted in the body for backwards compatibility but is
+**ignored**: the browser never supplies a password (see below).
 
 ## Performs the checks:
 
 - `<name>` is alphanumericic, starts with a letter and is 6-20 letter log
 - `<repo>` is in format `<user>/<path>`
+- `<templates>`, when present, normalizes as an `<owner>/<repository>` notebook
+  source with the same rules as `notebook.repository` ([2a-config.md](2a-config.md)).
+  Validate it **before** creating any user or clone, so a bad value cannot leave
+  partial state behind.
 -  list the users, executing `ops admin listuser | awk 'NR>1{print $1} that returns the users, one per line and check the names does not exists
 - check the folder `<WorkspaceDir>/workspace/<name>` does not exist
 
 Return a descriptive error if it fails.
 
 ## Create or retrieve the password
+
+The password is never supplied by the browser. It is either reused from an
+existing OpenServerless user or generated here.
 
 Verify if the user exists trying to retrieve the password with:
 
@@ -55,12 +65,23 @@ ops util kubeget whiskuser/<name> .spec.password
 If it is not an error, the user exists then use the returned value as `<local-password>`
 
 If it is an error:
-- use <password> as <local-password>
+- generate a random 20-character alphanumeric `<local-password>` with
+  `crypto/rand`. The alphabet is deliberately alphanumeric: the value is passed
+  on a command line and stored in `trustable.json`, so shell-significant
+  characters would only create quoting hazards.
 - create the user with
 
 `ops admin adduser <name> <name>@n7s.co <local-password> --all`
 
-Return error if fails, otherwise return a warning that the password was ignored for local as the user was existing and the local password was reused.
+Return error if fails, otherwise return a warning that a user with this name
+already existed and its existing local password was reused.
+
+## Store the starter templates
+
+When `<templates>` is present, store the normalized value as
+`apps.<name>.templates` in the workspace `trustable.json`. It overrides the
+global `notebook.repository` for this app at launch — see
+[15-starters.md](15-starters.md) and [2a-config.md](2a-config.md).
 
 Before creating local state, check the managed GitHub account described in
 [github.md](github.md). When authenticated:

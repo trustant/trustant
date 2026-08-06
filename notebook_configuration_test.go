@@ -49,7 +49,7 @@ func TestNotebookConfigurationKeepsTokenPrivate(t *testing.T) {
 		t.Fatalf("has_token = %#v, want true", notebook["has_token"])
 	}
 
-	env, err := notebookRuntimeEnvironment()
+	env, err := notebookRuntimeEnvironment("")
 	if err != nil {
 		t.Fatalf("runtime environment: %v", err)
 	}
@@ -61,6 +61,44 @@ func TestNotebookConfigurationKeepsTokenPrivate(t *testing.T) {
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("runtime environment missing %q", expected)
+		}
+	}
+}
+
+func TestNotebookRuntimeEnvironmentUsesStarterTemplates(t *testing.T) {
+	previousWorkspace := WorkspaceDir
+	WorkspaceDir = t.TempDir()
+	t.Cleanup(func() {
+		WorkspaceDir = previousWorkspace
+	})
+
+	if err := saveWorkspaceConfig(&trustableConfig{
+		Apps: map[string]*AppConfig{
+			"fromstarter": {Templates: "trustable-ai/vue-templates"},
+			"plainapp":    {},
+		},
+	}); err != nil {
+		t.Fatalf("save workspace config: %v", err)
+	}
+
+	// The app created from a starter uses the starter's templates repository.
+	env, err := notebookRuntimeEnvironment("fromstarter")
+	if err != nil {
+		t.Fatalf("runtime environment: %v", err)
+	}
+	if !strings.Contains(strings.Join(env, "\n"), "NOTEBOOK_GITHUB_REPOSITORY=trustable-ai/vue-templates") {
+		t.Fatalf("starter templates not applied: %v", env)
+	}
+
+	// An app without a starter templates value keeps the global default, and so
+	// does the global (empty app name) resolution.
+	for _, app := range []string{"plainapp", "unknownapp", ""} {
+		env, err := notebookRuntimeEnvironment(app)
+		if err != nil {
+			t.Fatalf("runtime environment for %q: %v", app, err)
+		}
+		if !strings.Contains(strings.Join(env, "\n"), "NOTEBOOK_GITHUB_REPOSITORY="+defaultNotebookRepository) {
+			t.Fatalf("app %q did not fall back to the global default: %v", app, env)
 		}
 	}
 }

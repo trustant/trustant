@@ -55,8 +55,14 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   Legacy `opencode.default` and `opencode.small` are ignored rather than
   migrated; a missing `pi.default` sends the user to `configure.html?setup=1`
   from both the splash and the application list, before any model probe runs.
+- `apps.<name>.templates` — the notebook/templates repository inherited from the
+  application starter this app was created from (see [15-starters.md](15-starters.md)).
+  It overrides `notebook.repository` for that app only; when absent or empty the
+  app uses the global value. Workspace-layer only, written by `POST /api/repo`
+  and omitted from the JSON when empty.
 - `notebook.repository` and `notebook.ref` — the global GitHub source consumed
-  by notebook workflows in every launched TruACP session. The defaults are
+  by notebook workflows in every launched TruACP session, unless the launched app
+  overrides the repository via `apps.<name>.templates`. The defaults are
   `trustable-ai/templates` and `main`. The write token is deliberately absent
   from `trustable.json`: Configure stores it as a mode-`0600` workspace secret
   under `<WorkspaceDir>/.trustable/secrets/` and the API exposes only

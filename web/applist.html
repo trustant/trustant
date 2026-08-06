@@ -110,20 +110,16 @@
 
     <!-- Add Application Modal -->
     <div id="addModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
-        <div class="nu-modal p-6 w-full max-w-md mx-4">
+        <div class="nu-modal p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
             <h3 class="text-lg font-medium mb-4">Add Application</h3>
-            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
-                <strong>Important:</strong> you need a template compatible with
-                <a href="https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable"
-                    target="_blank" rel="noopener" class="nu-link">Trustable conventions</a>.
-                It is recommended you use this starter:
-                <span class="block text-center">
-                    <a href="#" onclick="fillApp('trureact');return false" class="nu-link">trureact</a>
-                    (click the link to use it)
-                </span>
-                If you provide an empty repo we will try to make it compatible.
-            </p>
             <form id="addAppForm" class="space-y-4">
+                <div>
+                    <p class="block text-sm font-medium text-[color:var(--nu-ink)] mb-2">Add an application starter</p>
+                    <div id="starterList" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        <p id="starterLoading" class="text-xs text-[color:var(--nu-muted)]">Loading application starters...</p>
+                    </div>
+                    <p id="starterWarning" class="text-xs mt-2 hidden"></p>
+                </div>
                 <div>
                     <label for="appName" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Application Name</label>
                     <input type="text" id="appName" required
@@ -131,11 +127,7 @@
                         title="Must start with a letter, contain only alphanumeric characters, and be 6-20 characters long"
                         class="nu-input w-full px-3 py-2">
                     <p class="text-xs text-[color:var(--nu-muted)] mt-1">6-20 alphanumeric characters, starting with a letter</p>
-                </div>
-                <div>
-                    <label for="appPassword" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Password</label>
-                    <input type="password" id="appPassword" required
-                        class="nu-input w-full px-3 py-2">
+                    <p id="appNameError" class="text-xs mt-1 hidden"></p>
                 </div>
                 <div>
                     <label for="appRepo" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">GitHub Repository</label>
@@ -147,6 +139,8 @@
                     <datalist id="githubRepoOptions"></datalist>
                     <p class="text-xs text-[color:var(--nu-muted)] mt-1">Format: org/repo</p>
                 </div>
+                <!-- GitHub account notice and SSH key only matter when the user
+                     supplies their own repository. -->
                 <div id="githubRepoNotice" class="nu-feedback nu-feedback-info p-3 hidden">
                     <p class="text-sm">
                         Connected to GitHub as <strong id="githubRepoAccount"></strong>.
@@ -185,6 +179,35 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Own-starter warning, shown when "My Application Starter" is selected -->
+    <div id="ownStarterModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-[60]">
+        <div class="nu-modal p-6 w-full max-w-md mx-4">
+            <h3 class="text-lg font-medium mb-3">Warning</h3>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+                If you use your own starter, it must be derived by a standard application
+                starter or be compatible with
+                <a href="https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable"
+                    target="_blank" rel="noopener" class="nu-link">Trustable Conventions</a>.
+                The repo must exist; you can access the repo with the ssh key shown below.
+                If you use a standard template you can save in your repo later.
+            </p>
+            <div id="ownStarterSshBlock" class="nu-banner p-3 mb-4 hidden">
+                <textarea id="ownStarterSshKey" readonly rows="3"
+                    class="nu-input nu-code w-full px-2 py-1 text-xs resize-none"></textarea>
+                <div class="flex items-center gap-2 mt-2">
+                    <button type="button" onclick="copyKeyFromTextarea('ownStarterSshKey', 'ownStarterSshCopied')"
+                        class="nu-btn nu-btn-secondary nu-btn-compact">
+                        Copy Key
+                    </button>
+                    <span id="ownStarterSshCopied" class="text-green-700 text-xs hidden">Copied!</span>
+                </div>
+            </div>
+            <button type="button" onclick="hideOwnStarterModal()" class="nu-btn nu-btn-primary w-full">
+                Understood
+            </button>
         </div>
     </div>
 
@@ -643,10 +666,161 @@
             }
         }
 
-        function fillApp(name) {
-            document.getElementById('appName').value = name;
-            document.getElementById('appPassword').value = name;
-            document.getElementById('appRepo').value = 'trustable-ai/' + name;
+        // Application starters, loaded from /api/starters (public GitHub API).
+        // OWN_STARTER is the sentinel radio value for "My Application Starter".
+        const OWN_STARTER = '__own__';
+        const OWN_STARTER_DEFAULT_NAME = 'myapp';
+        let starters = [];
+        // Once the user edits the name field we never overwrite it again.
+        let appNameTouched = false;
+
+        function selectedStarter() {
+            const checked = document.querySelector('input[name="starterChoice"]:checked');
+            if (!checked) return null;
+            if (checked.value === OWN_STARTER) return { own: true };
+            return starters.find(s => s.repo === checked.value) || null;
+        }
+
+        // Applies the current radio selection to the two fields: the repository
+        // is locked to the starter, the name follows it until the user types.
+        function applyStarterSelection() {
+            const choice = selectedStarter();
+            const nameField = document.getElementById('appName');
+            const repoField = document.getElementById('appRepo');
+            const own = !choice || choice.own === true;
+
+            repoField.readOnly = !own;
+            repoField.classList.toggle('opacity-60', !own);
+            repoField.classList.toggle('cursor-not-allowed', !own);
+            if (own) {
+                repoField.setAttribute('list', 'githubRepoOptions');
+                repoField.value = '';
+            } else {
+                repoField.removeAttribute('list');
+                repoField.value = choice.repo;
+            }
+
+            if (!appNameTouched) {
+                nameField.value = own ? OWN_STARTER_DEFAULT_NAME : choice.name;
+            }
+            hideAppNameError();
+            // The GitHub picker and the SSH key only apply to your own repo.
+            document.getElementById('githubRepoNotice').classList.toggle('hidden', !own || !githubAccountAuthenticated);
+            const sshNotice = document.getElementById('sshKeyNotice');
+            if (sshNotice) sshNotice.classList.toggle('hidden', !own || !sshKeyAvailable);
+        }
+
+        function onStarterChoice(value) {
+            applyStarterSelection();
+            if (value === OWN_STARTER) showOwnStarterModal();
+        }
+
+        async function showOwnStarterModal() {
+            const modal = document.getElementById('ownStarterModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.getElementById('ownStarterSshCopied').classList.add('hidden');
+            const key = await loadSSHKey();
+            const block = document.getElementById('ownStarterSshBlock');
+            if (key) {
+                document.getElementById('ownStarterSshKey').value = key;
+                block.classList.remove('hidden');
+            } else {
+                block.classList.add('hidden');
+            }
+        }
+
+        function hideOwnStarterModal() {
+            const modal = document.getElementById('ownStarterModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function renderStarters(warning) {
+            const list = document.getElementById('starterList');
+            const warningEl = document.getElementById('starterWarning');
+            list.innerHTML = '';
+
+            for (const starter of starters) {
+                const row = document.createElement('label');
+                row.className = 'flex items-start gap-2 text-sm cursor-pointer';
+                const input = document.createElement('input');
+                input.type = 'radio';
+                input.name = 'starterChoice';
+                input.value = starter.repo;
+                input.className = 'mt-1';
+                input.addEventListener('change', () => onStarterChoice(starter.repo));
+                const text = document.createElement('span');
+                const link = document.createElement('a');
+                link.href = 'https://github.com/' + starter.repo;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                link.className = 'nu-link font-medium';
+                link.textContent = starter.name;
+                // The link must not toggle the radio it sits inside.
+                link.addEventListener('click', e => e.stopPropagation());
+                text.appendChild(link);
+                if (starter.description) {
+                    text.appendChild(document.createTextNode(' — ' + starter.description));
+                }
+                row.appendChild(input);
+                row.appendChild(text);
+                list.appendChild(row);
+            }
+
+            const ownRow = document.createElement('label');
+            ownRow.className = 'flex items-start gap-2 text-sm cursor-pointer';
+            const ownInput = document.createElement('input');
+            ownInput.type = 'radio';
+            ownInput.name = 'starterChoice';
+            ownInput.value = OWN_STARTER;
+            ownInput.className = 'mt-1';
+            ownInput.addEventListener('change', () => onStarterChoice(OWN_STARTER));
+            const ownText = document.createElement('span');
+            ownText.className = 'font-medium';
+            ownText.textContent = 'My Application Starter';
+            ownRow.appendChild(ownInput);
+            ownRow.appendChild(ownText);
+            list.appendChild(ownRow);
+
+            if (warning) {
+                warningEl.className = feedbackClass('warning') + ' text-xs mt-2';
+                warningEl.textContent = warning;
+                warningEl.classList.remove('hidden');
+            } else {
+                warningEl.classList.add('hidden');
+            }
+
+            // Preselect the first starter, or "My Application Starter" when the
+            // list could not be loaded, so the form is always usable.
+            const first = document.querySelector('input[name="starterChoice"]');
+            if (first) {
+                first.checked = true;
+                applyStarterSelection();
+            }
+        }
+
+        async function loadStarters() {
+            try {
+                const response = await fetch('/api/starters');
+                const data = await response.json();
+                starters = Array.isArray(data.starters) ? data.starters : [];
+                renderStarters(data.warning || '');
+            } catch (e) {
+                starters = [];
+                renderStarters('Could not load application starters: ' + e.message);
+            }
+        }
+
+        function showAppNameError(message) {
+            const el = document.getElementById('appNameError');
+            el.className = feedbackClass('error') + ' text-xs mt-1';
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        function hideAppNameError() {
+            document.getElementById('appNameError').classList.add('hidden');
         }
 
         function showAddModal() {
@@ -656,8 +830,13 @@
             if (reveal) reveal.classList.add('hidden');
             const copied = document.getElementById('addAppSshCopied');
             if (copied) copied.classList.add('hidden');
+            appNameTouched = false;
+            hideAppNameError();
+            document.getElementById('starterList').innerHTML =
+                '<p class="text-xs text-[color:var(--nu-muted)]">Loading application starters...</p>';
             refreshAddAppSshKeyNotice();
             refreshGitHubRepositories(true);
+            loadStarters();
             document.getElementById('appName').focus();
         }
 
@@ -665,6 +844,9 @@
             document.getElementById('addModal').classList.add('hidden');
             document.getElementById('addModal').classList.remove('flex');
             document.getElementById('addAppForm').reset();
+            appNameTouched = false;
+            hideAppNameError();
+            hideOwnStarterModal();
             const reveal = document.getElementById('sshKeyReveal');
             if (reveal) reveal.classList.add('hidden');
         }
@@ -687,7 +869,10 @@
                     return;
                 }
                 if (account) account.textContent = status.login || 'github.com';
-                if (notice) notice.classList.remove('hidden');
+                // Only meaningful when the user supplies their own repository.
+                const choice = selectedStarter();
+                const ownSelected = !choice || choice.own === true;
+                if (notice) notice.classList.toggle('hidden', !ownSelected);
                 if (!loadRepositories) return;
                 if (hint) hint.textContent = 'Loading repositories...';
                 const repoResponse = await fetch('/api/github/repos?page=1&per_page=50');
@@ -734,7 +919,10 @@
             if (key) {
                 sshKeyAvailable = true;
                 textarea.value = key;
-                notice.classList.remove('hidden');
+                // Shown only in "My Application Starter" mode; the warning
+                // dialog carries its own copy of the key.
+                const choice = selectedStarter();
+                notice.classList.toggle('hidden', !(!choice || choice.own === true));
             } else {
                 sshKeyAvailable = false;
                 textarea.value = '';
@@ -1158,6 +1346,27 @@
             }
         }
 
+        // Names are compared case-insensitively: the workspace directory and the
+        // OpenServerless user would collide regardless of the casing typed here.
+        function appNameOf(app) {
+            return String(typeof app === 'string' ? app : (app && app.name) || '').toLowerCase();
+        }
+
+        async function applicationNameTaken(name) {
+            const wanted = name.toLowerCase();
+            if ((allApps || []).some(app => appNameOf(app) === wanted)) return true;
+            // Re-check against the server: the list may be stale, and an app can
+            // exist in the workspace without being rendered here.
+            try {
+                const response = await fetch('/api/repo');
+                if (!response.ok) return false;
+                const apps = await response.json();
+                return (apps || []).some(app => appNameOf(app) === wanted);
+            } catch (e) {
+                return false;
+            }
+        }
+
         async function loadApps() {
             try {
                 const response = await fetch('/api/repo');
@@ -1532,10 +1741,24 @@
         async function addApp(event) {
             event.preventDefault();
             const name = document.getElementById('appName').value.trim();
-            const password = document.getElementById('appPassword').value.trim();
             const repo = document.getElementById('appRepo').value.trim();
 
-            const payload = { name, password, repo };
+            if (!/^[a-zA-Z][a-zA-Z0-9]{5,19}$/.test(name)) {
+                showAppNameError('The name must be 6-20 alphanumeric characters and start with a letter.');
+                return;
+            }
+            if (await applicationNameTaken(name)) {
+                showAppNameError('An application named "' + name + '" already exists. Please choose a different name.');
+                return;
+            }
+            hideAppNameError();
+
+            const choice = selectedStarter();
+            const payload = { name, repo };
+            // Apps created from a starter inherit that starter's templates repo.
+            if (choice && choice.own !== true && choice.templates) {
+                payload.templates = choice.templates;
+            }
 
             hideAddModal();
             showCreatingModal();
@@ -1913,6 +2136,11 @@
         });
 
         document.getElementById('addAppForm').addEventListener('submit', addApp);
+        // Once the user types a name, the starter selection stops overwriting it.
+        document.getElementById('appName').addEventListener('input', () => {
+            appNameTouched = true;
+            hideAppNameError();
+        });
         document.getElementById('appSearch').addEventListener('input', renderApps);
         document.getElementById('appSort').addEventListener('change', renderApps);
 

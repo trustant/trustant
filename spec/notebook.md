@@ -333,7 +333,11 @@ TruACP server `.env`.
   `POST /api/configuration` preserves an omitted token and supports an explicit
   clear action.
 - Launch injects `NOTEBOOK_GITHUB_REPOSITORY`, `NOTEBOOK_GITHUB_REF`, and
-  `NOTEBOOK_GITHUB_TOKEN` only into the TruACP process. These values never enter
+  `NOTEBOOK_GITHUB_TOKEN` only into the TruACP process. The repository is
+  resolved per launched app: `apps.<name>.templates`, inherited from the
+  application starter the app was created from, wins over the global
+  `notebook.repository`; apps without it keep the global value. See
+  [15-starters.md](15-starters.md). These values never enter
   generated application env files, app config maps, notebook/session state,
   project assets, logs, commits, or model context.
 - Managed TruACP treats the injected repository/ref as authoritative. Its
