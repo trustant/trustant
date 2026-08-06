@@ -1,24 +1,60 @@
 # Build Scripts
 
-`build.sh` is the compatibility entrypoint for building the Trustable image.
+`build.sh` is the single entrypoint for building the Trustable image, on both
+the macOS Trustable VM and the Linux k3s server. There is no separate server
+script and no build mode to select: the host is detected from the presence of
+`~/Library/Application Support/Trustable/id_ed25519` and `current.ip`.
 
-Modes:
+Every build, on every host:
 
-- `TRUSTABLE_BUILD_MODE=auto` (default): use the macOS Trustable VM flow when
-  `~/Library/Application Support/Trustable/id_ed25519` and `current.ip` exist;
-  otherwise delegate to `build-server.sh`.
-- `TRUSTABLE_BUILD_MODE=mac`: require the macOS Trustable VM files and use the
-  SSH/import/deploy flow.
-- `TRUSTABLE_BUILD_MODE=server`: run the Linux/k3s server flow directly.
+1. computes the tag, forces the git tag, and writes `_build.txt`
+2. **writes the image tag into `olaris-bestia/opsroot.json`** via `jq`, then
+   commits, so the deployment plugin always records the image just built
+3. builds the Go binary for linux/amd64 and linux/arm64
+4. builds the container image through `image/image.sh`
+5. makes the image reachable by the cluster
+6. deploys with `ops bestia trustable redeploy`
 
-`build-server.sh` is for running on the Trustable k3s server. It builds the Go
-binary for linux/amd64 and linux/arm64, builds the Docker image through
-`image/image.sh`, imports the image into local k3s containerd with
-`docker save ... | sudo -n k3s ctr images import -`, then patches
-`StatefulSet/trustable` in namespace `nuvolaris`.
+Only step 5 differs by host. On the macOS VM the cluster lives inside the VM
+and cannot see the local image store, so the image is exported and piped over
+ssh into the VM's containerd (preceded by `ops bestia trustable undeploy` and
+`k3s ctr images prune --all`, which frees the old image so the VM's small disk
+can reclaim it). On the k3s server, an image built by nerdctl is already in the
+`k8s.io` namespace the kubelet reads and nothing is done; if Docker built it,
+it is imported with `save ... | sudo -n k3s ctr images import -`.
 
-`image/image.sh` builds the base image from the part of `image/Dockerfile`
-before the `###---###` separator. It stages `openserverless-mcp` from the pinned
+Deployment is always `ops bestia trustable redeploy`, which is `undeploy` +
+`deploy`; `deploy` reads the image from `opsroot.json`. The StatefulSet is
+never patched directly with `kubectl set image`.
+
+`TRUSTABLE_BUILD_SKIP_DEPLOY=1` stops after the image build, leaving the tag,
+`_build.txt` and the `opsroot.json` update in place.
+
+Note that updating `opsroot.json` only records the tag locally. Pushing the
+`olaris-bestia` submodule is what actually ships a version, and that requires
+explicit user authorization.
+
+## Container runtime
+
+The build scripts source `image/runtime.sh`, which selects the container
+runtime once so both scripts agree on binary, socket and namespace. Docker
+is preferred when installed; otherwise `nerdctl` is used, addressed at k3s'
+containerd socket (`/run/k3s/containerd/containerd.sock`) in the `k8s.io`
+namespace, starting `buildkit.service` if its socket is missing. Override with
+`TRUSTABLE_CONTAINER_RUNTIME=docker|nerdctl`; the socket and namespace are
+overridable with `TRUSTABLE_CONTAINERD_ADDRESS` and
+`TRUSTABLE_CONTAINERD_NAMESPACE`. Multi-platform builds use `docker buildx`,
+while nerdctl takes `--platform` on plain `build`.
+
+`image/image.sh` builds the whole of `image/Dockerfile` in a single pass. There
+is no base/current split: the former hash-tagged base image plus `FROM base`
+layer only worked under Docker, whose builder shares Docker's image store.
+buildkit — which nerdctl drives — resolves `FROM` against its own cache and the
+registry only, so it could not see a base image that had just been loaded into
+containerd. The builder's layer cache already keeps unchanged base stages from
+being rebuilt, so the split bought nothing that cache does not.
+
+It stages `openserverless-mcp` from the pinned
 `mcp` submodule, the local browser and deterministic React MCP sources, and the
 TruACP runtime artifacts:
 `setup.sh`, `pi.version`, `dist-bin/truacp.cjs`,
@@ -26,9 +62,10 @@ TruACP runtime artifacts:
 recursively initializes TruACP's pinned
 `pi-acp` fork, runs its tests/build/package step, and builds the TruACP bundle.
 The complete sources and `node_modules` must never enter the Docker build context
-or an image layer. The base-image hash includes the base Dockerfile and all
-staged runtime identities/content hashes, so any runtime, adapter, or
-browser-tool change rebuilds the base image used by Trustable.
+or an image layer. The staged runtime identities and content hashes are logged
+for provenance; because they are part of the build context, any runtime,
+adapter, or browser-tool change invalidates the builder's layer cache and
+rebuilds the affected stages.
 
 The issue #57 extension is a separately loaded, versioned runtime artifact. It
 must be staged beside the matching TruACP bundle and pinned `pi-acp` package.
@@ -125,17 +162,17 @@ the macOS wrapper records the real host worktree branch, while direct Linux/WSL
 runs use `TRUSTABLE_BUILD_BRANCH` when supplied and otherwise report the
 `development` fallback. Release metadata remains owned by the build scripts.
 
-Server build environment:
+Build environment:
 
 - `TRUSTABLE_IMAGE`: image repository, default
   `ghcr.io/trustable-ai/trustable-app`.
 - `TRUSTABLE_BUILD_TAG`: explicit image tag. If omitted, the tag is
   `<key>_<version>_<yy.jjj.HHMM>`.
-- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: build the image but do not require local
-  k3s/kubectl access, import the image, or patch k3s.
-- `TRUSTABLE_K8S_NAMESPACE`: namespace, default `nuvolaris`.
-- `TRUSTABLE_K8S_STATEFULSET`: StatefulSet name, default `trustable`.
-- `TRUSTABLE_K8S_CONTAINER`: container name, default `trustable`.
+- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: build the image but do not make it reachable
+  by the cluster or redeploy.
+- `TRUSTABLE_MAC_SUPPORT_DIR`: location of the macOS Trustable VM credentials,
+  default `~/Library/Application Support/Trustable`. Its presence is what
+  selects the VM shipping path.
 
 Publishing environment:
 
@@ -146,11 +183,9 @@ Publishing environment:
   to `olaris`, `olaris-bestia`, `olaris-trustable`, or another `olaris*` repo
   requires explicit user authorization first. If there are no local changes in
   that subrepo it skips the commit step and only pushes.
-- `TRUSTABLE_K8S_ROLLOUT_TIMEOUT`: rollout timeout, default `300s`.
-
-The server flow does not update `olaris-bestia/opsroot.json`; that file belongs
-to the release/plugin publishing flow. Local server builds are for testing the
-image currently being developed.
+Every build updates `olaris-bestia/opsroot.json`, so the deployment plugin and
+the running cluster always agree on which image was built. Recording the tag is
+local; publishing it is a separate, authorization-gated push of the submodule.
 
 ## Upstream Pi image payload (#71)
 

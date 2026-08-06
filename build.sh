@@ -3,31 +3,27 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-MODE="${TRUSTABLE_BUILD_MODE:-auto}"
+# One build path for both hosts. The only difference is how the built image
+# reaches the cluster: on a Mac the cluster lives in the Trustable VM, so the
+# image is shipped over ssh; on the k3s server the build already wrote it into
+# the local containerd. Everything else -- tag, _build.txt, opsroot.json and the
+# redeploy -- is identical, so the deployment plugin always records the image
+# that was actually built.
 MAC_DIR="${TRUSTABLE_MAC_SUPPORT_DIR:-$HOME/Library/Application Support/Trustable}"
 MAC_ID="$MAC_DIR/id_ed25519"
 MAC_IP="$MAC_DIR/current.ip"
 
-if [ "$MODE" = "server" ]; then
-    exec ./build-server.sh "$@"
+MAC_VM=false
+if [ -e "$MAC_ID" ] && [ -e "$MAC_IP" ]; then
+    MAC_VM=true
+    ID="$MAC_ID"
+    IP="$(cat "$MAC_IP")"
 fi
 
-if [ "$MODE" = "auto" ] && { [ ! -e "$MAC_ID" ] || [ ! -e "$MAC_IP" ]; }; then
-    exec ./build-server.sh "$@"
-fi
-
-if [ "$MODE" != "auto" ] && [ "$MODE" != "mac" ]; then
-    echo "Unsupported TRUSTABLE_BUILD_MODE=$MODE (expected auto, mac, or server)" >&2
-    exit 1
-fi
-
-if ! test -e "$MAC_ID"
-then echo "This script must be run on Mac after installing Trustable, or on a Linux k3s server with ./build-server.sh"
-     exit 1
-fi
-
-ID="$MAC_ID"
-IP="$(cat "$MAC_IP")"
+# shellcheck source=image/runtime.sh
+. ./image/runtime.sh
+detect_runtime
+echo "Using container runtime: $RUNTIME"
 
 KEY=${1:-trustable}
 VERSION="$(cat version.txt)"
@@ -59,23 +55,28 @@ cp -v trustable.json image/trustable.json
 image/image.sh "$TAG"
 
 if [ "${TRUSTABLE_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
-    echo "TRUSTABLE_BUILD_SKIP_DEPLOY=1, skipping Mac VM deploy"
+    echo "TRUSTABLE_BUILD_SKIP_DEPLOY=1, skipping deploy"
     exit 0
 fi
 
-ops bestia trustable undeploy
-ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all
+if $MAC_VM; then
+    # The VM cluster cannot see the local image store, so export and import.
+    # Prune first: the VM disk is small and old images accumulate.
+    ops bestia trustable undeploy
+    ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all
 
-echo "Saving $IMAGE:$TAG"
-docker save $IMAGE:$TAG | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
+    echo "Saving $IMAGE:$TAG"
+    "${RUNTIME_CMD[@]}" save "$IMAGE:$TAG" | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
 
-echo "Listing Images"
+    echo "Listing Images"
+    ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
+elif [ "$RUNTIME_LOADS_K3S" != "1" ]; then
+    # Docker on the k3s server: the build landed in Docker's own store, so the
+    # image still has to be handed to containerd.
+    echo "Importing $IMAGE:$TAG into local k3s"
+    "${RUNTIME_CMD[@]}" save "$IMAGE:$TAG" | sudo -n k3s ctr images import -
+else
+    echo "Image $IMAGE:$TAG already in local k3s (built via $RUNTIME)"
+fi
 
-ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
-
-ops bestia trustable deploy
-
-
-#cd olaris-bestia
-#git commit -m "$TAG" -a
-#git tag $TAG
+ops bestia trustable redeploy

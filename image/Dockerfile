@@ -196,7 +196,6 @@ RUN \
     echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
 
 ########################################################## stage3-app
-###---###
 # start
 USER root
 RUN \

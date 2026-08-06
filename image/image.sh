@@ -6,14 +6,20 @@ cd "$(dirname "$0")"
 
 IMAGE="ghcr.io/trustable-ai/trustable-app"
 DOCKERFILE="Dockerfile"
-SEPARATOR='###---###'
+# shellcheck source=runtime.sh
+. ./runtime.sh
+detect_runtime
+echo "Using container runtime: $RUNTIME"
+# WHY: multi-platform builds need `docker buildx`, but nerdctl accepts
+# --platform on plain `build` and has no buildx subcommand.
+BUILDX_PREFIX=""
+[ "$RUNTIME" = "docker" ] && BUILDX_PREFIX="buildx"
 MCP_CONTEXT_DIR="openserverless-mcp"
 BROWSER_CONTEXT_DIR="trustable-browser-mcp"
 REACT_CONTEXT_DIR="trustable-react-mcp"
 TRUACP_ARTIFACT_DIR="truacp-runtime"
 
 cleanup() {
-    rm -f Dockerfile.base Dockerfile.current
     # WHY: every staged local MCP must be ephemeral build context. Leaving the
     # React source behind can make a later image build hash stale local files.
     rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$REACT_CONTEXT_DIR" "$TRUACP_ARTIFACT_DIR"
@@ -64,6 +70,13 @@ detect_platforms() {
 
 PLATFORMS=$(detect_platforms)
 echo "Building for platforms: $PLATFORMS"
+
+# Local arch in Docker's naming, used for TARGETARCH on single-arch builds.
+NERDCTL_ARCH="$(uname -m)"
+case "$NERDCTL_ARCH" in
+    x86_64)        NERDCTL_ARCH="amd64" ;;
+    aarch64|arm64) NERDCTL_ARCH="arm64" ;;
+esac
 git submodule update --init ../mcp
 # WHY: trustable-acp owns pinned Pi and pi-acp forks. Recursive initialization
 # is required so image builds cannot silently fall back to npm runtimes.
@@ -161,84 +174,28 @@ tar -C ../react-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C
 REACT_HASH="$(find "$REACT_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using trustable-react-mcp source hash: $REACT_HASH"
 
-# Split the Dockerfile at the separator
-SEPARATOR_LINE=$(grep -n "^${SEPARATOR}$" "$DOCKERFILE" | cut -d: -f1)
-if [ -z "$SEPARATOR_LINE" ]; then
-    echo "Error: separator '$SEPARATOR' not found in $DOCKERFILE"
-    exit 1
-fi
-
-head -n "$((SEPARATOR_LINE - 1))" "$DOCKERFILE" > Dockerfile.base
-tail -n "+$((SEPARATOR_LINE + 1))" "$DOCKERFILE" > Dockerfile.current
-
-# Calculate the base hash from the Dockerfile and every staged runtime source.
-BASE_HASH=$({
-    sha256sum Dockerfile.base
-    printf 'openserverless-mcp=%s\n' "$MCP_REF"
-    printf 'trustable-browser-mcp=%s\n' "$BROWSER_HASH"
-    printf 'trustable-react-mcp=%s\n' "$REACT_HASH"
-    printf 'trustable-acp=%s:%s\n' "$TRUACP_REF" "$TRUACP_HASH"
-} | sha256sum | cut -c1-12)
-BASE_TAG="base-${BASE_HASH}"
-echo "Base image hash: $BASE_TAG"
-
-# Try to find existing base image, build if missing
-BASE_EXISTS=false
+# Build the whole Dockerfile in one pass.
+# WHY: this used to be split at a separator into a hash-tagged base image plus a
+# thin `FROM base` layer, to skip rebuilding the expensive base stages. That
+# split only worked under Docker, whose builder shares Docker's image store;
+# buildkit (which nerdctl drives) resolves `FROM` against its own cache and the
+# registry only, so it could never see the base that had just been built and
+# failed with "not found". The builder's own layer cache already makes unchanged
+# base stages a no-op, so the split bought nothing that cache does not, and the
+# separator is no longer interpreted.
+echo "Building image ${IMAGE}:${TAG}..."
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    # Check registry
-    docker manifest inspect "${IMAGE}:${BASE_TAG}" > /dev/null 2>&1 && BASE_EXISTS=true
-else
-    # Check local images
-    docker image inspect "${IMAGE}:${BASE_TAG}" > /dev/null 2>&1 && BASE_EXISTS=true
-fi
-
-if $BASE_EXISTS; then
-    echo "Base image ${IMAGE}:${BASE_TAG} already exists, skipping build"
-else
-    echo "Building base image ${IMAGE}:${BASE_TAG}..."
-    if [ -n "${GITHUB_ACTIONS:-}" ]; then
-        docker buildx build \
-            --platform "$PLATFORMS" \
-            --tag "${IMAGE}:${BASE_TAG}" \
-            --file Dockerfile.base \
-            --push \
-            .
-    else
-        docker build \
-            --tag "${IMAGE}:${BASE_TAG}" \
-            --file Dockerfile.base \
-            .
-    fi
-fi
-
-# Build the current image on top of the base
-# Prepend FROM instruction to Dockerfile.current
-{
-    echo "FROM ${IMAGE}:${BASE_TAG}"
-    echo "ARG TARGETARCH"
-    cat Dockerfile.current
-} > Dockerfile.current.tmp
-mv Dockerfile.current.tmp Dockerfile.current
-
-echo "Building current image ${IMAGE}:${TAG}..."
-if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    docker buildx build \
+    "${RUNTIME_CMD[@]}" $BUILDX_PREFIX build \
         --platform "$PLATFORMS" \
         --tag "${IMAGE}:${TAG}" \
-        --file Dockerfile.current \
+        --file "$DOCKERFILE" \
         --push \
         .
 else
-    # Detect local arch for TARGETARCH
-    LOCAL_ARCH="$(uname -m)"
-    case "$LOCAL_ARCH" in
-        x86_64)  LOCAL_ARCH="amd64" ;;
-        aarch64|arm64) LOCAL_ARCH="arm64" ;;
-    esac
-    docker build \
-        --build-arg "TARGETARCH=${LOCAL_ARCH}" \
+    "${RUNTIME_CMD[@]}" build \
+        --build-arg "TARGETARCH=${NERDCTL_ARCH}" \
         --tag "${IMAGE}:${TAG}" \
-        --file Dockerfile.current \
+        --file "$DOCKERFILE" \
         .
 fi
 

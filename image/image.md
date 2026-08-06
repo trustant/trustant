@@ -14,20 +14,21 @@ Detects the architecture to build:
 
 - if it is a GITHUB_ACTION builds for both and use as action --push otherwise execute a --load
 
-then split in 2:
-- Dockerfile.base is the text before the separator '###---###'
-- Dockerfile.current  accept an argument for the base, also the targetarch, builds FROM base and then use what is after the separator.
+Selects the container runtime by sourcing `runtime.sh`: Docker when installed,
+otherwise nerdctl against the k3s containerd socket in the `k8s.io` namespace,
+starting buildkit if needed. Override with `TRUSTABLE_CONTAINER_RUNTIME`.
+
+Builds the whole Dockerfile in one pass, passing the target architecture. There
+is no base/current split: buildkit cannot resolve `FROM` against an image that
+was just loaded into containerd, and the builder's layer cache already avoids
+rebuilding unchanged base stages.
 
 Before splitting the Dockerfile, stage the pinned `mcp` and `trustable-acp`
 submodules plus the local `browser-mcp` source into the Docker context. Do not
 download a floating agent runtime while building.
 
-Calculate the <hash> of the Dockerfile.base, the pinned OpenServerless MCP and
-TruACP revisions/content, and the local `browser-mcp` source tree.
-Try to pull the <image>:<hash>
-If the hash does not exist build the Dockerfile.base with that hash for the archs selected
-
-Then build the Dockerfile.current passing as argument the <image>:<hash> as <image>:<tag>
+Log the content hashes of the pinned OpenServerless MCP and TruACP
+revisions/content and the local `browser-mcp` source tree for build provenance.
 
 The base image installs `trustable-browser-mcp` and Playwright `1.56.1` with
 its Chromium runtime under `/opt/ms-playwright`. The browser package and runtime
