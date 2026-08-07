@@ -22,3 +22,6 @@
 	path = trustable-acp
 	url = https://github.com/trustable-ai/trustable-acp.git
 	branch = main
+[submodule "olaris-truinst"]
+	path = olaris-truinst
+	url = https://github.com/trustable-ai/olaris-truinst
