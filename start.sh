@@ -16,13 +16,18 @@
 #              .deb (k3s + helpers) inside it, installs a CPU-only ollama host
 #              (localhost:11434, pinned to the image's OLLAMA_VERSION), ensures
 #              gh via apt in-VM, writes the VM ip/apihost/ssh key to the
-#              Trustable support dir, runs setup.sh in-VM, and finally opens this
-#              folder in the VM over Remote-SSH in VS Code. Linux does the same
-#              minus everything that only makes sense against a VM.
+#              Trustable support dir, runs setup.sh in-VM, and finally runs
+#              ./run.sh in the VM (foreground — Ctrl-C stops the dev server).
+#              Linux does the same minus everything that only makes sense
+#              against a VM, and stops before run.sh (just run it yourself).
 #   ./start.sh
 #
-# No VS Code:  same as a plain run, but skips opening VS Code at the end.
-#              Accepted and ignored on Linux, which never opens VS Code.
+# VS Code:     opens this folder in the VM over Remote-SSH instead of running
+#              run.sh. Accepted and ignored on Linux, where the sources are
+#              already local.
+#   ./start.sh -v
+#
+# Neither:     same as a plain run, but finishes without run.sh or VS Code.
 #   ./start.sh -n
 #
 # Stop:        stops the VM without deleting it, so a later ./start.sh restarts
@@ -609,13 +614,15 @@ finish() {
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
   echo "  ssh:          ./ssh.sh <cmd>   |   ssh $HOST_USER@$IP   |   ssh trudev"
-  echo "  vscode:       opened by default (./start.sh -n to skip)"
+  echo "  next:         ./run.sh in the VM, started below (./start.sh -n to skip)"
+  echo "  vscode:       ./start.sh -v (opens this folder over Remote-SSH instead)"
   echo "  ollama:       http://localhost:11434  (CPU, in-VM)"
   echo "  mount:        $MOUNT_DIR  (owned by $HOST_USER in the VM)"
   echo "  stop:         ./start.sh -s   (keep the VM; restart with ./start.sh)"
   echo "  destroy:      ./start.sh -k"
 
   if [[ "$OPEN_VSCODE" == 1 ]]; then open_vscode; fi
+  if [[ "$RUN_APP" == 1 ]]; then run_in_vm; fi
 }
 
 # Native-Linux counterpart of finish(). Same ordering and the same shared
@@ -1053,21 +1060,23 @@ if [[ "${1:-}" == "-s" ]]; then
   exit 0
 fi
 
-# --- open VS Code in the VM (default; ./start.sh -n to skip) -----------------
-# Remote-SSH shells out to plain `ssh` with no -i, so this relies on the managed
-# ~/.ssh/config block (written by ensure_ssh_config on every start) to supply the
-# identity. Opens the same absolute path the virtiofs mount exposes in the guest.
-# `-v` is kept as a no-op alias for the old opt-in flag.
-OPEN_VSCODE=1
+# --- final step: run.sh in the VM (default) or VS Code (./start.sh -v) -------
+# The default finish is `./run.sh` inside the VM, which is what you actually want
+# after a start: the dev server up on :8910. `-v` opens VS Code over Remote-SSH
+# instead; Remote-SSH shells out to plain `ssh` with no -i, so it relies on the
+# managed ~/.ssh/config block (written by ensure_ssh_config on every start) to
+# supply the identity. `-n` finishes without doing either.
+OPEN_VSCODE=0
+RUN_APP=1
 case "${1:-}" in
-  -n) OPEN_VSCODE=0; shift ;;
-  -v) shift ;;
+  -n) RUN_APP=0; shift ;;
+  -v) OPEN_VSCODE=1; RUN_APP=0; shift ;;
   # -s/-k never reach the finish path, so they must not require `code` on PATH.
-  -s|-k) OPEN_VSCODE=0 ;;
+  -s|-k) RUN_APP=0 ;;
 esac
-# The native path never opens VS Code (you are already on the machine), so -n is
-# accepted and ignored there and `code` is never required.
-if $NATIVE_LINUX; then OPEN_VSCODE=0; fi
+# The native path has no VM to shell into and no Remote-SSH hop (you are already
+# on the machine), so both flags are accepted and ignored there.
+if $NATIVE_LINUX; then OPEN_VSCODE=0; RUN_APP=0; fi
 if [[ "$OPEN_VSCODE" == 1 ]]; then
   command -v code >/dev/null 2>&1 \
     || fail "'code' not found — enable it in VS Code: Shell Command: Install 'code' command in PATH, or run ./start.sh -n"
@@ -1082,6 +1091,14 @@ open_vscode() {
   code --remote "ssh-remote+$HOST_USER@$IP" "$MOUNT_DIR" \
     || fail "code --remote failed (is the Remote-SSH extension installed?)"
   ok "VS Code opening — first connect installs the remote server, give it a moment"
+}
+
+# Runs ./run.sh inside the VM, in the mounted repo dir, as the mirrored user.
+# This is the default finish and it stays in the foreground: run.sh owns kubefwd
+# and `air`, so Ctrl-C here is how you stop the dev server.
+run_in_vm() {
+  echo "--- Running ./run.sh in the VM as $HOST_USER (Ctrl-C to stop) ---"
+  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./run.sh
 }
 
 # --- teardown: ./start.sh -k -----------------------------------------------
@@ -1125,6 +1142,7 @@ if limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
   wait_for_ssh_ready
   # Existing VM flow intentionally skips setup/provisioning.
   if [[ "$OPEN_VSCODE" == 1 ]]; then open_vscode; fi
+  if [[ "$RUN_APP" == 1 ]]; then run_in_vm; fi
   exit 0
 fi
 

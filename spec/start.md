@@ -167,8 +167,10 @@ attempts non-interactive GitHub
 authentication inside the VM using repository-root `.ghtoken`
 (`gh auth login --with-token`). At that late point, missing `gh` or a login
 failure are warning-only and must not block startup — the token itself has
-already been gated up front (see below). VS Code opens by
-default; `./start.sh -n` skips opening VS Code.
+already been gated up front (see below). The default final step is `./run.sh`
+inside the VM (foreground, `limactl shell` in the mounted repo dir, as the
+mirrored user); `./start.sh -v` opens VS Code over Remote-SSH instead, and
+`./start.sh -n` finishes without either.
 
 ## .env seeding (first step)
 
@@ -211,9 +213,10 @@ destroying a VM must never require a token.
 `./start.sh` is idempotent — an existing VM is not an error:
 
 - Running: skip provisioning/setup, refresh support files, wait until `ssh.sh`
-	can execute in the VM, then open VS Code when enabled.
+	can execute in the VM, then take the selected final step (`run.sh` by default,
+	VS Code with `-v`, neither with `-n`).
 - Stopped: `limactl start` the existing instance, skip provisioning/setup,
-	refresh support files, wait for SSH readiness, then open VS Code when enabled.
+	refresh support files, wait for SSH readiness, then take the same final step.
 
 Use `./start.sh -k` first only when you want a clean rebuild.
 
@@ -345,8 +348,9 @@ Then run `./setup.sh` directly (not through `limactl shell`), verify the pinned
 - `-s` and `-k` are VM lifecycle operations with no native equivalent. They must
   exit non-zero with an explanatory message and must never be reinterpreted as
   "stop or destroy this machine's k3s".
-- `-n` is accepted and ignored: VS Code is never opened on this path, so a
-  habitual `./start.sh -n` still works.
+- `-n` and `-v` are accepted and ignored: VS Code is never opened on this path
+  (the sources are already local) and `run.sh` is not auto-started here, so a
+  habitual `./start.sh -n` or `-v` still works.
 
 ## Summary
 

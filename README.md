@@ -1,21 +1,56 @@
-# trustable-app
+# Trustable
 
-> **TL;DR** — install [Lima](https://lima-vm.io/) (`brew install lima`), then start everything with `./run.sh`. It boots the VM, installs the toolchain, and launches the dev loop — after that you can just develop.
+**TL;DR**
 
-A Go single-binary web server that hosts a **"Lovable-like" development environment** on top of [OpenServerless](https://openserverless.apache.org/). From one executable it serves a local UI, reverse-proxies the user's running app and AI assistant, drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
+How to run from sources
 
-The whole product is delivered as **one process listening on `:8910`**. There is no separate frontend server, no API gateway, and no build pipeline for the UI — the binary embeds its web assets and serves everything itself, which keeps deployment to a single artifact and development to a single hot-reload loop.
+## Mac
 
-> **Note:** This repository can build against either the macOS **Trustable VM**
-> or a Linux Trustable k3s server. The macOS app from
-> [trustable.ai](https://trustable.ai) provisions a [k3s](https://k3s.io/) VM
-> and writes its credentials (`id_ed25519`, `current.ip`, `apihost`) to
-> `~/Library/Application Support/Trustable/`. When those files are absent,
-> `build.sh` builds against the local k3s cluster instead. Either way it is the
-> same script, and it always updates `olaris-bestia/opsroot.json` and deploys
-> with `ops bestia trustable redeploy`.
+You need  a Mac with Apple Silicon and at least 16GB of memory and 60GB disk space
 
----
+- install [Lima](https://lima-vm.io/) with `brew install lima`
+- clone sources and start the vm
+
+```
+git clone https://github.com/trustable-ai/trustable-app
+cd trustable-app
+./start.sh
+```
+
+## Windows
+
+You need a Windows machine an Intel processor and at least 16GB and 60GB disk space
+
+You need also WSL but this is usually already available
+
+- install [VSCode](https://code.visualstudio.com/)
+- execute from PowerShell `.\start.ps1`
+
+# Linux
+
+You need a Linux VM  with Ubuntu 24.04 Intel or ARM with at least 16GB of memory
+
+Create an user with passwordless sudo rights and execute:
+
+
+```
+git clone https://github.com/trustable-ai/trustable-app
+cd trustable-app
+./start.sh
+```
+
+At then will show the url to access, click on the url
+
+## Development
+
+For development with an editor (VSCode):
+
+- install [VSCode](https://code.visualstudio.com/)
+- start with `./start.sh -v`
+- this will open vscode at the end,
+in the vscode terminal execute `./run.sh`
+
+# Introduction
 
 ## What it does
 
