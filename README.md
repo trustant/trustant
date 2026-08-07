@@ -12,7 +12,7 @@ You need  a Mac with Apple Silicon and at least 16GB of memory and 60GB disk spa
 - clone sources and start the vm
 
 ```
-git clone https://github.com/trustable-ai/trustable-app
+git clone https://github.com/trustable-ai/trustable-app --recurse-submodules
 cd trustable-app
 ./start.sh
 ```
