@@ -109,13 +109,45 @@ ensure_source_submodules() {
         ! -f "$MOUNT_DIR/trustable-acp/package.json" ||
         ! -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]]; then
     echo "--- Initializing runtime source submodules on the host ---"
-    git -C "$MOUNT_DIR" submodule update --init --recursive mcp trustable-acp \
+    # -c ... is inherited by the clone/checkout git runs per submodule, so a
+    # fresh Windows checkout lands as LF instead of needing the repair below.
+    git -C "$MOUNT_DIR" -c core.autocrlf=false -c core.eol=lf \
+      submodule update --init --recursive mcp trustable-acp \
       || fail "failed to initialize mcp/trustable-acp submodules"
   fi
   [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
   [[ -f "$MOUNT_DIR/trustable-acp/package.json" ]] || fail "trustable-acp submodule source is unavailable"
   [[ -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
   ok "runtime source submodules are available"
+  normalize_submodule_eol
+}
+
+# Git for Windows ships core.autocrlf=true in its SYSTEM config, and .gitattributes
+# does not cross a submodule boundary — each submodule is its own repository with
+# its own working tree and its own attributes. So the repo-root `* text=auto
+# eol=lf` protects this repo only, and every submodule still checks out CRLF.
+# bash then reads `#!/bin/sh\r` and reports the shebang interpreter as missing:
+#   ./setup.sh: line NNN: ./setup.sh: cannot execute: required file not found
+# Pin LF per submodule and repair any working tree that is still CRLF. A no-op on
+# macOS and Linux, where autocrlf is off to begin with.
+normalize_submodule_eol() {
+  git -C "$MOUNT_DIR" submodule foreach --quiet --recursive '
+    git config core.autocrlf false
+    git config core.eol lf
+    # Only files stored as LF but checked out as CRLF are damaged; a submodule
+    # that genuinely commits CRLF must be left exactly as it is.
+    if git ls-files --eol | grep -q "^i/lf[[:space:]]\{1,\}w/crlf"; then
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "WARNING: $displaypath has CRLF line endings but uncommitted changes." >&2
+        echo "         Commit or stash them, then: git -C $displaypath checkout --force -- ." >&2
+      else
+        git rm --cached -rq .
+        git reset --hard -q
+        echo "repaired CRLF line endings in $displaypath"
+      fi
+    fi
+  ' || fail "could not normalize submodule line endings"
+  ok "submodules are checked out with LF line endings"
 }
 
 # The provisioning payloads below are plain Ubuntu bash and identical on both
@@ -409,6 +441,68 @@ GUEST
   fi
 }
 
+# jq is installed during provisioning — not only because the tooling reads JSON,
+# but because wait_for_openwhisk below parses /api/info with it and must not be
+# the thing that discovers jq is missing.
+ensure_jq() {
+  if $NATIVE_LINUX; then
+    echo "--- Ensuring jq via apt on this host ---"
+  else
+    echo "--- Ensuring jq via apt in the VM ---"
+  fi
+  run_privileged <<'GUEST'
+export DEBIAN_FRONTEND=noninteractive
+if command -v jq >/dev/null 2>&1; then
+  echo "jq already installed ($(jq --version 2>/dev/null))"
+  exit 0
+fi
+apt-get update -qq
+apt-get install -y -qq jq
+GUEST
+  if $NATIVE_LINUX; then
+    ok "jq is installed"
+  else
+    ok "jq is installed in the VM"
+  fi
+}
+
+# A ready k3s API and a present nuvolaris namespace do not mean OpenWhisk serves
+# requests yet — the controller comes up minutes later. Block here until the
+# apihost is actually usable, in two stages, so the failure says which one lost:
+#   1. http://miniops.me answers at all (traefik + ingress are wired)
+#   2. http://miniops.me/api/info reports description "OpenWhisk" (the controller
+#      itself is serving, not just some other backend behind the same ingress)
+# Runs where the cluster is: inside the VM on macOS, on this host on Linux.
+wait_for_openwhisk() {
+  local where=" in the VM"
+  if $NATIVE_LINUX; then where=""; fi
+  echo "--- Waiting for OpenWhisk on http://miniops.me${where} ---"
+  run_guest bash -euo pipefail -s <<'GUEST'
+TRIES=150      # x4s = 10 minutes per stage
+DELAY=4
+
+up=0
+for _ in $(seq 1 $TRIES); do
+  if curl -fsS -m 5 -o /dev/null http://miniops.me; then up=1; break; fi
+  sleep $DELAY
+done
+[ "$up" = 1 ] || { echo "http://miniops.me never answered" >&2; exit 1; }
+echo "http://miniops.me is answering"
+
+ready=0
+for _ in $(seq 1 $TRIES); do
+  desc="$(curl -fsS -m 5 http://miniops.me/api/info 2>/dev/null | jq -r .description 2>/dev/null || true)"
+  if [ "$desc" = "OpenWhisk" ]; then ready=1; break; fi
+  sleep $DELAY
+done
+[ "$ready" = 1 ] || {
+  echo "http://miniops.me/api/info never reported description OpenWhisk (last: ${desc:-none})" >&2
+  exit 1
+}
+GUEST
+  ok "OpenWhisk is serving on http://miniops.me${where}"
+}
+
 # setup.sh enforces the pinned gh runtime version from image/Dockerfile. start.sh
 # must fail before declaring the environment ready when gh is missing or drifted.
 ensure_gh() {
@@ -596,8 +690,13 @@ finish() {
   ensure_ollama
   ensure_kubefwd
   ensure_gh_apt
+  ensure_jq
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
+
+  # setup.sh step 7 curls the apihost, so OpenWhisk must already be serving
+  # before it runs — not merely k3s being up.
+  wait_for_openwhisk
 
   # Provision the in-VM toolchain (ops/go/air/uv/node/pi + MCP servers) by
   # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir
@@ -650,8 +749,13 @@ finish_native() {
   ensure_ollama
   ensure_kubefwd
   ensure_gh_apt
+  ensure_jq
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
+
+  # setup.sh step 7 curls the apihost, so OpenWhisk must already be serving
+  # before it runs — not merely k3s being up.
+  wait_for_openwhisk
 
   # Provision the toolchain (ops/go/air/uv/node/pi + MCP servers). Same script
   # the VM path runs, just invoked directly. Idempotent — re-runs just verify.
