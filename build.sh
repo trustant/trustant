@@ -48,6 +48,10 @@ echo "Stored Tag: $TAG"
 
 git commit -m "build $TAG" -a || true
 
+if [[ "$1" == "--tag" ]]
+then echo "Only tagging, exiting" ; exit 0
+if
+
 mkdir -p image/bin
 env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
 env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
