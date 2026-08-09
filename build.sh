@@ -48,7 +48,7 @@ echo "Stored Tag: $TAG"
 
 git commit -m "build $TAG" -a || true
 
-if test "$1" == "--tag"
+if test "${1:-}" == "--tag"
 then echo "Only tagging, exiting" ; exit 0
 fi
 
