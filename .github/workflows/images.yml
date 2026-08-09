@@ -47,6 +47,12 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure access to private trustable-ai submodules
+        run: |
+          git config --global \
+            url."https://x-access-token:${{ secrets.TRUSTABLE_AI_REPO_ACCESS_TOKEN }}@github.com/".insteadOf \
+            "https://github.com/"
+
       - name: Build binaries
         run: |
           mkdir -p image/bin
