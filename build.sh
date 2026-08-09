@@ -25,7 +25,7 @@ fi
 detect_runtime
 echo "Using container runtime: $RUNTIME"
 
-KEY=${1:-trustable}
+KEY=trustable
 VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
 IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
@@ -48,7 +48,7 @@ echo "Stored Tag: $TAG"
 
 git commit -m "build $TAG" -a || true
 
-if [[ "$1" == "--tag" ]]
+if test "$1" == "--tag"
 then echo "Only tagging, exiting" ; exit 0
 if
 
