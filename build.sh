@@ -50,7 +50,7 @@ git commit -m "build $TAG" -a || true
 
 if test "$1" == "--tag"
 then echo "Only tagging, exiting" ; exit 0
-if
+fi
 
 mkdir -p image/bin
 env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
