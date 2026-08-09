@@ -35,6 +35,7 @@ BRANCH="${BRANCH:-detached}"
 STREAM="${TRUSTABLE_BUILD_STREAM:-$BRANCH}"
 echo "New Tag: $TAG"
 
+git tag -d "$(git tag)" || true
 git tag -f "$TAG"
 printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n" \
     "$VERSION" "$TAG" "$BRANCH" "$STREAM" "$EXPIRY" > _build.txt
