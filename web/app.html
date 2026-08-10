@@ -41,6 +41,12 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/></svg>
                 Terminal
             </button>
+            <button id="reloadBtn" onclick="reloadOrRedeploy(event)"
+                title="Reload the preview (Shift+click to redeploy)"
+                class="nu-btn nu-btn-secondary flex items-center justify-center gap-1 min-w-[7.5rem]">
+                <svg id="reloadBtnIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M19.418 9A7.999 7.999 0 006.01 5.99L4 8m0 8l2.01 2.01A7.999 7.999 0 0019.418 15"/></svg>
+                <span id="reloadBtnLabel">Reload</span>
+            </button>
             <div class="relative">
                 <button id="configBtn" onclick="toggleConfigMenu()"
                     class="nu-btn nu-btn-secondary flex items-center gap-1">
@@ -78,7 +84,14 @@
                         <svg class="w-4 h-4 text-[color:var(--nu-signal)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a5 5 0 010 10H9M3 10l4-4m-4 4l4 4"/></svg>
                         Revert
                     </button>
-                    <button onclick="hideUtilsMenu(); redeploy()"
+                    <button id="utilsReload" onclick="hideUtilsMenu(); reloadRightIframe()"
+                        title="Reload the preview iframe only"
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M19.418 9A7.999 7.999 0 006.01 5.99L4 8m0 8l2.01 2.01A7.999 7.999 0 0019.418 15"/></svg>
+                        Reload
+                    </button>
+                    <button id="utilsRedeploy" onclick="hideUtilsMenu(); redeploy()"
+                        title="Full server-side redeploy"
                         class="nu-menu-item">
                         <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-6.463 0 4.493 4.493 0 006.463 0zm8.1-2.093a4.493 4.493 0 00-.052-6.32 4.493 4.493 0 00-6.32-.052"/></svg>
                         Redeploy
@@ -1598,6 +1611,8 @@
         // Redeploy functions
         window.addEventListener('message', (e) => {
             if (e.data === 'redeploy-ok') reloadRightIframe();
+            // Sent by the stopped-preview placeholder rendered after a Clean.
+            if (e.data === 'redeploy-now') redeploy();
         });
 
         function reloadRightIframe() {
@@ -1608,9 +1623,44 @@
             document.getElementById('rightFrame').src = rightURL + route + q + '#' + route;
         }
 
+        // Toolbar Reload button: plain click reloads the preview iframe only,
+        // Shift+click upgrades to a full redeploy. The Utils menu exposes both
+        // actions as separate entries so the modifier is never the only path.
+        function reloadOrRedeploy(e) {
+            if (e && e.shiftKey) redeploy(); else reloadRightIframe();
+        }
+
+        // While Shift is held, the toolbar button previews the action it will
+        // actually run. The min-width on the button keeps the toolbar stable
+        // across the label swap.
+        const RELOAD_ICON = 'M4 4v5h5M20 20v-5h-5M19.418 9A7.999 7.999 0 006.01 5.99L4 8m0 8l2.01 2.01A7.999 7.999 0 0019.418 15';
+        const REDEPLOY_ICON = 'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-6.463 0 4.493 4.493 0 006.463 0zm8.1-2.093a4.493 4.493 0 00-.052-6.32 4.493 4.493 0 00-6.32-.052';
+
+        function setShiftPreview(down) {
+            const label = document.getElementById('reloadBtnLabel');
+            const icon = document.getElementById('reloadBtnIcon');
+            if (!label || !icon) return;
+            label.textContent = down ? 'Redeploy' : 'Reload';
+            icon.firstElementChild.setAttribute('d', down ? REDEPLOY_ICON : RELOAD_ICON);
+        }
+
+        window.addEventListener('keydown', (e) => { if (e.key === 'Shift') setShiftPreview(true); });
+        window.addEventListener('keyup', (e) => { if (e.key === 'Shift') setShiftPreview(false); });
+        // Reset on blur, otherwise the preview sticks when the user alt-tabs
+        // away with Shift held and the keyup never arrives.
+        window.addEventListener('blur', () => setShiftPreview(false));
+
+        // Both entry points to a long-running workbench operation are disabled
+        // together, so neither control can start a second run mid-flight.
+        function setBusy(busy) {
+            for (const id of ['utilsBtn', 'reloadBtn']) {
+                const el = document.getElementById(id);
+                if (el) el.disabled = busy;
+            }
+        }
+
         async function redeploy() {
-            const btn = document.getElementById('utilsBtn');
-            btn.disabled = true;
+            setBusy(true);
 
             // Replace right iframe content with a status page
             const rf = document.getElementById('rightFrame');
@@ -1630,7 +1680,7 @@
 
             es.addEventListener('error', (e) => {
                 es.close();
-                btn.disabled = false;
+                setBusy(false);
                 if (e.data) {
                     try {
                         const doc = rf.contentDocument;
@@ -1644,7 +1694,7 @@
 
             es.addEventListener('done', (e) => {
                 es.close();
-                btn.disabled = false;
+                setBusy(false);
                 const actions = (e.data || 'No actions found').replace(/&/g,'&amp;').replace(/</g,'&lt;');
                 const route = getCookie('ROUTE') || '/';
                 const queryStr = getCookie('QUERY') || '';
@@ -1661,10 +1711,10 @@
         }
 
         // Clean: runs `ops ide clean` only. It stops the devel watcher and removes
-        // local build artifacts, so the preview stays down until Utils > Redeploy.
+        // local build artifacts, so the preview stays down until a redeploy — a
+        // plain Reload cannot bring it back.
         async function cleanWorkbench() {
-            const btn = document.getElementById('utilsBtn');
-            btn.disabled = true;
+            setBusy(true);
 
             const rf = document.getElementById('rightFrame');
             rf.srcdoc = `<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui;background:#f3f4f6;">
@@ -1686,14 +1736,17 @@
                 const data = await response.json().catch(() => ({}));
                 const ok = response.ok;
                 const title = ok ? (data.message || 'Clean complete') : (data.error || 'Clean failed');
+                // Clean stops the dev server, so only a redeploy brings the
+                // preview back — offer it inline instead of naming a menu path.
                 const note = ok
-                    ? 'The preview is stopped. Use Utils &gt; Redeploy to bring it back.'
+                    ? `<p style="color:#374151;font-size:0.95rem;margin-bottom:12px;">The preview is stopped. Redeploy to bring it back.</p>
+                       <button onclick="parent.postMessage('redeploy-now','*')" style="font:inherit;font-size:0.95rem;background:#4f46e5;color:#fff;border:0;border-radius:6px;padding:8px 16px;cursor:pointer;">Redeploy</button>`
                     : '';
                 rf.srcdoc = `<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:system-ui;background:#f3f4f6;">
                     <div style="text-align:center;max-width:700px;width:100%;padding:20px;">
                         <p style="color:${ok ? '#059669' : '#dc2626'};font-size:1.2rem;font-weight:bold;margin-bottom:16px;">${escape(title)}</p>
                         ${data.output ? `<pre style="text-align:left;background:#1f2937;color:#d1d5db;padding:12px;border-radius:8px;overflow:auto;font-size:0.85rem;max-height:300px;margin-bottom:16px;">${escape(data.output)}</pre>` : ''}
-                        ${note ? `<p style="color:#374151;font-size:0.95rem;">${note}</p>` : ''}
+                        ${note}
                     </div>
                 </body></html>`;
             } catch (error) {
@@ -1703,7 +1756,7 @@
                     </div>
                 </body></html>`;
             } finally {
-                btn.disabled = false;
+                setBusy(false);
             }
         }
 
