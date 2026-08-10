@@ -27,6 +27,7 @@ Aligned to the right:
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
 - the **device preview toggle** (three icon-only segmented buttons: desktop, tablet, phone) — see "Device Preview" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
+- the button "Reload" (gray, circular-arrow icon), immediately to the right of Route — see "Reload" below
 - the button "Back" (gray, chevron left icon)
 
 Toolbar buttons use inline SVG icons that inherit the current button text color.
@@ -71,13 +72,16 @@ Replace the previous standalone "Revert", "Redeploy", and "Upload" toolbar butto
 The button shows the label "Utils" and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
 
 1. **Revert** (orange undo-arrow icon) — disabled when there are no uncommitted changes (same condition as Commit).
-2. **Redeploy** (indigo rocket icon) — always enabled.
-3. **Clean** (sparkles icon) — always enabled; see "Clean" below.
-4. **Debug** (blue terminal/log icon) — always enabled.
-5. **Files** (document icon) — always enabled; opens the read-only file viewer described in "Files (Read-only)".
-6. **Upload** (green upload-arrow icon) — always enabled.
+2. **Reload** (circular-arrow icon) — always enabled; reloads the preview iframe only, the same action as a plain click on the toolbar Reload button.
+3. **Redeploy** (indigo rocket icon) — always enabled.
+4. **Clean** (sparkles icon) — always enabled; see "Clean" below.
+5. **Debug** (blue terminal/log icon) — always enabled.
+6. **Files** (document icon) — always enabled; opens the read-only file viewer described in "Files (Read-only)".
+7. **Upload** (green upload-arrow icon) — always enabled.
 
-Each item triggers the same behavior documented in the "Revert", "Redeploy", "Clean", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+Redeploy stays in this menu deliberately: the toolbar reaches it only through the Shift modifier, so the menu entry is the only discoverable, no-modifier path to it. Reload is listed alongside it so a menu-only user can reach both actions without knowing the modifier exists.
+
+Each item triggers the same behavior documented in the "Revert", "Reload", "Redeploy", "Clean", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally. The right iframe sits inside a preview pane that can constrain it to a device viewport — see "Device Preview" below.
 
@@ -329,11 +333,60 @@ contract in [12-terminal.md](12-terminal.md).
   closing the pane terminates the shell.
 - The button shows an active state while the pane is open.
 
+# Reload
+
+The **Reload** button (gray, circular-arrow icon) sits in the right-hand toolbar
+group, immediately after the Route button and before Back — next to the preview
+controls it acts on, rather than among the left-hand configuration menus.
+
+A plain click reloads the right preview iframe only. **Shift+click** upgrades it
+to a full Redeploy. Its `title` is "Reload the preview (Shift+click to redeploy)".
+
+Because a modifier-only action is invisible, the button previews what it will do:
+while Shift is held the label swaps to "Redeploy" and the icon to the Redeploy
+rocket. The Shift state is tracked with `keydown`/`keyup` on the window plus a
+`blur` reset, so the preview does not stick when the user leaves the page with
+Shift down. The button reserves a min-width so the label swap does not shift its
+neighbours — here that also keeps the Back button from moving.
+
+Both actions are also reachable from the Utils pulldown without any modifier —
+see "Utils Pulldown" above.
+
+Reloading must clear the iframe's `srcdoc` attribute before assigning `src`.
+Redeploy and Clean park a status page in `srcdoc`, and `srcdoc` takes precedence
+over `src` — without removing it the assignment is silently ignored and the stale
+status panel stays on screen, so Reload appears dead after either operation. The
+same clear applies wherever the right iframe is repointed, including the Route &
+Query popup.
+
+Reloading only refreshes the right preview iframe — no server call, no progress
+modal, no busy state, since it is a single `src` assignment. It rebuilds the src
+from `<RIGHT><ROUTE>?<QUERY>&_t=<now>#<ROUTE>`, preserving the current route and
+query and cache-busting the result. It is the cheap refresh for the common case
+where Vite has already hot-rebuilt.
+
+Two entry points, both calling the same single implementation:
+
+- the toolbar **Reload** button, on a plain click
+- the **Reload** entry in the Utils pulldown
+
+A reload cannot recover a stopped preview — after a Clean the dev server is
+genuinely down and only a Redeploy brings it back.
+
 # Redeploy
 
-The **Redeploy** entry in the Utils pulldown triggers a server-side redeploy cycle.
+Redeploy triggers a server-side redeploy cycle. It has three entry points:
 
-When clicked:
+- the **Redeploy** entry in the Utils pulldown
+- **Shift+click** on the toolbar Reload button
+- the **Redeploy** button in the stopped-preview placeholder shown after a Clean
+
+While a redeploy is in flight, **both** the Utils button and the toolbar Reload
+button are disabled, and both are restored on the SSE `error` and `done` events.
+Clean applies the same two-button guard for its duration. Disabling only one of
+them would leave the other entry point live and allow a second concurrent run.
+
+When triggered:
 
 - Replace the right iframe content with a spinner and status message "Redeploying..."
 - Open an EventSource to `GET /api/redeploy?name=<NAME>`
@@ -352,18 +405,20 @@ When clicked:
 The **Clean** entry in the Utils pulldown removes the local build artifacts of the
 current application by running `ops ide clean` — and nothing else. It does **not**
 redeploy. `ops ide clean` stops the devel watcher and removes the virtualenv,
-`node_modules`, and `*.zip` artifacts, so the preview stays down until the user runs
-**Utils > Redeploy**.
+`node_modules`, and `*.zip` artifacts, so the preview stays down until the user
+redeploys. A plain Reload cannot bring it back.
 
 When clicked:
 
-- Disable the Utils button and replace the right iframe content with a spinner and the
-  status message "Cleaning...".
+- Disable the Utils and Reload buttons and replace the right iframe content with a
+  spinner and the status message "Cleaning...".
 - `POST /api/clean` with `{"name": "<NAME>"}`.
-- On success show "clean completed", the command output in a code block, and the note
-  that the preview is stopped and Utils > Redeploy brings it back.
+- On success show "clean completed", the command output in a code block, the note
+  "The preview is stopped. Redeploy to bring it back.", and a **Redeploy** button that
+  runs the redeploy directly. The placeholder must offer the action rather than name a
+  menu path, and must not point at a plain Reload, which cannot recover this state.
 - On failure show the returned `error` (and `output` when present) in red.
-- Re-enable the Utils button in both cases.
+- Re-enable both buttons in all cases.
 
 The internal `ops ide clean` steps that are part of launch, revert, commit, and Git
 Pull > Deploy are unchanged — this entry only adds a way to invoke it on demand.
