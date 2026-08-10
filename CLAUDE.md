@@ -36,11 +36,14 @@ macOS development uses a **running Trustable VM** on the local machine — the m
 
 Linux server development uses local access to the Trustable k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` is the single build entrypoint for both hosts and detects which one it is on.
 
+Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at the repo root) creates the `Ubuntu-24.04` distribution with systemd, mirrors the Windows user into it with passwordless sudo, and runs `./start.sh` there over the `/mnt/<drive>` mount — the worktree stays on Windows, only the environment lives in WSL. `start.sh` stays Windows-unaware; it just takes its native-Linux path. This is why the repo ships a `.gitattributes` forcing `eol=lf`: bash cannot run a CRLF script. See [spec/start.md](spec/start.md).
+
 `start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustable-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
 
 ## Common commands
 
 ```bash
+.\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 Ubuntu-24.04 distro, mirrors the user with sudo, runs ./start.sh inside it over the /mnt mount, then ./run.sh; -v opens VS Code on the mount instead, -n neither; -Stop / -Destroy
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL

@@ -15,6 +15,10 @@ automatically by `uname -s`:
 Any other operating system is unsupported and aborts: the entire flow is
 apt/dpkg-based.
 
+Windows is reached through the same native-Linux path: `start.ps1` creates a
+WSL2 Ubuntu and runs this script inside it. `start.sh` itself stays entirely
+Windows-unaware — see "Windows (WSL2)" at the end.
+
 The two paths share every provisioning payload — the k3s cert SAN, the
 host-rewrite reverse proxy, ollama, kubefwd, and gh are the same Ubuntu bash on
 both, differing only in whether they run in the VM or on this machine. They are
@@ -148,6 +152,32 @@ version. Unsupported architectures, checksum failures, missing binaries, or
 version mismatches abort provisioning with an actionable error. This
 provisioning must not modify resolver configuration; `run.sh` owns the
 forwarder's process lifetime.
+
+## jq in the VM
+
+Install `jq` with `apt-get install jq` during provisioning on every finish path,
+alongside the other apt-installed tooling. It is a hard prerequisite of the
+OpenWhisk wait below, which parses `/api/info`, so it must be in place before
+that check runs rather than being discovered missing by it. Idempotent: skip when
+`jq` already resolves.
+
+## Waiting for OpenWhisk
+
+A ready k3s API and a present `nuvolaris` namespace do not mean OpenWhisk serves
+requests — the controller comes up minutes after the cluster does. So **before**
+running `setup.sh`, on both hosts, `start.sh` blocks until the apihost is
+actually usable: `setup.sh` step 7 curls the apihost and would otherwise fail
+against a cluster that is merely booting. The check runs from where the cluster
+is (inside the VM on macOS, on this host on Linux), in two stages so a failure
+names the one that lost:
+
+1. `curl http://miniops.me` answers at all — traefik and the ingress are wired;
+2. `curl http://miniops.me/api/info | jq -r .description` returns `OpenWhisk` —
+   the controller itself is serving, not merely some other backend reachable
+   behind the same ingress.
+
+Each stage retries every 4s for up to 10 minutes and then aborts the run with the
+stage that timed out (the second one also reporting the last description seen).
 
 ## GitHub CLI availability in the VM
 
@@ -338,10 +368,11 @@ Run the same helpers the macOS finish path runs, against this host:
   the VM, a native host is not restricted to CPU — the upstream installer
   detects CUDA/ROCm by itself, which needs no special handling here;
 - the pinned `kubefwd` 1.25.16 with its SHA-256 verification;
-- the `gh` apt package.
+- the `gh` and `jq` apt packages.
 
-Then run `./setup.sh` directly (not through `limactl shell`), verify the pinned
-`gh` runtime version, and attempt the warning-only `.ghtoken` login.
+Then wait for OpenWhisk on `http://miniops.me` (see above), run `./setup.sh`
+directly (not through `limactl shell`), verify the pinned `gh` runtime version,
+and attempt the warning-only `.ghtoken` login.
 
 ## Flags
 
@@ -368,3 +399,183 @@ must never abort a run that has otherwise succeeded.
 
 Re-running is fully idempotent: an installed package, a ready cluster, and an
 already-provisioned toolchain are all verified rather than redone.
+
+# Windows (WSL2) — `start.ps1`
+
+Windows has no native path in `start.sh`. It is reached instead through
+`start.ps1`, a PowerShell 5.1 script at the repository root that stands in for
+Lima: it creates the Linux environment, mirrors the user into it, and then runs
+`./start.sh` inside it, which takes the native-Linux path (`uname -s` = `Linux`)
+described above. Nothing in `start.sh`, `setup.sh` or `run.sh` is
+Windows-aware, and none of them may be taught to be.
+
+## What it provisions
+
+- A WSL2 distribution, `Ubuntu-24.04` by default (`-Distro` to override),
+  installed with `wsl --install --distribution <name> --no-launch`. `--no-launch`
+  skips the interactive first-run account wizard: the account is created below
+  with the name and rights we want. A WSL1 distribution is converted to WSL2 —
+  WSL1 has no kernel and cannot run k3s.
+- `%USERPROFILE%\.wslconfig` with the sizing `start.sh` gives the Lima VM
+  (`memory=8GB`, `processors=4`, `swap=8GB`). This file is global to every
+  distribution on the machine, so it is written only when absent; an existing
+  one is reported and left alone.
+- The mirrored user: the Windows account name folded to a valid Linux user name
+  (`-User` to override), UID 1000 when free, in the `sudo` group, with
+  `/etc/sudoers.d/90-<user>` granting `NOPASSWD:ALL`. This is the same mirroring
+  the Lima path does for the same reason — the mounted worktree keeps one
+  consistent owner — and `preflight_native`, `setup.sh` and `run.sh` all require
+  `sudo -n`.
+- `/etc/wsl.conf`:
+  - `[boot] systemd=true` — k3s is a systemd service and `preflight_native`
+    refuses a distribution without it.
+  - `[user] default=<user>` — so a bare `wsl -d <distro>` lands as that user.
+  - `[automount] options="metadata"` — keeps unix modes on `/mnt/<drive>`, so
+    the scripts in the mounted worktree stay executable.
+  - `[interop] appendWindowsPath=false` — `setup.sh` installs go, node, uv and
+    npm into the distribution; a leaking Windows `PATH` would make `node` and
+    `go` resolve to Windows `.exe` files inside Linux builds.
+- The base packages the native path shells out to and the WSL image may lack:
+  `sudo curl ca-certificates git iproute2 iptables zstd unzip`. `iptables` is
+  what the package's postinst builds its `:80/:443/:6443` firewall dropin with;
+  `zstd` and `unzip` unpack what the flow downloads.
+
+## The mount
+
+There is no copy and no second clone: the worktree stays on the Windows
+filesystem and the distribution reaches it through the automount, exactly as the
+Lima VM reaches the macOS folder through virtiofs. `start.ps1` resolves the path
+with `wslpath` and runs
+
+    wsl -d <distro> -u <user> --cd <path> -- bash ./start.sh
+
+`bash ./start.sh` rather than `./start.sh`, because the exec bit on a
+Windows-hosted file depends on the automount options and this does not care.
+
+### LF line endings are load-bearing
+
+bash cannot run a CRLF script — it fails with
+``syntax error near unexpected token $'in\r'`` — and a `.env` copied from a CRLF
+`.env.dist` carries a trailing carriage return into every value. A Windows
+checkout with `core.autocrlf=true` produces exactly that, so the repository
+ships a `.gitattributes` with `* text=auto eol=lf` (plus explicit `binary` for
+image types). `start.ps1` re-checks `start.sh` for CR bytes before provisioning
+anything and aborts with the renormalization commands if any are found.
+
+That covers this repository and nothing else: **`.gitattributes` does not cross a
+submodule boundary.** Each submodule is its own repository with its own working
+tree and its own attributes, so Git for Windows' system-config
+`core.autocrlf=true` still checks them out as CRLF. The symptom is not the usual
+`syntax error near unexpected token` — a CRLF *shebang* makes bash report the
+interpreter as missing:
+
+    ./setup.sh: line 686: ./setup.sh: cannot execute: required file not found
+
+`ensure_source_submodules` therefore closes the gap on both hosts:
+
+- the `git submodule update --init` runs under `-c core.autocrlf=false -c
+  core.eol=lf`, which git propagates to the per-submodule clone and checkout, so
+  a fresh checkout is LF from the start;
+- afterwards `normalize_submodule_eol` walks every initialized submodule
+  recursively, persists `core.autocrlf=false` / `core.eol=lf` in that
+  submodule's own config, and repairs a working tree that is still CRLF
+  (`git rm --cached -r .` + `git reset --hard`).
+
+Only files stored as LF but checked out as CRLF count as damage — a submodule
+that genuinely commits CRLF is left alone. Repair is skipped, with an actionable
+warning rather than a hard failure, when the submodule has uncommitted changes:
+the fix must never discard the user's work. The whole step is a no-op on macOS
+and Linux, where `autocrlf` is off to begin with.
+
+## The final step
+
+`start.ps1` owns the finish, exactly as the macOS half of `start.sh` does, and
+for a reason that cannot be worked around from the shell side: WSL reaches
+`start.sh` through its **native-Linux** path, and that path deliberately
+disables both final steps (`if $NATIVE_LINUX; then OPEN_VSCODE=0; RUN_APP=0;
+fi`) because a native host has no VM to shell into. `-v`/`-n` handed to
+`start.sh` from here would therefore be swallowed. The choice is made in
+`start.ps1` after `start.sh` returns 0, and `start.sh` stays Windows-unaware:
+
+- **default** — `./run.sh` inside the distribution, in the foreground, on the
+  mount, as the mirrored user, with **no arguments**:
+  `wsl -d <distro> -u <user> --cd <path> -- bash ./run.sh`. `bash ./run.sh` for
+  the same reason `start.sh` is invoked that way. It stays in the foreground
+  because `run.sh` owns `kubefwd` and `air`, so Ctrl-C is how the dev server is
+  stopped; its exit code is the script's exit code.
+- **`-v`** — open VS Code on the mounted worktree instead, over the **WSL remote
+  authority**: `code --remote wsl+<distro> <linux path>`. Never `ssh-remote+` —
+  there is no ssh hop here. The launch comes from Windows rather than a `code .`
+  typed inside the distribution, because `[interop] appendWindowsPath=false`
+  keeps `code` off the PATH in there. The user then runs `./run.sh` in the
+  integrated terminal, which is already the mirrored user's bash on the mount.
+- **`-n`** — finish with neither.
+
+`code` must be on the **Windows** PATH for `-v`, with the WSL extension
+(`ms-vscode-remote.remote-wsl`) installed. This is checked **before any
+provisioning** — after the `-Stop`/`-Destroy` branches, which must never require
+an editor — so a run that downloads a ~3.6GB package cannot end by discovering
+the editor is missing. A `code --remote` that fails afterwards aborts naming the
+extension.
+
+`-NoStart` takes precedence over both: nothing has been provisioned to finish.
+
+## Verification before handing over to start.sh
+
+After writing `/etc/wsl.conf` the distribution is restarted (`wsl --terminate`,
+or `wsl --shutdown` when `.wslconfig` was just created) and then, in order:
+systemd is waited for (`/run/systemd/system`, up to 60s), `sudo -n true` is
+confirmed for the mirrored user, and the mount is confirmed to expose
+`start.sh`. Each failure names the specific fix. This is deliberate: every one
+of these is something `preflight_native` would otherwise reject much later, in
+the middle of a run.
+
+## Flags
+
+- `-v` (`-VSCode`) — open VS Code on the mount instead of running `./run.sh`
+  (see "The final step"). Given together with `-n`, `-v` wins, with a warning.
+- `-n` (`-NoRun`) — finish after `start.sh`, running neither `./run.sh` nor
+  VS Code. The short forms match `start.sh`'s. The script has no
+  `[CmdletBinding()]`, so there are no common parameters and `-v` cannot collide
+  with `-Verbose`; `-n` binds by exact alias match, ahead of any prefix match
+  against `-NoStart`.
+- `-NoStart` — provision only; print the `wsl … -- ./start.sh` command instead
+  of running it.
+- `-s` (`-Stop`) — `wsl --terminate <distro>`. The counterpart of
+  `./start.sh -s`: keeps the distribution, a later run restarts it with no
+  reinstall.
+- `-k` (`-Destroy`) — `wsl --unregister <distro>`, the counterpart of
+  `./start.sh -k`. It removes the distribution and its Linux filesystem with it,
+  so it requires typing the distribution name to confirm. The repository is on
+  Windows and is untouched.
+- `-User`, `-Distro` — override the mirrored user name and the distribution name.
+
+Every flag carries `start.sh`'s short form as an alias — `-v`, `-n`, `-s`, `-k`
+— so the same muscle memory works on both hosts. They bind by exact alias match,
+which PowerShell resolves ahead of prefix matching, so `-n` is `-NoRun` rather
+than an ambiguous prefix of `-NoStart`, and `-s` is `-Stop`.
+
+`-s` and `-k` act only on the WSL distribution and must never be extended to
+touch the Windows host. Both are handled before the `-v` preflight and before
+any provisioning: tearing a distribution down must not require an editor, a
+mount, or even a repository.
+
+## Constraints on the file itself
+
+`start.ps1` must stay pure ASCII: Windows PowerShell 5.1 reads a BOM-less `.ps1`
+as ANSI, so a non-ASCII character would be mangled. The bootstrap payload is
+written to a temp file and executed with `bash <file>` rather than piped in,
+because piping from PowerShell rewrites the line endings and bash refuses a
+CRLF script. `$env:WSL_UTF8` is set before any `wsl --list` parse, otherwise the
+output is UTF-16LE and every comparison fails.
+
+## What it does not do
+
+No ssh key, no `~/.ssh/config`, no VS Code **Remote-SSH**: the sources are on
+the Windows filesystem, so `-v` attaches VS Code to the `wsl+<distro>` remote
+instead of an `ssh-remote+` one, and nothing on this path ever ssh's anywhere.
+Reachability from the Windows browser
+is the WSL2 default — the distribution's `eth0` address is routable from the
+host, and the apihost `start.sh` publishes is
+`http://<wsl-ip>.nip.io:8080`, on the host-rewrite proxy port, which the
+package's `:80/:443/:6443` firewall dropin does not cover.
