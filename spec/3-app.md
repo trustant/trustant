@@ -352,6 +352,13 @@ neighbours — here that also keeps the Back button from moving.
 Both actions are also reachable from the Utils pulldown without any modifier —
 see "Utils Pulldown" above.
 
+Reloading must clear the iframe's `srcdoc` attribute before assigning `src`.
+Redeploy and Clean park a status page in `srcdoc`, and `srcdoc` takes precedence
+over `src` — without removing it the assignment is silently ignored and the stale
+status panel stays on screen, so Reload appears dead after either operation. The
+same clear applies wherever the right iframe is repointed, including the Route &
+Query popup.
+
 Reloading only refreshes the right preview iframe — no server call, no progress
 modal, no busy state, since it is a single `src` assignment. It rebuilds the src
 from `<RIGHT><ROUTE>?<QUERY>&_t=<now>#<ROUTE>`, preserving the current route and

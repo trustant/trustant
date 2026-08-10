@@ -844,7 +844,9 @@
 
             if (rightURL) {
                 const q = queryStr ? '?' + queryStr : '';
-                document.getElementById('rightFrame').src = rightURL + newRoute + q + '#' + newRoute;
+                const rf = document.getElementById('rightFrame');
+                rf.removeAttribute('srcdoc');   // see reloadRightIframe()
+                rf.src = rightURL + newRoute + q + '#' + newRoute;
             }
             hideRouteModal();
         }
@@ -1620,7 +1622,12 @@
             const route = getCookie('ROUTE') || '/';
             const queryStr = getCookie('QUERY') || '';
             const q = queryStr ? '?' + queryStr + '&_t=' + Date.now() : '?_t=' + Date.now();
-            document.getElementById('rightFrame').src = rightURL + route + q + '#' + route;
+            const rf = document.getElementById('rightFrame');
+            // Redeploy and Clean park a status page in srcdoc, which takes
+            // precedence over src — without clearing it first the assignment
+            // below is silently ignored and the stale panel stays on screen.
+            rf.removeAttribute('srcdoc');
+            rf.src = rightURL + route + q + '#' + route;
         }
 
         // Toolbar Reload button: plain click reloads the preview iframe only,
