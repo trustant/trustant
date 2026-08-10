@@ -233,7 +233,7 @@ an account and never reads a developer machine's normal `~/.config/gh`.
 Do not install OpenCode, use `https://opencode.ai/install`, or replace the
 checked-in Trustable ACP adapter with a public unpinned package.
 
-12. install in ~/.local/bin the mcp servers for browser, openserverless, redis,
+12. install in ~/.local/bin the mcp servers for openserverless, redis,
 milvus, postgres, mongodb, and s3 using the same procedure in image/Dockerfile
 (do not use `/opt/uv/*` vars and install everything for the local user).
 
@@ -312,13 +312,10 @@ The VM development packages also include `python3-pytest` and
 `python3-dotenv`, matching generated application tests without requiring the
 assistant to modify the system Python environment during a session.
 
-Pack `browser-mcp/` and install the resulting `trustable-browser-mcp` package,
-then pack `react-mcp/` and install the resulting `trustable-react-mcp` package
+Pack `react-mcp/` and install the resulting `trustable-react-mcp` package
 plus `tsx` under the selected npm prefix. The React MCP is a read-only deterministic
-validator and is separate from optional Agentic React. Install Playwright
-`1.56.1` Chromium and its system dependencies with
-`PLAYWRIGHT_BROWSERS_PATH=~/.cache/ms-playwright`. Setup must verify that both
-managed MCP commands resolve on PATH before completing.
+validator and is separate from optional Agentic React. Setup must verify that the
+managed MCP command resolves on PATH before completing.
 
 The S3 MCP is downloaded as a release binary and installed behind the repo's
 Python wrapper (image/mcp-s3), exactly as the Dockerfile does: the release binary

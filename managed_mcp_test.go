@@ -32,9 +32,9 @@ func TestManagedMCPConfigsKeepCredentialsOutsideWorkbench(t *testing.T) {
 				"REDIS_PWD": sentinel,
 			},
 		},
-		"browser": map[string]interface{}{
+		"openserverless": map[string]interface{}{
 			"type":    "local",
-			"command": []string{"trustable-browser-mcp"},
+			"command": []string{"openserverless-mcp"},
 		},
 	}
 	written, err := writeManagedMCPConfigs(projectDir, mcp)

@@ -259,8 +259,7 @@ is the canonical active checkout, and its browser-visible `browserUrl` is
 derived from the incoming `trustable.<domain>[:port]` request by replacing only
 the `trustable` label with `vite`. It must not use `OPS_APIHOST`, `localhost`, or
 an inferred deployment hostname for that browser-facing field. The separate
-`developmentUrl` remains `http://localhost:5173`, which Browser MCP may use only
-after matching that canonical current workbench.
+`developmentUrl` remains `http://localhost:5173`.
 The same version-2 manifest declares the private host-owned
 `ops ide devel` log under `~/.config/trustable/runtime/<app>/`. Launch creates
 it with mode `0600` before managed Pi starts; app content cannot supply or
@@ -287,22 +286,6 @@ by Trustable.
 The OpenServerless action tools are not written as embedded plugin files; they
 are provided by the `openserverless` MCP server wired into `.mcp.json` (see
 below).
-
-`.mcp.json` must always contain the local `trustable-browser-mcp` server. Its
-environment contains a browser artifact directory under
-`$WORKSPACE_DIR/.trustable/browser/<app>` and the external origin derived as
-`<protocol>://vite.<configured-apihost>`. No browser credentials or generated app
-`.env` variables are added. Browser snapshots expose bounded stable control refs
-and observable AudioContext/media state so frontend verification can prove form
-and sound behavior instead of relying on source inspection.
-
-> Note: the evidence-gating behaviour that used to accompany the browser MCP
-> (automatic recording of evidence-bearing interactions, the
-> reproduction-before-fix unlock, the post-change verification gate, the
-> diagnostic checkpoint fallback, and the eight-read-only-call budget before a
-> browser-only phase) was implemented by the OpenCode session plugin and is
-> **gone** — see "Guardrails" in [pi.md](pi.md). The browser
-> tools themselves are unchanged.
 
 ## commit the launch-owned project files
 
@@ -398,8 +381,7 @@ and exposes `react_project_inspect`, `react_validate_routes`,
 ```
 
 It is independent from Agentic React. After a frontend mutation, managed Pi
-must run aggregate `react_validate` and resolve error findings before Browser
-MCP verification.
+must run aggregate `react_validate` and resolve error findings.
 
 # if the app uses Agentic React add the agentireact MCP server:
 
@@ -756,7 +738,7 @@ it. The action tools come from the
 `openserverless` MCP server, not from an embedded `tools/` folder.
 
 `.mcp.json` is written in credential-free standard `mcpServers` form (see "MCP servers"
-above) and contains `openserverless`, `browser`, `react`, the optional
+above) and contains `openserverless`, `react`, the optional
 `agentireact`, and any of `s3`/`postgres`/`redis`/`milvus`/`mongodb` whose config
 block is present. Pi reads it via the `pi-mcp-adapter` extension. The complete
 second file is host-private rather than agent-specific: TruACP translates it to

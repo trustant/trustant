@@ -52,7 +52,7 @@ plugin, relaunch the app before relying on
 The always-present `react` server is the deterministic, read-only source
 validator for React/Vite code. After changing `src/`, call
 `react_project_inspect` when project shape is uncertain and then call
-`react_validate`. Resolve every error finding before Browser MCP verification.
+`react_validate`. Resolve every error finding before declaring the change done.
 `agentireact` remains optional selection context and does not replace this
 validation.
 
@@ -85,18 +85,16 @@ progress.
 
 Pi has no Trustable session-enforcement or completion plugin. After compaction,
 re-read the active user request and relevant project files before continuing;
-do not call legacy `trustable_*` tools. For reported browser bugs, reproduce the
-exact symptom with the browser MCP before editing when the browser is available.
-After source changes, run the fixed user-visible flow again. Sound fixes must
-show active audio state.
+do not call legacy `trustable_*` tools. For reported bugs, reproduce the exact
+symptom with bounded HTTP, log, or deterministic checks before editing. After
+source changes, verify the fixed flow again with those same checks.
 
 For any frontend change, run the deterministic `react_validate` MCP tool, then
 the project typecheck and build when they are available. Resolve its route,
-authentication, accessibility, and TypeScript errors before opening the exact
-changed route with the Browser MCP. Inspect page diagnostics and exercise the
-visible flow. Repeat both React validation and browser verification after later
-frontend mutations. Do not clear caches or reinstall dependencies unless the
-failure specifically indicates stale or missing dependencies.
+authentication, accessibility, and TypeScript errors, then confirm the exact
+changed route responds with a bounded HTTP check. Repeat that validation after
+later frontend mutations. Do not clear caches or reinstall dependencies unless
+the failure specifically indicates stale or missing dependencies.
 
 In a live Trustable Edit session, the existing `ops ide devel` watcher is the
 sole owner of action packaging and deployment. After a coherent action change,
@@ -122,11 +120,10 @@ with `|| true`, `|| echo`, or `head`/`tail` pipelines.
 Never kill Trustable-managed processes or start `vite`, `npm run dev`, or
 `ops ide devel`; diagnose the existing `http://localhost:5173` server.
 
-Use the generated browser MCP to reproduce frontend behavior instead of
-guessing from source alone. `browser_open` in `development` mode targets only
-the Trustable-managed `http://localhost:5173`. Use `deployed` mode only after
-the managed watcher has deployed the current sources, for the derived
-`vite.<domain>` ingress check.
+Reproduce frontend behavior against the Trustable-managed
+`http://localhost:5173` instead of guessing from source alone. Check the
+derived `vite.<domain>` ingress only after the managed watcher has deployed the
+current sources.
 
 When the app uses React Router `HashRouter`, use `Link`, `NavLink`, `Navigate`,
 or `useNavigate` with logical paths such as `/login`. React Router adds the hash
@@ -134,12 +131,9 @@ itself: never pass `#/login` to a router API, and never use root-relative `<a
 href="/login">` anchors for internal navigation.
 
 Give form controls stable `id` and `name` attributes and associate labels with
-matching `htmlFor`. Repeated placeholders are not semantic labels. If
-`browser_interact` reports an ambiguous locator, fix the form semantics when
-appropriate, use a `ref` from the latest browser snapshot, or pass its explicit
-zero-based `index`; do not bypass a failed UI flow with direct API calls and
-call it verified. For sound, verify after a user gesture that browser evidence
-reports a running AudioContext or active unmuted media.
+matching `htmlFor`. Repeated placeholders are not semantic labels: ambiguous or
+duplicated control identity is a form-semantics bug, so fix it at the source
+rather than working around it.
 
 Successful registration establishes an authenticated session immediately,
 using the same token/session/user contract as login. Do not require the user to

@@ -246,7 +246,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 // uses this to drop any that leaked into a global config written by older code.
 func isTrustableManagedMCPServer(name string) bool {
 	switch name {
-	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless", "browser", "react":
+	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless", "react":
 		return true
 	}
 	return false
@@ -334,10 +334,9 @@ type trustablePiRuntimeWorkbench struct {
 	WatcherLog         string   `json:"watcherLog"`
 }
 
-// trustablePiRuntimeManifest retains the versioned workbenches envelope already
-// consumed by the bounded Browser MCP. WHY: Pi and browser verification must
-// validate one host contract instead of interpreting incompatible files carried
-// in the same TRUSTABLE_RUNTIME_CONFIG variable.
+// trustablePiRuntimeManifest retains the versioned workbenches envelope. WHY:
+// every consumer must validate one host contract instead of interpreting
+// incompatible files carried in the same TRUSTABLE_RUNTIME_CONFIG variable.
 type trustablePiRuntimeManifest struct {
 	Version     int                           `json:"version"`
 	Workbenches []trustablePiRuntimeWorkbench `json:"workbenches"`
@@ -506,7 +505,7 @@ func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog str
 		Workbenches: []trustablePiRuntimeWorkbench{{
 			App:       app,
 			Workspace: canonicalProjectDir,
-			// WHY: Browser MCP runs beside the managed Vite process and must use
+			// WHY: verification runs beside the managed Vite process and must use
 			// the shared local port only after matching this exact workbench.
 			DevelopmentURL:     "http://localhost:5173",
 			BrowserURL:         browserURL,

@@ -55,7 +55,7 @@ containerd. The builder's layer cache already keeps unchanged base stages from
 being rebuilt, so the split bought nothing that cache does not.
 
 It stages `openserverless-mcp` from the pinned
-`mcp` submodule, the local browser and deterministic React MCP sources, and the
+`mcp` submodule, the local deterministic React MCP source, and the
 TruACP runtime artifacts:
 `setup.sh`, `pi.version`, `dist-bin/truacp.cjs`,
 `pi-acp-package.tgz`, and `extensions/trustable-runtime.ts`. Before staging, it
@@ -63,8 +63,8 @@ recursively initializes TruACP's pinned
 `pi-acp` fork, runs its tests/build/package step, and builds the TruACP bundle.
 The complete sources and `node_modules` must never enter the Docker build context
 or an image layer. The staged runtime identities and content hashes are logged
-for provenance; because they are part of the build context, any runtime,
-adapter, or browser-tool change invalidates the builder's layer cache and
+for provenance; because they are part of the build context, any runtime or
+adapter change invalidates the builder's layer cache and
 rebuilds the affected stages.
 
 The issue #57 extension is a separately loaded, versioned runtime artifact. It
@@ -84,8 +84,7 @@ built or installed.
 
 The Lima `setup.sh` development path mirrors the image: it builds the checked-out
 TruACP source, installs the pinned Pi toolchain, builds the same nested
-`pi-acp` fork, packages the local OpenServerless/browser/React MCP sources, and
-installs pinned Playwright Chromium with its Linux runtime dependencies. It
+`pi-acp` fork, and packages the local OpenServerless/React MCP sources. It
 installs the Milvus MCP from the exact
 `MILVUS_MCP_REPO`/`MILVUS_MCP_REF` declared in `image/Dockerfile`; the checked-in
 source is the `trustable-ai/mcp-server-milvus` fork and must not float or silently

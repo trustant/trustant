@@ -26,12 +26,13 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	if !strings.Contains(setup, `mongodb-mcp-server@1.9.0`) {
 		t.Fatal("setup.sh must install the MongoDB MCP version compatible with the pinned parser")
 	}
-	if !strings.Contains(setup, `cd browser-mcp && npm pack`) ||
-		!strings.Contains(setup, `command -v trustable-browser-mcp`) {
-		t.Fatal("setup.sh must package and verify the checked-out browser MCP")
-	}
-	if !strings.Contains(setup, `playwright@1.56.1 install --with-deps chromium`) {
-		t.Fatal("setup.sh must install pinned Chromium and its Linux runtime dependencies")
+	// WHY: the browser MCP and its Playwright/Chromium runtime were removed.
+	// The e2e harness keeps its own @playwright/test dependency, which lives in
+	// the root package.json and must never be reintroduced here.
+	if strings.Contains(setup, "trustable-browser-mcp") ||
+		strings.Contains(setup, "playwright") ||
+		strings.Contains(setup, "chromium") {
+		t.Fatal("setup.sh must not install the removed browser MCP or a Chromium runtime")
 	}
 	if !strings.Contains(setup, `install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
 		t.Fatal("setup.sh must install the Trustable Redis namespace wrapper")
@@ -279,14 +280,38 @@ func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
+	// image/Dockerfile owns the literal pin and checksums; setup.sh must read
+	// them from it rather than duplicating the values, so the VM and the pod
+	// install the same verified GitHub CLI. Asserting the literal in both files
+	// would force exactly the drift this contract exists to prevent.
+	for _, required := range []string{
+		"ARG GH_VERSION=2.96.0",
+		"ARG GH_SHA_AMD64=",
+		"ARG GH_SHA_ARM64=",
+	} {
+		if !strings.Contains(string(dockerContent), required) {
+			t.Fatalf("image/Dockerfile is missing pinned GitHub CLI fragment %q", required)
+		}
+	}
+
+	setup := string(setupContent)
+	for _, required := range []string{
+		"GH_VERSION GH_SHA_AMD64 GH_SHA_ARM64",
+		`read_arg "$v"`,
+	} {
+		if !strings.Contains(setup, required) {
+			t.Fatalf("setup.sh must read the GitHub CLI pin from image/Dockerfile, missing %q", required)
+		}
+	}
+	if strings.Contains(setup, "GH_VERSION=2.96.0") {
+		t.Fatal("setup.sh must not hardcode GH_VERSION; it reads the pin from image/Dockerfile")
+	}
+
 	for name, content := range map[string]string{
-		"setup.sh":         string(setupContent),
+		"setup.sh":         setup,
 		"image/Dockerfile": string(dockerContent),
 	} {
 		for _, required := range []string{
-			"GH_VERSION=2.96.0",
-			"GH_SHA_AMD64=",
-			"GH_SHA_ARM64=",
 			"gh_${GH_VERSION}_linux_",
 			"sha256sum -c -",
 		} {

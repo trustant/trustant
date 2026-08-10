@@ -15,14 +15,13 @@ echo "Using container runtime: $RUNTIME"
 BUILDX_PREFIX=""
 [ "$RUNTIME" = "docker" ] && BUILDX_PREFIX="buildx"
 MCP_CONTEXT_DIR="openserverless-mcp"
-BROWSER_CONTEXT_DIR="trustable-browser-mcp"
 REACT_CONTEXT_DIR="trustable-react-mcp"
 TRUACP_ARTIFACT_DIR="truacp-runtime"
 
 cleanup() {
     # WHY: every staged local MCP must be ephemeral build context. Leaving the
     # React source behind can make a later image build hash stale local files.
-    rm -rf "$MCP_CONTEXT_DIR" "$BROWSER_CONTEXT_DIR" "$REACT_CONTEXT_DIR" "$TRUACP_ARTIFACT_DIR"
+    rm -rf "$MCP_CONTEXT_DIR" "$REACT_CONTEXT_DIR" "$TRUACP_ARTIFACT_DIR"
 }
 trap cleanup EXIT
 
@@ -153,16 +152,6 @@ mv "$1" "$TRUACP_ARTIFACT_DIR/pi-acp-package.tgz"
 
 TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using staged TruACP artifact hash: $TRUACP_HASH"
-
-if [ ! -f ../browser-mcp/package.json ]; then
-    echo "Error: ../browser-mcp/package.json is missing." >&2
-    exit 1
-fi
-rm -rf "$BROWSER_CONTEXT_DIR"
-mkdir -p "$BROWSER_CONTEXT_DIR"
-tar -C ../browser-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$BROWSER_CONTEXT_DIR"
-BROWSER_HASH="$(find "$BROWSER_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
-echo "Using trustable-browser-mcp source hash: $BROWSER_HASH"
 
 if [ ! -f ../react-mcp/package.json ]; then
     echo "Error: ../react-mcp/package.json is missing." >&2

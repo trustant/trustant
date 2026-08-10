@@ -82,14 +82,10 @@ the relevant project files before resuming. Pi has no Trustable recovery gate
 or `trustable_context_recover` tool.
 
 When the user reports a bug or says a previous fix still does not work,
-reproduce the exact symptom before editing. Use `browser_interact` for browser
-bugs when the browser MCP is available; use bounded HTTP, log, or deterministic
-tests for non-browser failures. If the same check fails repeatedly, stop
-repeating it, inspect the new evidence, and change the diagnosis before another
-source edit.
-When the symptom was reproduced in the browser, exercise the fixed flow again
-with `browser_interact` after the last source change; sound fixes must show
-active audio state. Backend-only checks do not verify a browser-visible flow.
+reproduce the exact symptom before editing. Use bounded HTTP, log, or
+deterministic tests to reproduce the failure. If the same check fails
+repeatedly, stop repeating it, inspect the new evidence, and change the
+diagnosis before another source edit.
 Protected views that load identity asynchronously must keep a distinct loading
 state; do not redirect merely because the initial user/profile value is null.
 
@@ -100,12 +96,10 @@ tool.
 
 For frontend work, run the project typecheck before the build after each
 coherent edit batch. A successful Vite build does not prove that every JSX
-symbol is defined. After the first successful build or deploy, immediately open
-the exact changed route with the Browser MCP, inspect the rendered page and
-diagnostics, and exercise the visible flow before more speculative edits. Do
-not clear caches or reinstall dependencies unless the observed failure points
-to dependency state. Repeat the browser verification after later frontend
-source changes.
+symbol is defined. Use `react_validate` and bounded HTTP checks against the
+changed route to confirm it renders before more speculative edits. Do not clear
+caches or reinstall dependencies unless the observed failure points to
+dependency state.
 
 ## Non-Negotiable Rules
 
@@ -200,13 +194,11 @@ source changes.
 7. Validate with bounded checks against the real public endpoint and
    browser-visible app host.
 
-For frontend behavior, use the generated bounded browser MCP before declaring
-a UI bug fixed. Start with `browser_open` in `development` mode, which targets
-the Trustable-managed `http://localhost:5173`, then inspect URL, accessibility
-snapshot, console, and network diagnostics. Use `browser_interact` to reproduce
-the exact click/form/reload flow. Use `deployed` mode only after the managed
-watcher has deployed the current sources and only when external
-`vite.<domain>` ingress behavior is in scope. Do not start another Vite server.
+For frontend behavior, validate against the Trustable-managed
+`http://localhost:5173` with `react_validate` and bounded HTTP checks before
+declaring a UI bug fixed. Check the external `vite.<domain>` ingress only after
+the managed watcher has deployed the current sources and only when that
+ingress behavior is in scope. Do not start another Vite server.
 
 Use this execution loop for backend work:
 
@@ -339,7 +331,7 @@ connection details.
 - `react`: always present; read-only deterministic source validation for the
   current React/Vite workbench. Use `react_project_inspect`,
   `react_validate_routes`, `react_validate_auth_flow`, and the aggregate
-  `react_validate`. Resolve errors before Browser MCP verification.
+  `react_validate`. Resolve errors before declaring the change done.
 - `agentireact`: present only when `vite.config.js` or `vite.config.ts`
   imports/references `@agentic-react/vite` and invokes `AgenticReact()` in
   executable config code; HTTP MCP at `http://localhost:5173/mcp`. Comments,
@@ -780,16 +772,9 @@ When an app has login or registration:
   generated Redis wiring and use `ctx.REDIS_PREFIX`; JWT and application
   signing secrets are not an alternative.
 - Give every form control a stable `id` and `name`, and associate each label
-  with `htmlFor` matching that `id`. A placeholder is not a label. When a
-  browser locator matches multiple controls, fix missing form semantics when
-  appropriate, use a `ref` from the latest browser snapshot, or pass the
-  browser MCP's explicit zero-based `index`; never
-  bypass the rendered registration/login flow with `curl` and claim the browser
-  flow passed.
-- For audio behavior, verification requires browser evidence after the user
-  gesture. Confirm that the browser snapshot/diagnostics reports a running
-  AudioContext or active unmuted media; source inspection and a visible music
-  toggle are not proof that sound is produced.
+  with `htmlFor` matching that `id`. A placeholder is not a label. Ambiguous or
+  duplicated control identity is a form-semantics bug: fix it at the source
+  rather than working around it.
 - Do not hardcode browser-visible identity such as `user_id=1` in fetch URLs or
   request bodies. The backend must derive the current user from authenticated
   request state, such as a token/session header, not from a user id supplied by

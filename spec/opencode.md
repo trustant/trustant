@@ -49,7 +49,7 @@ must not suppress a user's explicit request for status or a recap. For such a
 request the assistant's truthful response remains visible and the plugin adds a
 short deterministic statement of the still-pending gate instead of replacing
 the entire response with an instruction loop.
-When a normal turn stops at a diagnostic, browser verification, or completion
+When a normal turn stops at a diagnostic or completion
 gate, the plugin must replace the premature answer with synthetic internal
 feedback and request another provider turn. Trustable Code persists this
 feedback for the model, hides it from the session UI, and keeps the active user
@@ -155,10 +155,9 @@ It must say:
   migrated when the durable file is absent. If durable state is corrupt, the
   plugin must fail closed and require recovery; if durable writes fail, it may
   conservatively fall back to the legacy location;
-- reported bugs must be reproduced before source changes. A successful,
-  evidence-bearing `browser_interact` records browser reproduction
-  automatically; `trustable_diagnostic_checkpoint` remains available for
-  explicit or non-browser evidence. The completion tool runs at most once for
+- reported bugs must be reproduced before source changes.
+  `trustable_diagnostic_checkpoint` records explicit reproduction evidence.
+  The completion tool runs at most once for
   each source revision and at most three times for one real user request. A
   repeated call must return concise guidance without rerunning checks; changing
   placeholder tests solely to reset the revision is forbidden;
@@ -169,35 +168,19 @@ It must say:
   no longer hide or reject mutation tools. The integrated runtime must not
   repeatedly replace a normal final answer with automatic completion recovery.
   When source changed and no completion check ran, it may request exactly one
-  internal turn to call `trustable_completion_check`; browser debt alone does
-  not create a hidden continuation. If the provider stops without text,
+  internal turn to call `trustable_completion_check`. If the provider stops without text,
   Trustable renders a concise visible status instead of leaving an empty
   assistant message. Stricter recovery behavior remains limited to legacy
   non-integrated OpenCode runtimes;
-- when the reproduction used the browser, every subsequent source change must
-  require fresh post-change `browser_interact` evidence bound automatically to
-  the current task and mutation revision before completion. Audio fixes must
-  expose active audio state; suspended audio is not valid verification
-  evidence. The manual checkpoint remains a fallback and must bind the latest
-  valid evidence deterministically when its internal ID is omitted;
-- every frontend source mutation must require fresh Browser MCP evidence before
-  completion, including feature work that did not begin as a reported bug.
-  After a successful build or deploy, the embedded workflow must direct the
+- the manual checkpoint must bind the latest valid evidence deterministically
+  when its internal ID is omitted;
+- after a successful build or deploy, the embedded workflow must direct the
   assistant to inspect the exact changed route and runtime diagnostics
-  immediately, then exercise the visible flow before speculative source edits.
-  A browser open without a subsequent evidence-bearing interaction is not
-  sufficient. Only application controls may supply evidence: Agentic React
-  Select, Multiselect, Done, Adjust selection, and toolkit controls must be
-  disabled in the headless QA context and rejected by the guardrail. A stale
-  runtime that still exposes them must close the browser and use an explicit
-  typecheck/build/test/runtime-diagnostics fallback rather than retry them;
+  immediately before speculative source edits, using an explicit
+  typecheck/build/test/runtime-diagnostics verification path;
 - subagent work must be bounded to one question, at most eight relevant files,
   concise paths/line references, and capped tool output. Full-file or whole
   codebase delegation must be rejected before it consumes session context;
-- browser bug diagnosis must allow at most eight `read`, `glob`, `grep`, or
-  `list` inspections before reproduction. Once exhausted, a browser-only phase
-  must reject shell, file, task, and editor tools until a successful
-  `browser_interact` supplies observable evidence;
 - the frontend checker must reject protected views that initialize user/session
   data to null, load it asynchronously, and redirect on that null value before
   the request has completed; such views need an explicit loading state;
@@ -294,12 +277,12 @@ The embedded guidance must describe the normal way to build a Trustable app:
    `localhost:5173`, and use browser-visible FQDN hosts only when external
    routing is in scope.
 
-Frontend diagnosis must use the generated bounded browser MCP when behavior
-depends on real navigation, forms, reload, console errors, or network failures.
-The embedded guide must tell OpenCode to use `development` mode for the managed
-`http://localhost:5173` server and `deployed` mode only after `ops ide deploy`
-for the derived `vite.<domain>` host. It must not ask OpenCode to start another
-Vite server or browse arbitrary infrastructure URLs.
+Frontend diagnosis must use HTTP validation, runtime diagnostics, and aggregate
+`react_validate` when behavior depends on real navigation, forms, reload,
+console errors, or network failures. The embedded guide must tell OpenCode to
+validate the managed `http://localhost:5173` server, and the derived
+`vite.<domain>` host only after `ops ide deploy`. It must not ask OpenCode to
+start another Vite server or browse arbitrary infrastructure URLs.
 
 The embedded guidance must include a concrete backend execution loop:
 
@@ -444,15 +427,11 @@ wrappers instead of inventing connection details.
 Required MCP/service guidance:
 
 - `openserverless` is always present and exposes action-management tools.
-- `browser` is always present and runs `trustable-browser-mcp`. It receives
-  only the derived deployed Vite origin and an artifact directory outside the
-  app repo; development navigation is fixed inside the MCP to
-  `http://localhost:5173`.
 - `react` is always present and runs `trustable-react-mcp`. It resolves only
   the manifest-selected workbench and exposes read-only project inspection,
   route/auth validation, and aggregate TypeScript/React validation. After
   frontend mutations, assistants must resolve aggregate `react_validate`
-  errors before Browser MCP verification.
+  errors.
 - `agentireact` is present only when `vite.config.js` or `vite.config.ts`
   imports/references `@agentic-react/vite` and invokes `AgenticReact()` in
   executable config code; it is an HTTP MCP server at
@@ -821,10 +800,8 @@ When an app has login or registration, the embedded guidance must say:
   an application signing secret is not an alternative;
 - every form control must have a stable `id`/`name` and an associated label
   (`label htmlFor` matching the input `id`). Repeated placeholders are not
-  semantic names. If a browser locator is ambiguous, assistants must fix the
-  form accessibility when appropriate or use the browser MCP's explicit
-  zero-based `index`; they must not bypass the UI with direct API calls and
-  claim the browser flow passed;
+  semantic names. Ambiguous or unlabeled controls must be fixed in the form
+  accessibility rather than worked around;
 - browser-visible identity such as `user_id=1` must not be hardcoded in fetch
   URLs or request bodies. The backend must derive the current user from
   authenticated request state, such as a token/session header, not from a user id
