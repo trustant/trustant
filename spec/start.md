@@ -541,15 +541,24 @@ the middle of a run.
   against `-NoStart`.
 - `-NoStart` — provision only; print the `wsl … -- ./start.sh` command instead
   of running it.
-- `-Stop` — `wsl --terminate <distro>`. The counterpart of `./start.sh -s`:
-  keeps the distribution, a later run restarts it with no reinstall.
-- `-Destroy` — `wsl --unregister <distro>`, the counterpart of `./start.sh -k`.
-  It deletes the distribution's filesystem, so it requires typing the
-  distribution name to confirm. The repository is on Windows and is untouched.
+- `-s` (`-Stop`) — `wsl --terminate <distro>`. The counterpart of
+  `./start.sh -s`: keeps the distribution, a later run restarts it with no
+  reinstall.
+- `-k` (`-Destroy`) — `wsl --unregister <distro>`, the counterpart of
+  `./start.sh -k`. It removes the distribution and its Linux filesystem with it,
+  so it requires typing the distribution name to confirm. The repository is on
+  Windows and is untouched.
 - `-User`, `-Distro` — override the mirrored user name and the distribution name.
 
-`-Stop` and `-Destroy` act only on the WSL distribution and must never be
-extended to touch the Windows host.
+Every flag carries `start.sh`'s short form as an alias — `-v`, `-n`, `-s`, `-k`
+— so the same muscle memory works on both hosts. They bind by exact alias match,
+which PowerShell resolves ahead of prefix matching, so `-n` is `-NoRun` rather
+than an ambiguous prefix of `-NoStart`, and `-s` is `-Stop`.
+
+`-s` and `-k` act only on the WSL distribution and must never be extended to
+touch the Windows host. Both are handled before the `-v` preflight and before
+any provisioning: tearing a distribution down must not require an editor, a
+mount, or even a repository.
 
 ## Constraints on the file itself
 

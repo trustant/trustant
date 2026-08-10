@@ -16,8 +16,8 @@
 #   .\start.ps1 -v              ... but open VS Code on the mount instead of run.sh
 #   .\start.ps1 -n              ... but finish without run.sh and without VS Code
 #   .\start.ps1 -NoStart        provision only, do not run ./start.sh
-#   .\start.ps1 -Stop           terminate the distro (keeps it; re-run to restart)
-#   .\start.ps1 -Destroy        unregister the distro - DELETES its filesystem
+#   .\start.ps1 -s / -Stop      terminate the distro (keeps it; re-run to restart)
+#   .\start.ps1 -k / -Destroy   unregister the distro - DELETES its filesystem
 #   .\start.ps1 -User bob       mirror a different user name (default: $env:USERNAME)
 #   .\start.ps1 -Distro trudev  use a different WSL distribution name
 #
@@ -25,18 +25,20 @@
 # BOM-less .ps1 as ANSI, so any non-ASCII character here would be mangled.
 #
 #Requires -Version 5.1
-# -v / -n are the short forms start.sh uses for the same two choices. The script
-# has no [CmdletBinding()], so there are no common parameters and -v cannot
-# collide with -Verbose; -n binds by exact alias match, ahead of any prefix
-# match against -NoStart.
+# Every flag carries start.sh's short form as an alias, so the same muscle
+# memory works on both hosts: -v, -n, -s, -k. The script has no
+# [CmdletBinding()], so there are no common parameters and -v cannot collide
+# with -Verbose. All four bind by exact alias match, which PowerShell resolves
+# ahead of any prefix match - so -n is -NoRun (not the -NoStart prefix) and -s
+# is -Stop.
 param(
     [string]$Distro = 'Ubuntu-24.04',
     [string]$User = '',
     [Alias('v')][switch]$VSCode,
     [Alias('n')][switch]$NoRun,
     [switch]$NoStart,
-    [switch]$Stop,
-    [switch]$Destroy
+    [Alias('s')][switch]$Stop,
+    [Alias('k')][switch]$Destroy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,9 +108,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Ok 'WSL is available'
 
-# --- lifecycle: -Stop / -Destroy --------------------------------------------
-# These mirror ./start.sh -s and ./start.sh -k. They only ever touch the WSL
-# distribution, never the Windows host.
+# --- lifecycle: -s / -Stop and -k / -Destroy ---------------------------------
+# These mirror ./start.sh -s and ./start.sh -k, short forms included, and take
+# the same shape: -s keeps the distribution so a later run restarts it with no
+# reinstall, -k unregisters it and its filesystem goes with it. They only ever
+# touch the WSL distribution, never the Windows host. Both exit before the -v
+# preflight and before any provisioning: tearing a distro down must not need an
+# editor, a mount, or a repository.
 if ($Stop) {
     if (Test-DistroExists $Distro) {
         Write-Step "Terminating '$Distro' (keeping it)"
@@ -391,7 +397,7 @@ function Show-NextSteps {
         Write-Host ''
         Write-Host "  (a bare 'wsl -d $Distro' lands in ~; cd $RepoWsl first)"
     }
-    Write-Host "  stop:    .\start.ps1 -Stop      destroy: .\start.ps1 -Destroy"
+    Write-Host "  stop:    .\start.ps1 -s        destroy: .\start.ps1 -k"
 }
 
 # --- final step: ./run.sh (default), VS Code (-v), or neither (-n) ------------
