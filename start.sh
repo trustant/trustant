@@ -310,9 +310,21 @@ spec:
       targetPort: 8080
 YAML
 
-# Roll the deployment so a changed ConfigMap (new IP) is picked up, then wait.
+# Roll the deployment so a changed ConfigMap (new IP) is picked up.
 k3s kubectl -n nuvolaris rollout restart deploy/apihost-proxy
-k3s kubectl -n nuvolaris rollout status deploy/apihost-proxy --timeout=120s
+
+# WSL can leave the old pod wedged in Terminating — its sandbox teardown never
+# completes against that kernel — and `rollout status` then sits on
+#   Waiting for deployment "apihost-proxy" rollout to finish:
+#   1 old replicas are pending termination...
+# until it times out, which under `set -e` aborts the whole run at a step that is
+# otherwise idempotent. Drop the pods outright (the Deployment recreates them) so
+# the wait only ever tracks a fresh ReplicaSet. --ignore-not-found keeps this a
+# no-op on a first install, where there is no pod yet.
+k3s kubectl -n nuvolaris delete pod -l app=apihost-proxy \
+  --force --grace-period=0 --ignore-not-found
+
+k3s kubectl -n nuvolaris rollout status deploy/apihost-proxy --timeout=300s
 echo "reverse proxy deployed (upstream traefik ${TRAEFIK_IP}:80)"
 GUEST
   ok "reverse proxy listening on :8080"
