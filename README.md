@@ -1,12 +1,21 @@
-# Trustable
+# Trustable TL;DR
 
-**TL;DR**
+Welcome to Trustable source code
 
-How to run from sources
+How to run it from sources:
+
+## Before you start (every system)
+
+The first run asks for a **GitHub token** — it clones private sources. Create one at
+[github.com/settings/tokens](https://github.com/settings/tokens) with the `repo` and
+`read:org` scopes, then either paste it at the prompt or save it in `.ghtoken` at the
+repo root (git-ignored). Without it the run stops immediately.
+
+`.env` needs no attention: it is seeded from `.env.dist` for you.
 
 ## Mac
 
-You need  a Mac with Apple Silicon and at least 16GB of memory and 60GB disk space
+You need a Mac (Apple Silicon or Intel) with at least 16GB of memory and 60GB disk space
 
 - install [Lima](https://lima-vm.io/) with `brew install lima`
 - clone sources and start the vm
@@ -17,40 +26,52 @@ cd trustable-app
 ./start.sh
 ```
 
+`./start.sh` provisions the VM and then starts the dev loop, which prints the URL to open.
+
+You can also
+
+- open vscode on the folder in the vm with `./start.sh -v`
+- stop the vm with `./start.sh -s`
+- kill and remove the vm with `./start.sh -k`
+
 ## Windows
 
-You need a Windows machine an Intel processor and at least 16GB and 60GB disk space
+You need a Windows machine (Intel or ARM) with at least 16GB of memory and 60GB disk space
 
-You need also WSL but this is usually already available
+You need WSL 2: `wsl --version` must answer. If it does not, run `wsl --update` from an
+Administrator terminal. The Ubuntu distribution itself is created for you.
 
-- install [VSCode](https://code.visualstudio.com/)
 - execute from PowerShell `.\start.ps1`
 
-# Linux
+It creates the distribution, runs the same provisioning as Linux inside it, and then
+starts the dev loop, which prints the URL to open.
 
-You need a Linux VM  with Ubuntu 24.04 Intel or ARM with at least 16GB of memory
+You can also
 
-Create an user with passwordless sudo rights and execute:
+- open vscode on the folder in the distro with `.\start.ps1 -v`
+- stop the distro with `.\start.ps1 -s`
+- kill and remove the distro with `.\start.ps1 -k`
 
+## Linux
+
+You need a Linux VM with Ubuntu 24.04 Intel or ARM with at least 16GB of memory
+
+Create a user with passwordless sudo rights and execute:
 
 ```
 git clone https://github.com/trustable-ai/trustable-app
 cd trustable-app
 ./start.sh
+./run.sh
 ```
 
-At then will show the url to access, click on the url
+Two commands here, not one: `./start.sh` only prepares the machine, and `./run.sh` is
+what starts the dev loop and prints the URL. `-v`, `-s` and `-k` do not apply — there is
+no vm to open, stop or destroy. To use vscode open the folder in the VM with VSCode SSH
+access.
 
-## Development
 
-For development with an editor (VSCode):
-
-- install [VSCode](https://code.visualstudio.com/)
-- start with `./start.sh -v`
-- this will open vscode at the end,
-in the vscode terminal execute `./run.sh`
-
-# Introduction
+# Trustable Introduction
 
 ## What it does
 
@@ -85,6 +106,12 @@ Everything lives in `package main`. Rather than splitting into many packages, th
 | [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to ai-proxy |
 | [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog |
 | [memory.go](memory.go) | — | `/api/memory/` |
+| [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer, path-containment checked |
+| [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
+| [gitignore.go](gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore` and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
+| [auth.go](auth.go) | [authentication.md](spec/authentication.md) | Optional local auth — login, sessions, CSRF, rate limiting |
+| [github.go](github.go) | [github.md](spec/github.md) | `/api/github/*` — GitHub login, logout, and repo listing |
+| [starters.go](starters.go) | [15-starters.md](spec/15-starters.md) | `/api/starters` — starter application catalog |
 
 ### Host-based routing
 
@@ -130,27 +157,27 @@ The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.j
 ## Prerequisites
 
 - For macOS development, a **running Trustable VM** on the local machine — the macOS app from [trustable.ai](https://trustable.ai) provisions a k3s VM and writes `id_ed25519`, `current.ip`, and `apihost` into `~/Library/Application Support/Trustable/`. `setup.sh` reads these to extract the VM's kubeconfig so `ops` can talk to k3s directly.
-- For Linux server development, local access to the Trustable k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` detects this host automatically.
+- For Linux server development, local access to the Trustable k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` detects this host automatically. Windows development is this same flow inside WSL2 — see [spec/start.md](spec/start.md).
+- A **GitHub token** in `.ghtoken` at the repo root (git-ignored). `start.sh` checks it as its second step and prompts when it is missing.
 - **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, Node, and the TruACP/Pi versions pinned by `trustable-acp/pi.version` — all installed and verified by `setup.sh`.
-- A populated **`.env`** (see below). Startup fails preflight if it is missing.
+- A populated **`.env`** (see below). Startup fails preflight if it is missing; `start.sh` seeds it from `.env.dist` on the first run.
 
 ## Getting started
 
-On macOS, **just run `./run.sh`** — it does the whole lifecycle for you:
+See the TL;DR at the top for the per-system commands. In short:
 
-```bash
-./run.sh
-```
+- **macOS** — `./run.sh` (or `./start.sh`, which ends in the same place). `./run.sh`
+  provisions/boots the `trudev` VM and runs `setup.sh` inside it via `./start.sh`, then
+  re-invokes itself in the VM to run the dev loop (free ports 8910/5173/4096, `air` hot
+  reload, print the UI URL). Press **^C** to stop — it tears down the dev loop and stops
+  the VM (`./start.sh -s`), keeping it for a fast restart next time.
+- **Windows** — `.\start.ps1`, which creates the WSL2 distribution and then runs the same
+  Linux flow inside it, finishing with `./run.sh`.
+- **Linux** — `./start.sh` to prepare the host, then `./run.sh` for the dev loop.
 
-`./run.sh` provisions/boots the `trudev` VM and runs `setup.sh` inside it (via
-`./start.sh`), then re-invokes itself in the VM to run the dev loop (free ports
-8910/5173/4096, `air` hot reload, print the UI URL). Press **^C** to stop — it
-tears down the dev loop and stops the VM (`./start.sh -s`), keeping it for a fast
-restart next time. Ollama sign-in happens inside Trustable.
-
-`start.sh`/`setup.sh` are invoked for you; run them directly only for a manual
-step (`./start.sh -k` to destroy the VM, `./setup.sh` inside the VM to re-verify
-the toolchain).
+Ollama sign-in happens inside Trustable. `start.sh`/`setup.sh` are invoked for you; run
+them directly only for a manual step (`./start.sh -k` to destroy the VM, `./setup.sh`
+inside the VM to re-verify the toolchain).
 
 `air` (configured in [.air.toml](.air.toml)) rebuilds `tmp/main` on **every `.go` change** and restarts the server on `:8910` — edit a Go file, save, and the running server reloads.
 
@@ -174,13 +201,14 @@ the toolchain).
 
 ```bash
 ./run.sh         # macOS entrypoint: start VM + setup.sh, run dev loop, ^C stops the VM
-./start.sh       # Provision/boot the trudev VM and run setup.sh; -s stops it, -k destroys it
-./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/opencode + MCP)
+./start.sh       # Provision/boot the trudev VM, run setup.sh, then run.sh; -v vscode, -s stop, -k destroy
+.\start.ps1      # WINDOWS ONLY (PowerShell): create the WSL2 distro, run start.sh in it, then run.sh
+./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/TruACP+Pi + MCP)
 ./build.sh       # Build + deploy: ships to the Mac VM when present, else local k3s
-./publish.sh     # Push the latest git tag, watch CI, then push the olaris-bestia submodule
+./publish.sh     # Push the latest git tag and watch CI; pushes olaris-bestia only with explicit authorization
 ./ssh.sh         # SSH into the running Trustable VM
-go test ./...    # Unit tests (currently mostly configure_test.go)
-go test -run TestManagedOllamaDetectionRequiresGeneratedModelMarker   # Run a single test
+go test ./...    # Unit tests
+go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
 ```
 
 ### Versioning & build
@@ -198,12 +226,17 @@ All endpoints are JSON under `/api/*`, registered in [main.go](main.go):
 | `GET /api/version` | main.go | Build / version info |
 | `GET /api/status` | status.go | Provider model catalog (powers the splash screen) |
 | `/api/repo`, `/api/upload` | repo.go | Per-app repo management & uploads |
-| `/api/git`, `/api/git/status/`, `/api/git/save` | git.go / repo.go | Git status & save |
-| `/api/launch`, `/api/launch/<name>` | launch.go | Clone → checkout, `ops ide` lifecycle |
+| `/api/git`, `/api/git/status/`, `/api/git/save`, `/api/git/pull`, `/api/git/deploy` | git.go / repo.go | Git status, save, pull, and the ungated development deploy |
+| `/api/launch`, `/api/launch/<name>`, `/api/clean`, `/api/undeploy` | launch.go | Clone → checkout, `ops ide` lifecycle, teardown |
 | `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` | configure.go | Config & model testing |
 | `/api/ollama-connect`, `/api/discover-models` | configure.go | Ollama discovery |
-| `/api/publish/{push,force-push,remote}` | publish.go | Publishing (signature-gated) |
+| `/api/publish/{push,force-push,remote}` | publish.go | Publishing (license-gated) |
+| `/api/license` | license.go | License install & status |
 | `/api/skills/<name>` | skills.go | Install skills into an app |
+| `/api/starters` | starters.go | Starter application catalog |
+| `/api/files/` | files.go | Read-only workbench file viewer |
+| `/api/terminal/<name>` | terminal.go | PTY shell over a WebSocket |
+| `/api/github/{status,login,login/cancel,logout,repos}` | github.go | GitHub login and repo listing |
 | `/api/memory/` | memory.go | App memory |
 | `/api/credits`, `/api/topup` | credits.go | Credits & top-up (ai-proxy) |
 | `/api/sshkey` | — | SSH key handling |
@@ -224,9 +257,9 @@ Licenses are issued with the `trulicense` CLI ([cmd/trulicense/](cmd/trulicense/
 
 ## Submodules
 
-Five git submodules are declared in [.gitmodules](.gitmodules) — `mcp`, `olaris`, `olaris-bestia`, `skills`, and `support`. The `mcp` submodule points to the Nuvolaris fork of `openserverless-mcp` and is used by the image build to install the `openserverless-mcp` command. As noted above, the macOS build flow writes the new image tag into `olaris-bestia/opsroot.json`; pushing **that** submodule in `publish.sh` is the step that actually ships a new version to the deployment plugin. The Linux server build flow does not change `olaris-bestia/opsroot.json`.
+Seven git submodules are declared in [.gitmodules](.gitmodules) — `mcp`, `trustable-acp`, `olaris`, `olaris-bestia`, `olaris-truinst`, `skills`, and `support`. The `mcp` submodule points to the Nuvolaris fork of `openserverless-mcp` and is used by the image build to install the `openserverless-mcp` command; `trustable-acp` carries the TruACP/Pi runtime sources and the `pi.version` pins. As noted above, the macOS build flow writes the new image tag into `olaris-bestia/opsroot.json`; pushing **that** submodule is the step that actually ships a new version to the deployment plugin, and it requires explicit authorization.
 
-Initialize them after cloning:
+`start.sh` initializes `mcp` and `trustable-acp` by itself on every host, so a plain clone is enough to start. To initialize all of them:
 
 ```bash
 git submodule update --init --recursive
@@ -234,7 +267,7 @@ git submodule update --init --recursive
 
 ## Testing
 
-- **Unit and component tests:** `go test ./...` runs the Go test suite. `npm run test:e2e-providers` and `npm --prefix browser-mcp test` cover the legacy provider runner and browser MCP contracts. Pi has no OpenCode guardrail-plugin test suite.
+- **Unit and component tests:** `go test ./...` runs the Go test suite. `npm run test:e2e-providers` and `npm --prefix browser-mcp test` cover the provider runner and the browser MCP contracts.
 - **End-to-end scenarios:** [tests/](tests/) contains runnable cluster tests for issue 98, action workflows, compaction recovery, generated authentication, and the Private AI, Ollama Cloud, and Regolo providers. They are intentionally separate from `go test` because they launch applications and may invoke a model. See [tests/issue98-e2e.md](tests/issue98-e2e.md) and [spec/8-e2e.md](spec/8-e2e.md).
 
 ## Conventions
