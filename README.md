@@ -70,6 +70,21 @@ what starts the dev loop and prints the URL. `-v`, `-s` and `-k` do not apply â€
 no vm to open, stop or destroy. To use vscode open the folder in the VM with VSCode SSH
 access.
 
+## Update sources
+
+It is recommended your first enter in the development enviroment with:
+
+`./start.sh -v` or `./start.ps1 -v` 
+
+then switch to main and execute
+
+```
+git swith main
+git pull origin main --recurse-submodules
+./setup.sh
+```
+
+then you can execute `./run.sh` 
 
 # Trustable Introduction
 
