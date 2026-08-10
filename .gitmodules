@@ -25,3 +25,6 @@
 [submodule "olaris-truinst"]
 	path = olaris-truinst
 	url = https://github.com/trustable-ai/olaris-truinst
+[submodule "website"]
+	path = website
+	url = https://github.com/trustable-ai/website
