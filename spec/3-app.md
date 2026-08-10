@@ -27,19 +27,14 @@ Aligned to the right:
 - the button "Commit" (blue, checkmark icon, disabled when no changes)
 - the **device preview toggle** (three icon-only segmented buttons: desktop, tablet, phone) — see "Device Preview" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
+- the button "Reload" (gray, circular-arrow icon), immediately to the right of Route — see "Reload" below
 - the button "Back" (gray, chevron left icon)
 
 Toolbar buttons use inline SVG icons that inherit the current button text color.
 
 # Config Pulldown
 
-The **Terminal** button (gray, terminal icon) sits on the left side of the toolbar, immediately before the Reload button — see "Terminal" below.
-
-The **Reload** button (gray, circular-arrow icon) sits between Terminal and Config. A plain click reloads the right preview iframe only — it rebuilds the src from the ROUTE and QUERY cookies with a `_t` cache-buster, exactly as the post-redeploy reload does. **Shift+click** upgrades it to a full Redeploy. Its `title` is "Reload the preview (Shift+click to redeploy)".
-
-Because a modifier-only action is invisible, the button previews what it will do: while Shift is held the label swaps to "Redeploy" and the icon to the Redeploy rocket. The Shift state is tracked with `keydown`/`keyup` on the window plus a `blur` reset, so the preview does not stick when the user leaves the page with Shift down. The button reserves a min-width so the label swap does not shift its neighbours.
-
-Both actions are also reachable from the Utils pulldown without any modifier — see "Utils Pulldown" below.
+The **Terminal** button (gray, terminal icon) sits on the left side of the toolbar, immediately before the Config button — see "Terminal" below.
 
 The **Config** pulldown groups the three configuration entries (Env, Skills, Memory) under a single button on the left side of the toolbar, immediately after the Credits box (or after the app name when the Credits box is not shown).
 
@@ -339,6 +334,23 @@ contract in [12-terminal.md](12-terminal.md).
 - The button shows an active state while the pane is open.
 
 # Reload
+
+The **Reload** button (gray, circular-arrow icon) sits in the right-hand toolbar
+group, immediately after the Route button and before Back — next to the preview
+controls it acts on, rather than among the left-hand configuration menus.
+
+A plain click reloads the right preview iframe only. **Shift+click** upgrades it
+to a full Redeploy. Its `title` is "Reload the preview (Shift+click to redeploy)".
+
+Because a modifier-only action is invisible, the button previews what it will do:
+while Shift is held the label swaps to "Redeploy" and the icon to the Redeploy
+rocket. The Shift state is tracked with `keydown`/`keyup` on the window plus a
+`blur` reset, so the preview does not stick when the user leaves the page with
+Shift down. The button reserves a min-width so the label swap does not shift its
+neighbours — here that also keeps the Back button from moving.
+
+Both actions are also reachable from the Utils pulldown without any modifier —
+see "Utils Pulldown" above.
 
 Reloading only refreshes the right preview iframe — no server call, no progress
 modal, no busy state, since it is a single `src` assignment. It rebuilds the src
