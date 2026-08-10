@@ -60,5 +60,4 @@
   <text class="small" x="930" y="314">missing / failure / timeout</text>
   <text class="small" x="610" y="438">Raw ops action / wsk action commands are rejected before execution, independently of permission patterns.</text>
   <text class="small" x="610" y="456">Trustable owns ops ide login; deploy and setup remain guarded agent lifecycle operations.</text>
-  <text class="small" x="610" y="474">After 12 browser interactions, fresh snapshot or diagnostics evidence is required.</text>
 </svg>

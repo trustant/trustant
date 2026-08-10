@@ -117,23 +117,16 @@ Legacy non-integrated OpenCode may still replace an unverified final response
 with one bounded recovery turn. Integrated Trustable Code may request exactly
 one internal continuation when source changed but the model never called
 `trustable_completion_check`; a second final response is never intercepted for
-the same request. Browser verification does not create a hidden continuation in
-the integrated runtime.
+the same request.
 Fallback status text emitted directly by the plugin is English, consistent
 with the rest of its control-plane messages; model-authored responses may still
 use the user's language.
 
-Every successful frontend source mutation creates browser-verification debt,
-even for feature work that did not begin as a bug report. The assistant should
-run typecheck then build, immediately inspect the exact changed route and
-runtime diagnostics through the Browser MCP, and exercise the visible flow.
-Only fresh evidence-bearing `browser_interact` output after the latest mutation
-clears that debt; `browser_open` alone is orientation, not verification.
-Evidence must come from application controls. Agentic React selection-toolkit
-controls are authoring UI, never verification evidence. The headless Browser
-MCP disables that toolkit; if a stale runtime still exposes it, the plugin marks
-the browser pass unavailable and completion falls back explicitly to typecheck,
-build, tests, and runtime diagnostics without retrying the overlay.
+Every successful frontend source mutation creates verification debt, even for
+feature work that did not begin as a bug report. The assistant should run
+typecheck then build, then confirm the exact changed route through
+`react_validate` and bounded HTTP checks against the managed development
+server. Completion rests on typecheck, build, tests, and runtime diagnostics.
 
 ## Raw action shell commands
 
@@ -160,20 +153,6 @@ The diagnostic states that Trustable already authenticated and configured the
 application. The agent must not retry login or replace/restart the managed dev
 server. `ops ide deploy` and `ops ide setup` remain allowed where their existing
 action lifecycle guards require them.
-
-## Browser diagnostic budget
-
-Browser work is bounded per user turn. After four consecutive
-`browser_browser_interact` calls without an observable application-state
-change, the plugin blocks more interactions and requires one
-`browser_browser_snapshot` or `browser_browser_diagnostics`. A snapshot resets
-the circuit only when its application fingerprint changes; reopening the same
-unchanged page does not bypass the limit. A new user message resets the counter.
-
-This is a diagnostic checkpoint, not a browser feature limit. It prevents long
-sessions from consuming context through repeated blind fills and clicks while
-still allowing a normal login or registration form to complete in one short,
-observed segment.
 
 See [application-test-completion-gate.svg](application-test-completion-gate.svg)
 for the execution flow.

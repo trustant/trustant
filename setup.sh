@@ -581,7 +581,7 @@ grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
   grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT" \
   || fail "installed Milvus MCP does not match ${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
 
-# OpenServerless, MongoDB, and browser MCP servers via npm. Package the checked
+# OpenServerless and MongoDB MCP servers via npm. Package the checked
 # out sources so Lima/WSL runs exactly what the image build consumes; no guest
 # Git metadata is needed, which also supports host-mounted worktrees.
 command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"

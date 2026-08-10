@@ -138,8 +138,7 @@ conditional on their blocks in `~/.ops/config.json`.
 The `react` server is separate from Agentic React. It resolves only the
 manifest-selected workbench and exposes bounded project inspection,
 route/auth-flow checks, and aggregate TypeScript/React validation. The managed
-extension requires aggregate `react_validate` after frontend mutations and
-before Browser MCP verification.
+extension requires aggregate `react_validate` after frontend mutations.
 
 The managed extension also enforces reproducible OpenServerless ownership. It
 allows the corrected Redis-only `auth_setup` tool, blocks the obsolete
@@ -253,8 +252,8 @@ only after Pi confirms the deletion.
 
 The OpenCode session plugin and its deterministic completion/recovery state
 machine are not part of Pi. The managed instructions, OpenServerless contract,
-browser MCP, and checker scripts remain important application inputs, but prose
-alone is not an execution policy. This is an explicit runtime simplification,
+and checker scripts remain important application inputs, but prose alone is not
+an execution policy. This is an explicit runtime simplification,
 not a silent fallback to upstream OpenCode.
 The legacy JavaScript plugin source is not embedded in the Go binary,
 `@opencode-ai/plugin` is not a project dependency, and launch has no dormant

@@ -35,10 +35,9 @@ discovery because a server is lazy.
 - After compaction, re-read the exact active request, this contract,
   `AGENTS.md`, git status, and the relevant project files before resuming.
   Pi has no Trustable session-enforcement plugin or recovery tool.
-- For a reported browser bug, reproduce the exact symptom with
-  `browser_interact` before modifying source when the browser MCP is available.
-  Use bounded HTTP, log, or deterministic tests for non-browser evidence. If a
-  check fails repeatedly, stop repeating it and revise the diagnosis.
+- For a reported bug, reproduce the exact symptom before modifying source,
+  using bounded HTTP, log, or deterministic tests for evidence. If a check
+  fails repeatedly, stop repeating it and revise the diagnosis.
 - After source changes, run the relevant action and frontend checker commands,
   `git diff --check`, and the frontend typecheck/build when present. Verify
   user-visible frontend changes through the exact changed route. Pi has no
