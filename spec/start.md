@@ -128,6 +128,18 @@ Port 8080 is used (not 80) so traefik keeps owning the node's :80 untouched, and
 8080 is outside the package's :80/:443/:6443 firewall DROP. The proxy is
 re-applied on every run so it tracks the current VM IP.
 
+After the `rollout restart` that picks up a changed ConfigMap, and **before**
+waiting for the rollout, delete the proxy pods with `--force --grace-period=0
+--ignore-not-found`. Under WSL the old pod can stay in `Terminating`
+indefinitely — its sandbox teardown never completes against that kernel — and
+`rollout status` then blocks on `1 old replicas are pending termination` until
+it times out, aborting a run at a step that is otherwise idempotent. Deleting
+lets the Deployment recreate the pod, so the wait only ever tracks a fresh
+ReplicaSet; the wait itself allows 300s. This is unconditional rather than
+gated on WSL — on macOS and native Linux the pods terminate immediately and the
+delete costs nothing — and a rollout that still cannot converge remains a hard
+failure, because the apihost genuinely does not work without this proxy.
+
 ## CPU ollama in the VM
 
 Install ollama as a host process inside the VM (not a pod), pinned to the
