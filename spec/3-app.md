@@ -13,6 +13,7 @@ It shows a full page, with a top bar with 10% high.
 
 In the bar, aligned to the left:
 
+- the **sidebar toggle** (icon-only, panel glyph), the first element in the bar — see "Sidebar Toggle" below
 - the trustable logo (80% height)
 - the app name in bold
 - the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
@@ -84,6 +85,27 @@ Redeploy stays in this menu deliberately: the toolbar reaches it only through th
 Each item triggers the same behavior documented in the "Revert", "Reload", "Redeploy", "Clean", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally. The right iframe sits inside a preview pane that can constrain it to a device viewport — see "Device Preview" below.
+
+# Sidebar Toggle
+
+The first element in the top bar, before the logo, is an icon-only button
+(`#sidebarToggleBtn`, panel glyph: a rectangle with a vertical divider line)
+that hides and shows the chat (opencode) iframe so the preview can take the full
+workbench width.
+
+- **Hide** — the current `#leftFrame` width is remembered, then `#leftFrame` and
+  `#divider` are hidden. The preview pane is `flex-1`, so it fills the row with
+  no width math; the `ResizeObserver` on the pane reruns the device-preview
+  sizing automatically.
+- **Show** — both elements are unhidden and the remembered width is restored
+  (defaults to `50%`), so the drag divider behaves exactly as before.
+- The chat iframe is only hidden with CSS, never unloaded: no reload, no lost
+  session.
+- The button reflects the state through `aria-pressed`, a `title`/`aria-label`
+  that flips between "Hide chat" and "Show chat", and the primary button accent
+  while the chat is hidden.
+- The state persists in `localStorage` under `trustable.sidebarHidden` and is
+  applied on page load, so the choice survives navigation and reloads.
 
 The workbench chrome, menus, modals, and toolbar controls use the shared
 Nuvolaris-style Trustable visual system defined in
