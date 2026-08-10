@@ -43,7 +43,7 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ## Common commands
 
 ```bash
-.\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 Ubuntu-24.04 distro, mirrors the user with sudo, then runs ./start.sh inside it over the /mnt mount; -Stop / -Destroy
+.\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 Ubuntu-24.04 distro, mirrors the user with sudo, runs ./start.sh inside it over the /mnt mount, then ./run.sh; -v opens VS Code on the mount instead, -n neither; -Stop / -Destroy
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL

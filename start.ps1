@@ -12,7 +12,9 @@
 # Windows-aware; this script only has to hand it an Ubuntu that satisfies its
 # preflight (Ubuntu/Debian, amd64/arm64, passwordless sudo, systemd).
 #
-#   .\start.ps1                 provision the distro and run ./start.sh in it
+#   .\start.ps1                 provision, run ./start.sh, then ./run.sh in it
+#   .\start.ps1 -v              ... but open VS Code on the mount instead of run.sh
+#   .\start.ps1 -n              ... but finish without run.sh and without VS Code
 #   .\start.ps1 -NoStart        provision only, do not run ./start.sh
 #   .\start.ps1 -Stop           terminate the distro (keeps it; re-run to restart)
 #   .\start.ps1 -Destroy        unregister the distro - DELETES its filesystem
@@ -23,9 +25,15 @@
 # BOM-less .ps1 as ANSI, so any non-ASCII character here would be mangled.
 #
 #Requires -Version 5.1
+# -v / -n are the short forms start.sh uses for the same two choices. The script
+# has no [CmdletBinding()], so there are no common parameters and -v cannot
+# collide with -Verbose; -n binds by exact alias match, ahead of any prefix
+# match against -NoStart.
 param(
     [string]$Distro = 'Ubuntu-24.04',
     [string]$User = '',
+    [Alias('v')][switch]$VSCode,
+    [Alias('n')][switch]$NoRun,
     [switch]$NoStart,
     [switch]$Stop,
     [switch]$Destroy
@@ -129,6 +137,18 @@ if ($Destroy) {
     Write-Ok "'$Distro' destroyed"
     Restore-Console
     exit 0
+}
+
+# --- -v preflight: `code` on the WINDOWS PATH --------------------------------
+# Checked here, before anything is provisioned, for the same reason start.sh
+# checks it before touching the VM: a run that downloads a ~3.6GB package must
+# not end by discovering the editor is missing. It sits after -Stop/-Destroy,
+# which exit above - tearing a distro down never needs VS Code.
+if ($VSCode) {
+    if ($NoRun) { Write-Warn '-v and -n given together: opening VS Code (-v wins)' }
+    if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+        Fail "'code' not found on the Windows PATH. Install VS Code on Windows (not inside the distro) with the WSL extension, or re-run with -n."
+    }
 }
 
 # --- the repository this script sits in, which is what gets mounted ----------
@@ -350,25 +370,58 @@ Write-Ok "mount: $RepoWin  ->  $RepoWsl"
 # and what to run there. `wsl -d <distro>` alone lands in the Linux home, so the
 # form worth copying is the one that lands on the mount.
 function Show-NextSteps {
-    param([string]$Heading)
+    param([string]$Heading, [switch]$InVSCode)
     Write-Host ''
     Write-Host "=== $Heading ===" -ForegroundColor Green
     Write-Host "  distro:  $Distro (user $User, bash)"
     Write-Host "  mount:   $RepoWin  ->  $RepoWsl"
     Write-Host ''
-    Write-Host '  Enter the VM and start the dev loop:' -ForegroundColor Cyan
-    Write-Host ''
-    Write-Host "      wsl -d $Distro --cd $RepoWsl"
-    Write-Host "      ./run.sh"
-    Write-Host ''
-    Write-Host "  (a bare 'wsl -d $Distro' lands in ~; cd $RepoWsl first)"
+    if ($InVSCode) {
+        # The integrated terminal of a WSL window is already the mirrored user's
+        # bash on the mount, so there is no wsl.exe hop to copy here.
+        Write-Host '  In the VS Code terminal (bash in the distro, on the mount):' -ForegroundColor Cyan
+        Write-Host ''
+        Write-Host "      ./run.sh"
+        Write-Host ''
+    } else {
+        Write-Host '  Enter the VM and start the dev loop:' -ForegroundColor Cyan
+        Write-Host ''
+        Write-Host "      wsl -d $Distro --cd $RepoWsl"
+        Write-Host "      ./run.sh"
+        Write-Host ''
+        Write-Host "  (a bare 'wsl -d $Distro' lands in ~; cd $RepoWsl first)"
+    }
     Write-Host "  stop:    .\start.ps1 -Stop      destroy: .\start.ps1 -Destroy"
+}
+
+# --- final step: ./run.sh (default), VS Code (-v), or neither (-n) ------------
+# The Windows counterpart of start.sh's finish block. start.sh cannot take this
+# step itself: its native-Linux path - the one WSL takes - deliberately disables
+# both ("if $NATIVE_LINUX; then OPEN_VSCODE=0; RUN_APP=0; fi"), because on a
+# native host it has no VM to shell into. So the choice is made here instead,
+# and start.sh stays Windows-unaware.
+
+# Opens VS Code on the mounted worktree over the WSL remote authority. There is
+# no Remote-SSH hop as there is on macOS: the sources are on the Windows
+# filesystem and the distro reaches them through the automount, so the remote to
+# attach is wsl+<distro>, with the LINUX path. The launch has to come from
+# Windows rather than `code .` inside the distro, because /etc/wsl.conf sets
+# appendWindowsPath=false and `code` is therefore not on the PATH in there.
+function Open-VSCode {
+    Write-Step "Opening VS Code on wsl+$Distro$RepoWsl"
+    & code --remote "wsl+$Distro" $RepoWsl
+    if ($LASTEXITCODE -ne 0) {
+        Fail 'code --remote failed - is the WSL extension (ms-vscode-remote.remote-wsl) installed?'
+    }
+    Write-Ok 'VS Code opening - the first connect installs the WSL server, give it a moment'
 }
 
 if ($NoStart) {
     Show-NextSteps 'WSL environment ready (start.sh not run)'
     Write-Host ''
     Write-Warn "start.sh has NOT run yet - ./run.sh needs it first: wsl -d $Distro --cd $RepoWsl -- ./start.sh"
+    # -NoStart wins over the final-step flags: there is nothing to finish yet.
+    if ($VSCode) { Write-Warn '-NoStart given: VS Code was not opened' }
     Restore-Console
     exit 0
 }
@@ -380,8 +433,35 @@ Write-Step "Running ./start.sh in '$Distro' as '$User'"
 Write-Warn 'start.sh downloads a ~3.6GB package and installs k3s inside the distribution'
 & wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./start.sh
 $startExit = $LASTEXITCODE
-Restore-Console
-if ($startExit -ne 0) { Fail "start.sh failed inside '$Distro' (exit $startExit)" }
+if ($startExit -ne 0) {
+    Restore-Console
+    Fail "start.sh failed inside '$Distro' (exit $startExit)"
+}
+
+# --- take the final step ------------------------------------------------------
+if ($VSCode) {
+    Open-VSCode
+    Show-NextSteps 'Trustable development environment ready' -InVSCode
+    Restore-Console
+    exit 0
+}
+
+if ($NoRun) {
+    Show-NextSteps 'Trustable development environment ready'
+    Restore-Console
+    exit 0
+}
+
+# The default finish, and the whole point of a start: the dev server up on
+# :8910. It stays in the foreground - run.sh owns kubefwd and `air`, so Ctrl-C
+# here is how you stop the dev server. `bash ./run.sh` rather than `./run.sh`
+# for the same reason as start.sh above: the exec bit on a Windows-hosted file
+# depends on the automount options, and this does not care. No arguments:
+# run.sh takes none.
+Write-Step "Running ./run.sh in '$Distro' as '$User' (Ctrl-C to stop)"
+& wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./run.sh
+$runExit = $LASTEXITCODE
 
 Show-NextSteps 'Trustable development environment ready'
-exit 0
+Restore-Console
+exit $runExit

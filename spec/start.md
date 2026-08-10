@@ -487,6 +487,39 @@ warning rather than a hard failure, when the submodule has uncommitted changes:
 the fix must never discard the user's work. The whole step is a no-op on macOS
 and Linux, where `autocrlf` is off to begin with.
 
+## The final step
+
+`start.ps1` owns the finish, exactly as the macOS half of `start.sh` does, and
+for a reason that cannot be worked around from the shell side: WSL reaches
+`start.sh` through its **native-Linux** path, and that path deliberately
+disables both final steps (`if $NATIVE_LINUX; then OPEN_VSCODE=0; RUN_APP=0;
+fi`) because a native host has no VM to shell into. `-v`/`-n` handed to
+`start.sh` from here would therefore be swallowed. The choice is made in
+`start.ps1` after `start.sh` returns 0, and `start.sh` stays Windows-unaware:
+
+- **default** — `./run.sh` inside the distribution, in the foreground, on the
+  mount, as the mirrored user, with **no arguments**:
+  `wsl -d <distro> -u <user> --cd <path> -- bash ./run.sh`. `bash ./run.sh` for
+  the same reason `start.sh` is invoked that way. It stays in the foreground
+  because `run.sh` owns `kubefwd` and `air`, so Ctrl-C is how the dev server is
+  stopped; its exit code is the script's exit code.
+- **`-v`** — open VS Code on the mounted worktree instead, over the **WSL remote
+  authority**: `code --remote wsl+<distro> <linux path>`. Never `ssh-remote+` —
+  there is no ssh hop here. The launch comes from Windows rather than a `code .`
+  typed inside the distribution, because `[interop] appendWindowsPath=false`
+  keeps `code` off the PATH in there. The user then runs `./run.sh` in the
+  integrated terminal, which is already the mirrored user's bash on the mount.
+- **`-n`** — finish with neither.
+
+`code` must be on the **Windows** PATH for `-v`, with the WSL extension
+(`ms-vscode-remote.remote-wsl`) installed. This is checked **before any
+provisioning** — after the `-Stop`/`-Destroy` branches, which must never require
+an editor — so a run that downloads a ~3.6GB package cannot end by discovering
+the editor is missing. A `code --remote` that fails afterwards aborts naming the
+extension.
+
+`-NoStart` takes precedence over both: nothing has been provisioned to finish.
+
 ## Verification before handing over to start.sh
 
 After writing `/etc/wsl.conf` the distribution is restarted (`wsl --terminate`,
@@ -499,6 +532,13 @@ the middle of a run.
 
 ## Flags
 
+- `-v` (`-VSCode`) — open VS Code on the mount instead of running `./run.sh`
+  (see "The final step"). Given together with `-n`, `-v` wins, with a warning.
+- `-n` (`-NoRun`) — finish after `start.sh`, running neither `./run.sh` nor
+  VS Code. The short forms match `start.sh`'s. The script has no
+  `[CmdletBinding()]`, so there are no common parameters and `-v` cannot collide
+  with `-Verbose`; `-n` binds by exact alias match, ahead of any prefix match
+  against `-NoStart`.
 - `-NoStart` — provision only; print the `wsl … -- ./start.sh` command instead
   of running it.
 - `-Stop` — `wsl --terminate <distro>`. The counterpart of `./start.sh -s`:
@@ -522,8 +562,10 @@ output is UTF-16LE and every comparison fails.
 
 ## What it does not do
 
-No ssh key, no `~/.ssh/config`, no VS Code Remote-SSH: the sources are on the
-Windows filesystem and are opened locally. Reachability from the Windows browser
+No ssh key, no `~/.ssh/config`, no VS Code **Remote-SSH**: the sources are on
+the Windows filesystem, so `-v` attaches VS Code to the `wsl+<distro>` remote
+instead of an `ssh-remote+` one, and nothing on this path ever ssh's anywhere.
+Reachability from the Windows browser
 is the WSL2 default — the distribution's `eth0` address is routable from the
 host, and the apihost `start.sh` publishes is
 `http://<wsl-ip>.nip.io:8080`, on the host-rewrite proxy port, which the
