@@ -13,10 +13,10 @@ It shows a full page, with a top bar with 10% high.
 
 In the bar, aligned to the left:
 
-- the **sidebar toggle** (icon-only, panel glyph), the first element in the bar — see "Sidebar Toggle" below
 - the trustable logo (80% height)
 - the app name in bold
 - the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
+- the **sidebar toggle** (icon-only, panel glyph), immediately before the Terminal button — see "Sidebar Toggle" below
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
 - the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
 - the **"Sessions" pulldown** (history icon and persistent-session count) —
@@ -88,7 +88,7 @@ In the body there are two iframes, 50% width and 90% height (full page except fo
 
 # Sidebar Toggle
 
-The first element in the top bar, before the logo, is an icon-only button
+On the left side of the top bar, immediately before the Terminal button, is an icon-only button
 (`#sidebarToggleBtn`, panel glyph: a rectangle with a vertical divider line)
 that hides and shows the chat (opencode) iframe so the preview can take the full
 workbench width.

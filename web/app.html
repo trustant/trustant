@@ -25,10 +25,6 @@
     <div class="h-[10%] nu-topbar flex items-center px-4 gap-3">
         <!-- Left group: logo, app name, config pulldown, utils pulldown -->
         <div class="flex items-center gap-3 h-full shrink-0">
-            <button id="sidebarToggleBtn" onclick="toggleSidebar()" title="Hide chat" aria-label="Hide chat" aria-pressed="false"
-                class="nu-btn nu-btn-secondary flex items-center">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path stroke-linecap="round" d="M10 4v16"/></svg>
-            </button>
             <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
             <h1 id="appName" class="text-xl font-medium text-[color:var(--nu-ink)] whitespace-nowrap"></h1>
             <div id="creditsBox" class="hidden items-center gap-1 px-2 py-1 nu-status-pill text-xs">
@@ -39,6 +35,10 @@
                 class="hidden nu-btn nu-btn-secondary items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
                 Top-up
+            </button>
+            <button id="sidebarToggleBtn" onclick="toggleSidebar()" title="Hide chat" aria-label="Hide chat" aria-pressed="false"
+                class="nu-btn nu-btn-secondary flex items-center">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path stroke-linecap="round" d="M10 4v16"/></svg>
             </button>
             <button id="terminalBtn" onclick="toggleTerminal()"
                 class="nu-btn nu-btn-secondary flex items-center gap-1">
