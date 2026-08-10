@@ -46,26 +46,6 @@ func isolateOpenServerlessCheckerInstall(t *testing.T) string {
 	return checkerInstallPath
 }
 
-func TestBrowserMCPUsesOnlyManagedDevelopmentAndConfiguredExternalTargets(t *testing.T) {
-	t.Setenv("OPS_APIHOST", "https://cluster.example.test:8443")
-	origWorkspace := WorkspaceDir
-	WorkspaceDir = "/home/trustable/workspace"
-	t.Cleanup(func() { WorkspaceDir = origWorkspace })
-
-	config := browserMCPConfig("/home/trustable/workbench/demo")
-	command := config["command"].([]string)
-	if len(command) != 1 || command[0] != "trustable-browser-mcp" {
-		t.Fatalf("unexpected browser MCP command: %#v", command)
-	}
-	environment := config["environment"].(map[string]string)
-	if got := environment["TRUSTABLE_BROWSER_EXTERNAL_ORIGIN"]; got != "https://vite.cluster.example.test:8443" {
-		t.Fatalf("unexpected browser external origin: %q", got)
-	}
-	if got := environment["TRUSTABLE_BROWSER_ARTIFACT_DIR"]; got != "/home/trustable/workspace/.trustable/browser/demo" {
-		t.Fatalf("unexpected browser artifact dir: %q", got)
-	}
-}
-
 func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 	cases := []string{
 		"Qwen3-Embedding-8B",
@@ -753,12 +733,8 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	if _, ok := cOss["env"]; ok {
 		t.Fatalf("openserverless MCP must not receive a writable app secret store: %#v", cOss)
 	}
-	cBrowser, ok := claude.MCPServers["browser"]
-	if !ok || cBrowser["type"] != "stdio" || cBrowser["command"] != "trustable-browser-mcp" {
-		t.Fatalf("unexpected .mcp.json browser entry: %#v", cBrowser)
-	}
-	if cBrowser["lifecycle"] != "eager" {
-		t.Fatalf("browser must connect when the Pi session starts: %#v", cBrowser)
+	if _, ok := claude.MCPServers["browser"]; ok {
+		t.Fatalf("browser MCP must no longer be generated: %#v", claude.MCPServers)
 	}
 }
 
@@ -2416,7 +2392,7 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("parse .mcp.json: %s", err)
 	}
-	for _, name := range []string{"openserverless", "browser", "react", "redis"} {
+	for _, name := range []string{"openserverless", "react", "redis"} {
 		if _, ok := config.Servers[name]; !ok {
 			t.Fatalf("%s missing from .mcp.json: %#v", name, config.Servers)
 		}
@@ -2425,7 +2401,6 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 		}
 	}
 	if config.Servers["openserverless"]["command"] != "openserverless-mcp" ||
-		config.Servers["browser"]["command"] != "trustable-browser-mcp" ||
 		config.Servers["react"]["command"] != "trustable-react-mcp" {
 		t.Fatalf("unexpected managed MCP commands: %#v", config.Servers)
 	}

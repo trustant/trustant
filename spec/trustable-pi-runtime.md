@@ -27,7 +27,7 @@ credential-free manifest outside the application checkout:
       "workspace": "/absolute/canonical/workbench/example",
       "developmentUrl": "http://localhost:5173",
       "browserUrl": "http://vite.192.168.64.9.nip.io:8910",
-      "requiredMcpServers": ["browser", "openserverless", "postgres"],
+      "requiredMcpServers": ["openserverless", "postgres"],
       "mcpConfig": "/home/user/.config/trustable/runtime/example/mcp.json",
       "watcherLog": "/home/user/.config/trustable/runtime/example/ops-ide-devel.log"
     }
@@ -36,8 +36,8 @@ credential-free manifest outside the application checkout:
 ```
 
 - `workspace` is the active checkout, never the durable bare repository.
-- `developmentUrl` is the co-located Vite endpoint consumed only after the
-  Browser MCP has matched the canonical current workbench.
+- `developmentUrl` is the co-located Vite endpoint of the canonical current
+  workbench.
 - `browserUrl` is derived from the calling browser's
   `trustable.<domain>[:port]` origin. It is not `localhost`, `OPS_APIHOST`, or a
   guessed `miniops.me` URL.
@@ -100,10 +100,7 @@ environment-derived primary connection `default`, so process replacement
 recreates one discoverable connection without a mutable client-side registry.
 
 Exactly one initialized ACP agent is retained. Switching agents disconnects the
-previous process tree before the replacement starts, preventing competing
-Browser MCP owners. Browser MCP serializes every operation on one stdio
-connection, rejects blank/about:blank captures as stale evidence, and closes
-its Playwright context deterministically on runtime termination.
+previous process tree before the replacement starts.
 
 Standalone TruACP remains unchanged. Once `TRUSTABLE_MANAGED_RUNTIME=1` is set,
 missing, malformed, stale, or mismatched inputs are fatal: managed mode must not
@@ -251,9 +248,6 @@ Tests must cover:
   prose inside one streamed response is terminated deterministically;
 - watcher output is bounded, private, redacted by `trustable_runtime_status`,
   and available in both initial launch and explicit redeploy paths.
-- concurrent Browser MCP operations are ordered through one persistent process;
-  empty/stale captures fail explicitly and agent switching closes the previous
-  browser owner.
 - Redis exact-key, hash-field, scan, channel, and index arguments cannot escape
   the selected application prefix; global and unknown Redis tools fail at the
   wrapper boundary for every managed agent.

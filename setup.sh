@@ -597,20 +597,9 @@ rm -rf "$OPENSERVERLESS_MCP_PACK_DIR"
 grep -qF 'secret-unbind' "$NPM_GLOBAL_PREFIX/lib/node_modules/openserverless-mcp/src/index.ts" \
   || fail "installed openserverless-mcp does not match the checked-out source"
 
-[[ -f browser-mcp/package.json ]] || fail "browser-mcp source is missing"
-BROWSER_MCP_PACK_DIR=$(mktemp -d)
-( cd browser-mcp && npm pack --pack-destination "$BROWSER_MCP_PACK_DIR" >/dev/null ) \
-  || fail "packing trustable-browser-mcp failed"
-BROWSER_MCP_PACKAGE=$(find "$BROWSER_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-browser-mcp-*.tgz' -print -quit)
-[[ -n "$BROWSER_MCP_PACKAGE" ]] || fail "trustable-browser-mcp package was not created"
-( cd "$HOME" && npm install -g --prefix "$NPM_GLOBAL_PREFIX" tsx "$BROWSER_MCP_PACKAGE" ) \
-  || fail "installing trustable-browser-mcp failed"
-rm -rf "$BROWSER_MCP_PACK_DIR"
-command -v trustable-browser-mcp &>/dev/null || fail "trustable-browser-mcp is not in PATH"
-
 # Install the deterministic React analyzer separately from Agentic React. WHY:
 # the latter captures UI selection context and cannot validate router/auth AST
-# invariants required before the bounded Browser MCP flow.
+# invariants required before a frontend change is considered done.
 [[ -f react-mcp/package.json ]] || fail "react-mcp source is missing"
 REACT_MCP_PACK_DIR=$(mktemp -d)
 ( cd react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
@@ -621,9 +610,6 @@ REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-reac
   || fail "installing trustable-react-mcp failed"
 rm -rf "$REACT_MCP_PACK_DIR"
 command -v trustable-react-mcp &>/dev/null || fail "trustable-react-mcp is not in PATH"
-env PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" \
-  npx --yes playwright@1.56.1 install --with-deps chromium \
-  || fail "installing Playwright Chromium failed"
 
 # s3 MCP: the txn2/mcp-s3 release binary behind the repo's Python wrapper (as the
 # Dockerfile does): release -> mcp-s3-real, wrapper (image/mcp-s3) -> mcp-s3. The

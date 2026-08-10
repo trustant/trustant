@@ -24,16 +24,11 @@ was just loaded into containerd, and the builder's layer cache already avoids
 rebuilding unchanged base stages.
 
 Before splitting the Dockerfile, stage the pinned `mcp` and `trustable-acp`
-submodules plus the local `browser-mcp` source into the Docker context. Do not
+submodules into the Docker context. Do not
 download a floating agent runtime while building.
 
 Log the content hashes of the pinned OpenServerless MCP and TruACP
-revisions/content and the local `browser-mcp` source tree for build provenance.
-
-The base image installs `trustable-browser-mcp` and Playwright `1.56.1` with
-its Chromium runtime under `/opt/ms-playwright`. The browser package and runtime
-must work on both amd64 and arm64 and are installed at image build time, never
-downloaded when a user launches an app.
+revisions/content for build provenance.
 
 The base image builds TruACP for the target architecture and installs the Pi
 toolchain pinned by `trustable-acp/pi.version` under the `trustable` user's

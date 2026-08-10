@@ -26,12 +26,13 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	if !strings.Contains(setup, `mongodb-mcp-server@1.9.0`) {
 		t.Fatal("setup.sh must install the MongoDB MCP version compatible with the pinned parser")
 	}
-	if !strings.Contains(setup, `cd browser-mcp && npm pack`) ||
-		!strings.Contains(setup, `command -v trustable-browser-mcp`) {
-		t.Fatal("setup.sh must package and verify the checked-out browser MCP")
-	}
-	if !strings.Contains(setup, `playwright@1.56.1 install --with-deps chromium`) {
-		t.Fatal("setup.sh must install pinned Chromium and its Linux runtime dependencies")
+	// WHY: the browser MCP and its Playwright/Chromium runtime were removed.
+	// The e2e harness keeps its own @playwright/test dependency, which lives in
+	// the root package.json and must never be reintroduced here.
+	if strings.Contains(setup, "trustable-browser-mcp") ||
+		strings.Contains(setup, "playwright") ||
+		strings.Contains(setup, "chromium") {
+		t.Fatal("setup.sh must not install the removed browser MCP or a Chromium runtime")
 	}
 	if !strings.Contains(setup, `install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
 		t.Fatal("setup.sh must install the Trustable Redis namespace wrapper")

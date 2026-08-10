@@ -51,7 +51,6 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 	mcpConfig := []byte(`{
   "mcpServers": {
     "redis": {"command": "redis-mcp"},
-    "browser": {"command": "trustable-browser-mcp"},
     "openserverless": {"command": "openserverless-mcp"}
   }
 }`)
@@ -111,7 +110,7 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 			Workspace:          canonical,
 			DevelopmentURL:     "http://localhost:5173",
 			BrowserURL:         "http://vite.192.168.64.9.nip.io:8910",
-			RequiredMCPServers: []string{"browser", "openserverless", "redis"},
+			RequiredMCPServers: []string{"openserverless", "redis"},
 			MCPConfig:          privateMCPConfig,
 			WatcherLog:         watcherLog,
 		}},

@@ -1519,10 +1519,9 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 	if err != nil {
 		return err
 	}
-	mcp["browser"] = browserMCPConfig(projectDir, runtimeConfigPath)
 	// WHY: Agentic React exposes selection context, not deterministic source
 	// validation. Keep a separate read-only React server in every workbench so
-	// route/auth/type failures are reported before browser verification.
+	// route/auth/type failures are reported before a frontend change is done.
 	mcp["react"] = map[string]interface{}{
 		"type":    "local",
 		"command": []string{"trustable-react-mcp"},
@@ -1570,38 +1569,6 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 	}
 	log.Printf("  - Completion checker available at %s", appCheckerPath)
 	return nil
-}
-
-func browserExternalOrigin() string {
-	apiHost := developmentAPIHost()
-	parsed, err := url.Parse(apiHost)
-	if err != nil || parsed.Hostname() == "" {
-		return ""
-	}
-	host := "vite." + parsed.Hostname()
-	if parsed.Port() != "" {
-		host += ":" + parsed.Port()
-	}
-	return (&url.URL{Scheme: parsed.Scheme, Host: host}).String()
-}
-
-func browserMCPConfig(projectDir string, runtimeConfigPaths ...string) map[string]interface{} {
-	environment := map[string]string{
-		"TRUSTABLE_BROWSER_ARTIFACT_DIR": filepath.Join(WorkspaceDir, ".trustable", "browser", filepath.Base(projectDir)),
-	}
-	if len(runtimeConfigPaths) > 0 && runtimeConfigPaths[0] != "" {
-		environment["TRUSTABLE_RUNTIME_CONFIG"] = runtimeConfigPaths[0]
-	}
-	if origin := browserExternalOrigin(); origin != "" {
-		environment["TRUSTABLE_BROWSER_EXTERNAL_ORIGIN"] = origin
-	}
-	return map[string]interface{}{
-		"type":        "local",
-		"command":     []string{"trustable-browser-mcp"},
-		"environment": environment,
-		"enabled":     true,
-		"timeout":     30_000,
-	}
 }
 
 var openServerlessCheckerInstallPathOverride string

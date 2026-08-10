@@ -762,9 +762,6 @@ test.describe("issue98 guardrail E2E", () => {
         expect(contractRealpath).toBe(`${workbenchDir}/.openserverless-contract.md`);
         expect(opencodeRealpath).toBe(`${workbenchDir}/opencode.md`);
         expect(config.mcp.openserverless.command).toEqual(["openserverless-mcp"]);
-        expect(config.mcp.browser.command).toEqual(["trustable-browser-mcp"]);
-        expect(config.mcp.browser.environment.TRUSTABLE_BROWSER_ARTIFACT_DIR).toContain(`/.trustable/browser/${app}`);
-        expect(config.mcp.browser.environment.TRUSTABLE_BROWSER_EXTERNAL_ORIGIN).toContain("vite.");
         expect(config.permission.edit["packages/**/__main__.py"]).toBe("deny");
         expect(config.permission.edit["packages/**/*.zip"]).toBe("deny");
         expect(config.permission.bash["ops action"]).toBe("deny");

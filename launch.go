@@ -246,7 +246,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 // uses this to drop any that leaked into a global config written by older code.
 func isTrustableManagedMCPServer(name string) bool {
 	switch name {
-	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless", "browser", "react":
+	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless", "react":
 		return true
 	}
 	return false

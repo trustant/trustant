@@ -49,7 +49,6 @@ COPY --from=loader /usr/local/bin/ollama /usr/local/bin/ollama
 COPY --from=loader /usr/local/lib/ollama/*.so* /usr/local/lib/ollama/
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN \
     apt update && \
     apt install -y --no-install-recommends \
@@ -128,19 +127,15 @@ RUN set -eu ;\
     done
 
 COPY openserverless-mcp /tmp/openserverless-mcp
-COPY trustable-browser-mcp /tmp/trustable-browser-mcp
 COPY trustable-react-mcp /tmp/trustable-react-mcp
 RUN \
     npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.9.0 ;\
     cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
     npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
-    cd /tmp/trustable-browser-mcp && npm pack --pack-destination /tmp ;\
-    npm install -g /tmp/trustable-browser-mcp-*.tgz ;\
     cd /tmp/trustable-react-mcp && npm pack --pack-destination /tmp ;\
     npm install -g /tmp/trustable-react-mcp-*.tgz ;\
-    npx --yes playwright@1.56.1 install --with-deps chromium ;\
     cd / ;\
-    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-browser-mcp /tmp/trustable-browser-mcp-*.tgz /tmp/trustable-react-mcp /tmp/trustable-react-mcp-*.tgz ;\
+    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-react-mcp /tmp/trustable-react-mcp-*.tgz ;\
     rm -rf /var/lib/apt/lists/* ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
