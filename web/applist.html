@@ -1157,27 +1157,24 @@
         // Git Push functions
         let gitPushApp = null;
 
+        // Like handlePublishRemote: when OPS_REPO is already configured this
+        // call performs the actual push, so it is streamed rather than run as
+        // a silent probe.
         async function handleGitPush(name) {
             gitPushApp = name;
-            // Check if OPS_REPO is already configured
+            showPublishProgressModal('gitPush', 'Pushing to production...');
             try {
-                const response = await fetch('/api/publish/push', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name })
-                });
+                const response = await fetchPublishResponse('/api/publish/push', { name }, 'gitPush');
                 const data = await response.json();
                 if (data.needs_config) {
+                    // Not configured yet: fall back to the form.
                     showGitPushModal();
                 } else if (data.error) {
-                    showGitPushModal();
                     showGitPushResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
-                    showGitPushModal();
                     showGitPushResult(data.output || 'Push completed successfully', 'success');
                 }
             } catch (error) {
-                showGitPushModal();
                 showGitPushResult('Failed: ' + error.message, 'error');
             }
         }
@@ -1329,6 +1326,23 @@
             if (expanded) output.scrollTop = output.scrollHeight;
         }
 
+        // Opens a publish modal straight into its progress state: form and
+        // result hidden, progress bar reset and visible.
+        function showPublishProgressModal(prefix, message) {
+            const modalId = prefix === 'publish' ? 'publishModal' : 'gitPushModal';
+            const formId = prefix === 'publish' ? 'publishForm' : 'gitPushForm';
+            const resultId = prefix === 'publish' ? 'publishResult' : 'gitPushResult';
+            document.getElementById(formId).classList.add('hidden');
+            document.getElementById(resultId).classList.add('hidden');
+            if (prefix === 'gitPush') {
+                document.getElementById('forcePushConfirm').classList.add('hidden');
+            }
+            resetPublishProgress(prefix, message);
+            document.getElementById(prefix + 'Spinner').classList.remove('hidden');
+            document.getElementById(modalId).classList.remove('hidden');
+            document.getElementById(modalId).classList.add('flex');
+        }
+
         function togglePublishOutput() {
             setPublishOutputExpanded('publish', document.getElementById('publishOutput').classList.contains('hidden'));
         }
@@ -1353,10 +1367,13 @@
             let buffer = '';
             let terminalPayload = null;
             let terminalEvent = '';
+            // Remembered so completion can fill the bar against the real
+            // stage count rather than inventing one.
+            let lastTotal = 0;
             const consume = block => {
                 const parsed = parseStreamEvent(block);
                 if (!parsed) return;
-                if (parsed.event === 'progress') updatePublishProgress(prefix, parsed.payload.stage, parsed.payload.total, parsed.payload.message);
+                if (parsed.event === 'progress') { lastTotal = Number(parsed.payload.total) || lastTotal; updatePublishProgress(prefix, parsed.payload.stage, parsed.payload.total, parsed.payload.message); }
                 else if (parsed.event === 'output') appendPublishOutput(prefix, parsed.payload.line);
                 else if (parsed.event === 'done' || parsed.event === 'error') { terminalEvent = parsed.event; terminalPayload = parsed.payload; }
             };
@@ -1370,39 +1387,43 @@
             if (buffer.trim()) consume(buffer.trim());
             if (terminalPayload === null) throw new Error('Publish progress stream ended before completion');
             // A failure is exactly when the user wants the output, so open it.
+            // On success complete the bar against the real total; `needs_config`
+            // means nothing ran, so the bar is left where it is.
             if (terminalEvent === 'error') setPublishOutputExpanded(prefix, true);
-            else updatePublishProgress(prefix, 1, 1, 'Done');
+            else if (lastTotal && !terminalPayload.needs_config) updatePublishProgress(prefix, lastTotal, lastTotal, 'Done');
             return { ok: response.ok, status: response.status, statusText: response.statusText, headers: response.headers, json: async () => terminalPayload };
         }
 
         // Publish Remote functions
         let publishApp = null;
 
+        // This endpoint does double duty: it answers `needs_config` when the
+        // production config is missing, but when the config is already present
+        // the very same call performs the whole deploy. So it is streamed like
+        // any other publish, and the modal opens in its progress state — an
+        // already-configured app must not run a silent, invisible publish.
         async function handlePublishRemote(name) {
             publishApp = name;
-            // Check if production config is already set
+            showPublishProgressModal('publish', 'Publishing to production...');
             try {
-                const response = await fetch('/api/publish/remote', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name })
-                });
+                const response = await fetchPublishResponse('/api/publish/remote', { name }, 'publish');
                 const data = await response.json();
                 if (data.needs_config) {
+                    // Not configured yet: fall back to the form.
                     showPublishModal();
                 } else if (data.error) {
-                    showPublishModal();
                     showPublishResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
-                    showPublishModal();
-                    showPublishResult(data.output || 'Published successfully', 'success');
+                    showPublishResult(data.message || data.output || 'Published successfully', 'success');
                 }
             } catch (error) {
-                showPublishModal();
                 showPublishResult('Failed: ' + error.message, 'error');
             }
         }
 
+        // Shows the configuration form. Also reached from the progress state
+        // when the server answers needs_config, so it hides the spinner block
+        // (which carries the progress bar and output pane).
         function showPublishModal() {
             document.getElementById('publishSpinner').classList.add('hidden');
             document.getElementById('publishForm').classList.remove('hidden');

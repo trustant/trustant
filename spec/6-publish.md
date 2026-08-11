@@ -168,6 +168,18 @@ POSTs with `Accept: text/event-stream`, reads the body with
 `response.body.getReader()`, parses blocks with the shared `parseStreamEvent`,
 and routes `progress`/`output`/`done`/`error`. It returns the plain response
 untouched when the server answers with JSON instead, so the non-streaming path
-still works. The initial `handlePublishRemote` / `handleGitPush` probe calls
-stay non-streaming: they exist to discover `needs_config` before the modal is
-shown.
+still works.
+
+**Every** publish call site streams, including the entry points
+`handlePublishRemote` and `handleGitPush`. Those are not mere `needs_config`
+probes: the endpoints do double duty, so once an app is configured the entry
+call performs the real publish. Running it as a plain `fetch` made an
+already-configured app publish silently, with no progress bar and no output —
+and made the modal look different on the second use than on the first. The
+entry points therefore open the modal directly in its progress state via
+`showPublishProgressModal(prefix, message)` and fall back to the configuration
+form only when the terminal payload carries `needs_config`.
+
+On completion the bar is filled against the total the stream actually reported,
+not a synthetic `1 of 1`. A `needs_config` outcome leaves the bar where it is,
+since nothing was published.

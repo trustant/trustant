@@ -264,8 +264,16 @@ func TestApplicationListPublishProgressWiring(t *testing.T) {
 			t.Errorf("application list does not contain %q", expected)
 		}
 	}
-	// All three publish call sites must go through the streaming fetch.
-	if count := strings.Count(html, "fetchPublishResponse('/api/publish/"); count != 3 {
-		t.Errorf("expected 3 streaming publish call sites, found %d", count)
+	// Every publish call site goes through the streaming fetch: the three
+	// confirm handlers plus the two entry points (handlePublishRemote and
+	// handleGitPush). Those two are not mere probes — when the app is already
+	// configured the same request performs the real publish, so it must not
+	// run without the progress UI. No plain fetch to a publish endpoint may
+	// remain.
+	if count := strings.Count(html, "fetchPublishResponse('/api/publish/"); count != 5 {
+		t.Errorf("expected 5 streaming publish call sites, found %d", count)
+	}
+	if strings.Contains(html, "await fetch('/api/publish/") {
+		t.Error("a publish endpoint is still called with a non-streaming fetch")
 	}
 }
