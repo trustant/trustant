@@ -45,6 +45,11 @@ type progressSSEResponseWriter struct {
 // accepts text/event-stream. The bool is false only when streaming was
 // requested but is unsupported, in which case the error response is already
 // written.
+//
+// IMPORTANT: this flushes the response headers, and Go's HTTP server stops
+// making an unread request body available once the response is committed. Any
+// handler with a request body must therefore decode r.Body BEFORE calling
+// this, or the decode fails with an EOF. See spec/6-publish.md.
 func prepareProgressResponseWriter(w http.ResponseWriter, r *http.Request, total int, unsupportedMessage string) (http.ResponseWriter, bool) {
 	if !strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
 		return w, true

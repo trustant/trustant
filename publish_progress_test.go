@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -89,6 +91,38 @@ func TestPublishProgressPreservesLicenseErrorPrefix(t *testing.T) {
 	writePublishJSON(writer, 402, map[string]string{"error": "License required: expired"})
 	if body := recorder.Body.String(); !strings.Contains(body, "License required: expired") {
 		t.Fatalf("license error prefix lost: %s", body)
+	}
+}
+
+// Regression: upgrading to SSE flushes the response, and Go's server stops
+// serving an unread request body once the response is committed. Decoding
+// r.Body after the upgrade therefore failed with "Invalid JSON" for every
+// publish, valid body or not. This needs a real server — httptest.NewRequest
+// hands the handler an in-memory body that survives the flush and hides it.
+func TestPublishRemoteDecodesBodyOverRealSSEConnection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(handlePublishRemote))
+	defer server.Close()
+
+	request, err := http.NewRequest("POST", server.URL, strings.NewReader(`{"name":"Bad Name"}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "text/event-stream")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("publish request: %v", err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+
+	if strings.Contains(string(body), "Invalid JSON") {
+		t.Fatalf("valid request body was not readable after the SSE upgrade: %s", body)
+	}
+	// "Bad Name" fails the name pattern, which proves the JSON decoded and the
+	// name field was actually populated.
+	if !strings.Contains(string(body), "Invalid name format") {
+		t.Fatalf("expected the decoded name to reach validation: %s", body)
 	}
 }
 

@@ -86,19 +86,22 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	if !requireValidLicense(w) {
 		return
 	}
-	var ok bool
-	if w, ok = preparePublishResponseWriter(w, r, publishPushProgressTotal); !ok {
-		return
-	}
-	reportProgress(w, 1, "Checking license and repository configuration...")
+	// The body must be decoded before the SSE upgrade: upgrading flushes the
+	// response, after which Go's server no longer serves the unread body.
 	var req struct {
 		Name string `json:"name"`
 		Repo string `json:"repo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writePublishError(w, "Invalid JSON", http.StatusBadRequest)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
+
+	var ok bool
+	if w, ok = preparePublishResponseWriter(w, r, publishPushProgressTotal); !ok {
+		return
+	}
+	reportProgress(w, 1, "Checking license and repository configuration...")
 
 	if !namePattern.MatchString(req.Name) {
 		writePublishError(w, "Invalid name format", http.StatusBadRequest)
@@ -185,18 +188,20 @@ func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
 	if !requireValidLicense(w) {
 		return
 	}
+	// Decode before upgrading; see handlePublishPush.
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
 	var ok bool
 	if w, ok = preparePublishResponseWriter(w, r, publishPushProgressTotal); !ok {
 		return
 	}
 	reportProgress(w, 1, "Checking license and repository configuration...")
-	var req struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writePublishError(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
 
 	if !namePattern.MatchString(req.Name) {
 		writePublishError(w, "Invalid name format", http.StatusBadRequest)
@@ -258,11 +263,7 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	if !requireValidLicense(w) {
 		return
 	}
-	var ok bool
-	if w, ok = preparePublishResponseWriter(w, r, publishRemoteProgressTotal); !ok {
-		return
-	}
-	reportProgress(w, 1, "Checking license and production configuration...")
+	// Decode before upgrading; see handlePublishPush.
 	var req struct {
 		Name     string `json:"name"`
 		ApiHost  string `json:"apihost"`
@@ -270,12 +271,18 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writePublishError(w, "Invalid JSON", http.StatusBadRequest)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	var ok bool
+	if w, ok = preparePublishResponseWriter(w, r, publishRemoteProgressTotal); !ok {
 		return
 	}
 	// The production password must never reach the stream, whether it arrives
 	// with this request or was already stored in the config below.
 	redactSecrets(w, req.Password)
+	reportProgress(w, 1, "Checking license and production configuration...")
 
 	if !namePattern.MatchString(req.Name) {
 		writePublishError(w, "Invalid name format", http.StatusBadRequest)

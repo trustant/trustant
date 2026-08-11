@@ -52,6 +52,14 @@ text used for the terminal payload's `output` field. They must not use
 `CombinedOutput()`, which buffers to the end and is why publishing used to show
 nothing until it finished.
 
+**Ordering: decode the request body before upgrading to SSE.** The upgrade
+flushes the response headers, and Go's HTTP server stops serving an unread
+request body once the response is committed — so a `json.Decode(r.Body)` placed
+after the upgrade fails with EOF and every publish reports `Invalid JSON`,
+whatever was actually sent. Launch does not hit this because it is a `GET` with
+no body. The `Invalid JSON` failure therefore predates the upgrade and is
+reported as a plain HTTP 400, not as an SSE event.
+
 **Redaction.** `OPS_PASSWORD` is user-supplied and must never reach the stream.
 The production password — whether it arrives with the request or is already
 stored in the config — is registered with the writer and replaced with `********`
