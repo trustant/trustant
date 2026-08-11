@@ -26,9 +26,8 @@ Trustable
 /opencode.sh
 .ghtoken
 .1pw
-# Holds a live 1Password service token for the TrustableLicenses vault
-# (see spec/14-license.md). Never commit it.
+# A 1Password service token for the TrustableLicenses vault can still land here
+# when trulicense (now in trustable-installer) is run from this directory.
+# Never commit it.
 .op.json
-# Compiled trulicense CLI
-/trulicense
 *.lic

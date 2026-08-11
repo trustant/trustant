@@ -268,7 +268,7 @@ An expired license is invalid outright, so git push stops too. The local apihost
 
 The frontend keys off the exact `"License required"` and `"Host not licensed"` prefixes to show a license modal instead of a raw error. **When changing this wording, keep the prefixes intact** — otherwise the frontend gate breaks.
 
-Licenses are issued with the `trulicense` CLI ([cmd/trulicense/](cmd/trulicense/)), which keeps the Ed25519 signing key in 1Password (vault `TrustableLicenses`, item `MasterKey Trustable`) rather than on disk, and archives every issued license in the same vault. See [spec/14-license.md](spec/14-license.md).
+Licenses are issued with the `trulicense` CLI, which lives in the **trustable-installer** repo (run `./trulicense.sh` there). It keeps the Ed25519 signing key in 1Password (vault `TrustableLicenses`, item `MasterKey Trustable`) rather than on disk, and archives every issued license in the same vault. This repo only *verifies* licenses. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 

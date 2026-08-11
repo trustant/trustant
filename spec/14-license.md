@@ -1,8 +1,10 @@
 # License and publishing authorization
 
-Implemented by [license.go](../license.go), with the issuing CLI in
-[cmd/trulicense/](../cmd/trulicense/). Replaces the ai-proxy key check that used
-to live in `validate_key.go` (deleted; its spec was `10-validate_key.md`).
+Implemented by [license.go](../license.go). The issuing CLI, `trulicense`, lives
+in the **trustable-installer** repo (`cmd/trulicense/`, run via `./trulicense.sh`)
+— this repo only *verifies* licenses and never signs one. Replaces the ai-proxy
+key check that used to live in `validate_key.go` (deleted; its spec was
+`10-validate_key.md`).
 
 # Why
 
@@ -80,6 +82,13 @@ offline.
 
 Replacing `master_key_pub` invalidates **every license already issued**, which is
 why `trulicense keygen` refuses to overwrite a mismatched one without `-force`.
+
+Because the CLI lives in another repo, the file is committed in **both**:
+`trulicense keygen` writes the copy in trustable-installer, and this repo holds
+the copy that gets embedded. Regenerating the key therefore means copying the new
+`master_key_pub` here and rebuilding the binary — until that happens every newly
+issued license is rejected. `trulicense.sh` compares the two copies whenever a
+sibling `../trustable-app` checkout exists and warns loudly when they differ.
 
 # APIs
 
@@ -178,16 +187,25 @@ covered hosts and expiry, with controls to replace or remove the license.
 
 # CLI: `trulicense`
 
+Lives in the **trustable-installer** repo, not here — issuing is a release
+operation, and keeping it out means this repo needs neither `op` nor the
+1Password vault. Run it through the `trulicense.sh` wrapper at that repo's root,
+which requires `go` (aborting if missing), installs a pinned, checksum-verified
+`op` into `~/.local/bin`, checks `master_key_pub` against this repo's copy, then
+execs `go run ./cmd/trulicense` with every argument passed through. All wrapper
+diagnostics go to stderr, so redirecting stdout to a `.lic` file stays clean.
+
 The signing key never touches the local disk in plaintext and issued licenses are
 always archived. Both live in 1Password, vault `TrustableLicenses`, reached
-through the `op` CLI with a service-account token. `.op.json` at the repo root
-holds **only** the service token; it is gitignored and is never a key store.
+through the `op` CLI with a service-account token. `.op.json` at the
+trustable-installer root holds **only** the service token; it is gitignored and is
+never a key store.
 
 ```
-trulicense keygen                       bootstrap: op, service token, MasterKey, master_key_pub
-trulicense                              interactive: asks email + hosts, prints and archives a license
-trulicense -email a@b.c -hosts h1,h2    non-interactive, same effect
-trulicense verify <token>               print payload + validity using master_key_pub
+./trulicense.sh keygen                       bootstrap: op, service token, MasterKey, master_key_pub
+./trulicense.sh                              interactive: asks email + hosts, prints and archives a license
+./trulicense.sh -email a@b.c -hosts h1,h2    non-interactive, same effect
+./trulicense.sh verify <token>               print payload + validity using master_key_pub
 ```
 
 ## `keygen` — bootstrap
@@ -195,9 +213,10 @@ trulicense verify <token>               print payload + validity using master_ke
 Idempotent. In order:
 
 1. **`op` on PATH** — otherwise exit non-zero; nothing else is attempted.
-   [setup.sh](../setup.sh) installs it into `/usr/local/bin`, pinned and
-   checksum-verified against `OP_VERSION` / `OP_SHA_AMD64` / `OP_SHA_ARM64` in
-   [image/Dockerfile](../image/Dockerfile), the same way it installs the GitHub
+   `trulicense.sh` installs it into `~/.local/bin`, pinned and checksum-verified
+   against the `OP_VERSION` / `OP_SHA_*` constants in that script. This repo no
+   longer installs `op` at all, in the VM or the image, since nothing here uses
+   it. The wrapper installs it the same way `setup.sh` installs the GitHub
    CLI.
 2. **Service token** — read `{"service_token": "..."}` from `.op.json`, else
    `$OP_SERVICE_ACCOUNT_TOKEN` (the CI path), else prompt with terminal echo
@@ -247,7 +266,7 @@ before signing. `-email` / `-hosts` / `-exp` skip the prompts.
 
 The private key is fetched from the vault at signing time and held in memory
 only. The CLI then prints the token to stdout (summary on stderr, so
-`trulicense ... > out.lic` stays clean) and archives it as an item named
+`./trulicense.sh ... > out.lic` stays clean) and archives it as an item named
 `Trustable License: <email>`, category **`API Credential`**, with the token in a
 concealed field named **`license`** and `email` / `hosts` as text fields.
 
@@ -309,7 +328,7 @@ payload and signature, foreign signing key, expiry boundaries, host matching
 exemption and its lookalike rejections, the `/api/license` round trip, and the
 402 responses from the publish handlers.
 
-[cmd/trulicense/main_test.go](../cmd/trulicense/main_test.go) runs against an
+`cmd/trulicense/main_test.go`, in the trustable-installer repo, runs against an
 in-memory fake `op`, covering the bootstrap, token persistence and mode, host
 validation, the archived fields, the progressive suffix (including gap filling
 and case folding), and the assertion that no secret ever appears in argv.
