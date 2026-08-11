@@ -1146,58 +1146,12 @@ func restoreMissingWorkbenchCheckouts() {
 // handleLaunchGet handles GET /api/launch/<app>
 const launchProgressTotal = 8
 
-type launchProgressReporter interface {
-	reportLaunchProgress(stage int, message string)
-}
-
-type launchSSEResponseWriter struct {
-	http.ResponseWriter
-	flusher http.Flusher
-	buffer  []byte
-}
-
 func prepareLaunchResponseWriter(w http.ResponseWriter, r *http.Request) (http.ResponseWriter, bool) {
-	if !strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
-		return w, true
-	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "launch progress streaming is not supported", http.StatusInternalServerError)
-		return nil, false
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher.Flush()
-	return &launchSSEResponseWriter{ResponseWriter: w, flusher: flusher}, true
-}
-
-func (w *launchSSEResponseWriter) send(event string, payload interface{}) error {
-	data, err := json.Marshal(payload)
-	if err != nil { return err }
-	if _, err := fmt.Fprintf(w.ResponseWriter, "event: %s\ndata: %s\n\n", event, data); err != nil { return err }
-	w.flusher.Flush()
-	return nil
-}
-
-func (w *launchSSEResponseWriter) reportLaunchProgress(stage int, message string) {
-	_ = w.send("progress", map[string]interface{}{"stage": stage, "total": launchProgressTotal, "message": message})
-}
-
-func (w *launchSSEResponseWriter) Write(data []byte) (int, error) {
-	w.buffer = append(w.buffer, data...)
-	if !json.Valid(w.buffer) { return len(data), nil }
-	var payload map[string]interface{}
-	if err := json.Unmarshal(w.buffer, &payload); err != nil { return 0, err }
-	event := "done"
-	if _, failed := payload["error"]; failed { event = "error" }
-	w.buffer = nil
-	if err := w.send(event, payload); err != nil { return 0, err }
-	return len(data), nil
+	return prepareProgressResponseWriter(w, r, launchProgressTotal, "launch progress streaming is not supported")
 }
 
 func reportLaunchProgress(w http.ResponseWriter, stage int, message string) {
-	if reporter, ok := w.(launchProgressReporter); ok { reporter.reportLaunchProgress(stage, message) }
+	reportProgress(w, stage, message)
 }
 
 func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
@@ -1206,7 +1160,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	if !ok {
 		return
 	}
-	if _, streaming := w.(*launchSSEResponseWriter); !streaming {
+	if _, streaming := w.(*progressSSEResponseWriter); !streaming {
 		w.Header().Set("Content-Type", "application/json")
 	}
 

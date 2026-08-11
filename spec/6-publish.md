@@ -17,6 +17,63 @@ There is no `needs_config` fallback for an authorization failure — the user mu
 
 Git-push authentication itself is unchanged: it comes from the managed personal GitHub account when connected, with the existing SSH key as fallback.
 
+# Progress streaming
+
+All three publish endpoints stream their progress as server-sent events, using
+the same wire format and the same shared writer as launch
+([4-launch.md](4-launch.md)). The writer lives in `progress.go`; `total` is
+supplied per endpoint rather than fixed.
+
+Streaming is negotiated by the `Accept` header:
+
+- `Accept: text/event-stream` — the response is `text/event-stream` and the
+  events below are emitted. The HTTP status is always 200, because the response
+  is committed before the outcome is known; the real outcome travels in the
+  terminal event.
+- anything else — the plain JSON behaviour described per endpoint below, status
+  codes included, and no events. The frontend's `needs_config` probe relies on
+  this, and a client that cannot stream keeps working unchanged.
+
+Events:
+
+- `event: progress` — `{"stage": N, "total": T, "message": "..."}`
+- `event: output` — `{"line": "..."}`, one event per complete line of command
+  output, emitted as the command produces it. Partial lines are held until
+  their newline arrives, so a line is never split across two events.
+- `event: done` / `event: error` — the terminal JSON body, byte-for-byte what
+  the non-streaming path would have returned. `error` is chosen exactly when
+  the payload carries an `error` key, which preserves the
+  `License required:` / `Host not licensed:` prefixes the frontend keys its
+  license modal on.
+
+Long-running subprocesses (`ops ide login`, `ops ide deploy`, `npm install`,
+`git`) write into a tee that both emits `output` events and accumulates the
+text used for the terminal payload's `output` field. They must not use
+`CombinedOutput()`, which buffers to the end and is why publishing used to show
+nothing until it finished.
+
+**Redaction.** `OPS_PASSWORD` is user-supplied and must never reach the stream.
+The production password — whether it arrives with the request or is already
+stored in the config — is registered with the writer and replaced with `********`
+in every `progress` message, every `output` line, and the terminal payload's
+`output` field.
+
+Stages for `/api/publish/push` and `/api/publish/force-push` (total 3):
+
+1. Checking license and repository configuration
+2. Configuring production remote
+3. Pushing to GitHub
+
+Stages for `/api/publish/remote` (total 6):
+
+1. Checking license and production configuration
+2. Preparing workbench
+3. Installing dependencies — reported as skipped when there is no
+   `package.json` or the workbench already exists
+4. Generating environment files
+5. Connecting to OpenServerless
+6. Deploying application
+
 # POST /api/publish/push
 
 Push code to a production GitHub repository.
@@ -70,4 +127,39 @@ Where `apihost`, `user`, `password` are optional (only sent when user provides t
 5. Generate env files via `generateAppEnvFiles(name)` (always, to ensure `.env.production` is current)
 6. Run `ops ide login --mode=production` in the workbench directory
 7. Run `ops ide deploy` in the workbench directory
-8. Return `{"output": "Published successfully"}` on success, or `{"error": "...", "output": "..."}` on failure
+8. Return `{"message": "Published successfully", "output": "..."}` on success, or
+   `{"error": "...", "output": "..."}` on failure. On success `output` carries
+   the accumulated command output (previously discarded), so the modal's
+   expandable pane keeps it after the run ends; `message` is the headline.
+
+# Publish progress modal (`web/applist.html`)
+
+Both the publish modal and the git-push modal show the same progress UI while
+their request is in flight, replacing the bare spinner caption:
+
+- a labelled progress bar (`publishProgressBar` / `gitPushProgressBar`) with
+  `role="progressbar"` and `aria-valuenow`, plus step and percent labels;
+- a status line (`publishStatusMessage` / `gitPushStatusMessage`) carrying the
+  current step's message from the `progress` event;
+- an output disclosure, **collapsed by default**, toggled by a "Show output" /
+  "Hide output" button and containing a scrollable monospace pane that appends
+  each `output` line and auto-scrolls to the newest. It can be toggled at any
+  time, during the run and after it ends, and **auto-expands when a terminal
+  `error` arrives**.
+
+The percentage is monotonic — it never moves backwards within a run.
+
+While a publish is in flight the modal is not dismissable: the backdrop-click
+handlers close it only when the spinner block is hidden, and the Escape handler
+already requires the form or result view to be visible. When the run ends, the
+result view replaces the progress block and reports `message` (falling back to
+`output`) on success, or `error` plus `output` on failure.
+
+`fetchPublishResponse(url, body, prefix)` mirrors `fetchLaunchResponse`: it
+POSTs with `Accept: text/event-stream`, reads the body with
+`response.body.getReader()`, parses blocks with the shared `parseStreamEvent`,
+and routes `progress`/`output`/`done`/`error`. It returns the plain response
+untouched when the server answers with JSON instead, so the non-streaming path
+still works. The initial `handlePublishRemote` / `handleGitPush` probe calls
+stay non-streaming: they exist to discover `needs_config` before the modal is
+shown.

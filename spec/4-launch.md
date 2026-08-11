@@ -1047,3 +1047,9 @@ the readiness phase immediately. Phase numbers identify lifecycle boundaries,
 not elapsed-time estimates; the server must not manufacture timer-based
 progress. Disconnecting the stream does not create a second lifecycle owner or
 bypass the lifecycle lock. See issue #82.
+
+The writer behind this stream lives in `progress.go` and is shared with
+publishing ([6-publish.md](6-publish.md)), which uses the same event names and
+payload shapes with its own stage totals. Launch's contract is unchanged by
+that sharing: it keeps `launchProgressTotal` = 8 and does not emit the `output`
+events publishing adds.
