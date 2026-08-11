@@ -12,8 +12,7 @@
     <!-- Splash Screen -->
     <div id="splashContent" class="flex flex-col items-center text-center">
         <img src="trustable-logo.svg" alt="Trustable Logo" class="w-32 h-32">
-        <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)] mt-6">powered by Regolo.AI</p>
-        <h1 class="text-4xl font-light text-[color:var(--nu-ink)] mt-1">Trustable Cloud</h1>
+        <h1 class="text-4xl font-light text-[color:var(--nu-ink)] mt-6">Trustable Cloud</h1>
         <h2 id="versionText" class="text-xl font-medium text-[color:var(--nu-muted)] mt-3"></h2>
         <p id="expireText" class="text-sm text-[color:var(--nu-muted)] mt-2"></p>
     </div>
@@ -22,7 +21,7 @@
     <div id="providerModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-40">
         <div class="nu-modal p-6 w-full max-w-4xl mx-4">
             <h3 class="text-3xl font-light mb-2 text-center">Select your AI provider</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-5 items-stretch">
+            <div id="providerGrid" class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-5 items-stretch">
 
                 <button onclick="selectOllama()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
@@ -33,7 +32,9 @@
                     <img src="ollama-head.png" alt="Ollama Cloud" class="w-full h-auto mt-auto pt-5">
                 </button>
 
-                <button onclick="selectTrustable()"
+                <!-- Sovereign AI is only offered when ENABLE_REGOLO is set; the
+                     boot code below removes this card otherwise. -->
+                <button id="providerTrustable" onclick="selectTrustable()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
                     <div class="font-medium text-2xl mb-1">Sovereign AI</div>
                     <div class="text-sm text-[color:var(--nu-ink)]">Credit-based AI.</div>
@@ -724,6 +725,12 @@
                 }
                 if (data.expire) {
                     document.getElementById('expireText').textContent = 'Expiration date: ' + data.expire;
+                }
+                // ENABLE_REGOLO off: drop the Sovereign AI card entirely and
+                // let the two remaining providers share the row.
+                if (!data.regolo) {
+                    document.getElementById('providerTrustable').remove();
+                    document.getElementById('providerGrid').classList.replace('md:grid-cols-3', 'md:grid-cols-2');
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);

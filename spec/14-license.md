@@ -100,6 +100,21 @@ Registered in [main.go](../main.go).
 
 Two gates, both in [license.go](../license.go), both returning **HTTP 402**.
 
+## Feature flag: `ENABLE_LICENSE`
+
+The whole mechanism is **off unless `ENABLE_LICENSE` is set to a non-empty,
+non-false value** (see [0-preflight.md](0-preflight.md)). With it off:
+
+- `requireValidLicense` and `requireLicensedHost` return `true` immediately,
+  before loading or validating anything — git push and publishing are never
+  blocked, whatever is or is not stored in the workspace config.
+- `configure.html` keeps the License card hidden, so there is no UI for
+  installing a license that would not be checked.
+
+`/api/license` itself stays registered and functional in both states; only the
+gates and the card are conditional. Everything below describes behaviour with
+the flag **on**.
+
 ## 1. Valid-license gate — git push and publish
 
 `requireValidLicense(w)` is called at the top of `handlePublishPush`,

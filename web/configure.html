@@ -118,8 +118,9 @@
             </div>
         </div>
 
-        <!-- License: gates git push and production publishing (spec/14-license.md) -->
-        <div class="nu-card p-5 mb-4">
+        <!-- License: gates git push and production publishing (spec/14-license.md).
+             Hidden unless ENABLE_LICENSE is set, since the gate is then off. -->
+        <div id="licenseCard" class="nu-card p-5 mb-4 hidden">
             <h2 class="text-lg font-medium mb-1">License</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
                 A license enables Git push and publishing to production. To obtain one, write to
@@ -447,7 +448,13 @@
 
         // ---- License (spec/14-license.md) ----
 
+        // Set from /api/version on boot. With ENABLE_LICENSE off the server
+        // does not gate anything, so the whole card stays hidden.
+        let licenseEnabled = false;
+
         async function loadLicenseStatus() {
+            if (!licenseEnabled) return;
+            document.getElementById('licenseCard').classList.remove('hidden');
             const el = document.getElementById('licenseStatus');
             const removeBtn = document.getElementById('licenseRemoveBtn');
             try {
@@ -1079,6 +1086,7 @@
                     document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;"><p style="font-size:1.5rem;text-align:center;">This version expired. Please Update. For info email: info@nuvolaris.io</p></div>';
                     return;
                 }
+                licenseEnabled = !!data.license;
             } catch (e) {
                 console.error('Failed to check version:', e);
             }

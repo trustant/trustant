@@ -19,6 +19,26 @@ WorkbenchDir
 OllamaEndpoint
 OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 
+## Feature flags
+
+Two optional variables switch on features that are **off by default**. Both are
+read by `envFlag`, which treats unset, empty, `0`, `false`, `no` and `off` as
+off, and anything else as on:
+
+| Variable | Internal | Effect when on |
+|---|---|---|
+| `ENABLE_LICENSE` | `EnableLicense` | Enforce the license gates on git push and publishing, and show the License card in `configure.html` |
+| `ENABLE_REGOLO` | `EnableRegolo` | Offer the **Sovereign AI** (Regolo.AI) card in the provider selector |
+
+Neither variable appears in [.env.dist](../.env.dist) nor in the `.env` that
+`setup.sh` generates, so a development checkout runs with both features off: no
+license is needed to push, and the provider selector shows only Cloud AI and
+Private AI. The distribution image turns both on in [image/env](../image/env).
+
+Both flags are reported to the frontend by `/api/version` as the booleans
+`license` and `regolo` — every page already fetches that endpoint on boot. See
+[14-license.md](14-license.md) and [1-index.md](1-index.md).
+
 `OPENAI_BASE_URL` and `OPENAI_API_KEY` are deliberately **not** mirrored into
 internal variables. The provider base URL is read from `cfg.BaseURL` in the
 layered `trustable.json`, and the real key is resolved by Pi through `auth.json`
