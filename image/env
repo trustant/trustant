@@ -9,3 +9,5 @@ WORKSPACE_DIR=/home/trustable/workspace
 WORKBENCH_DIR=/home/trustable/workbench
 AIP_REGISTER_URL=https://api.nuvolaris.io/_register
 AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
+ENABLE_LICENSE=1
+ENABLE_REGOLO=1

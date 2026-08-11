@@ -57,13 +57,21 @@ keeps its intentional empty intermediate configuration because its models are
 discovered on `configure.html`.
 
 The Provider Choice modal is centered, headed **Select your AI provider**, and
-shows exactly three equal cards in a `grid-cols-1 md:grid-cols-3` row:
+shows equal cards in a `grid-cols-1 md:grid-cols-3` row:
 
 | Card | Subtitle | Attribution | Logo | Stored provider |
 |---|---|---|---|---|
 | **Cloud AI** | Subscription-based AI. | Powered by Ollama Cloud. | `ollama-head.png` | `ollama` |
 | **Sovereign AI** | Credit-based AI. | Powered by Regolo.AI. | `regolo-head.png` | `trustable` |
 | **Private AI** | No token required. | Your own AI hardware. | `privateai-head.png` | `private` |
+
+**Sovereign AI is conditional on `ENABLE_REGOLO`** (see
+[0-preflight.md](0-preflight.md)). The boot code reads the `regolo` boolean from
+`/api/version`; when it is false it removes the `providerTrustable` card from the
+DOM and switches `providerGrid` from `md:grid-cols-3` to `md:grid-cols-2`, so the
+two remaining cards fill the row instead of leaving a gap. Removing the card is
+the only change — nothing else about the `trustable` provider is touched, so a
+workspace that already stores `provider: "trustable"` keeps working.
 
 All user-facing copy on this page uses sentence case with terminal punctuation.
 Product names (Ollama Cloud, Regolo.AI, Trustable Cloud) keep their own

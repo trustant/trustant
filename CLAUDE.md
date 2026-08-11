@@ -68,6 +68,10 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 - `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustable Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
 - `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
 - `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
+- `ENABLE_LICENSE` — **optional feature flag, off by default**. When empty or unset the license gates on git push / publishing are skipped and the License card in `configure.html` stays hidden. Set only in [image/env](image/env), never in `.env.dist` or the `.env` `setup.sh` generates.
+- `ENABLE_REGOLO` — **optional feature flag, off by default**. When empty or unset the **Sovereign AI** (Regolo.AI) card is removed from the provider selector. Set only in [image/env](image/env).
+
+Both flags are read by `envFlag` (unset/empty/`0`/`false`/`no`/`off` = off) and reported to the frontend as the `license` and `regolo` booleans on `/api/version`.
 
 
 ## Architecture

@@ -115,12 +115,16 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"expired": true})
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]string{
+	// The two feature flags ride along here because every page already fetches
+	// /api/version on boot. See spec/0-preflight.md.
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"version": fmt.Sprintf("Trustable %s", appVersion),
 		"build":   appBuild,
 		"branch":  appBranch,
 		"stream":  appStream,
 		"expire":  expiryDate.Format("2006/01/02"),
+		"license": EnableLicense,
+		"regolo":  EnableRegolo,
 	})
 }
 

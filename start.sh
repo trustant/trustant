@@ -985,12 +985,23 @@ wait_for_local_k3s() {
   ok "nuvolaris namespace is present"
 }
 
-# Resolve the address other machines (and the browser) can reach this host on:
-# the source address of the default route. Falls back to loopback on a host with
-# no default route, which still serves a local-only browser correctly.
+# Resolve the address other machines (and the browser) can reach this host on.
+#
+# lima0 comes first: this path also runs INSIDE a Lima guest (uname says Linux,
+# so the native branch is taken), and there the default route belongs to eth0 —
+# the vmnet NAT segment, which the host cannot route back into. lima0 carries a
+# second default route at a higher metric, so `route get` always loses to eth0
+# and would hand the browser an unreachable 192.168.5.x. Preferring lima0 makes
+# the in-guest result agree with refresh_support_files, which greps for exactly
+# this subnet on the macOS side.
+#
+# On bare-metal Linux there is no lima0 and the default-route source is correct.
+# Falls back to loopback on a host with no default route, which still serves a
+# local-only browser correctly.
 native_host_ip() {
   local ip
-  ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src") {print $(i+1); exit}}')"
+  ip="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
+  [[ -n "$ip" ]] || ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src") {print $(i+1); exit}}')"
   [[ -n "$ip" ]] || ip="127.0.0.1"
   printf '%s' "$ip"
 }

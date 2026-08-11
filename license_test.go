@@ -23,8 +23,13 @@ func withTestMasterKey(t *testing.T) ed25519.PrivateKey {
 	}
 	original := masterKeyPub
 	masterKeyPub = base64.StdEncoding.EncodeToString(pub)
+	// Enforcement is opt-in via ENABLE_LICENSE; these tests are about what the
+	// gates do once it is on. TestLicenseGatesDisabled covers the off case.
+	originalEnable := EnableLicense
+	EnableLicense = true
 	t.Cleanup(func() {
 		masterKeyPub = original
+		EnableLicense = originalEnable
 		invalidateLicenseCache()
 	})
 	invalidateLicenseCache()
@@ -528,6 +533,41 @@ func TestPublishHandlersGated(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(dir, "ops-was-run")); err == nil {
 			t.Error("ops was invoked for an unlicensed host")
+		}
+	})
+}
+
+// TestLicenseGatesDisabled covers ENABLE_LICENSE being unset or empty: both
+// gates become no-ops, so an absent, expired, or host-mismatched license no
+// longer blocks git push or publishing.
+func TestLicenseGatesDisabled(t *testing.T) {
+	priv := withTestMasterKey(t) // turns enforcement on...
+	EnableLicense = false        // ...and this turns it back off for this test.
+
+	t.Run("no license passes both gates", func(t *testing.T) {
+		useTestWorkspace(t, "")
+		rec := httptest.NewRecorder()
+		if !requireValidLicense(rec) {
+			t.Errorf("requireValidLicense blocked with the feature off: %s", rec.Body.String())
+		}
+		rec = httptest.NewRecorder()
+		if !requireLicensedHost(rec, "https://unlicensed.example.com") {
+			t.Errorf("requireLicensedHost blocked with the feature off: %s", rec.Body.String())
+		}
+	})
+
+	t.Run("expired license passes both gates", func(t *testing.T) {
+		token := makeLicense(t, priv, licensePayload{
+			V: 1, Sub: "a@b.c", Hosts: []string{"https://api.nuvolaris.io"}, Exp: "2020-01-01",
+		})
+		useTestWorkspace(t, token)
+		rec := httptest.NewRecorder()
+		if !requireValidLicense(rec) {
+			t.Errorf("requireValidLicense blocked an expired license with the feature off: %s", rec.Body.String())
+		}
+		rec = httptest.NewRecorder()
+		if !requireLicensedHost(rec, "https://other.example.com") {
+			t.Errorf("requireLicensedHost blocked with the feature off: %s", rec.Body.String())
 		}
 	})
 }
