@@ -26,7 +26,3 @@
 	path = olaris-truinst
 	url = https://github.com/trustable-ai/olaris-truinst
 	branch = main
-[submodule "website"]
-	path = website
-	url = https://github.com/trustable-ai/website
-	branch = main
