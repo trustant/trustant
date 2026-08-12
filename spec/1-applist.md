@@ -164,8 +164,100 @@ The Git Push and Publish buttons are always rendered and always call their respe
 
 ## Adding an application
 
-The modal is starter-driven. Under the heading **"Add an application starter"**
-it shows a vertical radio list built from `GET /api/starters`
+The modal is a **tabbed browser** over the published index
+([15-starters.md](15-starters.md)). A horizontal, horizontally-scrollable tab
+strip sits above the body:
+
+- **Starter** — the first tab, selected by default, described below and
+  unchanged by the catalog;
+- one tab per group of `applications`, ordered by group name (which reproduces
+  the published order, since `index.py` sorts groups by name): `Apps`, `Chat`,
+  `Demo`, `Utilities`, …
+
+When the index publishes no applications — or could not be loaded — **no tab
+strip is rendered at all** and the modal is exactly the Starter form.
+
+Switching tabs never loses the other tab's state: the Starter tab keeps its
+radio selection and any typed name. Reopening the modal always resets to
+**Starter** with the catalog back at its carousel.
+
+### Application tabs
+
+While an application tab is active the modal grows to **half the viewport width
+and 80% of the viewport height**. It is centred in a full-viewport scrim, so the
+80% height leaves **10% of the page free above and below**. The Starter tab
+keeps the default modal size, so the larger size lasts only as long as the
+catalog is being browsed — leaving the tab, closing the modal, or reopening it
+all restore the default. Below 900px wide, where half a viewport would be
+unusable, the width falls back to the near-full width the modal uses elsewhere.
+
+Each tab shows **one application at a time**, full width, with a **left and
+right arrow** either side stepping through the group in published order. The
+arrows **wrap** at both ends — a group is a short ring, not a list with a start
+and a finish — and are hidden entirely for a group of one, where they would do
+nothing. `ArrowLeft` / `ArrowRight` step the carousel too, but only while the
+carousel is what the modal is showing: never on the Starter tab and never while
+the name panel is up. A **"<n> of <total>"** counter sits under the carousel,
+and is omitted for a group of one.
+
+Switching tabs restarts at the first application of the group now showing.
+
+The application on show is a card filling the height the modal gives it, holding,
+top to bottom:
+
+- the **title** at the **top**, as a link to `https://github.com/<repo>` opening
+  in a new tab. Following the link must **not** also open the name panel — the
+  same boundary the starter rows observe between their link and their radio;
+- the **icon**, lazily loaded, taking whatever height is left between the two.
+  An entry whose icon is empty, or whose image fails to load, renders a neutral
+  placeholder instead — `index.py` deliberately keeps an entry whose icon is not
+  published yet, so a missing image is expected and must never leave a
+  broken-image glyph;
+- the **description** at the **bottom**, shown in full.
+
+The icon is the element that absorbs the spare height, so the title stays pinned
+to the top and the description to the bottom whatever the card's size and
+however long the prose is.
+
+The card — anywhere but the link — is clickable and keyboard-activatable (Enter
+or Space) and opens the name panel.
+
+### Name panel
+
+Clicking the card replaces the carousel and its counter, in place, with a small
+panel: a line naming the chosen application and the repository it will be
+created from, an **Application Name** field, and **Cancel** / **Confirm**.
+
+**Cancel returns to the carousel** rather than closing the modal — the user is
+picking, not aborting. The modal's own Cancel and a scrim click still close it.
+
+The name is prefilled with the entry's `name`, which the generator already
+guarantees is a legal slug, so it is used as published. When an application of
+that name already exists the smallest free integer is appended — `tetris`,
+`tetris1`, `tetris2`. The search runs against the loaded application list, so it
+is global: an entry listed under two groups (as `truk8s` is, under both `Demo`
+and `Utilities`) is still counted once against the user's whole list. A slug
+occupying all 20 characters is trimmed to leave room for the digits rather than
+producing a name the pattern would reject.
+
+The prefill is a starting point, not a constraint: the field is freely editable,
+and the same `[a-zA-Z][a-zA-Z0-9]{5,19}` and duplicate-name checks the Starter
+tab applies on Create run here on Confirm, rendering failures in the same inline
+style.
+
+On **Confirm** the application is created from **that entry's own repository**,
+so two applications in one group produce different apps. **No `templates` is
+sent** — the app falls back to the global `notebook.repository`. Everything
+downstream (the creating modal, the `missing_env` path, the list refresh) is
+shared with the Starter path.
+
+The GitHub datalist notice and the SSH key notice are **Starter-only**; a
+catalog application's repository is fixed and public.
+
+### Starter tab
+
+The Starter tab is starter-driven. Under the heading **"Add an application
+starter"** it shows a vertical radio list built from `GET /api/starters`
 ([15-starters.md](15-starters.md)): one row per starter with the **Name** as a
 link to `https://github.com/<repo>` (opens in a new tab and must not toggle the
 radio), followed by the **Description**. The last row is always **"My
