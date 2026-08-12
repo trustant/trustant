@@ -203,10 +203,31 @@ func gitCommand(dir string, args ...string) *exec.Cmd {
 }
 
 func runGitCommand(dir string, output *bytes.Buffer, args ...string) error {
+	return runGitCommandStreaming(nil, dir, output, args...)
+}
+
+// runGitCommandStreaming is runGitCommand with progress streaming: when stream
+// is an SSE writer each output line is also emitted as an `output` event as it
+// is produced. Passing nil gives the plain buffered behaviour.
+// See spec/6-publish.md.
+func runGitCommandStreaming(stream http.ResponseWriter, dir string, output *bytes.Buffer, args ...string) error {
 	cmd := gitCommand(dir, args...)
+	banner := fmt.Sprintf("$ git %s", strings.Join(args, " "))
+	if stream != nil {
+		reportOutput(stream, banner)
+		var collected bytes.Buffer
+		err := runStreamingCommand(stream, &collected, cmd)
+		if output != nil && collected.Len() > 0 {
+			fmt.Fprintf(output, "%s\n%s", banner, collected.String())
+			if !bytes.HasSuffix(collected.Bytes(), []byte("\n")) {
+				output.WriteByte('\n')
+			}
+		}
+		return err
+	}
 	data, err := cmd.CombinedOutput()
 	if output != nil && len(data) > 0 {
-		fmt.Fprintf(output, "$ git %s\n%s", strings.Join(args, " "), string(data))
+		fmt.Fprintf(output, "%s\n%s", banner, string(data))
 		if !bytes.HasSuffix(data, []byte("\n")) {
 			output.WriteByte('\n')
 		}
@@ -351,13 +372,19 @@ func configuredProductionRepo(name string) string {
 }
 
 func ensureProductionRemote(workspacePath, repo string, output *bytes.Buffer) error {
+	return ensureProductionRemoteStreaming(nil, workspacePath, repo, output)
+}
+
+// ensureProductionRemoteStreaming is ensureProductionRemote with progress
+// streaming; stream may be nil for the plain buffered behaviour.
+func ensureProductionRemoteStreaming(stream http.ResponseWriter, workspacePath, repo string, output *bytes.Buffer) error {
 	repoURL, _, err := managedGitHubRemoteURL(repo)
 	if err != nil {
 		return err
 	}
 	removeCmd := gitCommand(workspacePath, "remote", "remove", "production")
 	removeCmd.Run()
-	if err := runGitCommand(workspacePath, output, "remote", "add", "production", repoURL); err != nil {
+	if err := runGitCommandStreaming(stream, workspacePath, output, "remote", "add", "production", repoURL); err != nil {
 		return fmt.Errorf("failed to configure production remote: %w", err)
 	}
 	return nil

@@ -33,6 +33,52 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Publish progress stage counts. Streamed to the UI as `total` so the progress
+// bar can size itself. See spec/6-publish.md.
+const (
+	publishPushProgressTotal   = 3
+	publishRemoteProgressTotal = 6
+)
+
+// preparePublishResponseWriter upgrades the response to SSE when the client
+// asks for it. Requests without `Accept: text/event-stream` — notably the
+// needs_config probe — keep the plain JSON behaviour.
+func preparePublishResponseWriter(w http.ResponseWriter, r *http.Request, total int) (http.ResponseWriter, bool) {
+	writer, ok := prepareProgressResponseWriter(w, r, total, "publish progress streaming is not supported")
+	if !ok {
+		return nil, false
+	}
+	if _, streaming := writer.(*progressSSEResponseWriter); !streaming {
+		writer.Header().Set("Content-Type", "application/json")
+	}
+	return writer, true
+}
+
+// writePublishJSON writes the terminal payload. On the streaming path the
+// status code is not written: the SSE response is already committed as 200 and
+// the outcome travels in the `done`/`error` event.
+func writePublishJSON(w http.ResponseWriter, status int, payload interface{}) {
+	if _, streaming := w.(*progressSSEResponseWriter); !streaming {
+		w.Header().Set("Content-Type", "application/json")
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+		}
+	}
+	json.NewEncoder(w).Encode(payload)
+}
+
+// writePublishError reports a request-validation failure. It replaces
+// http.Error on the publish paths: once the response has been upgraded to SSE,
+// http.Error's plain-text body carries no `data:` line, so the client would see
+// the stream end with no terminal event and no reason for the failure.
+func writePublishError(w http.ResponseWriter, message string, status int) {
+	if _, streaming := w.(*progressSSEResponseWriter); streaming {
+		writePublishJSON(w, status, map[string]string{"error": message})
+		return
+	}
+	http.Error(w, message, status)
+}
+
 // handlePublishPush handles POST /api/publish/push
 // Pushes code to a production GitHub repository. Requires a valid license; the
 // license `hosts` list is not consulted for push. See spec/14-license.md.
@@ -40,6 +86,8 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	if !requireValidLicense(w) {
 		return
 	}
+	// The body must be decoded before the SSE upgrade: upgrading flushes the
+	// response, after which Go's server no longer serves the unread body.
 	var req struct {
 		Name string `json:"name"`
 		Repo string `json:"repo"`
@@ -49,8 +97,14 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ok bool
+	if w, ok = preparePublishResponseWriter(w, r, publishPushProgressTotal); !ok {
+		return
+	}
+	reportProgress(w, 1, "Checking license and repository configuration...")
+
 	if !namePattern.MatchString(req.Name) {
-		http.Error(w, "Invalid name format", http.StatusBadRequest)
+		writePublishError(w, "Invalid name format", http.StatusBadRequest)
 		return
 	}
 
@@ -75,12 +129,12 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	// Save repo if provided
 	if req.Repo != "" {
 		if !repoPattern.MatchString(req.Repo) {
-			http.Error(w, "Repo must be in format org/repo", http.StatusBadRequest)
+			writePublishError(w, "Repo must be in format org/repo", http.StatusBadRequest)
 			return
 		}
 		wsCfg.Apps[req.Name].Production["OPS_REPO"] = req.Repo
 		if err := saveWorkspaceConfig(wsCfg); err != nil {
-			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
+			writePublishError(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -88,45 +142,41 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	// Check if OPS_REPO is configured
 	opsRepo := wsCfg.Apps[req.Name].Production["OPS_REPO"]
 	if opsRepo == "" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"needs_config": true})
+		writePublishJSON(w, http.StatusOK, map[string]interface{}{"needs_config": true})
 		return
 	}
 
 	// Use workspace bare repo to push
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		writePublishJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "App not found in workspace",
 		})
 		return
 	}
 
+	reportProgress(w, 2, "Configuring production remote...")
 	var output bytes.Buffer
 	branch, err := gitDefaultBranch(workspacePath)
 	if err != nil {
-		writeGitJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		writePublishJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := ensureProductionRemote(workspacePath, opsRepo, &output); err != nil {
-		writeGitJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "output": output.String()})
+	if err := ensureProductionRemoteStreaming(w, workspacePath, opsRepo, &output); err != nil {
+		writePublishJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "output": output.String()})
 		return
 	}
-	if err := runGitCommand(workspacePath, &output, "push", "production", branch); err != nil {
+	reportProgress(w, 3, "Pushing to GitHub...")
+	if err := runGitCommandStreaming(w, workspacePath, &output, "push", "production", branch); err != nil {
 		log.Printf("Git push to production failed: %s", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		writePublishJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  err.Error(),
 			"output": output.String(),
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	writePublishJSON(w, http.StatusOK, map[string]string{
 		"output": output.String(),
 	})
 }
@@ -138,6 +188,7 @@ func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
 	if !requireValidLicense(w) {
 		return
 	}
+	// Decode before upgrading; see handlePublishPush.
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -146,61 +197,62 @@ func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ok bool
+	if w, ok = preparePublishResponseWriter(w, r, publishPushProgressTotal); !ok {
+		return
+	}
+	reportProgress(w, 1, "Checking license and repository configuration...")
+
 	if !namePattern.MatchString(req.Name) {
-		http.Error(w, "Invalid name format", http.StatusBadRequest)
+		writePublishError(w, "Invalid name format", http.StatusBadRequest)
 		return
 	}
 
 	// Load config to get OPS_REPO
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config: " + err.Error()})
+		writePublishJSON(w, http.StatusOK, map[string]string{"error": "Failed to load config: " + err.Error()})
 		return
 	}
 	if wsCfg.Apps == nil || wsCfg.Apps[req.Name] == nil || wsCfg.Apps[req.Name].Production == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "No production config found"})
+		writePublishJSON(w, http.StatusOK, map[string]string{"error": "No production config found"})
 		return
 	}
 
 	opsRepo := wsCfg.Apps[req.Name].Production["OPS_REPO"]
 	if opsRepo == "" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "No production repository configured"})
+		writePublishJSON(w, http.StatusOK, map[string]string{"error": "No production repository configured"})
 		return
 	}
 
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "App not found in workspace"})
+		writePublishJSON(w, http.StatusOK, map[string]string{"error": "App not found in workspace"})
 		return
 	}
 
+	reportProgress(w, 2, "Configuring production remote...")
 	var output bytes.Buffer
 	branch, err := gitDefaultBranch(workspacePath)
 	if err != nil {
-		writeGitJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		writePublishJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
-	if err := ensureProductionRemote(workspacePath, opsRepo, &output); err != nil {
-		writeGitJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "output": output.String()})
+	if err := ensureProductionRemoteStreaming(w, workspacePath, opsRepo, &output); err != nil {
+		writePublishJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error(), "output": output.String()})
 		return
 	}
-	if err := runGitCommand(workspacePath, &output, "push", "-f", "production", branch); err != nil {
+	reportProgress(w, 3, "Pushing to GitHub...")
+	if err := runGitCommandStreaming(w, workspacePath, &output, "push", "-f", "production", branch); err != nil {
 		log.Printf("Git force push to production failed: %s", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		writePublishJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  err.Error(),
 			"output": output.String(),
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	writePublishJSON(w, http.StatusOK, map[string]string{
 		"output": output.String(),
 	})
 }
@@ -211,6 +263,7 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	if !requireValidLicense(w) {
 		return
 	}
+	// Decode before upgrading; see handlePublishPush.
 	var req struct {
 		Name     string `json:"name"`
 		ApiHost  string `json:"apihost"`
@@ -222,8 +275,17 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ok bool
+	if w, ok = preparePublishResponseWriter(w, r, publishRemoteProgressTotal); !ok {
+		return
+	}
+	// The production password must never reach the stream, whether it arrives
+	// with this request or was already stored in the config below.
+	redactSecrets(w, req.Password)
+	reportProgress(w, 1, "Checking license and production configuration...")
+
 	if !namePattern.MatchString(req.Name) {
-		http.Error(w, "Invalid name format", http.StatusBadRequest)
+		writePublishError(w, "Invalid name format", http.StatusBadRequest)
 		return
 	}
 
@@ -261,16 +323,16 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	}
 	if configChanged {
 		if err := saveWorkspaceConfig(wsCfg); err != nil {
-			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
+			writePublishError(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
 	// Check all required production values are set
 	prod := wsCfg.Apps[req.Name].Production
+	redactSecrets(w, prod["OPS_PASSWORD"])
 	if prod["OPS_APIHOST"] == "" || prod["OPS_USER"] == "" || prod["OPS_PASSWORD"] == "" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"needs_config": true})
+		writePublishJSON(w, http.StatusOK, map[string]interface{}{"needs_config": true})
 		return
 	}
 
@@ -284,16 +346,20 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	workbenchPath := filepath.Join(WorkbenchDir, req.Name)
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", req.Name)
 
+	// Accumulates everything the streamed commands produced, so the terminal
+	// payload carries the full output on success as well as on failure.
+	var output bytes.Buffer
+
+	reportProgress(w, 2, "Preparing workbench...")
 	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
 		// Clone from workspace
 		log.Printf("Cloning workbench for %s...", req.Name)
 		cloneCmd := exec.Command("git", "clone", workspacePath, workbenchPath)
-		if output, err := cloneCmd.CombinedOutput(); err != nil {
-			log.Printf("Failed to clone workbench: %s, output: %s", err, string(output))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Failed to clone workbench: " + string(output),
+		if err := runStreamingCommand(w, &output, cloneCmd); err != nil {
+			log.Printf("Failed to clone workbench: %s, output: %s", err, output.String())
+			writePublishJSON(w, http.StatusInternalServerError, map[string]string{
+				"error":  "Failed to clone workbench: " + err.Error(),
+				"output": strings.TrimSpace(output.String()),
 			})
 			return
 		}
@@ -301,57 +367,60 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 		// Run npm install if package.json exists
 		pkgPath := filepath.Join(workbenchPath, "package.json")
 		if _, err := os.Stat(pkgPath); err == nil {
+			reportProgress(w, 3, "Installing dependencies...")
 			npmCmd := exec.Command("npm", "install")
 			npmCmd.Dir = workbenchPath
-			if output, err := npmCmd.CombinedOutput(); err != nil {
-				log.Printf("npm install failed: %s, output: %s", err, string(output))
+			if err := runStreamingCommand(w, &output, npmCmd); err != nil {
+				log.Printf("npm install failed: %s, output: %s", err, output.String())
 			}
+		} else {
+			reportProgress(w, 3, "Installing dependencies (skipped, no package.json)...")
 		}
+	} else {
+		reportProgress(w, 3, "Installing dependencies (skipped, workbench present)...")
 	}
 
 	// Generate env files (always, to ensure .env.production is current)
+	reportProgress(w, 4, "Generating environment files...")
 	if err := generateAppEnvFiles(req.Name); err != nil {
 		log.Printf("Failed to generate env files: %s", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Failed to generate environment files: " + err.Error(),
+		writePublishJSON(w, http.StatusInternalServerError, map[string]string{
+			"error":  "Failed to generate environment files: " + err.Error(),
+			"output": strings.TrimSpace(output.String()),
 		})
 		return
 	}
 
 	// Run ops ide login --mode=production
+	reportProgress(w, 5, "Connecting to OpenServerless...")
 	log.Printf("Running ops ide login --mode=production for %s...", req.Name)
 	loginCmd := exec.Command("ops", "ide", "login", "--mode=production")
 	loginCmd.Dir = workbenchPath
-	if output, err := loginCmd.CombinedOutput(); err != nil {
-		log.Printf("ops ide login --mode=production failed: %s, output: %s", err, string(output))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+	if err := runStreamingCommand(w, &output, loginCmd); err != nil {
+		log.Printf("ops ide login --mode=production failed: %s, output: %s", err, output.String())
+		writePublishJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "Login failed: " + err.Error(),
-			"output": strings.TrimSpace(string(output)),
+			"output": strings.TrimSpace(output.String()),
 		})
 		return
 	}
 
 	// Run ops ide deploy
+	reportProgress(w, 6, "Deploying application...")
 	log.Printf("Running ops ide deploy for %s...", req.Name)
 	deployCmd := exec.Command("ops", "ide", "deploy")
 	deployCmd.Dir = workbenchPath
-	if output, err := deployCmd.CombinedOutput(); err != nil {
-		log.Printf("ops ide deploy failed: %s, output: %s", err, string(output))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+	if err := runStreamingCommand(w, &output, deployCmd); err != nil {
+		log.Printf("ops ide deploy failed: %s, output: %s", err, output.String())
+		writePublishJSON(w, http.StatusInternalServerError, map[string]string{
 			"error":  "Deploy failed: " + err.Error(),
-			"output": strings.TrimSpace(string(output)),
+			"output": strings.TrimSpace(output.String()),
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"output": "Published successfully",
+	writePublishJSON(w, http.StatusOK, map[string]string{
+		"message": "Published successfully",
+		"output":  strings.TrimSpace(output.String()),
 	})
 }
