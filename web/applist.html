@@ -972,7 +972,9 @@
                 ? '' : (applicationSlideIndex + 1) + ' of ' + entries.length;
 
             const card = document.createElement('div');
-            card.className = 'nu-card p-4 h-full w-full cursor-pointer flex flex-col gap-3 text-center items-center justify-center';
+            // Title at the top, description at the bottom, the icon taking
+            // whatever height is left between them.
+            card.className = 'nu-card p-4 h-full w-full cursor-pointer flex flex-col gap-3 text-center items-center';
             card.setAttribute('role', 'button');
             card.setAttribute('tabindex', '0');
             card.addEventListener('click', () => showApplicationConfig(entry));
@@ -983,27 +985,29 @@
                 }
             });
 
-            const icon = document.createElement('img');
-            icon.src = entry.icon || APPLICATION_ICON_PLACEHOLDER;
-            icon.alt = entry.title || entry.name;
-            icon.loading = 'lazy';
-            icon.className = 'max-h-48 max-w-full object-contain';
-            icon.addEventListener('error', () => { icon.src = APPLICATION_ICON_PLACEHOLDER; });
-            card.appendChild(icon);
-
             const link = document.createElement('a');
             link.href = 'https://github.com/' + entry.repo;
             link.target = '_blank';
             link.rel = 'noopener';
-            link.className = 'nu-link font-medium text-lg';
+            link.className = 'nu-link font-medium text-lg shrink-0';
             link.textContent = entry.title || entry.name;
             // Following the link must not also open the name panel.
             link.addEventListener('click', e => e.stopPropagation());
             card.appendChild(link);
 
+            const icon = document.createElement('img');
+            icon.src = entry.icon || APPLICATION_ICON_PLACEHOLDER;
+            icon.alt = entry.title || entry.name;
+            icon.loading = 'lazy';
+            // min-h-0 lets the icon shrink inside the flex column instead of
+            // pushing the description off the bottom of the card.
+            icon.className = 'flex-1 min-h-0 max-w-full object-contain';
+            icon.addEventListener('error', () => { icon.src = APPLICATION_ICON_PLACEHOLDER; });
+            card.appendChild(icon);
+
             if (entry.description) {
                 const description = document.createElement('p');
-                description.className = 'text-sm text-[color:var(--nu-muted)]';
+                description.className = 'text-sm text-[color:var(--nu-muted)] shrink-0 mt-auto';
                 description.textContent = entry.description;
                 card.appendChild(description);
             }

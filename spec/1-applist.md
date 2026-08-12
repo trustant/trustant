@@ -183,13 +183,13 @@ radio selection and any typed name. Reopening the modal always resets to
 
 ### Application tabs
 
-While an application tab is active the modal grows to **half the viewport width,
-centred, and 80% of the viewport height**, so one application can be shown full
-width. The Starter tab keeps the default modal size, so the larger size lasts
-only as long as the catalog is being browsed — leaving the tab, closing the
-modal, or reopening it all restore the default. Below 900px wide, where half a
-viewport would be unusable, the width falls back to the near-full width the
-modal uses elsewhere.
+While an application tab is active the modal grows to **half the viewport width
+and 80% of the viewport height**. It is centred in a full-viewport scrim, so the
+80% height leaves **10% of the page free above and below**. The Starter tab
+keeps the default modal size, so the larger size lasts only as long as the
+catalog is being browsed — leaving the tab, closing the modal, or reopening it
+all restore the default. Below 900px wide, where half a viewport would be
+unusable, the width falls back to the near-full width the modal uses elsewhere.
 
 Each tab shows **one application at a time**, full width, with a **left and
 right arrow** either side stepping through the group in published order. The
@@ -202,16 +202,22 @@ and is omitted for a group of one.
 
 Switching tabs restarts at the first application of the group now showing.
 
-The application on show is a full-width card holding, top to bottom:
+The application on show is a card filling the height the modal gives it, holding,
+top to bottom:
 
-- the **icon**, lazily loaded. An entry whose icon is empty, or whose image
-  fails to load, renders a neutral placeholder instead — `index.py` deliberately
-  keeps an entry whose icon is not published yet, so a missing image is expected
-  and must never leave a broken-image glyph;
-- the **title** as a link to `https://github.com/<repo>`, opening in a new tab.
-  Following the link must **not** also open the name panel — the same boundary
-  the starter rows observe between their link and their radio;
-- the **description** below the title, shown in full.
+- the **title** at the **top**, as a link to `https://github.com/<repo>` opening
+  in a new tab. Following the link must **not** also open the name panel — the
+  same boundary the starter rows observe between their link and their radio;
+- the **icon**, lazily loaded, taking whatever height is left between the two.
+  An entry whose icon is empty, or whose image fails to load, renders a neutral
+  placeholder instead — `index.py` deliberately keeps an entry whose icon is not
+  published yet, so a missing image is expected and must never leave a
+  broken-image glyph;
+- the **description** at the **bottom**, shown in full.
+
+The icon is the element that absorbs the spare height, so the title stays pinned
+to the top and the description to the bottom whatever the card's size and
+however long the prose is.
 
 The card — anywhere but the link — is clickable and keyboard-activatable (Enter
 or Space) and opens the name panel.
