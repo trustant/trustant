@@ -179,15 +179,30 @@ strip is rendered at all** and the modal is exactly the Starter form.
 
 Switching tabs never loses the other tab's state: the Starter tab keeps its
 radio selection and any typed name. Reopening the modal always resets to
-**Starter** with the catalog back at its tile row.
+**Starter** with the catalog back at its carousel.
 
 ### Application tabs
 
-Each application tab holds a **horizontally-scrolling row of tiles**, one per
-entry of that group, in published order. The row has its own bounded horizontal
-scroll so the tab strip stays put and the modal itself never scrolls sideways.
+While an application tab is active the modal grows to **half the viewport width,
+centred, and 80% of the viewport height**, so one application can be shown full
+width. The Starter tab keeps the default modal size, so the larger size lasts
+only as long as the catalog is being browsed — leaving the tab, closing the
+modal, or reopening it all restore the default. Below 900px wide, where half a
+viewport would be unusable, the width falls back to the near-full width the
+modal uses elsewhere.
 
-A tile shows, top to bottom:
+Each tab shows **one application at a time**, full width, with a **left and
+right arrow** either side stepping through the group in published order. The
+arrows **wrap** at both ends — a group is a short ring, not a list with a start
+and a finish — and are hidden entirely for a group of one, where they would do
+nothing. `ArrowLeft` / `ArrowRight` step the carousel too, but only while the
+carousel is what the modal is showing: never on the Starter tab and never while
+the name panel is up. A **"<n> of <total>"** counter sits under the carousel,
+and is omitted for a group of one.
+
+Switching tabs restarts at the first application of the group now showing.
+
+The application on show is a full-width card holding, top to bottom:
 
 - the **icon**, lazily loaded. An entry whose icon is empty, or whose image
   fails to load, renders a neutral placeholder instead — `index.py` deliberately
@@ -196,18 +211,18 @@ A tile shows, top to bottom:
 - the **title** as a link to `https://github.com/<repo>`, opening in a new tab.
   Following the link must **not** also open the name panel — the same boundary
   the starter rows observe between their link and their radio;
-- the **description** below the title, clamped to two lines.
+- the **description** below the title, shown in full.
 
-The tile body — anywhere but the link — is clickable and keyboard-activatable
-(Enter or Space) and opens the name panel.
+The card — anywhere but the link — is clickable and keyboard-activatable (Enter
+or Space) and opens the name panel.
 
 ### Name panel
 
-Clicking a tile replaces the row, in place, with a small panel: a line naming
-the chosen application and the repository it will be created from, an
-**Application Name** field, and **Cancel** / **Confirm**.
+Clicking the card replaces the carousel and its counter, in place, with a small
+panel: a line naming the chosen application and the repository it will be
+created from, an **Application Name** field, and **Cancel** / **Confirm**.
 
-**Cancel returns to the tile row** rather than closing the modal — the user is
+**Cancel returns to the carousel** rather than closing the modal — the user is
 picking, not aborting. The modal's own Cancel and a scrim click still close it.
 
 The name is prefilled with the entry's `name`, which the generator already
@@ -225,13 +240,13 @@ tab applies on Create run here on Confirm, rendering failures in the same inline
 style.
 
 On **Confirm** the application is created from **that entry's own repository**,
-so two tiles in one group produce different applications. **No `templates` is
+so two applications in one group produce different apps. **No `templates` is
 sent** — the app falls back to the global `notebook.repository`. Everything
 downstream (the creating modal, the `missing_env` path, the list refresh) is
 shared with the Starter path.
 
-The GitHub datalist notice and the SSH key notice are **Starter-only**; a tile's
-repository is fixed and public.
+The GitHub datalist notice and the SSH key notice are **Starter-only**; a
+catalog application's repository is fixed and public.
 
 ### Starter tab
 

@@ -87,14 +87,45 @@ textarea {
     border-color: color-mix(in oklab, var(--nu-brand) 28%, var(--nu-rule));
 }
 
-/* Two-line description on an application catalog tile, so tiles in the
-   horizontal row keep a uniform height however long the prose is. */
-.nu-clamp-2 {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    overflow: hidden;
+/* While the application catalog is being browsed the Add Application modal
+   grows to half the viewport width and 80% of its height, so one application
+   can be shown full width. The Starter tab keeps the default modal size, so
+   this is applied only for the duration of the catalog panes. */
+.nu-modal-browse {
+    width: 50vw;
+    max-width: 50vw;
+    height: 80vh;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* On a narrow screen half a viewport is unusable, so fall back to the
+   near-full width the modal uses everywhere else. */
+@media (max-width: 900px) {
+    .nu-modal-browse {
+        width: auto;
+        max-width: none;
+    }
+}
+
+/* The carousel takes the height the panel gives it and centres its content,
+   so stepping between applications does not make the modal jump. */
+.nu-modal-browse #addAppApplicationPane {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.nu-modal-browse #applicationRow {
+    flex: 1;
+    min-height: 0;
+}
+
+.nu-modal-browse #applicationSlide {
+    height: 100%;
+    overflow-y: auto;
 }
 
 .nu-modal-scrim {

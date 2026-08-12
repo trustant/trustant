@@ -110,7 +110,7 @@
 
     <!-- Add Application Modal -->
     <div id="addModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
-        <div class="nu-modal p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+        <div id="addModalPanel" class="nu-modal p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 class="text-lg font-medium mb-4">Add Application</h3>
             <!-- One tab per catalog group, plus Starter. Built by renderAddAppTabs();
                  with no applications published only Starter exists and the modal is
@@ -118,7 +118,15 @@
             <div id="addAppTabs" class="flex gap-1 mb-4 overflow-x-auto hidden"></div>
             <!-- Application pane: the tile row, replaced in place by the name panel. -->
             <div id="addAppApplicationPane" class="hidden">
-                <div id="applicationRow" class="flex gap-3 overflow-x-auto pb-2"></div>
+                <!-- One application at a time: arrows step through the group. -->
+                <div id="applicationRow" class="flex items-center gap-3">
+                    <button type="button" id="applicationPrev" aria-label="Previous application"
+                        class="nu-btn nu-btn-secondary shrink-0 px-3 py-2">&#8249;</button>
+                    <div id="applicationSlide" class="flex-1 min-w-0"></div>
+                    <button type="button" id="applicationNext" aria-label="Next application"
+                        class="nu-btn nu-btn-secondary shrink-0 px-3 py-2">&#8250;</button>
+                </div>
+                <p id="applicationPosition" class="text-xs text-[color:var(--nu-muted)] text-center mt-2"></p>
                 <form id="applicationConfigForm" class="hidden space-y-4">
                     <p class="text-sm text-[color:var(--nu-muted)]">
                         Creating <strong id="applicationConfigTitle" class="text-[color:var(--nu-ink)]"></strong>
@@ -903,7 +911,7 @@
         }
 
         // Switching tabs only swaps which pane is visible: the Starter tab keeps
-        // its radio selection and typed name, and the catalog keeps its tiles.
+        // its radio selection and typed name.
         function selectAddAppTab(tab) {
             activeAddAppTab = tab;
             const starterPane = document.getElementById('addAppForm');
@@ -911,55 +919,95 @@
             const onStarter = tab === STARTER_TAB;
             starterPane.classList.toggle('hidden', !onStarter);
             applicationPane.classList.toggle('hidden', onStarter);
+            // The catalog needs room for a full-width application; the Starter
+            // form does not, so the larger size lasts only while browsing.
+            document.getElementById('addModalPanel').classList.toggle('nu-modal-browse', !onStarter);
             renderAddAppTabs();
-            // Leaving a tile selected behind a tab switch would resurface it the
-            // next time the pane is shown, so every switch returns to the row.
+            // Leaving an application selected behind a tab switch would
+            // resurface it, so every switch returns to the carousel — at the
+            // start of the group it is now showing.
+            applicationSlideIndex = 0;
             showApplicationRow();
             if (!onStarter) renderApplicationRow();
         }
 
+        // Index of the application on show within the active group.
+        let applicationSlideIndex = 0;
+
+        function activeApplications() {
+            return applicationGroups[activeAddAppTab] || [];
+        }
+
+        // Steps the carousel, wrapping at both ends so the arrows are never
+        // dead: a group is a short ring, not a list with a start and a finish.
+        function stepApplication(delta) {
+            const entries = activeApplications();
+            if (entries.length === 0) return;
+            applicationSlideIndex =
+                (applicationSlideIndex + delta + entries.length) % entries.length;
+            renderApplicationRow();
+        }
+
         function renderApplicationRow() {
-            const row = document.getElementById('applicationRow');
-            row.innerHTML = '';
-            for (const entry of applicationGroups[activeAddAppTab] || []) {
-                const tile = document.createElement('div');
-                tile.className = 'nu-card p-3 shrink-0 w-40 cursor-pointer flex flex-col gap-2';
-                tile.setAttribute('role', 'button');
-                tile.setAttribute('tabindex', '0');
-                tile.addEventListener('click', () => showApplicationConfig(entry));
-                tile.addEventListener('keydown', e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        showApplicationConfig(entry);
-                    }
-                });
+            const slide = document.getElementById('applicationSlide');
+            const position = document.getElementById('applicationPosition');
+            const entries = activeApplications();
+            slide.innerHTML = '';
 
-                const icon = document.createElement('img');
-                icon.src = entry.icon || APPLICATION_ICON_PLACEHOLDER;
-                icon.alt = entry.title || entry.name;
-                icon.loading = 'lazy';
-                icon.className = 'w-full h-20 object-contain';
-                icon.addEventListener('error', () => { icon.src = APPLICATION_ICON_PLACEHOLDER; });
-                tile.appendChild(icon);
-
-                const link = document.createElement('a');
-                link.href = 'https://github.com/' + entry.repo;
-                link.target = '_blank';
-                link.rel = 'noopener';
-                link.className = 'nu-link font-medium text-sm';
-                link.textContent = entry.title || entry.name;
-                // Following the link must not also open the name panel.
-                link.addEventListener('click', e => e.stopPropagation());
-                tile.appendChild(link);
-
-                if (entry.description) {
-                    const description = document.createElement('p');
-                    description.className = 'text-xs text-[color:var(--nu-muted)] nu-clamp-2';
-                    description.textContent = entry.description;
-                    tile.appendChild(description);
-                }
-                row.appendChild(tile);
+            if (entries.length === 0) {
+                position.textContent = '';
+                document.getElementById('applicationPrev').classList.add('hidden');
+                document.getElementById('applicationNext').classList.add('hidden');
+                return;
             }
+            if (applicationSlideIndex >= entries.length) applicationSlideIndex = 0;
+            const entry = entries[applicationSlideIndex];
+
+            // One application at a time, so the arrows are the only way across
+            // the group; with a single entry they would do nothing, so hide them.
+            const single = entries.length === 1;
+            document.getElementById('applicationPrev').classList.toggle('hidden', single);
+            document.getElementById('applicationNext').classList.toggle('hidden', single);
+            position.textContent = single
+                ? '' : (applicationSlideIndex + 1) + ' of ' + entries.length;
+
+            const card = document.createElement('div');
+            card.className = 'nu-card p-4 h-full w-full cursor-pointer flex flex-col gap-3 text-center items-center justify-center';
+            card.setAttribute('role', 'button');
+            card.setAttribute('tabindex', '0');
+            card.addEventListener('click', () => showApplicationConfig(entry));
+            card.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    showApplicationConfig(entry);
+                }
+            });
+
+            const icon = document.createElement('img');
+            icon.src = entry.icon || APPLICATION_ICON_PLACEHOLDER;
+            icon.alt = entry.title || entry.name;
+            icon.loading = 'lazy';
+            icon.className = 'max-h-48 max-w-full object-contain';
+            icon.addEventListener('error', () => { icon.src = APPLICATION_ICON_PLACEHOLDER; });
+            card.appendChild(icon);
+
+            const link = document.createElement('a');
+            link.href = 'https://github.com/' + entry.repo;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.className = 'nu-link font-medium text-lg';
+            link.textContent = entry.title || entry.name;
+            // Following the link must not also open the name panel.
+            link.addEventListener('click', e => e.stopPropagation());
+            card.appendChild(link);
+
+            if (entry.description) {
+                const description = document.createElement('p');
+                description.className = 'text-sm text-[color:var(--nu-muted)]';
+                description.textContent = entry.description;
+                card.appendChild(description);
+            }
+            slide.appendChild(card);
         }
 
         // An application "name" is already a legal slug, so it is the prefill as
@@ -981,6 +1029,7 @@
         function showApplicationRow() {
             selectedApplication = null;
             document.getElementById('applicationRow').classList.remove('hidden');
+            document.getElementById('applicationPosition').classList.remove('hidden');
             document.getElementById('applicationConfigForm').classList.add('hidden');
             hideApplicationNameError();
         }
@@ -988,6 +1037,7 @@
         function showApplicationConfig(entry) {
             selectedApplication = entry;
             document.getElementById('applicationRow').classList.add('hidden');
+            document.getElementById('applicationPosition').classList.add('hidden');
             document.getElementById('applicationConfigForm').classList.remove('hidden');
             document.getElementById('applicationConfigTitle').textContent = entry.title || entry.name;
             document.getElementById('applicationConfigRepo').textContent = entry.repo;
@@ -1059,6 +1109,9 @@
             document.getElementById('addModal').classList.add('hidden');
             document.getElementById('addModal').classList.remove('flex');
             document.getElementById('addAppForm').reset();
+            // Drop the catalog size now: the modal always reopens on Starter,
+            // and a stale class would flash the browsing size on the way in.
+            document.getElementById('addModalPanel').classList.remove('nu-modal-browse');
             appNameTouched = false;
             hideAppNameError();
             hideOwnStarterModal();
@@ -2502,6 +2555,18 @@
 
         document.getElementById('addAppForm').addEventListener('submit', addApp);
         document.getElementById('applicationConfigForm').addEventListener('submit', addApplicationFromCatalog);
+        document.getElementById('applicationPrev').addEventListener('click', () => stepApplication(-1));
+        document.getElementById('applicationNext').addEventListener('click', () => stepApplication(1));
+        // Arrow keys step the carousel too, but only while it is what the modal
+        // is showing — never while the name field has focus.
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            if (document.getElementById('addModal').classList.contains('hidden')) return;
+            if (activeAddAppTab === STARTER_TAB) return;
+            if (!document.getElementById('applicationConfigForm').classList.contains('hidden')) return;
+            e.preventDefault();
+            stepApplication(e.key === 'ArrowLeft' ? -1 : 1);
+        });
         // Once the user types a name, the starter selection stops overwriting it.
         document.getElementById('appName').addEventListener('input', () => {
             appNameTouched = true;
