@@ -30,7 +30,7 @@ https://raw.githubusercontent.com/trustable-ai/.github/refs/heads/main/index.jso
   "applications": {
     "Applications": [
       { "name": "AI Document Manager",
-        "repo": "trustable-ai/truchat",
+        "repo": "https://github.com/trustable-ai/documentchatai",
         "icon": "https://raw.githubusercontent.com/trustable-ai/truchat-templates/refs/heads/main/documentchatai.png",
         "description": "Manage Documents with AI" }
     ]
@@ -86,19 +86,25 @@ sibling, falling back to the repository itself. It lists them one per line:
 - [AI Email Manager](aiemailmanager.md) Manager Email with AI
 ```
 
+The linked file **names the template**: `- [<name>](<template>.md)`. The
+application itself lives in the repository of that name in the organization,
+`https://github.com/trustable-ai/<template>`, not in the starter or templates
+repository — those only publish the listing and the icons.
+
 `index.py` fetches that file over raw.githubusercontent.com (the same static,
 unauthenticated path Trustable itself uses) and turns every matching line into an
 entry under the group named by the file's **first `# ` heading** (`Applications`
 above, with the `# ` marker removed):
 
 - `name` is the link text;
-- `repo` is the **marked** repository — the starter the templates belong to, or
-  the repository itself when it has no `templates=`;
+- `repo` is the application's own repository, `https://github.com/trustable-ai/`
+  followed by the linked `.md` basename without its extension
+  (`aidocumentmanager.md` → `https://github.com/trustable-ai/aidocumentmanager`);
 - `icon` is the linked `.md` path with the extension swapped for `.png`,
   resolved as a full raw URL against the repository the `_index.md` came from;
 - `description` is the text following the link, whitespace-collapsed.
 
-Lines that do not match the `- [name](file.md) description` shape are ignored, so
+Lines that do not match the `- [name](template.md) description` shape are ignored, so
 headings and prose in `_index.md` are harmless. A repository without an
 `_index.md` contributes no applications; if it is a starter it stays in
 `starters` regardless, and if it is a marked repository without `templates=` it
@@ -110,7 +116,7 @@ the first one wins even if it appears below the list. Two templates repositories
 whose `_index.md` share a heading share the group, which is how related starters
 are presented together. A file with entries but no `# ` heading falls back to the
 starter's own name and says so on stderr. Groups are sorted by name, and entries
-within a group by starter repository then name.
+within a group by application repository then name.
 
 Every `icon` is checked with a `HEAD` request and a missing one is **warned
 about, not fatal**:
@@ -126,6 +132,26 @@ the templates repository later without regenerating anything. Applications
 missing an icon are also marked `(no icon)` in the run summary. A network failure
 during the check counts as missing, so a connectivity problem produces noisy
 warnings rather than a failed run.
+
+Every application `repo` is checked the same way and is likewise **warned about,
+not fatal** — it is derived from the template name, so a typo in `_index.md`, or
+a template listed before its repository was created, points at nothing:
+
+```
+warning: no repository for AI Email Manager — https://github.com/trustable-ai/aiemailmanager
+
+4 of 16 applications point at a repository that does not exist.
+```
+
+Those entries are marked `(no repo)` in the run summary and stay in the index,
+so the repository can be created later without regenerating anything. The check
+uses `gh api repos/<owner>/<repo>` rather than an anonymous request, because a
+private repository is 404 to an anonymous caller yet matters here — an
+application the user cannot clone is as broken as one that does not exist. Each
+distinct repository is probed once even when several `_index.md` list it. Only a
+definite 404 is reported as missing: when the probe cannot answer at all (no
+`gh`, not authenticated, network down) the run says how many repositories went
+unchecked instead of claiming they are absent.
 
 ```
 ./support/index.py          # regenerate index.json and show what changed
