@@ -161,20 +161,31 @@ func TestScreenshotScriptRereadsCurrentApp(t *testing.T) {
 	}
 }
 
-// LC_TERMINAL is the probe that survives SSH, which is how this tool is
-// normally reached; TERM_PROGRAM does not propagate over ssh.
-func TestScreenshotScriptDetectsITermBeforeEmittingBase64(t *testing.T) {
+// The inline image is always attempted on a terminal. Terminal detection is
+// unreliable — iTerm2 behind a wrapper, or a shell that does not forward
+// LC_TERMINAL, is indistinguishable from a plain terminal — and gating on it
+// loses the image exactly where it would have worked. The sequence is inert
+// where it is not understood.
+func TestScreenshotScriptAlwaysAttemptsTheInlineImage(t *testing.T) {
 	script := readScreenshotScript(t)
-	if !strings.Contains(script, "LC_TERMINAL") {
-		t.Error("the iTerm probe must check LC_TERMINAL, which survives ssh")
-	}
 	if !strings.Contains(script, `\033]1337;File=inline=1`) {
-		t.Error("screenshot.sh must emit the iTerm2 inline image protocol")
+		t.Fatal("screenshot.sh must emit the iTerm2 inline image protocol")
 	}
-	lcIndex := strings.Index(script, "LC_TERMINAL")
-	escIndex := strings.Index(script, `\033]1337`)
-	if lcIndex < 0 || escIndex < 0 || lcIndex > escIndex {
-		t.Error("the terminal probe must guard the escape sequence, or non-iTerm terminals get a base64 dump")
+	code := scriptCode(script)
+	if strings.Contains(code, `"${LC_TERMINAL:-}" == "iTerm2"`) {
+		t.Error("the inline image must not be gated on terminal detection — attempt it whenever stdout is a tty")
+	}
+	if !strings.Contains(code, "[[ -t 1 ]]") {
+		t.Error("the image must be skipped only when stdout is not a tty, where base64 would corrupt a pipe")
+	}
+	// tmux swallows the sequence unless it is wrapped for passthrough.
+	if !strings.Contains(script, `\033Ptmux;`) {
+		t.Error("inside tmux the sequence needs the passthrough envelope or the image never reaches the outer terminal")
+	}
+	// The path is printed unconditionally so nothing is lost when the terminal
+	// cannot render the image.
+	if !strings.Contains(script, `ok "$count frame(s) — $gif"`) {
+		t.Error("the frame count and path must print regardless of whether the image rendered")
 	}
 }
 

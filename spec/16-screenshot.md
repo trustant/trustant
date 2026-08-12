@@ -3,8 +3,8 @@
 `screenshot.sh` records what the launched application looks like over time. It is
 an interactive loop: press Enter to capture a frame, Space to redraw the current
 app's animation, Backspace/Delete to drop the last frame, `q` to quit. Every
-change rewrites an animated PNG and an animated GIF, and the GIF is drawn inline
-in the terminal when it supports it.
+change rewrites an animated PNG and an animated GIF, and the GIF is always drawn
+inline in the terminal (iTerm2 protocol) whenever stdout is a tty.
 
 Code lives in `screenshot.sh` (the loop) and `tests/screenshot.mjs` (the capture).
 
@@ -181,14 +181,22 @@ After each regeneration the GIF is emitted with the iTerm2 inline-image protocol
 ESC ] 1337 ; File=inline=1;width=20;preserveAspectRatio=1 : <base64> BEL
 ```
 
-The terminal is probed with `LC_TERMINAL` first, then `TERM_PROGRAM`.
-`LC_TERMINAL` is the one that matters here: it is forwarded over SSH, and this
-tool is normally reached through `./ssh.sh`, where `TERM_PROGRAM` does not
-propagate.
+**The image is always attempted whenever stdout is a terminal**, with no
+capability detection. Detection is unreliable in exactly the situations that
+matter: iTerm2 reached through a wrapper, a login shell that does not forward
+`LC_TERMINAL`, or `TERM_PROGRAM` being dropped across SSH all look identical to
+a plain terminal, and refusing to draw there loses the image precisely where it
+would have worked. The escape sequence is inert in terminals that do not
+understand it.
 
-Any other terminal gets the file path and frame count printed instead. Emitting
-the escape sequence unconditionally would dump kilobytes of base64 into VS Code,
-tmux, and plain Terminal.
+Inside tmux the sequence is wrapped in a `ESC P tmux; … ESC \` passthrough
+envelope, doubling the inner `ESC`; without it tmux consumes the sequence instead
+of forwarding it to the outer terminal.
+
+The only case that skips the image is stdout **not** being a terminal — a pipe or
+a redirect to a file — where raw base64 would corrupt whatever consumes the
+output. The frame count and file path are printed unconditionally, so nothing is
+lost when the image does not render.
 
 # Git
 

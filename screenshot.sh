@@ -151,17 +151,33 @@ PY
 
 # --- 6. Show the GIF in the terminal ---
 #
-# LC_TERMINAL is probed before TERM_PROGRAM because it survives SSH, and this
-# tool is normally reached through ./ssh.sh. Anything else gets a path: emitting
-# the escape sequence blindly dumps kilobytes of base64 into VS Code or tmux.
+# The inline image is always attempted, because detection is unreliable: iTerm2
+# reached through a wrapper, tmux, or a shell that does not forward LC_TERMINAL
+# looks identical to a plain terminal, and refusing to draw there loses the
+# feature exactly where it would have worked. The escape sequence is inert in
+# terminals that do not understand it.
+#
+# It is skipped only where the output is provably not a terminal (a pipe or a
+# file), since there the base64 would corrupt whatever consumes it. The frame
+# count and path are always printed, so nothing is lost when the image does not
+# render.
+#
+# TMUX needs the sequence wrapped in a passthrough envelope, otherwise tmux eats
+# it instead of forwarding it to the outer terminal.
 preview() {
-  local gif="$APP_DIR/screenshot.gif" count="$1"
+  local gif="$APP_DIR/screenshot.gif" count="$1" encoded
   [[ -f "$gif" ]] || return 0
-  if [[ "${LC_TERMINAL:-}" == "iTerm2" || "${TERM_PROGRAM:-}" == "iTerm.app" ]]; then
-    printf '\033]1337;File=inline=1;width=20;preserveAspectRatio=1:%s\a\n' "$(base64 -w0 "$gif")"
-  else
-    ok "$count frame(s) — $gif"
+
+  if [[ -t 1 ]]; then
+    encoded="$(base64 -w0 "$gif")"
+    if [[ -n "${TMUX:-}" ]]; then
+      printf '\033Ptmux;\033\033]1337;File=inline=1;width=20;preserveAspectRatio=1:%s\a\033\\\n' "$encoded"
+    else
+      printf '\033]1337;File=inline=1;width=20;preserveAspectRatio=1:%s\a\n' "$encoded"
+    fi
   fi
+
+  ok "$count frame(s) — $gif"
 }
 
 # --- 7. Commit ---
