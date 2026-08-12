@@ -164,8 +164,79 @@ The Git Push and Publish buttons are always rendered and always call their respe
 
 ## Adding an application
 
-The modal is starter-driven. Under the heading **"Add an application starter"**
-it shows a vertical radio list built from `GET /api/starters`
+The modal is a **tabbed browser** over the published index
+([15-starters.md](15-starters.md)). A horizontal, horizontally-scrollable tab
+strip sits above the body:
+
+- **Starter** — the first tab, selected by default, described below and
+  unchanged by the catalog;
+- one tab per group of `applications`, ordered by group name (which reproduces
+  the published order, since `index.py` sorts groups by name): `Apps`, `Chat`,
+  `Demo`, `Utilities`, …
+
+When the index publishes no applications — or could not be loaded — **no tab
+strip is rendered at all** and the modal is exactly the Starter form.
+
+Switching tabs never loses the other tab's state: the Starter tab keeps its
+radio selection and any typed name. Reopening the modal always resets to
+**Starter** with the catalog back at its tile row.
+
+### Application tabs
+
+Each application tab holds a **horizontally-scrolling row of tiles**, one per
+entry of that group, in published order. The row has its own bounded horizontal
+scroll so the tab strip stays put and the modal itself never scrolls sideways.
+
+A tile shows, top to bottom:
+
+- the **icon**, lazily loaded. An entry whose icon is empty, or whose image
+  fails to load, renders a neutral placeholder instead — `index.py` deliberately
+  keeps an entry whose icon is not published yet, so a missing image is expected
+  and must never leave a broken-image glyph;
+- the **title** as a link to `https://github.com/<repo>`, opening in a new tab.
+  Following the link must **not** also open the name panel — the same boundary
+  the starter rows observe between their link and their radio;
+- the **description** below the title, clamped to two lines.
+
+The tile body — anywhere but the link — is clickable and keyboard-activatable
+(Enter or Space) and opens the name panel.
+
+### Name panel
+
+Clicking a tile replaces the row, in place, with a small panel: a line naming
+the chosen application and the repository it will be created from, an
+**Application Name** field, and **Cancel** / **Confirm**.
+
+**Cancel returns to the tile row** rather than closing the modal — the user is
+picking, not aborting. The modal's own Cancel and a scrim click still close it.
+
+The name is prefilled with the entry's `name`, which the generator already
+guarantees is a legal slug, so it is used as published. When an application of
+that name already exists the smallest free integer is appended — `tetris`,
+`tetris1`, `tetris2`. The search runs against the loaded application list, so it
+is global: an entry listed under two groups (as `truk8s` is, under both `Demo`
+and `Utilities`) is still counted once against the user's whole list. A slug
+occupying all 20 characters is trimmed to leave room for the digits rather than
+producing a name the pattern would reject.
+
+The prefill is a starting point, not a constraint: the field is freely editable,
+and the same `[a-zA-Z][a-zA-Z0-9]{5,19}` and duplicate-name checks the Starter
+tab applies on Create run here on Confirm, rendering failures in the same inline
+style.
+
+On **Confirm** the application is created from **that entry's own repository**,
+so two tiles in one group produce different applications. **No `templates` is
+sent** — the app falls back to the global `notebook.repository`. Everything
+downstream (the creating modal, the `missing_env` path, the list refresh) is
+shared with the Starter path.
+
+The GitHub datalist notice and the SSH key notice are **Starter-only**; a tile's
+repository is fixed and public.
+
+### Starter tab
+
+The Starter tab is starter-driven. Under the heading **"Add an application
+starter"** it shows a vertical radio list built from `GET /api/starters`
 ([15-starters.md](15-starters.md)): one row per starter with the **Name** as a
 link to `https://github.com/<repo>` (opens in a new tab and must not toggle the
 radio), followed by the **Description**. The last row is always **"My

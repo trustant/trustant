@@ -173,23 +173,48 @@ the published list.
 
 # GET /api/starters
 
-Returns the sanitized index:
+Returns the sanitized index — both halves of it:
 
 ```json
 { "starters": [ { "name": "...", "repo": "...",
-                  "templates": "...", "description": "..." } ] }
+                  "templates": "...", "description": "..." } ],
+  "applications": { "Apps": [ { "name": "...", "title": "...", "repo": "...",
+                                "icon": "...", "description": "..." } ] } }
 ```
 
-sorted by `name`, plus an optional `"warning"` string.
+`starters` is sorted by `name`. `applications` keeps the published order within
+each group (`index.py` already sorts by `(title, name)`). An optional
+`"warning"` string may accompany either.
 
 The backend re-validates what it reads, because the index is a file that can be
-hand-edited: entries without a name or with a `repo` that is not `owner/repo`
-are dropped, a `templates` value that does not normalize falls back to
-`trustable-ai/templates`, and descriptions are whitespace-collapsed.
+hand-edited.
 
-The result is cached in-process for 5 minutes. The endpoint never fails the
-request: an unreachable or malformed index returns an empty `starters` list plus
-a `warning`, so the browser can still offer "My Application Starter".
+For a **starter**: entries without a name or with a `repo` that is not
+`owner/repo` are dropped, a `templates` value that does not normalize falls back
+to `trustable-ai/templates`, and descriptions are whitespace-collapsed.
+
+For an **application**:
+
+- `repo` is published as a full `https://github.com/<org>/<slug>` URL and is
+  **reduced to `owner/repository`** here (a trailing `/` or `.git` is stripped),
+  so the frontend and `POST /api/repo` see the same shape a starter carries. An
+  entry whose `repo` does not reduce to `owner/repository` is dropped.
+- an entry without a `name` is dropped;
+- an empty `title` defaults to `name`, so a tile always has a label;
+- an `icon` that is non-empty but not an `https://` URL drops the entry — the
+  index is hand-editable and a junk value must not put a broken `<img>`, or a
+  `javascript:` URL, into the modal. An **empty** icon is kept: `index.py`
+  deliberately publishes an entry whose icon is not uploaded yet, and the tile
+  falls back to a placeholder.
+- `title` and `description` are whitespace-collapsed;
+- a group with a blank name, or one left empty after filtering, disappears.
+
+Both halves come from the same single fetch and share one in-process 5-minute
+cache. The endpoint never fails the request: an unreachable or malformed index
+returns an empty `starters` list, an empty `applications` object, and a
+`warning`, so the browser can still offer "My Application Starter".
+`applications` is **always an object and never `null`** — the frontend iterates
+it unconditionally.
 
 # Auto template
 

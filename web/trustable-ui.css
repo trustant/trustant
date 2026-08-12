@@ -87,6 +87,16 @@ textarea {
     border-color: color-mix(in oklab, var(--nu-brand) 28%, var(--nu-rule));
 }
 
+/* Two-line description on an application catalog tile, so tiles in the
+   horizontal row keep a uniform height however long the prose is. */
+.nu-clamp-2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+}
+
 .nu-modal-scrim {
     background: rgb(0 0 0 / .5);
 }

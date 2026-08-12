@@ -110,9 +110,42 @@
 
     <!-- Add Application Modal -->
     <div id="addModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
-        <div class="nu-modal p-6 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="nu-modal p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <h3 class="text-lg font-medium mb-4">Add Application</h3>
-            <form id="addAppForm" class="space-y-4">
+            <!-- One tab per catalog group, plus Starter. Built by renderAddAppTabs();
+                 with no applications published only Starter exists and the modal is
+                 exactly what it was before the catalog. -->
+            <div id="addAppTabs" class="flex gap-1 mb-4 overflow-x-auto hidden"></div>
+            <!-- Application pane: the tile row, replaced in place by the name panel. -->
+            <div id="addAppApplicationPane" class="hidden">
+                <div id="applicationRow" class="flex gap-3 overflow-x-auto pb-2"></div>
+                <form id="applicationConfigForm" class="hidden space-y-4">
+                    <p class="text-sm text-[color:var(--nu-muted)]">
+                        Creating <strong id="applicationConfigTitle" class="text-[color:var(--nu-ink)]"></strong>
+                        from <span id="applicationConfigRepo" class="nu-code text-xs"></span>
+                    </p>
+                    <div>
+                        <label for="applicationName" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Application Name</label>
+                        <input type="text" id="applicationName" required
+                            pattern="[a-zA-Z][a-zA-Z0-9]{5,19}"
+                            title="Must start with a letter, contain only alphanumeric characters, and be 6-20 characters long"
+                            class="nu-input w-full px-3 py-2">
+                        <p class="text-xs text-[color:var(--nu-muted)] mt-1">6-20 alphanumeric characters, starting with a letter</p>
+                        <p id="applicationNameError" class="text-xs mt-1 hidden"></p>
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="button" onclick="showApplicationRow()"
+                            class="nu-btn nu-btn-secondary flex-1">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                            class="nu-btn nu-btn-primary flex-1">
+                            Confirm
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <form id="addAppForm" class="space-y-4" data-pane="starter">
                 <div>
                     <p class="block text-sm font-medium text-[color:var(--nu-ink)] mb-2">Add an application starter</p>
                     <div id="starterList" class="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -698,7 +731,14 @@
         // OWN_STARTER is the sentinel radio value for "My Application Starter".
         const OWN_STARTER = '__own__';
         const OWN_STARTER_DEFAULT_NAME = 'myapp';
+        const STARTER_TAB = '';
         let starters = [];
+        // The grouped application catalog from GET /api/starters, keyed by group.
+        let applicationGroups = {};
+        // Active tab: '' is Starter, anything else is a catalog group name.
+        let activeAddAppTab = STARTER_TAB;
+        // The tile the user clicked, shown by the inline name panel.
+        let selectedApplication = null;
         // Once the user edits the name field we never overwrite it again.
         let appNameTouched = false;
 
@@ -828,15 +868,160 @@
             }
         }
 
+        // A 1x1 transparent GIF, used when an entry's icon is not published yet.
+        // index.py deliberately keeps such an entry, so a missing image is
+        // expected and must never leave a broken-image glyph in the modal.
+        const APPLICATION_ICON_PLACEHOLDER =
+            'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+        // Catalog groups in published order — index.py sorts them by name, so
+        // sorting the object keys reproduces it without an array in the payload.
+        function applicationGroupNames() {
+            return Object.keys(applicationGroups || {}).sort();
+        }
+
+        function renderAddAppTabs() {
+            const strip = document.getElementById('addAppTabs');
+            const groups = applicationGroupNames();
+            strip.innerHTML = '';
+            // With nothing published there is only one tab, so show no strip at
+            // all and leave the modal exactly as it was before the catalog.
+            if (groups.length === 0) {
+                strip.classList.add('hidden');
+                return;
+            }
+            strip.classList.remove('hidden');
+            for (const tab of [STARTER_TAB].concat(groups)) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'nu-btn nu-btn-compact whitespace-nowrap ' +
+                    (tab === activeAddAppTab ? 'nu-btn-primary' : 'nu-btn-secondary');
+                button.textContent = tab === STARTER_TAB ? 'Starter' : tab;
+                button.addEventListener('click', () => selectAddAppTab(tab));
+                strip.appendChild(button);
+            }
+        }
+
+        // Switching tabs only swaps which pane is visible: the Starter tab keeps
+        // its radio selection and typed name, and the catalog keeps its tiles.
+        function selectAddAppTab(tab) {
+            activeAddAppTab = tab;
+            const starterPane = document.getElementById('addAppForm');
+            const applicationPane = document.getElementById('addAppApplicationPane');
+            const onStarter = tab === STARTER_TAB;
+            starterPane.classList.toggle('hidden', !onStarter);
+            applicationPane.classList.toggle('hidden', onStarter);
+            renderAddAppTabs();
+            // Leaving a tile selected behind a tab switch would resurface it the
+            // next time the pane is shown, so every switch returns to the row.
+            showApplicationRow();
+            if (!onStarter) renderApplicationRow();
+        }
+
+        function renderApplicationRow() {
+            const row = document.getElementById('applicationRow');
+            row.innerHTML = '';
+            for (const entry of applicationGroups[activeAddAppTab] || []) {
+                const tile = document.createElement('div');
+                tile.className = 'nu-card p-3 shrink-0 w-40 cursor-pointer flex flex-col gap-2';
+                tile.setAttribute('role', 'button');
+                tile.setAttribute('tabindex', '0');
+                tile.addEventListener('click', () => showApplicationConfig(entry));
+                tile.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        showApplicationConfig(entry);
+                    }
+                });
+
+                const icon = document.createElement('img');
+                icon.src = entry.icon || APPLICATION_ICON_PLACEHOLDER;
+                icon.alt = entry.title || entry.name;
+                icon.loading = 'lazy';
+                icon.className = 'w-full h-20 object-contain';
+                icon.addEventListener('error', () => { icon.src = APPLICATION_ICON_PLACEHOLDER; });
+                tile.appendChild(icon);
+
+                const link = document.createElement('a');
+                link.href = 'https://github.com/' + entry.repo;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                link.className = 'nu-link font-medium text-sm';
+                link.textContent = entry.title || entry.name;
+                // Following the link must not also open the name panel.
+                link.addEventListener('click', e => e.stopPropagation());
+                tile.appendChild(link);
+
+                if (entry.description) {
+                    const description = document.createElement('p');
+                    description.className = 'text-xs text-[color:var(--nu-muted)] nu-clamp-2';
+                    description.textContent = entry.description;
+                    tile.appendChild(description);
+                }
+                row.appendChild(tile);
+            }
+        }
+
+        // An application "name" is already a legal slug, so it is the prefill as
+        // published. When that name is taken we append the smallest free integer
+        // — tetris, tetris1, tetris2 — searching the loaded list only; addApp's
+        // applicationNameTaken check stays the authority on Confirm.
+        function prefillApplicationName(name) {
+            const taken = new Set((allApps || []).map(appNameOf));
+            if (!taken.has(name.toLowerCase())) return name;
+            for (let suffix = 1; ; suffix++) {
+                // A 20-character slug leaves no room for the digits, so trim the
+                // base rather than emit a name the pattern would reject.
+                const base = name.slice(0, 20 - String(suffix).length);
+                const candidate = base + suffix;
+                if (!taken.has(candidate.toLowerCase())) return candidate;
+            }
+        }
+
+        function showApplicationRow() {
+            selectedApplication = null;
+            document.getElementById('applicationRow').classList.remove('hidden');
+            document.getElementById('applicationConfigForm').classList.add('hidden');
+            hideApplicationNameError();
+        }
+
+        function showApplicationConfig(entry) {
+            selectedApplication = entry;
+            document.getElementById('applicationRow').classList.add('hidden');
+            document.getElementById('applicationConfigForm').classList.remove('hidden');
+            document.getElementById('applicationConfigTitle').textContent = entry.title || entry.name;
+            document.getElementById('applicationConfigRepo').textContent = entry.repo;
+            const field = document.getElementById('applicationName');
+            field.value = prefillApplicationName(entry.name);
+            hideApplicationNameError();
+            field.focus();
+        }
+
+        function showApplicationNameError(message) {
+            const el = document.getElementById('applicationNameError');
+            el.className = feedbackClass('error') + ' text-xs mt-1';
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        function hideApplicationNameError() {
+            document.getElementById('applicationNameError').classList.add('hidden');
+        }
+
         async function loadStarters() {
             try {
                 const response = await fetch('/api/starters');
                 const data = await response.json();
                 starters = Array.isArray(data.starters) ? data.starters : [];
+                applicationGroups = (data.applications && typeof data.applications === 'object')
+                    ? data.applications : {};
                 renderStarters(data.warning || '');
+                renderAddAppTabs();
             } catch (e) {
                 starters = [];
+                applicationGroups = {};
                 renderStarters('Could not load application starters: ' + e.message);
+                renderAddAppTabs();
             }
         }
 
@@ -860,6 +1045,8 @@
             if (copied) copied.classList.add('hidden');
             appNameTouched = false;
             hideAppNameError();
+            // Always reopen on Starter with the catalog back at its tile row.
+            selectAddAppTab(STARTER_TAB);
             document.getElementById('starterList').innerHTML =
                 '<p class="text-xs text-[color:var(--nu-muted)]">Loading application starters...</p>';
             refreshAddAppSshKeyNotice();
@@ -1897,6 +2084,33 @@
             if (choice && choice.own !== true && choice.templates) {
                 payload.templates = choice.templates;
             }
+            await createApplication(payload);
+        }
+
+        // Confirm on the inline name panel. An application is created from its
+        // own repository and sends no templates, so it falls back to the global
+        // notebook.repository; everything downstream is the starter path.
+        async function addApplicationFromCatalog(event) {
+            event.preventDefault();
+            if (!selectedApplication) return;
+            const name = document.getElementById('applicationName').value.trim();
+
+            if (!/^[a-zA-Z][a-zA-Z0-9]{5,19}$/.test(name)) {
+                showApplicationNameError('The name must be 6-20 alphanumeric characters and start with a letter.');
+                return;
+            }
+            if (await applicationNameTaken(name)) {
+                showApplicationNameError('An application named "' + name + '" already exists. Please choose a different name.');
+                return;
+            }
+            hideApplicationNameError();
+
+            await createApplication({ name, repo: selectedApplication.repo });
+        }
+
+        // Shared by both panes: closes the modal, runs the create, and reports.
+        async function createApplication(payload) {
+            const name = payload.name;
 
             hideAddModal();
             showCreatingModal();
@@ -2287,11 +2501,13 @@
         });
 
         document.getElementById('addAppForm').addEventListener('submit', addApp);
+        document.getElementById('applicationConfigForm').addEventListener('submit', addApplicationFromCatalog);
         // Once the user types a name, the starter selection stops overwriting it.
         document.getElementById('appName').addEventListener('input', () => {
             appNameTouched = true;
             hideAppNameError();
         });
+        document.getElementById('applicationName').addEventListener('input', hideApplicationNameError);
         document.getElementById('appSearch').addEventListener('input', renderApps);
         document.getElementById('appSort').addEventListener('change', renderApps);
 
