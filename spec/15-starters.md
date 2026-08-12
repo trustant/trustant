@@ -29,7 +29,8 @@ https://raw.githubusercontent.com/trustable-ai/.github/refs/heads/main/index.jso
   ],
   "applications": {
     "Applications": [
-      { "name": "AI Document Manager",
+      { "name": "documentchatai",
+        "title": "AI Document Manager",
         "repo": "https://github.com/trustable-ai/documentchatai",
         "icon": "https://raw.githubusercontent.com/trustable-ai/truchat-templates/refs/heads/main/documentchatai.png",
         "description": "Manage Documents with AI" }
@@ -68,6 +69,9 @@ repository (`trutil` → `trutil-templates`) and falling back to the repository
 itself when that does not exist. That is how a plain collection of applications
 is published without offering a starter.
 
+A `<value>` may be `"quoted"` to carry spaces; a bare one is
+whitespace-delimited.
+
 Unknown `<key>=<value>` tokens are stripped and otherwise ignored, so new
 parameters can be added to descriptions without breaking older builds. Private,
 archived, and disabled repositories are skipped. Entries are sorted by name.
@@ -86,25 +90,29 @@ sibling, falling back to the repository itself. It lists them one per line:
 - [AI Email Manager](aiemailmanager.md) Manager Email with AI
 ```
 
-The linked file **names the template**: `- [<name>](<template>.md)`. The
-application itself lives in the repository of that name in the organization,
+The linked file **names the template**: `- [<title>](<template>.md) <description>`.
+The application itself lives in the repository of that name in the organization,
 `https://github.com/trustable-ai/<template>`, not in the starter or templates
-repository — those only publish the listing and the icons.
+repository — those only publish the listing and the icons. Each line therefore
+carries all three of the entry's text fields: the template is its identity, the
+link text its display name, and the trailing prose its description.
 
 `index.py` fetches that file over raw.githubusercontent.com (the same static,
 unauthenticated path Trustable itself uses) and turns every matching line into an
 entry under the group named by the file's **first `# ` heading** (`Applications`
 above, with the `# ` marker removed):
 
-- `name` is the link text;
+- `name` is the linked `.md` basename without its extension — the template name
+  (`aidocumentmanager.md` → `aidocumentmanager`), not the link text;
+- `title` is the link text, whitespace-collapsed;
 - `repo` is the application's own repository, `https://github.com/trustable-ai/`
-  followed by the linked `.md` basename without its extension
+  followed by `name`
   (`aidocumentmanager.md` → `https://github.com/trustable-ai/aidocumentmanager`);
 - `icon` is the linked `.md` path with the extension swapped for `.png`,
   resolved as a full raw URL against the repository the `_index.md` came from;
 - `description` is the text following the link, whitespace-collapsed.
 
-Lines that do not match the `- [name](template.md) description` shape are ignored, so
+Lines that do not match the `- [title](template.md) description` shape are ignored, so
 headings and prose in `_index.md` are harmless. A repository without an
 `_index.md` contributes no applications; if it is a starter it stays in
 `starters` regardless, and if it is a marked repository without `templates=` it
@@ -116,7 +124,7 @@ the first one wins even if it appears below the list. Two templates repositories
 whose `_index.md` share a heading share the group, which is how related starters
 are presented together. A file with entries but no `# ` heading falls back to the
 starter's own name and says so on stderr. Groups are sorted by name, and entries
-within a group by application repository then name.
+within a group by title then name.
 
 Every `icon` is checked with a `HEAD` request and a missing one is **warned
 about, not fatal**:
