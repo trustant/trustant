@@ -59,6 +59,18 @@ URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
 # every frame at 25fps when it is present, which destroys the one-second delay.
 APT_MISSING=()
 command -v ffmpeg &>/dev/null || APT_MISSING+=(ffmpeg)
+
+# Headless Chromium renders whatever fonts the system has, and a bare VM has no
+# emoji font at all — every emoji comes out as an empty box. Verified: with 117
+# fonts installed but none carrying emoji glyphs, 🎉 ✅ 🚀 rendered as tofu.
+# fonts-noto-color-emoji (~10MB) is what makes them appear in captures.
+#
+# The package directory is checked directly rather than through fc-list, because
+# fontconfig is not in the runtime image — a missing fc-list would make the probe
+# silently succeed and skip the font.
+if ! find /usr/share/fonts -iname '*emoji*' -print -quit 2>/dev/null | grep -q .; then
+  APT_MISSING+=(fonts-noto-color-emoji)
+fi
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
@@ -363,23 +375,18 @@ preview() {
 #
 # Every change is committed because uncommitted files are destroyed by the
 # `git clean -fd` that Revert performs (spec/13-gitignore.md).
-commit_change() {
-  local message="$1"
+stage_change() {
   [[ -d "$APP_DIR/.git" ]] || return 0
 
-  git -C "$APP_DIR" config --get user.name  >/dev/null 2>&1 \
-    || git -C "$APP_DIR" config user.name  "${GIT_USER:-Trustable}"
-  git -C "$APP_DIR" config --get user.email >/dev/null 2>&1 \
-    || git -C "$APP_DIR" config user.email "${GIT_EMAIL:-trustable@localhost}"
-
+  # Staged, never committed: the screenshots go out with the user's own commit
+  # and push, alongside the app changes they illustrate, instead of arriving as
+  # a stream of separate machine-authored commits.
+  #
   # Pathspec-scoped: the workbench is a live checkout with arbitrary dirty
-  # state, and a bare commit would sweep the user's work into this one.
-  git -C "$APP_DIR" add -- screenshot screenshot.png 2>/dev/null || true
-  if git -C "$APP_DIR" diff --cached --quiet -- screenshot screenshot.png 2>/dev/null; then
-    return 0
-  fi
-  git -C "$APP_DIR" commit -q -m "$message" -- screenshot screenshot.png \
-    || warn "git commit failed"
+  # state, and an unscoped `add` would stage the user's work-in-progress too.
+  # `add` on the directory also stages a removed frame as a deletion.
+  git -C "$APP_DIR" add -- screenshot screenshot.png 2>/dev/null \
+    || warn "could not stage the screenshots"
 }
 
 # --- 8. Actions ---
@@ -424,7 +431,7 @@ capture() {
 
   local count
   count="$(regenerate | tail -1)"
-  commit_change "screenshot: add frame $count"
+  stage_change
   preview "$count"
 }
 
@@ -455,7 +462,7 @@ remove_last() {
 
   local count
   count="$(regenerate | tail -1)"
-  commit_change "screenshot: remove frame $((count + 1))"
+  stage_change
   if [[ "$count" == "0" ]]; then
     # The recording is gone, so the preview copy must go too rather than sit
     # there showing frames that no longer exist.

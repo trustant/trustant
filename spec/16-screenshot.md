@@ -310,6 +310,12 @@ Both installers are idempotent and run on every invocation:
 - **ffmpeg** via the `APT_MISSING` array idiom from `setup.sh`: probed with
   `command -v ffmpeg`, installed with `sudo apt-get install -y ffmpeg`. The VM
   guest has passwordless sudo.
+- **`fonts-noto-color-emoji`** (~10MB), because headless Chromium renders with
+  the system's fonts and a bare VM has none carrying emoji glyphs. Measured: 117
+  fonts installed, zero with emoji, and 🎉 ✅ 🚀 captured as empty boxes until
+  this package was added. The probe is a `find` over `/usr/share/fonts` rather
+  than `fc-list`, because fontconfig is **not** in the runtime image — a missing
+  `fc-list` would make the check fail open and silently skip the font.
 - **Playwright + Chromium** following `tests/e2e_issue98.sh`: `npm install` when
   `node_modules/@playwright/test` is absent, then `npx playwright install
   chromium`, which no-ops when the pinned revision is already cached. Skip with
@@ -365,24 +371,29 @@ not a defect in the file. Capture, change the app, capture again to see motion.
 
 # Git
 
-Every change — each capture and each delete — is committed to the app's checkout.
-Committing per change rather than at quit is deliberate: uncommitted frames are
-destroyed by the `git clean -fd` that Revert performs (see
-[13-gitignore.md](13-gitignore.md)), so anything left uncommitted is one Revert
-away from being lost.
+Every change — each capture and each delete — is **staged, never committed**:
 
-Identity comes from `GIT_USER`/`GIT_EMAIL` in `.env`, falling back to
-`Trustable` / `trustable@localhost`, and is set only when not already configured
-— the same contract as `ensureGitIdentity` in `git.go`.
+```
+git add -- screenshot screenshot.png
+```
 
-The `add` and `commit` are **pathspec-scoped** to `screenshot` and
-`screenshot.png`. The workbench is a live user checkout with arbitrary dirty
-state; a bare `git commit -a` would sweep the user's work-in-progress into a
-screenshot commit. `git add` on the directory also stages a removed frame as a
-deletion. A `diff --cached --quiet` guard skips the commit when nothing changed,
-which would otherwise abort the script under `set -e`.
+The screenshots then go out with the user's own commit and push, alongside the
+app changes they illustrate, instead of arriving as a stream of separate
+machine-authored commits.
 
-The tool never pushes. Publishing goes through the licensed `/api/publish` path.
+The pathspec is **scoped** to `screenshot` and `screenshot.png`. The workbench is
+a live user checkout with arbitrary dirty state, and an unscoped `add` would
+stage the user's work-in-progress alongside the frames. `add` on the directory
+also stages a removed frame as a deletion.
+
+The tool never commits and never pushes. Publishing goes through the licensed
+`/api/publish` path.
+
+**Consequence worth knowing:** staged-but-uncommitted files are still destroyed
+by the `git clean -fd` that Revert performs (see
+[13-gitignore.md](13-gitignore.md)). A recording that has not yet been committed
+is one Revert away from being lost — commit it with the app changes it belongs
+to.
 
 # Deleting
 

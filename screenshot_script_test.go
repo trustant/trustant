@@ -58,6 +58,23 @@ func TestScreenshotScriptDoesNotUseImageMagickForAPNG(t *testing.T) {
 	}
 }
 
+// WHY: headless Chromium renders with the system's fonts, and a bare VM ships
+// none carrying emoji glyphs — every emoji captures as an empty box. Observed:
+// 117 fonts installed, zero with emoji, and 🎉 ✅ 🚀 rendered as tofu until
+// fonts-noto-color-emoji was installed.
+func TestScreenshotScriptInstallsAnEmojiFont(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "APT_MISSING+=(fonts-noto-color-emoji)") {
+		t.Error("screenshot.sh must install an emoji font, or captures show boxes instead of emoji")
+	}
+	// fontconfig is not in the runtime image, so an fc-list probe would fail
+	// open and silently skip the font.
+	if strings.Contains(code, "fc-list") {
+		t.Error("the font probe must not depend on fc-list: fontconfig is absent from the runtime image")
+	}
+}
+
 // The tool only makes sense where the app and the workbench live. On macOS the
 // Vite server, $WORKBENCH_DIR, and apt-get are all absent.
 func TestScreenshotScriptGuardsVMOnly(t *testing.T) {
@@ -138,21 +155,23 @@ func TestScreenshotScriptStagesFramesAtomically(t *testing.T) {
 	}
 }
 
-// The workbench is a live user checkout with arbitrary dirty state. An unscoped
-// commit would sweep the user's work-in-progress into a screenshot commit.
-func TestScreenshotScriptCommitsOnlyTheScreenshotPaths(t *testing.T) {
-	script := readScreenshotScript(t)
-	if !strings.Contains(script, "add -- screenshot screenshot.png") {
+// Screenshots are staged, never committed: they go out with the user's own
+// commit and push, alongside the app changes they illustrate, instead of
+// arriving as a stream of separate machine-authored commits.
+//
+// The workbench is a live user checkout with arbitrary dirty state, so the
+// pathspec is scoped — an unscoped `add` would stage work-in-progress too.
+func TestScreenshotScriptStagesWithoutCommitting(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "add -- screenshot screenshot.png") {
 		t.Error("git add must be scoped to the screenshot paths")
 	}
-	if !strings.Contains(script, `commit -q -m "$message" -- screenshot screenshot.png`) {
-		t.Error("git commit must carry the screenshot pathspec")
+	if strings.Contains(code, "git -C \"$APP_DIR\" commit") {
+		t.Fatal("screenshot.sh must stage the screenshots, not commit them")
 	}
-	if strings.Contains(scriptCode(script), "commit -a") {
+	if strings.Contains(code, "commit -a") {
 		t.Fatal("screenshot.sh must never commit the whole workbench")
-	}
-	if !strings.Contains(script, "diff --cached --quiet") {
-		t.Error("an unchanged tree must skip the commit rather than abort under set -e")
 	}
 }
 
