@@ -490,9 +490,11 @@ textarea {
 }
 
 /* Guided tutorials (spec/16-tutorial.md).
-   The four masks tile the viewport around the spotlit control: they are what
+   The masks tile the viewport around the spotlit controls: they are what
    disables the rest of the application, so they must stay above every modal
-   (z-50) while the hole between them leaves the target clickable. */
+   (z-50) while the holes between them leave the targets clickable. A step may
+   spotlight more than one control, so both masks and rings are pooled and
+   sized per repaint rather than being a fixed set of four. */
 #tutorialOverlay {
     display: none;
 }
@@ -503,9 +505,13 @@ textarea {
 
 .tutorial-mask {
     position: fixed;
-    background: rgb(255 255 255 / 78%);
+    /* Light enough that the application underneath stays readable, which is
+       what tells the user where they are in it. */
+    background: rgb(255 255 255 / 66%);
     z-index: 9998;
-    transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease;
+    /* Deliberately not animated. A transition on the geometry means the hole
+       arrives after the card has already invited the click, so the press lands
+       on a mask that has not finished moving out of the way. */
 }
 
 .tutorial-ring {
@@ -515,13 +521,14 @@ textarea {
     border-radius: 6px;
     box-shadow: 0 0 0 4px color-mix(in oklab, var(--nu-brand) 22%, transparent);
     pointer-events: none;
-    opacity: 0;
-    transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease, opacity .2s ease;
+    transition: opacity .2s ease;
 }
 
 .tutorial-card {
     position: fixed;
     z-index: 9999;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     width: 320px;
     max-width: calc(100vw - 16px);
     background: white;

@@ -93,6 +93,12 @@ icon, label "Tutorial", chevron-down) offers the two guided tutorials:
 walkthrough described in [16-tutorial.md](16-tutorial.md); the pulldown closes
 on selection and on an outside click, like Config and Utils.
 
+The Notebook tutorial points at controls inside the left iframe, so it needs
+that iframe visible. When the sidebar toggle has hidden it, the tutorial
+spotlights the toggle first and continues once the assistant is back — the
+controls it waits on cannot report while the frame is hidden. This is why
+`sidebarToggleBtn` and `leftFrame` are part of the tutorial's page contract.
+
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally. The right iframe sits inside a preview pane that can constrain it to a device viewport — see "Device Preview" below.
 
 # Sidebar Toggle

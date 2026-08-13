@@ -430,6 +430,10 @@ In both the grid and the list view the button carries
 tutorial finds it after coming back from the application page (see
 [16-tutorial.md](16-tutorial.md)). That tutorial starts on `app.html` and
 resumes here from `sessionStorage`, so this page also loads `js/tutorial.js`.
+The tutorial also spotlights the push form (`gitPushForm`) as a whole rather
+than just its Push button, so the repository name can be typed while the
+overlay is up, and it watches `appList` so the spotlight follows the list when
+it re-renders.
 
 If the backend returns `{"needs_config": true}`, show a popup asking for:
 - The production repository in org/repo format

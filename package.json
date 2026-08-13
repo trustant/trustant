@@ -8,7 +8,8 @@
     "e2e:private": "./tests/e2e_private_app.sh",
     "e2e:ollama-cloud": "./tests/e2e_ollama_cloud_app.sh",
     "e2e:regolo": "./tests/e2e_regolo_app.sh",
-    "test:e2e-providers": "./tests/e2e_provider_common_test.sh && node --test tests/issue98-session-tree.test.mjs"
+    "test:e2e-providers": "./tests/e2e_provider_common_test.sh && node --test tests/issue98-session-tree.test.mjs",
+    "test:tutorial": "node --test tests/tutorial-spotlight.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1"
