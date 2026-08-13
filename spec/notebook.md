@@ -70,8 +70,8 @@ The toolbar adds:
 | Control | Behavior |
 | --- | --- |
 | **Templates** | Opens the side panel and loads the default source on first open |
-| **Run next step** | Runs the selected node; disabled without a selection |
-| **Run all steps** | Runs every step from the selection to the end |
+| **Run next step** | Runs the selected node; disabled without a selection, and while a run-all is in flight |
+| **Run all steps** | Runs every step from the selection to the end; disabled while a run-all is in flight |
 
 The panel shows the active source read-only with a Refresh action, the indexed
 template list, the working copy with its save controls, and a remove control per
@@ -169,6 +169,18 @@ skipped; each prompt is re-read at execution time so an edit applied mid-run is
 the version that executes; and a failed step ends the run rather than firing the
 remaining prompts into a broken session. Starting a new session stops an
 in-flight run.
+
+**Stop aborts the whole run, not just the current step.** The composer Stop
+button is the single control: it appears whenever a turn *or* a run-all is in
+flight — including the gap between two steps, where no turn is running — and
+always means "stop everything". A stopped run leaves the selection **on the
+stopped step**, so pressing Run all steps again resumes from there. A deliberate
+stop is not an error and shows no error banner.
+
+This needs an explicit cancel intent rather than the step's result, because a
+cancelled ACP turn resolves *successfully*: `pi-acp` returns
+`{stopReason:'cancelled'}` as a normal result and the client swallows abort
+errors, so the send path alone cannot tell a cancel from a completion.
 
 Edit is **in place**. It replaces the node's task body with a prompt editor and
 swaps Run/Remove for **Save** and **Cancel**. Cancel discards the draft. Save
