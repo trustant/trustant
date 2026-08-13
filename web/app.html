@@ -785,23 +785,55 @@
             document.getElementById('uploadModal').classList.remove('flex');
         }
 
+        // Trustable is served over plain http on a nip.io host, which is not a
+        // secure context, so `navigator.clipboard` is undefined here — reading
+        // `.writeText` off it throws rather than rejecting. Anything that copies
+        // must therefore go through this helper, which falls back to a detached
+        // textarea plus execCommand. Returns whether the text was copied.
+        async function copyTextToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch (error) {
+                    // Permission denied or a transient failure: fall through.
+                }
+            }
+            // execCommand only copies a live selection, so the text needs a real
+            // focusable node in the document for the duration of the call.
+            const staging = document.createElement('textarea');
+            staging.value = text;
+            staging.setAttribute('readonly', '');
+            staging.style.position = 'fixed';
+            staging.style.top = '-1000px';
+            staging.style.opacity = '0';
+            document.body.appendChild(staging);
+            // Restore focus afterwards: copying must not steal the caret from
+            // whatever the user was typing in.
+            const previous = document.activeElement;
+            try {
+                // focus() as well as select() — execCommand copies the focused
+                // element's selection, and some browsers ignore a selection in
+                // an unfocused node.
+                staging.focus();
+                staging.select();
+                staging.setSelectionRange(0, staging.value.length);
+                return document.execCommand('copy');
+            } catch (error) {
+                return false;
+            } finally {
+                document.body.removeChild(staging);
+                if (previous && typeof previous.focus === 'function') previous.focus();
+            }
+        }
+
         async function copyFilePath() {
             const filePath = document.getElementById('uploadedFilePath').value;
-            try {
-                await navigator.clipboard.writeText(filePath);
-                document.getElementById('copyFeedback').classList.remove('hidden');
-                setTimeout(() => {
-                    document.getElementById('copyFeedback').classList.add('hidden');
-                }, 2000);
-            } catch (error) {
-                // Fallback for older browsers
-                document.getElementById('uploadedFilePath').select();
-                document.execCommand('copy');
-                document.getElementById('copyFeedback').classList.remove('hidden');
-                setTimeout(() => {
-                    document.getElementById('copyFeedback').classList.add('hidden');
-                }, 2000);
-            }
+            if (!await copyTextToClipboard(filePath)) return;
+            document.getElementById('copyFeedback').classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('copyFeedback').classList.add('hidden');
+            }, 2000);
         }
 
         // Route & Query modal (combined)
@@ -1637,16 +1669,16 @@
         }
 
         async function copyFileContent() {
-            try {
-                await navigator.clipboard.writeText(filesCurrentContent);
-                const btn = document.getElementById('filesCopyBtn');
-                const original = btn.textContent;
-                btn.textContent = 'Copied';
-                setTimeout(() => { btn.textContent = original; }, 1200);
-            } catch (error) {
-                document.getElementById('filesError').textContent = error.message;
+            if (!await copyTextToClipboard(filesCurrentContent)) {
+                document.getElementById('filesError').textContent =
+                    'Could not copy to the clipboard.';
                 document.getElementById('filesError').classList.remove('hidden');
+                return;
             }
+            const btn = document.getElementById('filesCopyBtn');
+            const original = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(() => { btn.textContent = original; }, 1200);
         }
 
         document.getElementById('filesModal').addEventListener('click', (e) => {

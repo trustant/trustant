@@ -91,6 +91,15 @@ Shared primitives:
   Shared visual primitives live in `web/trustable-ui.css`; pages should link
   that stylesheet rather than reintroducing page-local copies of the same
   palette, typography, button, panel, table, and input rules.
+- **Never copy to the clipboard through `navigator.clipboard` alone.** Trustable
+  is served over plain `http` on a `nip.io` host, which browsers do not treat as
+  a secure context, so `navigator.clipboard` is **undefined** — reading
+  `.writeText` off it throws rather than rejecting, and a copy button written
+  that way silently does nothing. Every copy action must guard on
+  `navigator.clipboard && window.isSecureContext` and otherwise fall back to
+  selecting a real focusable node and calling `document.execCommand('copy')`.
+  The fallback must `focus()` the node as well as selecting it, because
+  `execCommand` copies the *focused* element's selection.
 
 Authentication is a separate future stream. Do not add sign-in, account,
 session, or authorization controls in this visual-system migration; leave

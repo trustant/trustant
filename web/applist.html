@@ -1275,16 +1275,38 @@
             return key;
         }
 
+        // Trustable is served over plain http on a nip.io host, which is not a
+        // secure context, so `navigator.clipboard` is undefined here — reading
+        // `.writeText` off it throws rather than rejecting. The textarea path is
+        // what actually copies in practice; the modern API is tried first for
+        // the day this is served over https.
         async function copyKeyFromTextarea(textareaId, feedbackId) {
             const el = document.getElementById(textareaId);
             const feedback = document.getElementById(feedbackId);
-            try {
-                await navigator.clipboard.writeText(el.value);
-            } catch (e) {
-                el.select();
-                document.execCommand('copy');
+            let copied = false;
+            if (navigator.clipboard && window.isSecureContext) {
+                try {
+                    await navigator.clipboard.writeText(el.value);
+                    copied = true;
+                } catch (e) {
+                    // Permission denied or a transient failure: fall through.
+                }
             }
-            if (feedback) {
+            if (!copied) {
+                // execCommand copies the live selection, and the key is already
+                // in a real textarea, so no staging node is needed here.
+                const wasReadOnly = el.readOnly;
+                el.readOnly = false;
+                // focus() as well as select(): execCommand copies the focused
+                // element's selection, and some browsers ignore a selection in
+                // an unfocused node.
+                el.focus();
+                el.select();
+                el.setSelectionRange(0, el.value.length);
+                copied = document.execCommand('copy');
+                el.readOnly = wasReadOnly;
+            }
+            if (feedback && copied) {
                 feedback.classList.remove('hidden');
                 setTimeout(() => feedback.classList.add('hidden'), 2000);
             }

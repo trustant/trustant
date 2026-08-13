@@ -197,21 +197,30 @@
         await this.load();
     };
 
+    // Trustable is served over plain http on a nip.io host, which is not a
+    // secure context, so `navigator.clipboard` is undefined here — reading
+    // `.writeText` off it throws rather than rejecting. The selection path below
+    // is what actually copies in practice; the modern API is tried first for the
+    // day this is served over https.
     GitHubAccountForm.prototype.copyDeviceCode = async function () {
         const element = this.element('DeviceCode');
         const code = element.textContent;
         if (!code || code === 'Waiting...') return;
-        try {
-            await navigator.clipboard.writeText(code);
-        } catch (e) {
-            const range = document.createRange();
-            range.selectNodeContents(element);
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            document.execCommand('copy');
-            selection.removeAllRanges();
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(code);
+                return;
+            } catch (e) {
+                // Permission denied or a transient failure: fall through.
+            }
         }
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.execCommand('copy');
+        selection.removeAllRanges();
     };
 
     // Mounts the form into `container` and starts one status load. Returns the
