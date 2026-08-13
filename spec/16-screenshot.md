@@ -351,6 +351,15 @@ exist.
 
 ## Viewing the animation
 
+**The preview file always exists.** It is published as soon as an app becomes
+current — before any capture — and is blank (a white frame at the capture size,
+generated with the ffmpeg already required) when that app has no frames yet.
+Without this the editor would show a missing file, or worse, keep displaying the
+*previous* app's recording after a switch.
+
+Deleting the last frame blanks the preview rather than removing it, so an editor
+tab open on the file keeps working instead of breaking.
+
 The recording is copied next to `screenshot.sh` after every change, and the loop
 prints that path:
 
@@ -398,9 +407,9 @@ to.
 # Deleting
 
 Backspace/Delete removes the newest file in `screenshot/` and regenerates the
-animation. Deleting the last remaining frame removes `screenshot.png` entirely
-rather than writing a zero-frame animation, and deletes the root preview copy so
-it cannot keep showing frames that no longer exist.
+animation. Deleting the last remaining frame removes the app's `screenshot.png`
+rather than writing a zero-frame animation, and **blanks** the root preview copy
+so it cannot keep showing frames that no longer exist.
 
 To reset a recording completely, `rm -rf screenshot screenshot.png` in the app
 folder and commit.

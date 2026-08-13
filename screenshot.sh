@@ -51,6 +51,11 @@ WORKBENCH_DIR="$(eval echo "$WORKBENCH_DIR")"
 
 URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
 
+# Kept in step with the defaults in tests/screenshot.mjs, so a blank placeholder
+# has the same dimensions as a real frame.
+SHOT_WIDTH="${TRUSTABLE_SCREENSHOT_WIDTH:-600}"
+SHOT_HEIGHT="${TRUSTABLE_SCREENSHOT_HEIGHT:-800}"
+
 # --- 3. Install what is missing ---
 #
 # ffmpeg is the APNG encoder. It is installed directly rather than reached
@@ -99,7 +104,10 @@ SHOT_DIR=""
 
 resolve_app() {
   local name
-  name="$(tr -d '[:space:]' < "$WORKBENCH_DIR/current" 2>/dev/null || true)"
+  # The redirect is guarded inside the subshell: `< missing-file` fails in the
+  # shell itself, so redirecting only tr's stderr lets the error reach the
+  # terminal when no app has ever been launched.
+  name="$({ tr -d '[:space:]' < "$WORKBENCH_DIR/current"; } 2>/dev/null || true)"
   # An empty `current` is a real state, not a missing one: joining it onto
   # WORKBENCH_DIR would silently address the workbench root.
   [[ -n "$name" ]] || return 1
@@ -361,9 +369,26 @@ regenerate() {
 # The copy is a working preview, not a record — the app's own
 # <app>/screenshot.png is the versioned artifact. It is deliberately left
 # untracked, see .gitignore below.
+# With no frames there is nothing to copy, and the editor would then show either
+# a missing file or — worse — the previous app's recording. Write a blank frame
+# instead, so the preview always exists and always belongs to the current app.
+# ffmpeg is already a dependency, so this costs no new tooling.
+blank_preview() {
+  ffmpeg -nostdin -y -loglevel error \
+    -f lavfi -i "color=c=white:s=${SHOT_WIDTH}x${SHOT_HEIGHT}:d=1" \
+    -frames:v 1 "$ROOT/screenshot.png" 2>/dev/null \
+    || : > "$ROOT/screenshot.png"
+}
+
 preview() {
   local source="$APP_DIR/screenshot.png" count="$1"
-  [[ -f "$source" ]] || return 0
+
+  # No frames: publish a blank preview rather than leaving a stale one behind.
+  if [[ ! -f "$source" ]]; then
+    blank_preview
+    ok "no frames yet — $ROOT/screenshot.png is blank"
+    return 0
+  fi
 
   cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
     || warn "could not copy the preview to $ROOT/screenshot.png"
@@ -391,7 +416,9 @@ stage_change() {
 
 # --- 8. Actions ---
 capture() {
-  curl -fsS -o /dev/null --max-time 5 "$URL" \
+  # Errors are silenced because the warning below says the same thing more
+  # clearly; a raw "curl: (7) Failed to connect" line only adds noise.
+  curl -fsS -o /dev/null --max-time 5 "$URL" 2>/dev/null \
     || { warn "the app is not answering at $URL — launch '$APP' first"; return 0; }
 
   # Capture the page the user is on, not the app root. An empty route is the
@@ -464,10 +491,11 @@ remove_last() {
   count="$(regenerate | tail -1)"
   stage_change
   if [[ "$count" == "0" ]]; then
-    # The recording is gone, so the preview copy must go too rather than sit
-    # there showing frames that no longer exist.
-    rm -f "$ROOT/screenshot.png"
-    ok "removed the last frame — no animation left"
+    # The recording is gone. Blank the preview rather than deleting it: an
+    # editor tab open on the file keeps working, and it cannot keep showing
+    # frames that no longer exist.
+    blank_preview
+    ok "removed the last frame — $ROOT/screenshot.png is blank"
   else
     preview "$count"
   fi
@@ -527,6 +555,11 @@ while true; do
       else
         warn "no route reporter for $APP — captures will use /"
       fi
+
+      # Publish this app's recording immediately — blank when it has none — so
+      # the preview file always exists and always belongs to the app now
+      # current, rather than lingering from the previous one.
+      preview "$(frame_count)"
     fi
     printf 'ENTER capture · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
   else

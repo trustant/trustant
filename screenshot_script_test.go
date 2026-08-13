@@ -240,9 +240,36 @@ func TestScreenshotScriptPreviewsByCopyingNotByDrawing(t *testing.T) {
 	if strings.Contains(code, ".gif") {
 		t.Error("the recorder produces an animated PNG only — no GIF")
 	}
-	// A deleted recording must not leave a stale preview behind.
-	if !strings.Contains(code, `rm -f "$ROOT/screenshot.png"`) {
-		t.Error("removing the last frame must delete the preview copy too")
+	// A deleted recording must not leave a stale preview behind. It is blanked
+	// rather than removed — see TestScreenshotScriptAlwaysPublishesAPreview.
+	if !strings.Contains(code, "blank_preview") {
+		t.Error("removing the last frame must blank the preview, not leave stale frames on screen")
+	}
+}
+
+// WHY a blank placeholder rather than no file: with no frames there is nothing
+// to copy, and the editor would show either a missing file or — worse — the
+// previous app's recording. The preview must always exist and always belong to
+// the app currently being recorded.
+func TestScreenshotScriptAlwaysPublishesAPreview(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "blank_preview()") {
+		t.Error("a blank preview must be produced when the app has no frames")
+	}
+	// ffmpeg is already a dependency; a placeholder needs no new tooling.
+	if !strings.Contains(code, "-f lavfi -i \"color=c=white") {
+		t.Error("the blank preview should be generated with ffmpeg, already a dependency")
+	}
+	// Published as soon as an app becomes current, so a switch cannot leave the
+	// previous app's recording on screen.
+	if !strings.Contains(code, `preview "$(frame_count)"`) {
+		t.Error("the preview must be published when the current app is resolved, not only after a capture")
+	}
+	// Deleting the last frame blanks the file rather than removing it, so an
+	// editor tab open on it keeps working.
+	if strings.Contains(code, `rm -f "$ROOT/screenshot.png"`) {
+		t.Error("the last delete must blank the preview, not delete it")
 	}
 }
 
