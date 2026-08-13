@@ -196,11 +196,11 @@ func TestScreenshotCaptureUsesFixedViewportAndNoSandbox(t *testing.T) {
 	if !strings.Contains(capture, `"--no-sandbox"`) {
 		t.Error("chromium must launch with --no-sandbox in the VM")
 	}
-	if !strings.Contains(capture, "TRUSTABLE_SCREENSHOT_WIDTH || 300") {
-		t.Error("the capture must default to a 300px wide viewport")
+	if !strings.Contains(capture, "TRUSTABLE_SCREENSHOT_WIDTH || 600") {
+		t.Error("the capture must default to a 600px wide viewport")
 	}
-	if !strings.Contains(capture, "TRUSTABLE_SCREENSHOT_HEIGHT || 400") {
-		t.Error("the capture must default to a 400px tall viewport")
+	if !strings.Contains(capture, "TRUSTABLE_SCREENSHOT_HEIGHT || 800") {
+		t.Error("the capture must default to an 800px tall viewport")
 	}
 	if !strings.Contains(capture, "fullPage: false") {
 		t.Error("fullPage must stay false: a full-page shot varies with content and breaks the animation")

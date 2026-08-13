@@ -147,12 +147,13 @@ serving fails immediately instead of after a browser launch.
 reporter, and a `test-results/` directory for a one-shot capture. Chromium is
 launched with `--no-sandbox`, matching `tests/playwright.config.mjs`.
 
-**The viewport is fixed at 300×400 and `fullPage` is false.** Both matter: every
+**The viewport is fixed at 600×800 and `fullPage` is false.** Both matter: every
 frame in an animation must share the same dimensions, and `fullPage: true` varies
-with page content. Note 300×400 is portrait and phone-width, so responsive apps
-render their mobile layout — that is a real rendering mode, not a defect. Getting
-a desktop layout at a small size means capturing larger and downscaling, because
-the viewport changes what the app renders, not just the image size.
+with page content. 600×800 is portrait but wide enough to clear the common mobile
+breakpoint (typically 640px or 768px), so most apps render close to their tablet
+or desktop layout. Remember the viewport changes *what the app renders*, not just
+the image size — a narrower setting will collapse responsive layouts to their
+mobile form.
 
 # Installation on demand
 
@@ -233,5 +234,5 @@ in the app folder and commit.
 | Variable | Meaning |
 |---|---|
 | `TRUSTABLE_SCREENSHOT_URL` | capture target, default `http://localhost:5173` |
-| `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | viewport, default `300` / `400` |
+| `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | viewport, default `600` / `800` |
 | `TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL` | `1` skips `npx playwright install chromium` |

@@ -16,8 +16,8 @@ if (!url || !out) {
 // Fixed viewport, and fullPage stays false. Both are load-bearing: every frame
 // of an animation must share the same dimensions, and a full-page shot grows
 // and shrinks with the page content.
-const width = Number(process.env.TRUSTABLE_SCREENSHOT_WIDTH || 300);
-const height = Number(process.env.TRUSTABLE_SCREENSHOT_HEIGHT || 400);
+const width = Number(process.env.TRUSTABLE_SCREENSHOT_WIDTH || 600);
+const height = Number(process.env.TRUSTABLE_SCREENSHOT_HEIGHT || 800);
 
 // --no-sandbox matches tests/playwright.config.mjs: the VM and the pod both run
 // as root, where Chromium's sandbox refuses to start.
