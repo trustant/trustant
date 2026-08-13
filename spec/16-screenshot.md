@@ -260,6 +260,20 @@ Consequences worth knowing:
 
 `TRUSTABLE_SCREENSHOT_ROUTE` overrides the detected route entirely.
 
+## What the loop prints
+
+The URL is announced **before** the shutter, and the fallback is named:
+
+```
+✓ capturing http://localhost:5173/#/dashboard
+✓ capturing http://localhost:5173/  (no route reported — using /)
+```
+
+Both halves matter for diagnosis. Printing only after a successful capture is
+useless when the wrong page was captured, and staying silent when the route is
+`/` makes "the route was never detected" indistinguishable from "the route was
+detected and is wrong".
+
 ## Hiding the injection
 
 The modified `vite.config.ts` must not appear in the user's `git status`.

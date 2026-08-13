@@ -326,9 +326,8 @@ regenerate() {
 # <app>/screenshot.png is the versioned artifact. It is deliberately left
 # untracked, see .gitignore below.
 preview() {
-  local source="$APP_DIR/screenshot.png" count="$1" route="${2:-}"
+  local source="$APP_DIR/screenshot.png" count="$1"
   [[ -f "$source" ]] || return 0
-  [[ -n "$route" && "$route" != "/" ]] && ok "captured $route"
 
   cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
     || warn "could not copy the preview to $ROOT/screenshot.png"
@@ -372,10 +371,19 @@ capture() {
   # Capture the page the user is on, not the app root. An empty route is the
   # normal answer when no browser tab is open on the app, or the app has no
   # reporter — "/" is then correct rather than a failure.
-  local route target_url
-  route="$(read_current_route)"
-  [[ -n "$route" ]] || route="/"
+  local route target_url detected
+  detected="$(read_current_route)"
+  route="${detected:-/}"
   target_url="${URL%/}$route"
+
+  # Announce the URL before the shutter, not after. When the captured page is
+  # not the one expected, this line is what tells you whether the route was
+  # never detected (falling back to /) or detected and wrong.
+  if [[ -n "$detected" ]]; then
+    ok "capturing $target_url"
+  else
+    ok "capturing $target_url  (no route reported — using /)"
+  fi
 
   mkdir -p "$SHOT_DIR"
   local stamp target suffix
@@ -398,7 +406,7 @@ capture() {
   local count
   count="$(regenerate | tail -1)"
   commit_change "screenshot: add frame $count"
-  preview "$count" "$route"
+  preview "$count"
 }
 
 # Redraw the current app's animation without changing anything. The point is

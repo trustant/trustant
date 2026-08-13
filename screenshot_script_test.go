@@ -357,11 +357,22 @@ func TestScreenshotScriptCapturesTheReportedRoute(t *testing.T) {
 	if !strings.Contains(code, `target_url="${URL%/}$route"`) {
 		t.Error("the capture URL must be the app URL joined with the reported route")
 	}
-	if !strings.Contains(code, `[[ -n "$route" ]] || route="/"`) {
+	if !strings.Contains(code, `route="${detected:-/}"`) {
 		t.Error("an unavailable route must fall back to /, not fail the capture")
 	}
 	if !strings.Contains(code, `node "$ROOT/tests/screenshot.mjs" "$target_url"`) {
 		t.Error("the capture must use the route-aware URL")
+	}
+
+	// The URL is announced BEFORE the shutter, and the fallback is called out.
+	// Printing only on success, or staying silent when the route is "/", makes a
+	// wrong capture impossible to diagnose: you cannot tell "never detected" from
+	// "detected and wrong".
+	if !strings.Contains(code, `ok "capturing $target_url"`) {
+		t.Error("the URL being captured must be printed before the capture")
+	}
+	if !strings.Contains(code, "no route reported") {
+		t.Error("falling back to / must say so, not silently capture the app root")
 	}
 }
 
