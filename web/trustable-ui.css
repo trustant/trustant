@@ -488,3 +488,132 @@ textarea {
     border-color: color-mix(in oklab, var(--nu-danger) 22%, white);
     color: var(--nu-ink);
 }
+
+/* Guided tutorials (spec/16-tutorial.md).
+   The four masks tile the viewport around the spotlit control: they are what
+   disables the rest of the application, so they must stay above every modal
+   (z-50) while the hole between them leaves the target clickable. */
+#tutorialOverlay {
+    display: none;
+}
+
+#tutorialOverlay.active {
+    display: block;
+}
+
+.tutorial-mask {
+    position: fixed;
+    background: rgb(255 255 255 / 78%);
+    z-index: 9998;
+    transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease;
+}
+
+.tutorial-ring {
+    position: fixed;
+    z-index: 9998;
+    border: 2px solid var(--nu-brand);
+    border-radius: 6px;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--nu-brand) 22%, transparent);
+    pointer-events: none;
+    opacity: 0;
+    transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease, opacity .2s ease;
+}
+
+.tutorial-card {
+    position: fixed;
+    z-index: 9999;
+    width: 320px;
+    max-width: calc(100vw - 16px);
+    background: white;
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    box-shadow: 0 10px 30px rgb(0 0 0 / 12%);
+    padding: 14px 16px;
+    transition: top .25s ease, left .25s ease;
+}
+
+.tutorial-card-step {
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--nu-muted);
+}
+
+.tutorial-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 2px 0 6px;
+}
+
+.tutorial-card-text {
+    font-size: .875rem;
+    color: var(--nu-muted);
+    margin: 0;
+}
+
+.tutorial-card-wait {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: .875rem;
+    color: var(--nu-control-text);
+}
+
+.tutorial-card-wait.hidden,
+.tutorial-card-text.hidden,
+.tutorial-card-actions.hidden {
+    display: none;
+}
+
+.tutorial-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--nu-brand-soft);
+    border-top-color: var(--nu-brand);
+    border-radius: 50%;
+    animation: tutorial-spin .8s linear infinite;
+    flex: none;
+}
+
+@keyframes tutorial-spin {
+    to { transform: rotate(360deg); }
+}
+
+.tutorial-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.tutorial-btn {
+    border: 1px solid var(--nu-control-border);
+    background: var(--nu-control-bg);
+    color: var(--nu-control-text);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: .875rem;
+}
+
+.tutorial-btn:hover {
+    background: var(--nu-control-hover);
+}
+
+.tutorial-btn-primary {
+    background: var(--nu-brand);
+    border-color: var(--nu-brand);
+    color: white;
+}
+
+.tutorial-btn-primary:hover {
+    background: color-mix(in oklab, var(--nu-brand) 88%, black);
+}
+
+.tutorial-exit {
+    display: block;
+    margin-top: 10px;
+    font-size: .75rem;
+    color: var(--nu-muted);
+    text-decoration: underline;
+}

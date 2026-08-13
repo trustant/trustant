@@ -19,6 +19,7 @@ In the bar, aligned to the left:
 - the **sidebar toggle** (icon-only, panel glyph), immediately before the Terminal button — see "Sidebar Toggle" below
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
 - the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
+- the **"Tutorial" pulldown** (book icon, chevron-down icon), immediately to the right of Utils — it starts the guided tutorials described in [16-tutorial.md](16-tutorial.md)
 - the **"Sessions" pulldown** (history icon and persistent-session count) —
   see "Sessions Pulldown" below
 
@@ -83,6 +84,14 @@ The button shows the label "Utils" and a chevron-down icon. Clicking it toggles 
 Redeploy stays in this menu deliberately: the toolbar reaches it only through the Shift modifier, so the menu entry is the only discoverable, no-modifier path to it. Reload is listed alongside it so a menu-only user can reach both actions without knowing the modifier exists.
 
 Each item triggers the same behavior documented in the "Revert", "Reload", "Redeploy", "Clean", "Debug", "Files", and "Upload" sections of this file. The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
+
+# Tutorial Pulldown
+
+Immediately to the right of the Utils pulldown, a **Tutorial** pulldown (book
+icon, label "Tutorial", chevron-down) offers the two guided tutorials:
+**Notebook** and **Commit and Push**. Selecting one starts the spotlight
+walkthrough described in [16-tutorial.md](16-tutorial.md); the pulldown closes
+on selection and on an outside click, like Config and Utils.
 
 In the body there are two iframes, 50% width and 90% height (full page except for the top bar), resizable horizontally. The right iframe sits inside a preview pane that can constrain it to a device viewport — see "Device Preview" below.
 

@@ -10,6 +10,7 @@
     <script src="js/marked.min.js"></script>
     <script src="js/xterm.min.js"></script>
     <script src="js/xterm-addon-fit.min.js"></script>
+    <script src="js/tutorial.js" defer></script>
     <link rel="stylesheet" href="js/xterm.css">
     <link rel="stylesheet" href="trustable-ui.css">
     <style>
@@ -116,6 +117,26 @@
                     </button>
                 </div>
             </div>
+            <div class="relative">
+                <button id="tutorialBtn" onclick="toggleTutorialMenu()"
+                    class="nu-btn nu-btn-secondary flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                    Tutorial
+                    <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div id="tutorialMenu" class="hidden absolute left-0 top-full mt-1 nu-dropdown py-1 z-50 min-w-[190px]">
+                    <button onclick="hideTutorialMenu(); Tutorial.start('notebook')"
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3h9a2 2 0 012 2v11a2 2 0 01-2 2h-1M6 7h9a2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
+                        Notebook
+                    </button>
+                    <button onclick="hideTutorialMenu(); Tutorial.start('commitpush')"
+                        class="nu-menu-item">
+                        <svg class="w-4 h-4 text-[color:var(--nu-brand)]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12l-4 4m4-4l4 4"/></svg>
+                        Commit and Push
+                    </button>
+                </div>
+            </div>
             <input type="file" id="fileInput" class="hidden" onchange="handleFileUpload(event)">
         </div>
         <div class="flex-1"></div>
@@ -155,7 +176,7 @@
                 <svg id="reloadBtnIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M19.418 9A7.999 7.999 0 006.01 5.99L4 8m0 8l2.01 2.01A7.999 7.999 0 0019.418 15"/></svg>
                 <span id="reloadBtnLabel">Reload</span>
             </button>
-            <button onclick="goBack()"
+            <button id="backBtn" onclick="goBack()"
                 class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
                 Back
@@ -196,14 +217,14 @@
                     class="nu-btn nu-btn-secondary flex-1">
                     Cancel
                 </button>
-                <button onclick="confirmSave()"
+                <button id="saveConfirmBtn" onclick="confirmSave()"
                     class="nu-btn nu-btn-primary flex-1">
                     Commit
                 </button>
             </div>
             <div id="saveResult" class="hidden">
                 <div id="saveResultText" class="mb-4 max-h-48 overflow-y-auto text-left text-sm nu-code nu-output p-3 whitespace-pre-wrap"></div>
-                <button onclick="hideSaveModal()"
+                <button id="saveContinueBtn" onclick="hideSaveModal()"
                     class="nu-btn nu-btn-primary">
                     Continue
                 </button>
@@ -511,6 +532,15 @@
         function hideUtilsMenu() {
             document.getElementById('utilsMenu').classList.add('hidden');
         }
+
+        // Tutorial menu functions — the tutorials themselves live in
+        // js/tutorial.js (spec/16-tutorial.md).
+        function toggleTutorialMenu() {
+            document.getElementById('tutorialMenu').classList.toggle('hidden');
+        }
+        function hideTutorialMenu() {
+            document.getElementById('tutorialMenu').classList.add('hidden');
+        }
         function openDebugWindow() {
             if (!appName) {
                 alert('No application is open.');
@@ -531,6 +561,11 @@
             const utilsBtn = document.getElementById('utilsBtn');
             if (!utilsMenu.contains(e.target) && !utilsBtn.contains(e.target)) {
                 utilsMenu.classList.add('hidden');
+            }
+            const tutorialMenu = document.getElementById('tutorialMenu');
+            const tutorialBtn = document.getElementById('tutorialBtn');
+            if (!tutorialMenu.contains(e.target) && !tutorialBtn.contains(e.target)) {
+                tutorialMenu.classList.add('hidden');
             }
         });
 
