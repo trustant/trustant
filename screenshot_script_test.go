@@ -58,6 +58,23 @@ func TestScreenshotScriptDoesNotUseImageMagickForAPNG(t *testing.T) {
 	}
 }
 
+// WHY: headless Chromium renders with the system's fonts, and a bare VM ships
+// none carrying emoji glyphs — every emoji captures as an empty box. Observed:
+// 117 fonts installed, zero with emoji, and 🎉 ✅ 🚀 rendered as tofu until
+// fonts-noto-color-emoji was installed.
+func TestScreenshotScriptInstallsAnEmojiFont(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "APT_MISSING+=(fonts-noto-color-emoji)") {
+		t.Error("screenshot.sh must install an emoji font, or captures show boxes instead of emoji")
+	}
+	// fontconfig is not in the runtime image, so an fc-list probe would fail
+	// open and silently skip the font.
+	if strings.Contains(code, "fc-list") {
+		t.Error("the font probe must not depend on fc-list: fontconfig is absent from the runtime image")
+	}
+}
+
 // The tool only makes sense where the app and the workbench live. On macOS the
 // Vite server, $WORKBENCH_DIR, and apt-get are all absent.
 func TestScreenshotScriptGuardsVMOnly(t *testing.T) {
@@ -138,21 +155,23 @@ func TestScreenshotScriptStagesFramesAtomically(t *testing.T) {
 	}
 }
 
-// The workbench is a live user checkout with arbitrary dirty state. An unscoped
-// commit would sweep the user's work-in-progress into a screenshot commit.
-func TestScreenshotScriptCommitsOnlyTheScreenshotPaths(t *testing.T) {
-	script := readScreenshotScript(t)
-	if !strings.Contains(script, "add -- screenshot screenshot.png") {
+// Screenshots are staged, never committed: they go out with the user's own
+// commit and push, alongside the app changes they illustrate, instead of
+// arriving as a stream of separate machine-authored commits.
+//
+// The workbench is a live user checkout with arbitrary dirty state, so the
+// pathspec is scoped — an unscoped `add` would stage work-in-progress too.
+func TestScreenshotScriptStagesWithoutCommitting(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "add -- screenshot screenshot.png") {
 		t.Error("git add must be scoped to the screenshot paths")
 	}
-	if !strings.Contains(script, `commit -q -m "$message" -- screenshot screenshot.png`) {
-		t.Error("git commit must carry the screenshot pathspec")
+	if strings.Contains(code, "git -C \"$APP_DIR\" commit") {
+		t.Fatal("screenshot.sh must stage the screenshots, not commit them")
 	}
-	if strings.Contains(scriptCode(script), "commit -a") {
+	if strings.Contains(code, "commit -a") {
 		t.Fatal("screenshot.sh must never commit the whole workbench")
-	}
-	if !strings.Contains(script, "diff --cached --quiet") {
-		t.Error("an unchanged tree must skip the commit rather than abort under set -e")
 	}
 }
 
@@ -204,14 +223,14 @@ func TestScreenshotScriptPreviewsByCopyingNotByDrawing(t *testing.T) {
 	if !strings.Contains(code, `cp -f "$source" "$ROOT/screenshot.png"`) {
 		t.Error("the preview must be a copy of the animated PNG next to the script")
 	}
-	// An APNG only animates in a browser — the editor's image preview stops at
-	// the first frame — so the loop prints a URL the app's own Vite server
-	// already serves. The query string defeats the browser cache.
-	if !strings.Contains(code, `$URL/screenshot.png?v=$count`) {
-		t.Error("each change must print a cache-busted URL for viewing the animation in a browser")
+	// The copied file is the preview. Serving it over the app's own dev server
+	// was tried and removed: it made the recorder's output depend on the app
+	// being up, for no gain over opening the file.
+	if !strings.Contains(code, `ok "$count frame(s) — $ROOT/screenshot.png"`) {
+		t.Error("each change must report the preview file path")
 	}
-	if !strings.Contains(code, "Simple Browser: Show") {
-		t.Error("the startup help must name the VS Code command that opens the URL")
+	if strings.Contains(code, "screenshot.png?v=") {
+		t.Error("the preview is a file, not a URL served by the app")
 	}
 	if !strings.Contains(code, `source="$APP_DIR/screenshot.png"`) {
 		t.Error("the preview must copy the app's animated PNG")
@@ -221,9 +240,36 @@ func TestScreenshotScriptPreviewsByCopyingNotByDrawing(t *testing.T) {
 	if strings.Contains(code, ".gif") {
 		t.Error("the recorder produces an animated PNG only — no GIF")
 	}
-	// A deleted recording must not leave a stale preview behind.
-	if !strings.Contains(code, `rm -f "$ROOT/screenshot.png"`) {
-		t.Error("removing the last frame must delete the preview copy too")
+	// A deleted recording must not leave a stale preview behind. It is blanked
+	// rather than removed — see TestScreenshotScriptAlwaysPublishesAPreview.
+	if !strings.Contains(code, "blank_preview") {
+		t.Error("removing the last frame must blank the preview, not leave stale frames on screen")
+	}
+}
+
+// WHY a blank placeholder rather than no file: with no frames there is nothing
+// to copy, and the editor would show either a missing file or — worse — the
+// previous app's recording. The preview must always exist and always belong to
+// the app currently being recorded.
+func TestScreenshotScriptAlwaysPublishesAPreview(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "blank_preview()") {
+		t.Error("a blank preview must be produced when the app has no frames")
+	}
+	// ffmpeg is already a dependency; a placeholder needs no new tooling.
+	if !strings.Contains(code, "-f lavfi -i \"color=c=white") {
+		t.Error("the blank preview should be generated with ffmpeg, already a dependency")
+	}
+	// Published as soon as an app becomes current, so a switch cannot leave the
+	// previous app's recording on screen.
+	if !strings.Contains(code, `preview "$(frame_count)"`) {
+		t.Error("the preview must be published when the current app is resolved, not only after a capture")
+	}
+	// Deleting the last frame blanks the file rather than removing it, so an
+	// editor tab open on it keeps working.
+	if strings.Contains(code, `rm -f "$ROOT/screenshot.png"`) {
+		t.Error("the last delete must blank the preview, not delete it")
 	}
 }
 
@@ -278,6 +324,129 @@ func TestScreenshotCaptureHidesTheElementSelector(t *testing.T) {
 	// An app without the plugin must still capture rather than throw.
 	if !strings.Contains(capture, "?.hideToolkit?.()") {
 		t.Error("the call must be optional-chained: most apps have no such plugin")
+	}
+}
+
+// WHY the reporter exists: the route lives in a browser cookie no server code
+// reads, and the preview iframe is cross-origin, so nothing on the Trustable
+// side can see where the user navigated. Without it every frame is the app root.
+func TestScreenshotScriptInjectsTheRouteReporter(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "transformIndexHtml") {
+		t.Error("the reporter must inject via transformIndexHtml, so the app's index.html on disk is never touched")
+	}
+	if !strings.Contains(code, "__trustable_location__") {
+		t.Error("the reporter must publish the location in a known meta element")
+	}
+	// A HashRouter app keeps the route in the hash, so pathname alone is wrong.
+	if !strings.Contains(code, "location.pathname + location.search + location.hash") {
+		t.Error("the reported route must include search and hash, not just pathname")
+	}
+	// Client-side navigation does not fire hashchange or popstate on its own.
+	for _, event := range []string{"hashchange", "popstate", "history.pushState"} {
+		if !strings.Contains(code, event) {
+			t.Errorf("the reporter must keep the route current on %s", event)
+		}
+	}
+	// The block is delimited so removal is exact and re-injection is idempotent.
+	if !strings.Contains(code, "REPORTER_BEGIN=") || !strings.Contains(code, "REPORTER_END=") {
+		t.Error("the injected block needs begin/end markers for idempotent injection and exact removal")
+	}
+}
+
+// WHY skip-worktree and not .gitignore: both files are tracked, and an ignore
+// rule has no effect on a tracked file — adding them to .gitignore leaves them
+// showing as modified, and untracking them to make the rule bite would delete
+// vite.config.ts from the app's repo. skip-worktree is per-file, so the user's
+// own edits stay visible.
+func TestScreenshotScriptHidesOnlyTheConfigFiles(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "update-index --skip-worktree") {
+		t.Error("the injected config must be hidden with git update-index --skip-worktree")
+	}
+	if !strings.Contains(code, "update-index --no-skip-worktree") {
+		t.Error("the flag must be clearable, or git silently refuses to update the file forever")
+	}
+	if !strings.Contains(code, "HIDDEN_FILES=(vite.config.ts .gitignore)") {
+		t.Error("only vite.config.ts and .gitignore may be hidden")
+	}
+	// Only a tracked file can carry the flag; ls-files guards the call.
+	if !strings.Contains(code, "ls-files --error-unmatch") {
+		t.Error("the flag must only be set on tracked files")
+	}
+}
+
+// The injection is working state. A killed session must not strand a modified
+// config or a hidden file, so cleanup runs on every exit path and stale state is
+// cleared before injecting.
+func TestScreenshotScriptCleansUpTheInjection(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "trap cleanup_reporter EXIT INT TERM") {
+		t.Error("the reporter must be removed on every exit path, including ^C")
+	}
+	if !strings.Contains(code, "unhide_all") {
+		t.Error("stale skip-worktree flags from a killed session must be cleared")
+	}
+	if !strings.Contains(code, "remove_reporter") {
+		t.Error("the injected block must be removed, not left in the user's config")
+	}
+}
+
+// The capture must follow the reported route, and must still work for an app
+// with no reporter at all.
+func TestScreenshotScriptCapturesTheReportedRoute(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, `target_url="${URL%/}$route"`) {
+		t.Error("the capture URL must be the app URL joined with the reported route")
+	}
+	if !strings.Contains(code, `route="${detected:-/}"`) {
+		t.Error("an unavailable route must fall back to /, not fail the capture")
+	}
+	if !strings.Contains(code, `node "$ROOT/tests/screenshot.mjs" "$target_url"`) {
+		t.Error("the capture must use the route-aware URL")
+	}
+
+	// The URL is announced BEFORE the shutter, and the fallback is called out.
+	// Printing only on success, or staying silent when the route is "/", makes a
+	// wrong capture impossible to diagnose: you cannot tell "never detected" from
+	// "detected and wrong".
+	if !strings.Contains(code, `ok "capturing $target_url"`) {
+		t.Error("the URL being captured must be printed before the capture")
+	}
+	if !strings.Contains(code, "no route reported") {
+		t.Error("falling back to / must say so, not silently capture the app root")
+	}
+}
+
+// The route is read over MCP because MCP reflects the tab the user has open;
+// loading the page ourselves would only report the URL we just requested.
+func TestScreenshotRouteReaderUsesMCP(t *testing.T) {
+	data, err := os.ReadFile("tests/screenshot-route.mjs")
+	if err != nil {
+		t.Fatalf("read tests/screenshot-route.mjs: %s", err)
+	}
+	reader := string(data)
+
+	if !strings.Contains(reader, "get-html-elements") {
+		t.Error("the route must be read with the get-html-elements MCP tool")
+	}
+	if !strings.Contains(reader, "mcp-session-id") {
+		t.Error("the MCP transport requires a session id from initialize")
+	}
+	if !strings.Contains(reader, "domPreview") {
+		t.Error("the meta element's markup comes back as domPreview")
+	}
+	// This runs between a keypress and the shutter: a hung server must not stall
+	// the recorder.
+	if !strings.Contains(reader, "setTimeout") {
+		t.Error("the MCP calls need a timeout so a hung server cannot stall a capture")
+	}
+	if !strings.Contains(reader, `route.startsWith("/")`) {
+		t.Error("only absolute in-app routes may be captured")
 	}
 }
 

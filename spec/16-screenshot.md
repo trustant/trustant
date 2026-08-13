@@ -200,6 +200,109 @@ matched nothing at all. Verified against a live app: the toolkit's corner drops
 from 1417 distinct colours to 15 (flat background), with each mechanism working
 independently of the other.
 
+# Capturing the route the user is on
+
+Without help the recorder always captures `/`. The route lives in a browser
+`ROUTE` cookie that no server-side code reads, and the preview iframe is
+cross-origin (`vite.<domain>` vs `trustable.<domain>`), so nothing on the
+Trustable side can see where the user navigated.
+
+The recorder therefore **injects a reporter into the app's `vite.config.ts`**
+when the current app changes, and reads the route back over the app's MCP server.
+
+## The reporter
+
+A small Vite plugin added to the front of the `plugins` array:
+
+```ts
+// >>> trustable-screenshot reporter — injected by screenshot.sh, removed on quit
+const trustableScreenshotReporter = () => ({
+  name: 'trustable-screenshot-reporter',
+  apply: 'serve',
+  transformIndexHtml() { /* injects the script below */ },
+});
+// <<< trustable-screenshot reporter
+```
+
+It uses `transformIndexHtml`, so the script is added when the page is **served** —
+the app's `index.html` on disk is never modified. That matters because the
+starter template regenerates that file, and because editing it would trigger a
+full Vite reload on every capture.
+
+The injected script keeps `<meta id="__trustable_location__">` in sync with
+`location.pathname + location.search + location.hash`, updating on `hashchange`,
+`popstate`, `pushState`, and `replaceState`. The hash is included because these
+apps use `HashRouter` — the route lives in the hash, so `pathname` alone would
+always read `/`.
+
+Injection is idempotent (the begin marker is checked first) and only applies to a
+config that actually has a `plugins: [` array. Removal is byte-exact: after an
+inject/remove cycle the file's md5 is unchanged.
+
+## Reading it back
+
+`tests/screenshot-route.mjs` calls the app's MCP server at `<app>/mcp` — mounted
+by `@agentic-react/vite` — and asks `get-html-elements` for the meta element,
+reading the route out of the returned `domPreview`.
+
+MCP is used rather than loading the page ourselves because **MCP reflects the tab
+the user actually has open**. Driving our own browser would only ever report the
+URL we just requested.
+
+Consequences worth knowing:
+
+- With no browser tab open on the app there is no route to read. That is a normal
+  state, not an error: the capture falls back to `/`.
+- Every MCP call is bounded by a 5-second timeout, because this runs between the
+  keypress and the shutter. A hung or absent server must not stall the recorder.
+- An app whose config has no `plugins:` array, or no MCP server, records exactly
+  as before. The feature degrades to the old behaviour rather than failing.
+
+`TRUSTABLE_SCREENSHOT_ROUTE` overrides the detected route entirely.
+
+## What the loop prints
+
+The URL is announced **before** the shutter, and the fallback is named:
+
+```
+✓ capturing http://localhost:5173/#/dashboard
+✓ capturing http://localhost:5173/  (no route reported — using /)
+```
+
+Both halves matter for diagnosis. Printing only after a successful capture is
+useless when the wrong page was captured, and staying silent when the route is
+`/` makes "the route was never detected" indistinguishable from "the route was
+detected and is wrong".
+
+## Hiding the injection
+
+The modified `vite.config.ts` must not appear in the user's `git status`.
+**`.gitignore` cannot do this** — both `vite.config.ts` and `.gitignore` are
+*tracked*, and an ignore rule has no effect on a tracked file. Measured: adding
+them to `.gitignore` leaves both showing ` M`; untracking them to make the rule
+bite marks them `D`, which on commit **deletes `vite.config.ts` from the app's
+repo** and breaks the build for anyone who clones it. This is the same trap
+`gitignore.go` documents for its own managed block.
+
+The mechanism that works is:
+
+```
+git update-index --skip-worktree vite.config.ts .gitignore
+```
+
+It is **strictly per-file**. Verified: with the flag on `vite.config.ts` only,
+edits to `App.tsx`, `README.md`, and `src/main.tsx` all still appeared in
+`git status` — the user's own work stays visible and committable.
+
+Its cost is that git will not update a flagged file, so a `git pull` touching
+`vite.config.ts` fails confusingly. Accepted for this workflow, and mitigated:
+the flags are cleared when the recorder quits (`trap … EXIT INT TERM`) **and**
+before any injection, so a session killed mid-run cannot strand them. A stale
+injection left by such a session is removed on the next run.
+
+Switching apps mid-session removes the injection from the previous app before
+injecting into the new one, so only the app being recorded is ever modified.
+
 # Installation on demand
 
 Both installers are idempotent and run on every invocation:
@@ -207,6 +310,12 @@ Both installers are idempotent and run on every invocation:
 - **ffmpeg** via the `APT_MISSING` array idiom from `setup.sh`: probed with
   `command -v ffmpeg`, installed with `sudo apt-get install -y ffmpeg`. The VM
   guest has passwordless sudo.
+- **`fonts-noto-color-emoji`** (~10MB), because headless Chromium renders with
+  the system's fonts and a bare VM has none carrying emoji glyphs. Measured: 117
+  fonts installed, zero with emoji, and 🎉 ✅ 🚀 captured as empty boxes until
+  this package was added. The probe is a `find` over `/usr/share/fonts` rather
+  than `fc-list`, because fontconfig is **not** in the runtime image — a missing
+  `fc-list` would make the check fail open and silently skip the font.
 - **Playwright + Chromium** following `tests/e2e_issue98.sh`: `npm install` when
   `node_modules/@playwright/test` is absent, then `npx playwright install
   chromium`, which no-ops when the pinned revision is already cached. Skip with
@@ -242,52 +351,65 @@ exist.
 
 ## Viewing the animation
 
-**An APNG only animates in a browser.** VS Code's built-in image preview renders
-the first frame and stops, so opening the file from the explorer makes a working
-recording look like a still.
+**The preview file always exists.** It is published as soon as an app becomes
+current — before any capture — and is blank (a white frame at the capture size,
+generated with the ffmpeg already required) when that app has no frames yet.
+Without this the editor would show a missing file, or worse, keep displaying the
+*previous* app's recording after a switch.
 
-The animation lives in the app root, which Vite already serves, so the loop
-prints a URL on every change:
+Deleting the last frame blanks the preview rather than removing it, so an editor
+tab open on the file keeps working instead of breaking.
+
+The recording is copied next to `screenshot.sh` after every change, and the loop
+prints that path:
 
 ```
-✓ 3 frame(s) — http://localhost:5173/screenshot.png?v=3
+✓ 3 frame(s) — /path/to/trustable-app/screenshot.png
 ```
 
-Open it with **Simple Browser: Show** from the VS Code Command Palette, or in any
-external browser. The `?v=<count>` query string defeats the browser cache, which
-would otherwise keep showing the previous capture. The same URL, without the
-query, is printed in the startup help.
+Open that file in the editor. Serving it over the app's own dev server was tried
+and removed: it tied the recorder's output to the app being up, and cost a
+cache-busting query string, for no gain over opening a file.
+
+Note that an APNG animates in a browser but **not** in VS Code's built-in image
+preview, which renders the first frame and stops. To watch it play, open the file
+in a browser.
 
 A recording whose frames are all identical animates but looks static — that is
 not a defect in the file. Capture, change the app, capture again to see motion.
 
 # Git
 
-Every change — each capture and each delete — is committed to the app's checkout.
-Committing per change rather than at quit is deliberate: uncommitted frames are
-destroyed by the `git clean -fd` that Revert performs (see
-[13-gitignore.md](13-gitignore.md)), so anything left uncommitted is one Revert
-away from being lost.
+Every change — each capture and each delete — is **staged, never committed**:
 
-Identity comes from `GIT_USER`/`GIT_EMAIL` in `.env`, falling back to
-`Trustable` / `trustable@localhost`, and is set only when not already configured
-— the same contract as `ensureGitIdentity` in `git.go`.
+```
+git add -- screenshot screenshot.png
+```
 
-The `add` and `commit` are **pathspec-scoped** to `screenshot` and
-`screenshot.png`. The workbench is a live user checkout with arbitrary dirty
-state; a bare `git commit -a` would sweep the user's work-in-progress into a
-screenshot commit. `git add` on the directory also stages a removed frame as a
-deletion. A `diff --cached --quiet` guard skips the commit when nothing changed,
-which would otherwise abort the script under `set -e`.
+The screenshots then go out with the user's own commit and push, alongside the
+app changes they illustrate, instead of arriving as a stream of separate
+machine-authored commits.
 
-The tool never pushes. Publishing goes through the licensed `/api/publish` path.
+The pathspec is **scoped** to `screenshot` and `screenshot.png`. The workbench is
+a live user checkout with arbitrary dirty state, and an unscoped `add` would
+stage the user's work-in-progress alongside the frames. `add` on the directory
+also stages a removed frame as a deletion.
+
+The tool never commits and never pushes. Publishing goes through the licensed
+`/api/publish` path.
+
+**Consequence worth knowing:** staged-but-uncommitted files are still destroyed
+by the `git clean -fd` that Revert performs (see
+[13-gitignore.md](13-gitignore.md)). A recording that has not yet been committed
+is one Revert away from being lost — commit it with the app changes it belongs
+to.
 
 # Deleting
 
 Backspace/Delete removes the newest file in `screenshot/` and regenerates the
-animation. Deleting the last remaining frame removes `screenshot.png` entirely
-rather than writing a zero-frame animation, and deletes the root preview copy so
-it cannot keep showing frames that no longer exist.
+animation. Deleting the last remaining frame removes the app's `screenshot.png`
+rather than writing a zero-frame animation, and **blanks** the root preview copy
+so it cannot keep showing frames that no longer exist.
 
 To reset a recording completely, `rm -rf screenshot screenshot.png` in the app
 folder and commit.
@@ -297,5 +419,6 @@ folder and commit.
 | Variable | Meaning |
 |---|---|
 | `TRUSTABLE_SCREENSHOT_URL` | capture target, default `http://localhost:5173` |
+| `TRUSTABLE_SCREENSHOT_ROUTE` | force a route (e.g. `/#/dashboard`), skipping MCP detection |
 | `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | viewport, default `600` / `800` |
 | `TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL` | `1` skips `npx playwright install chromium` |

@@ -51,6 +51,11 @@ WORKBENCH_DIR="$(eval echo "$WORKBENCH_DIR")"
 
 URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
 
+# Kept in step with the defaults in tests/screenshot.mjs, so a blank placeholder
+# has the same dimensions as a real frame.
+SHOT_WIDTH="${TRUSTABLE_SCREENSHOT_WIDTH:-600}"
+SHOT_HEIGHT="${TRUSTABLE_SCREENSHOT_HEIGHT:-800}"
+
 # --- 3. Install what is missing ---
 #
 # ffmpeg is the APNG encoder. It is installed directly rather than reached
@@ -59,6 +64,18 @@ URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
 # every frame at 25fps when it is present, which destroys the one-second delay.
 APT_MISSING=()
 command -v ffmpeg &>/dev/null || APT_MISSING+=(ffmpeg)
+
+# Headless Chromium renders whatever fonts the system has, and a bare VM has no
+# emoji font at all — every emoji comes out as an empty box. Verified: with 117
+# fonts installed but none carrying emoji glyphs, 🎉 ✅ 🚀 rendered as tofu.
+# fonts-noto-color-emoji (~10MB) is what makes them appear in captures.
+#
+# The package directory is checked directly rather than through fc-list, because
+# fontconfig is not in the runtime image — a missing fc-list would make the probe
+# silently succeed and skip the font.
+if ! find /usr/share/fonts -iname '*emoji*' -print -quit 2>/dev/null | grep -q .; then
+  APT_MISSING+=(fonts-noto-color-emoji)
+fi
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
@@ -87,7 +104,10 @@ SHOT_DIR=""
 
 resolve_app() {
   local name
-  name="$(tr -d '[:space:]' < "$WORKBENCH_DIR/current" 2>/dev/null || true)"
+  # The redirect is guarded inside the subshell: `< missing-file` fails in the
+  # shell itself, so redirecting only tr's stderr lets the error reach the
+  # terminal when no app has ever been launched.
+  name="$({ tr -d '[:space:]' < "$WORKBENCH_DIR/current"; } 2>/dev/null || true)"
   # An empty `current` is a real state, not a missing one: joining it onto
   # WORKBENCH_DIR would silently address the workbench root.
   [[ -n "$name" ]] || return 1
@@ -101,6 +121,180 @@ resolve_app() {
 frame_count() {
   [[ -d "$SHOT_DIR" ]] || { echo 0; return; }
   find "$SHOT_DIR" -maxdepth 1 -name '*.png' -type f | wc -l | tr -d ' '
+}
+
+# --- 4b. Report the route the user is actually on ---
+#
+# Without this the recorder always captures "/". The route lives in a browser
+# cookie no server code reads, and the preview iframe is cross-origin, so
+# nothing on the Trustable side can see where the user navigated.
+#
+# The fix is a Vite plugin injected into the app's own vite.config.ts. It uses
+# transformIndexHtml, so the script is added when the page is *served* — the
+# app's index.html on disk is never touched, which matters because the starter
+# template regenerates that file.
+#
+# The injected script keeps a meta tag in sync with location, and the recorder
+# reads that tag back over the app's MCP server. HashRouter apps keep the route
+# in the hash, so pathname alone would not be enough.
+REPORTER_BEGIN="// >>> trustable-screenshot reporter — injected by screenshot.sh, removed on quit"
+REPORTER_END="// <<< trustable-screenshot reporter"
+LOCATION_ID="__trustable_location__"
+
+# Files whose changes are hidden while the recorder runs. vite.config.ts carries
+# the injection; .gitignore is included because the recorder may add the preview
+# copy to it. Both are tracked, and .gitignore has no effect on a tracked file —
+# git update-index --skip-worktree is the only mechanism that hides them, and it
+# is strictly per-file, so the user's own edits stay visible and committable.
+HIDDEN_FILES=(vite.config.ts .gitignore)
+
+vite_config_path() {
+  local name
+  for name in vite.config.ts vite.config.js; do
+    [[ -f "$APP_DIR/$name" ]] && { echo "$APP_DIR/$name"; return 0; }
+  done
+  return 1
+}
+
+hide_file() {
+  local relative="$1"
+  [[ -d "$APP_DIR/.git" ]] || return 0
+  git -C "$APP_DIR" ls-files --error-unmatch "$relative" &>/dev/null || return 0
+  git -C "$APP_DIR" update-index --skip-worktree "$relative" 2>/dev/null || true
+}
+
+unhide_file() {
+  local relative="$1"
+  [[ -d "$APP_DIR/.git" ]] || return 0
+  git -C "$APP_DIR" ls-files --error-unmatch "$relative" &>/dev/null || return 0
+  git -C "$APP_DIR" update-index --no-skip-worktree "$relative" 2>/dev/null || true
+}
+
+# Clearing the flags first matters: a previous run killed before its cleanup
+# leaves them set, and git then silently refuses to update those files.
+unhide_all() {
+  local f
+  for f in "${HIDDEN_FILES[@]}"; do unhide_file "$f"; done
+}
+
+inject_reporter() {
+  local config
+  config="$(vite_config_path)" || return 1
+  grep -qF "$REPORTER_BEGIN" "$config" && return 0
+
+  # Only touch a config that actually uses the Vite plugin array. Anything else
+  # is a shape this cannot safely edit.
+  grep -qE 'plugins:[[:space:]]*\[' "$config" || return 1
+
+  unhide_all
+  python3 - "$config" "$REPORTER_BEGIN" "$REPORTER_END" "$LOCATION_ID" <<'PY' || return 1
+import re, sys
+path, begin, end, marker = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+source = open(path).read()
+
+plugin = f"""{begin}
+const trustableScreenshotReporter = () => ({{
+  name: 'trustable-screenshot-reporter',
+  apply: 'serve',
+  transformIndexHtml() {{
+    return [{{
+      tag: 'script',
+      injectTo: 'head-prepend',
+      attrs: {{ type: 'text/javascript' }},
+      children: `(function () {{
+        function report() {{
+          var el = document.getElementById('{marker}');
+          if (!el) {{
+            el = document.createElement('meta');
+            el.id = '{marker}';
+            document.head.appendChild(el);
+          }}
+          el.setAttribute('content', location.pathname + location.search + location.hash);
+        }}
+        report();
+        addEventListener('hashchange', report);
+        addEventListener('popstate', report);
+        var push = history.pushState;
+        history.pushState = function () {{ push.apply(this, arguments); report(); }};
+        var replace = history.replaceState;
+        history.replaceState = function () {{ replace.apply(this, arguments); report(); }};
+      }})();`,
+    }}];
+  }},
+}});
+{end}
+"""
+
+# After the final top-level import, so the factory is defined before use.
+imports = list(re.finditer(r'(?m)^import[^\n]*\n', source))
+at = imports[-1].end() if imports else 0
+source = source[:at] + "\n" + plugin + source[at:]
+
+# First plugins array only: nested ones belong to other tools.
+source = re.sub(r'plugins:\s*\[', 'plugins: [trustableScreenshotReporter(), ', source, count=1)
+
+open(path, 'w').write(source)
+PY
+
+  local relative="${config#"$APP_DIR"/}"
+  hide_file "$relative"
+  hide_file ".gitignore"
+
+  # Vite reads its config once at startup and reloads it only when the file
+  # changes. Writing the plugin in the same second Vite booted is a real race —
+  # observed: the config carried the plugin while the served HTML did not, so
+  # every capture silently fell back to "/". Touching the file after the write
+  # guarantees a change event Vite has not already consumed.
+  sleep 1
+  touch "$config"
+  wait_for_reporter
+  return 0
+}
+
+# Give Vite time to re-read the config and serve the injected script. Polling
+# the served HTML is the honest check: the config being right proves nothing if
+# the running server has not picked it up.
+wait_for_reporter() {
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$LOCATION_ID"; then
+      return 0
+    fi
+    sleep 1
+  done
+  warn "the route reporter is not in the served page yet — captures may use /"
+  return 0
+}
+
+remove_reporter() {
+  local config
+  config="$(vite_config_path)" || return 0
+  if grep -qF "$REPORTER_BEGIN" "$config"; then
+    python3 - "$config" "$REPORTER_BEGIN" "$REPORTER_END" <<'PY' || true
+import re, sys
+path, begin, end = sys.argv[1], sys.argv[2], sys.argv[3]
+source = open(path).read()
+# Consume the blank line the injection added ahead of the block, so removal is
+# byte-exact and the file stops showing as modified.
+source = re.sub(r'\n?' + re.escape(begin) + r'.*?' + re.escape(end) + r'\n?', '', source, flags=re.S)
+source = source.replace('plugins: [trustableScreenshotReporter(), ', 'plugins: [')
+source = re.sub(r'\n{3,}', '\n\n', source)
+open(path, 'w').write(source)
+PY
+  fi
+  unhide_all
+}
+
+# Ask the app's MCP server for the meta tag the reporter maintains. Returns the
+# route on stdout, or nothing when it cannot be determined — the caller then
+# falls back to "/", so an app without the reporter still records.
+#
+# MCP reflects a live browser tab: with no tab open on the app there is no route
+# to read. That is a normal state, not an error.
+read_current_route() {
+  [[ -n "${TRUSTABLE_SCREENSHOT_ROUTE:-}" ]] && { echo "$TRUSTABLE_SCREENSHOT_ROUTE"; return 0; }
+  command -v node &>/dev/null || return 0
+  node "$ROOT/tests/screenshot-route.mjs" "$URL" "$LOCATION_ID" 2>/dev/null || true
 }
 
 # --- 5. Rebuild the animation from the frames on disk ---
@@ -175,48 +369,74 @@ regenerate() {
 # The copy is a working preview, not a record — the app's own
 # <app>/screenshot.png is the versioned artifact. It is deliberately left
 # untracked, see .gitignore below.
+# With no frames there is nothing to copy, and the editor would then show either
+# a missing file or — worse — the previous app's recording. Write a blank frame
+# instead, so the preview always exists and always belongs to the current app.
+# ffmpeg is already a dependency, so this costs no new tooling.
+blank_preview() {
+  ffmpeg -nostdin -y -loglevel error \
+    -f lavfi -i "color=c=white:s=${SHOT_WIDTH}x${SHOT_HEIGHT}:d=1" \
+    -frames:v 1 "$ROOT/screenshot.png" 2>/dev/null \
+    || : > "$ROOT/screenshot.png"
+}
+
 preview() {
   local source="$APP_DIR/screenshot.png" count="$1"
-  [[ -f "$source" ]] || return 0
+
+  # No frames: publish a blank preview rather than leaving a stale one behind.
+  if [[ ! -f "$source" ]]; then
+    blank_preview
+    ok "no frames yet — $ROOT/screenshot.png is blank"
+    return 0
+  fi
 
   cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
     || warn "could not copy the preview to $ROOT/screenshot.png"
 
-  # The animation lives in the app root, which Vite already serves, so it can be
-  # opened by URL. That matters: an APNG only animates in a browser — VS Code's
-  # built-in image preview renders the first frame and stops, so the copied file
-  # on its own looks like a still. The query string defeats the browser cache,
-  # which would otherwise keep showing the previous capture.
-  ok "$count frame(s) — $URL/screenshot.png?v=$count"
+  ok "$count frame(s) — $ROOT/screenshot.png"
 }
 
 # --- 7. Commit ---
 #
 # Every change is committed because uncommitted files are destroyed by the
 # `git clean -fd` that Revert performs (spec/13-gitignore.md).
-commit_change() {
-  local message="$1"
+stage_change() {
   [[ -d "$APP_DIR/.git" ]] || return 0
 
-  git -C "$APP_DIR" config --get user.name  >/dev/null 2>&1 \
-    || git -C "$APP_DIR" config user.name  "${GIT_USER:-Trustable}"
-  git -C "$APP_DIR" config --get user.email >/dev/null 2>&1 \
-    || git -C "$APP_DIR" config user.email "${GIT_EMAIL:-trustable@localhost}"
-
+  # Staged, never committed: the screenshots go out with the user's own commit
+  # and push, alongside the app changes they illustrate, instead of arriving as
+  # a stream of separate machine-authored commits.
+  #
   # Pathspec-scoped: the workbench is a live checkout with arbitrary dirty
-  # state, and a bare commit would sweep the user's work into this one.
-  git -C "$APP_DIR" add -- screenshot screenshot.png 2>/dev/null || true
-  if git -C "$APP_DIR" diff --cached --quiet -- screenshot screenshot.png 2>/dev/null; then
-    return 0
-  fi
-  git -C "$APP_DIR" commit -q -m "$message" -- screenshot screenshot.png \
-    || warn "git commit failed"
+  # state, and an unscoped `add` would stage the user's work-in-progress too.
+  # `add` on the directory also stages a removed frame as a deletion.
+  git -C "$APP_DIR" add -- screenshot screenshot.png 2>/dev/null \
+    || warn "could not stage the screenshots"
 }
 
 # --- 8. Actions ---
 capture() {
-  curl -fsS -o /dev/null --max-time 5 "$URL" \
+  # Errors are silenced because the warning below says the same thing more
+  # clearly; a raw "curl: (7) Failed to connect" line only adds noise.
+  curl -fsS -o /dev/null --max-time 5 "$URL" 2>/dev/null \
     || { warn "the app is not answering at $URL — launch '$APP' first"; return 0; }
+
+  # Capture the page the user is on, not the app root. An empty route is the
+  # normal answer when no browser tab is open on the app, or the app has no
+  # reporter — "/" is then correct rather than a failure.
+  local route target_url detected
+  detected="$(read_current_route)"
+  route="${detected:-/}"
+  target_url="${URL%/}$route"
+
+  # Announce the URL before the shutter, not after. When the captured page is
+  # not the one expected, this line is what tells you whether the route was
+  # never detected (falling back to /) or detected and wrong.
+  if [[ -n "$detected" ]]; then
+    ok "capturing $target_url"
+  else
+    ok "capturing $target_url  (no route reported — using /)"
+  fi
 
   mkdir -p "$SHOT_DIR"
   local stamp target suffix
@@ -232,13 +452,13 @@ capture() {
   # frame list ignores dotfiles, so a frame becomes visible to the encoder only
   # once it is complete.
   local staged="$SHOT_DIR/.staging-$$.png"
-  node "$ROOT/tests/screenshot.mjs" "$URL" "$staged" \
+  node "$ROOT/tests/screenshot.mjs" "$target_url" "$staged" \
     || { warn "capture failed"; rm -f "$staged"; return 0; }
   mv -f "$staged" "$target"
 
   local count
   count="$(regenerate | tail -1)"
-  commit_change "screenshot: add frame $count"
+  stage_change
   preview "$count"
 }
 
@@ -269,12 +489,13 @@ remove_last() {
 
   local count
   count="$(regenerate | tail -1)"
-  commit_change "screenshot: remove frame $((count + 1))"
+  stage_change
   if [[ "$count" == "0" ]]; then
-    # The recording is gone, so the preview copy must go too rather than sit
-    # there showing frames that no longer exist.
-    rm -f "$ROOT/screenshot.png"
-    ok "removed the last frame — no animation left"
+    # The recording is gone. Blank the preview rather than deleting it: an
+    # editor tab open on the file keeps working, and it cannot keep showing
+    # frames that no longer exist.
+    blank_preview
+    ok "removed the last frame — $ROOT/screenshot.png is blank"
   else
     preview "$count"
   fi
@@ -291,14 +512,8 @@ show_help() {
   echo "  Frames are kept per app in <app>/screenshot/ and are preserved when you"
   echo "  switch apps — launch another app and press SPACE to load its recording."
   echo
-  echo "  To watch it animate, open this in a browser — in VS Code use"
-  echo "  'Simple Browser: Show' from the Command Palette:"
-  echo
-  echo "      $URL/screenshot.png"
-  echo
-  echo "  The editor's own image preview shows only the first frame; an animated"
-  echo "  PNG needs a browser. Reload after each capture, or use the ?v= URL"
-  echo "  printed below, to get past the browser cache."
+  echo "  The recording is copied to $ROOT/screenshot.png after every change —"
+  echo "  open it in the editor to see it."
   echo
 }
 
@@ -306,12 +521,45 @@ echo
 echo "Recording the launched app from $URL"
 show_help
 
+# The injected reporter and the skip-worktree flags are working state, not
+# something to leave behind. Clean up on every exit path, including ^C, so a
+# killed session does not strand a modified config or a hidden file. The trap
+# runs against whichever app was last current, which is the one that was
+# modified.
+cleanup_reporter() {
+  [[ -n "$APP_DIR" ]] || return 0
+  remove_reporter
+}
+trap cleanup_reporter EXIT INT TERM
+
 LAST_APP=""
 while true; do
   if resolve_app; then
     if [[ "$APP" != "$LAST_APP" ]]; then
-      [[ -n "$LAST_APP" ]] && ok "now recording $APP" || ok "recording $APP"
+      # Leave the previous app exactly as it was before moving on.
+      if [[ -n "$LAST_APP" ]]; then
+        PREVIOUS_APP_DIR="$APP_DIR"
+        APP_DIR="$WORKBENCH_DIR/$LAST_APP"
+        remove_reporter
+        APP_DIR="$PREVIOUS_APP_DIR"
+        ok "now recording $APP"
+      else
+        ok "recording $APP"
+      fi
       LAST_APP="$APP"
+
+      # Inject into the app that is now current. Failure is not fatal: without
+      # a reporter the recorder simply captures "/" as it always did.
+      if inject_reporter; then
+        ok "route reporter active — captures follow the page you are on"
+      else
+        warn "no route reporter for $APP — captures will use /"
+      fi
+
+      # Publish this app's recording immediately — blank when it has none — so
+      # the preview file always exists and always belongs to the app now
+      # current, rather than lingering from the previous one.
+      preview "$(frame_count)"
     fi
     printf 'ENTER capture · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
   else
