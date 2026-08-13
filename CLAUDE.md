@@ -47,6 +47,7 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
+./screenshot.sh  # Run INSIDE the VM: interactive recorder — ENTER captures the launched app, SPACE refreshes, DEL removes the last frame, q quits; stages (never commits) <app>/screenshot.png (APNG, 1s/frame) so it ships with your own push, and copies it to ./screenshot.png to preview in the editor
 ./build.sh       # Build + deploy: ships to the Mac VM when present, else local k3s
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push olaris-bestia only with explicit user authorization
 go test ./...    # Unit tests (currently only configure_test.go)
@@ -100,6 +101,22 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
 | [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
 | [gitignore.go](gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
+
+The one feature that is a shell script rather than a Go file is the screenshot
+recorder: [screenshot.sh](screenshot.sh) + [tests/screenshot.mjs](tests/screenshot.mjs)
++ [tests/screenshot-route.mjs](tests/screenshot-route.mjs), specced in
+[spec/16-screenshot.md](spec/16-screenshot.md). To capture the page the user is
+actually on, it **temporarily injects a Vite plugin into the app's own
+`vite.config.ts`** and hides that change with `git update-index --skip-worktree`
+— `.gitignore` cannot hide a *tracked* file. The injection is removed and the
+flags cleared on every exit path, and stale state from a killed session is
+cleaned up on the next run. **Its animations are
+written by calling ffmpeg directly, never through ImageMagick** — ImageMagick 6
+has no APNG encoder and delegates `apng:` to ffmpeg, which re-times every frame
+at 25fps and destroys the one-second frame delay. `screenshot_script_test.go`
+fails the build if the script grows an `apng:` reference, loses `-nostdin` (ffmpeg
+otherwise eats the interactive loop's keystrokes), or switches the frame input
+back to a glob or the concat demuxer (both miscount frames here).
 
 When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.
 
@@ -166,6 +183,7 @@ Never push to any `olaris*` repository without explicit user authorization, incl
 
 - `go test ./...` runs Go unit tests (`*_test.go`) — coverage is minimal; mostly `configure_test.go`.
 - [tests/](tests/) holds **manual end-to-end test scenarios** (spec markdown + a runnable script per scenario, e.g. `1-reset.sh` wipes miniops users and workspace, then runs `air`). These are not part of `go test`.
+- Some `*_test.go` files assert on the *content* of shell scripts rather than on Go behaviour — `setup_test.go` guards `setup.sh`, and `screenshot_script_test.go` guards `screenshot.sh` and `tests/screenshot.mjs`. They exist to stop invariants that are easy to regress and hard to notice (browser runtimes creeping into `setup.sh`, ImageMagick replacing the direct ffmpeg call, an unscoped `git commit` sweeping the user's workbench).
 
 ## Conventions worth knowing
 
