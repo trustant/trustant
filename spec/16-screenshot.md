@@ -1,10 +1,12 @@
 # Screenshot recorder
 
 `screenshot.sh` records what the launched application looks like over time. It is
-an interactive loop: press Enter to capture a frame, Space to redraw the current
-app's animation, Backspace/Delete to drop the last frame, `q` to quit. Every
-change rewrites an animated PNG and an animated GIF, and the GIF is always drawn
-inline in the terminal (iTerm2 protocol) whenever stdout is a tty.
+an interactive loop: press Enter to capture a frame, Space to refresh the preview
+from the current app, Backspace/Delete to drop the last frame, `q` to quit.
+
+Every change rebuilds one artifact — an **animated PNG**, one second per frame,
+looping forever — in the app's own repo, then copies it next to `screenshot.sh`
+so it can be previewed in the editor.
 
 Code lives in `screenshot.sh` (the loop) and `tests/screenshot.mjs` (the capture).
 
@@ -32,21 +34,29 @@ $WORKBENCH_DIR/<current>/
     20260812-143052.png     one file per capture
     20260812-143119.png
   screenshot.png            animated PNG, all frames, 1s each, loops forever
-  screenshot.gif            animated GIF, same frames and timing
+
+<repo root>/
+  screenshot.png            scratch copy for editor preview, gitignored
 ```
 
 Frames are individual files named `YYYYMMDD-HHMMSS.png` from `date -u`, so they
 sort chronologically as plain text and `sorted()` is the frame order. Two
 captures inside the same second get a `-N` suffix rather than overwriting.
 
-Both animations are **regenerated from the directory** after every change rather
+The animation is **regenerated from the directory** after every change rather
 than appended in place. That is what makes Delete a one-liner — remove the newest
 file and rebuild — instead of APNG chunk surgery with sequence renumbering, and
-it keeps the two outputs always consistent with the frames on disk.
+it keeps the output always consistent with the frames on disk.
+
+An animated PNG is the only artifact. A GIF was produced alongside it at one
+point and was dropped: it added a second thing to keep in sync, and Pillow's GIF
+encoder silently merges identical consecutive frames, so it disagreed with the
+APNG whenever the app had not changed between captures.
 
 Nothing in the managed `.gitignore` block (`trustableGitignoreEntries` in
-`gitignore.go`, spec [13-gitignore.md](13-gitignore.md)) matches `*.png`, `*.gif`,
-or `screenshot/`, so all of it is tracked and committed normally.
+`gitignore.go`, spec [13-gitignore.md](13-gitignore.md)) matches `*.png` or
+`screenshot/`, so the app's copy is tracked and committed normally. The root
+preview copy is excluded by the repo's own `.gitignore`.
 
 # ImageMagick cannot write APNG — do not "simplify" this back to convert
 
@@ -61,9 +71,8 @@ delegate**. `convert … apng:out.png` silently shells out to `ffmpeg`:
   discarded entirely.
 
 Neither can satisfy the one-second-per-frame requirement. Pillow (`python3-pil`)
-writes both formats correctly — every APNG `fcTL` delay is exactly `1000/1000`,
-and the GIF carries `duration=1000, loop=0` — so **Pillow is the only image
-dependency** and ImageMagick is not installed at all.
+writes a correct APNG — every `fcTL` delay is exactly `1000/1000` — so **Pillow
+is the only image dependency** and ImageMagick is not installed at all.
 
 `screenshot_script_test.go` asserts the string `apng:` never appears in the
 script, so a future simplification back to `convert` fails the tests rather than
@@ -80,11 +89,10 @@ one, and the animation would disagree with the files on disk.
 load-bearing rather than cosmetic. Verified: three pixel-identical captures
 produce a three-frame APNG with all delays at `1000/1000`.
 
-The GIF encoder merges identical consecutive frames regardless of the options
-given (`disposal`, `optimize` and palette conversion all make no difference), so
-a run of unchanged captures shows there as one longer frame. `screenshot.png` is
-the exact record; `screenshot.gif` is the convenience copy for the terminal
-preview.
+This is also why there is no GIF: Pillow's GIF encoder merges identical
+consecutive frames regardless of the options given (`disposal`, `optimize` and
+palette conversion all make no difference), so a GIF would disagree with the APNG
+every time the app had not changed between captures.
 
 # The VM guard
 
@@ -100,13 +108,13 @@ those two environments while adding nothing.
 # The loop
 
 ```
-ENTER capture · SPACE show · DEL remove · q quit  [myapp: 3 frames]
+ENTER capture · SPACE refresh · DEL remove · q quit  [myapp: 3 frames]
 ```
 
 | Key | Action |
 |---|---|
 | Enter | capture a frame of the running app |
-| Space | redraw the current app's animation — captures nothing |
+| Space | refresh the preview from the current app — captures nothing |
 | Backspace / Delete | remove the most recent frame |
 | `q` | quit |
 
@@ -123,9 +131,9 @@ the next capture land in the new app's folder; the switch is announced.
 
 Each app owns its own `screenshot/` directory and **existing frames are never
 discarded on a switch**. That is what Space is for: launch a different app, press
-Space, and its own recording is rebuilt and drawn — so it is easy to see what has
-already been captured for whichever app is now current. Switching away and back
-continues that app's recording where it left off.
+Space, and its own recording is rebuilt and copied to the preview — so it is easy
+to see what has already been captured for whichever app is now current. Switching
+away and back continues that app's recording where it left off.
 
 A missing `current` file and an empty one are reported as distinct, actionable
 states. Empty is a real case — it must never be joined onto `$WORKBENCH_DIR/` to
@@ -174,30 +182,28 @@ bare VM, run `npx playwright install-deps chromium` by hand.
 None of this belongs in `setup.sh`: `setup_test.go` fails the Go tests if that
 file contains `playwright` or `chromium`.
 
-# Terminal preview
+# Preview
 
-After each regeneration the GIF is emitted with the iTerm2 inline-image protocol:
+**Nothing is drawn in the terminal.** After each regeneration the animated PNG is
+copied to `screenshot.png` beside `screenshot.sh`, and that file is the preview:
+open it in the editor and it animates, refreshing every time the recorder
+rewrites it.
 
-```
-ESC ] 1337 ; File=inline=1;width=20;preserveAspectRatio=1 : <base64> BEL
-```
+This replaced an earlier terminal-rendering approach, and the reason is worth
+recording. Inline-image protocols are per-terminal: the iTerm2 escape sequence
+renders only in iTerm2, Kitty speaks a different one, and everything else shows
+either a wall of base64 or, via a tool like `chafa`, a coloured-block
+approximation. Detection is unreliable on top of that — iTerm2 behind a wrapper,
+or a shell that does not forward `LC_TERMINAL`, is indistinguishable from a plain
+terminal. A file the editor opens sidesteps all of it: full fidelity, no
+dependency, works the same in every terminal, and keeps the scrollback clean.
 
-**The image is always attempted whenever stdout is a terminal**, with no
-capability detection. Detection is unreliable in exactly the situations that
-matter: iTerm2 reached through a wrapper, a login shell that does not forward
-`LC_TERMINAL`, or `TERM_PROGRAM` being dropped across SSH all look identical to
-a plain terminal, and refusing to draw there loses the image precisely where it
-would have worked. The escape sequence is inert in terminals that do not
-understand it.
+The copy is a scratch preview, not a record. `<app>/screenshot.png` remains the
+versioned artifact; the root copy is gitignored (`/screenshot.png`) and is
+deleted when the last frame is removed, so it never shows frames that no longer
+exist.
 
-Inside tmux the sequence is wrapped in a `ESC P tmux; … ESC \` passthrough
-envelope, doubling the inner `ESC`; without it tmux consumes the sequence instead
-of forwarding it to the outer terminal.
-
-The only case that skips the image is stdout **not** being a terminal — a pipe or
-a redirect to a file — where raw base64 would corrupt whatever consumes the
-output. The frame count and file path are printed unconditionally, so nothing is
-lost when the image does not render.
+The frame count and the preview path are printed on every change.
 
 # Git
 
@@ -211,8 +217,8 @@ Identity comes from `GIT_USER`/`GIT_EMAIL` in `.env`, falling back to
 `Trustable` / `trustable@localhost`, and is set only when not already configured
 — the same contract as `ensureGitIdentity` in `git.go`.
 
-The `add` and `commit` are **pathspec-scoped** to `screenshot`, `screenshot.png`,
-and `screenshot.gif`. The workbench is a live user checkout with arbitrary dirty
+The `add` and `commit` are **pathspec-scoped** to `screenshot` and
+`screenshot.png`. The workbench is a live user checkout with arbitrary dirty
 state; a bare `git commit -a` would sweep the user's work-in-progress into a
 screenshot commit. `git add` on the directory also stages a removed frame as a
 deletion. A `diff --cached --quiet` guard skips the commit when nothing changed,
@@ -222,12 +228,13 @@ The tool never pushes. Publishing goes through the licensed `/api/publish` path.
 
 # Deleting
 
-Backspace/Delete removes the newest file in `screenshot/` and regenerates both
-animations. Deleting the last remaining frame removes `screenshot.png` and
-`screenshot.gif` entirely rather than writing a zero-frame animation.
+Backspace/Delete removes the newest file in `screenshot/` and regenerates the
+animation. Deleting the last remaining frame removes `screenshot.png` entirely
+rather than writing a zero-frame animation, and deletes the root preview copy so
+it cannot keep showing frames that no longer exist.
 
-To reset a recording completely, `rm -rf screenshot screenshot.png screenshot.gif`
-in the app folder and commit.
+To reset a recording completely, `rm -rf screenshot screenshot.png` in the app
+folder and commit.
 
 # Environment
 

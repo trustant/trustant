@@ -2,10 +2,10 @@
 #
 # screenshot.sh — record the launched app INSIDE the trudev VM (spec/16-screenshot.md).
 #
-# An interactive loop: ENTER captures a frame, SPACE redraws the current app's
-# animation, DEL/BACKSPACE drops the last frame, q quits. Every change rewrites
-# screenshot.png (animated PNG) and screenshot.gif from the frames on disk, and
-# draws the GIF inline when the terminal can show it.
+# An interactive loop: ENTER captures a frame, SPACE refreshes the preview,
+# DEL/BACKSPACE drops the last frame, q quits. Every change rebuilds the app's
+# screenshot.png (an animated PNG, one second per frame) from the frames on disk
+# and copies it next to this script so it can be previewed in the editor.
 #
 # Frames live in $WORKBENCH_DIR/<current>/screenshot/<timestamp>.png. The current
 # app is re-read every iteration, so launching a different app mid-session moves
@@ -108,19 +108,18 @@ frame_count() {
 # Regenerating from the directory (rather than appending in place) is what makes
 # delete a one-liner and keeps both outputs consistent with the frames.
 regenerate() {
-  python3 - "$SHOT_DIR" "$APP_DIR/screenshot.png" "$APP_DIR/screenshot.gif" <<'PY' || fail "failed to build the animations"
+  python3 - "$SHOT_DIR" "$APP_DIR/screenshot.png" <<'PY' || fail "failed to build the animation"
 import glob, os, sys
 from PIL import Image
 
-shot_dir, apng, gif = sys.argv[1], sys.argv[2], sys.argv[3]
+shot_dir, apng = sys.argv[1], sys.argv[2]
 files = sorted(glob.glob(os.path.join(shot_dir, "*.png")))
 
-# The last frame was deleted: remove the animations rather than writing an
+# The last frame was deleted: remove the animation rather than writing an
 # empty one.
 if not files:
-    for path in (apng, gif):
-        if os.path.exists(path):
-            os.remove(path)
+    if os.path.exists(apng):
+        os.remove(apng)
     print(0)
     sys.exit(0)
 
@@ -137,47 +136,29 @@ frames = [Image.open(f).convert("RGBA") for f in files]
 frames[0].save(apng, format="PNG", save_all=True, append_images=frames[1:],
                duration=1000, loop=0, disposal=1, blend=0)
 
-# The GIF is the terminal preview. Pillow's GIF encoder merges identical
-# consecutive frames whatever options it is given, so a run of unchanged
-# captures shows as one longer frame here. screenshot.png above is the exact
-# record; this is the convenience copy.
-rgb = [f.convert("RGB") for f in frames]
-rgb[0].save(gif, format="GIF", save_all=True, append_images=rgb[1:],
-            duration=1000, loop=0, disposal=2, optimize=False)
-
 print(len(frames))
 PY
 }
 
-# --- 6. Show the GIF in the terminal ---
+# --- 6. Publish the animation for preview ---
 #
-# The inline image is always attempted, because detection is unreliable: iTerm2
-# reached through a wrapper, tmux, or a shell that does not forward LC_TERMINAL
-# looks identical to a plain terminal, and refusing to draw there loses the
-# feature exactly where it would have worked. The escape sequence is inert in
-# terminals that do not understand it.
+# Nothing is drawn in the terminal. Inline-image protocols only work in some
+# terminals, and everything else either sees a base64 dump or an approximation
+# in coloured blocks. Copying the animated PNG next to this script instead gives
+# a real preview in the editor: open ./screenshot.png in VS Code and it
+# refreshes as the file is rewritten, at full fidelity, in any terminal.
 #
-# It is skipped only where the output is provably not a terminal (a pipe or a
-# file), since there the base64 would corrupt whatever consumes it. The frame
-# count and path are always printed, so nothing is lost when the image does not
-# render.
-#
-# TMUX needs the sequence wrapped in a passthrough envelope, otherwise tmux eats
-# it instead of forwarding it to the outer terminal.
+# The copy is a working preview, not a record — the app's own
+# <app>/screenshot.png is the versioned artifact. It is deliberately left
+# untracked, see .gitignore below.
 preview() {
-  local gif="$APP_DIR/screenshot.gif" count="$1" encoded
-  [[ -f "$gif" ]] || return 0
+  local source="$APP_DIR/screenshot.png" count="$1"
+  [[ -f "$source" ]] || return 0
 
-  if [[ -t 1 ]]; then
-    encoded="$(base64 -w0 "$gif")"
-    if [[ -n "${TMUX:-}" ]]; then
-      printf '\033Ptmux;\033\033]1337;File=inline=1;width=20;preserveAspectRatio=1:%s\a\033\\\n' "$encoded"
-    else
-      printf '\033]1337;File=inline=1;width=20;preserveAspectRatio=1:%s\a\n' "$encoded"
-    fi
-  fi
+  cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
+    || warn "could not copy the preview to $ROOT/screenshot.png"
 
-  ok "$count frame(s) — $gif"
+  ok "$count frame(s) — preview: $ROOT/screenshot.png"
 }
 
 # --- 7. Commit ---
@@ -195,11 +176,11 @@ commit_change() {
 
   # Pathspec-scoped: the workbench is a live checkout with arbitrary dirty
   # state, and a bare commit would sweep the user's work into this one.
-  git -C "$APP_DIR" add -- screenshot screenshot.png screenshot.gif 2>/dev/null || true
-  if git -C "$APP_DIR" diff --cached --quiet -- screenshot screenshot.png screenshot.gif 2>/dev/null; then
+  git -C "$APP_DIR" add -- screenshot screenshot.png 2>/dev/null || true
+  if git -C "$APP_DIR" diff --cached --quiet -- screenshot screenshot.png 2>/dev/null; then
     return 0
   fi
-  git -C "$APP_DIR" commit -q -m "$message" -- screenshot screenshot.png screenshot.gif \
+  git -C "$APP_DIR" commit -q -m "$message" -- screenshot screenshot.png \
     || warn "git commit failed"
 }
 
@@ -256,6 +237,9 @@ remove_last() {
   count="$(regenerate | tail -1)"
   commit_change "screenshot: remove frame $((count + 1))"
   if [[ "$count" == "0" ]]; then
+    # The recording is gone, so the preview copy must go too rather than sit
+    # there showing frames that no longer exist.
+    rm -f "$ROOT/screenshot.png"
     ok "removed the last frame — no animation left"
   else
     preview "$count"
@@ -266,12 +250,14 @@ remove_last() {
 show_help() {
   echo
   echo "  ENTER  capture a frame of the running app"
-  echo "  SPACE  redraw the current app's animation (nothing is captured)"
+  echo "  SPACE  refresh the preview from the current app (nothing is captured)"
   echo "  DEL    remove the most recent frame"
   echo "  q      quit"
   echo
   echo "  Frames are kept per app in <app>/screenshot/ and are preserved when you"
-  echo "  switch apps — launch another app and press SPACE to see its recording."
+  echo "  switch apps — launch another app and press SPACE to load its recording."
+  echo
+  echo "  Open $ROOT/screenshot.png in the editor to watch it animate as you go."
   echo
 }
 
@@ -286,7 +272,7 @@ while true; do
       [[ -n "$LAST_APP" ]] && ok "now recording $APP" || ok "recording $APP"
       LAST_APP="$APP"
     fi
-    printf 'ENTER capture · SPACE show · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
+    printf 'ENTER capture · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
   else
     printf 'no app launched — launch one from the Trustable UI  [q quits] '
   fi

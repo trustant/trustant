@@ -47,7 +47,7 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
-./screenshot.sh  # Run INSIDE the VM: interactive recorder — ENTER captures the launched app, SPACE redraws, DEL removes the last frame, q quits; writes <app>/screenshot.png (APNG) + .gif and commits
+./screenshot.sh  # Run INSIDE the VM: interactive recorder — ENTER captures the launched app, SPACE refreshes, DEL removes the last frame, q quits; commits <app>/screenshot.png (APNG, 1s/frame) and copies it to ./screenshot.png to preview in the editor
 ./build.sh       # Build + deploy: ships to the Mac VM when present, else local k3s
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push olaris-bestia only with explicit user authorization
 go test ./...    # Unit tests (currently only configure_test.go)

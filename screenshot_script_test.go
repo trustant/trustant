@@ -76,11 +76,11 @@ func TestScreenshotScriptGuardsVMOnly(t *testing.T) {
 // One second per frame, looping forever, in both formats.
 func TestScreenshotScriptWritesOneSecondLoopingFrames(t *testing.T) {
 	script := readScreenshotScript(t)
-	if strings.Count(script, "duration=1000") < 2 {
-		t.Error("both the APNG and the GIF must be written with duration=1000 (one second per frame)")
+	if !strings.Contains(script, "duration=1000") {
+		t.Error("the animation must be written with duration=1000 (one second per frame)")
 	}
-	if strings.Count(script, "loop=0") < 2 {
-		t.Error("both the APNG and the GIF must be written with loop=0 (loop forever)")
+	if !strings.Contains(script, "loop=0") {
+		t.Error("the animation must be written with loop=0 (loop forever)")
 	}
 	if !strings.Contains(script, "save_all=True") {
 		t.Error("save_all=True is required to write multi-frame images")
@@ -106,8 +106,8 @@ func TestScreenshotScriptHandlesTheEmptyCase(t *testing.T) {
 	if !strings.Contains(script, "if not files:") {
 		t.Error("screenshot.sh must handle the no-frames-left case explicitly")
 	}
-	if !strings.Contains(script, "os.remove(path)") {
-		t.Error("the last delete must remove screenshot.png and screenshot.gif")
+	if !strings.Contains(script, "os.remove(apng)") {
+		t.Error("the last delete must remove screenshot.png")
 	}
 }
 
@@ -115,10 +115,10 @@ func TestScreenshotScriptHandlesTheEmptyCase(t *testing.T) {
 // commit would sweep the user's work-in-progress into a screenshot commit.
 func TestScreenshotScriptCommitsOnlyTheScreenshotPaths(t *testing.T) {
 	script := readScreenshotScript(t)
-	if !strings.Contains(script, "add -- screenshot screenshot.png screenshot.gif") {
+	if !strings.Contains(script, "add -- screenshot screenshot.png") {
 		t.Error("git add must be scoped to the screenshot paths")
 	}
-	if !strings.Contains(script, `commit -q -m "$message" -- screenshot screenshot.png screenshot.gif`) {
+	if !strings.Contains(script, `commit -q -m "$message" -- screenshot screenshot.png`) {
 		t.Error("git commit must carry the screenshot pathspec")
 	}
 	if strings.Contains(scriptCode(script), "commit -a") {
@@ -161,31 +161,44 @@ func TestScreenshotScriptRereadsCurrentApp(t *testing.T) {
 	}
 }
 
-// The inline image is always attempted on a terminal. Terminal detection is
-// unreliable — iTerm2 behind a wrapper, or a shell that does not forward
-// LC_TERMINAL, is indistinguishable from a plain terminal — and gating on it
-// loses the image exactly where it would have worked. The sequence is inert
-// where it is not understood.
-func TestScreenshotScriptAlwaysAttemptsTheInlineImage(t *testing.T) {
+// WHY no terminal rendering: inline-image protocols only work in some
+// terminals, and everywhere else the user gets either a base64 dump or a
+// coloured-block approximation. Copying the PNG next to the script gives a real,
+// full-fidelity preview in the editor regardless of terminal.
+func TestScreenshotScriptPreviewsByCopyingNotByDrawing(t *testing.T) {
 	script := readScreenshotScript(t)
-	if !strings.Contains(script, `\033]1337;File=inline=1`) {
-		t.Fatal("screenshot.sh must emit the iTerm2 inline image protocol")
-	}
 	code := scriptCode(script)
-	if strings.Contains(code, `"${LC_TERMINAL:-}" == "iTerm2"`) {
-		t.Error("the inline image must not be gated on terminal detection — attempt it whenever stdout is a tty")
+
+	for _, forbidden := range []string{`]1337;File=inline`, "chafa", "base64 -w0"} {
+		if strings.Contains(code, forbidden) {
+			t.Errorf("screenshot.sh must not render in the terminal, found %q", forbidden)
+		}
 	}
-	if !strings.Contains(code, "[[ -t 1 ]]") {
-		t.Error("the image must be skipped only when stdout is not a tty, where base64 would corrupt a pipe")
+	if !strings.Contains(code, `cp -f "$source" "$ROOT/screenshot.png"`) {
+		t.Error("the preview must be a copy of the animated PNG next to the script")
 	}
-	// tmux swallows the sequence unless it is wrapped for passthrough.
-	if !strings.Contains(script, `\033Ptmux;`) {
-		t.Error("inside tmux the sequence needs the passthrough envelope or the image never reaches the outer terminal")
+	if !strings.Contains(code, `source="$APP_DIR/screenshot.png"`) {
+		t.Error("the preview must copy the app's animated PNG")
 	}
-	// The path is printed unconditionally so nothing is lost when the terminal
-	// cannot render the image.
-	if !strings.Contains(script, `ok "$count frame(s) — $gif"`) {
-		t.Error("the frame count and path must print regardless of whether the image rendered")
+	// A GIF was dropped: one artifact, and it avoids Pillow's GIF encoder
+	// silently merging identical consecutive frames.
+	if strings.Contains(code, ".gif") {
+		t.Error("the recorder produces an animated PNG only — no GIF")
+	}
+	// A deleted recording must not leave a stale preview behind.
+	if !strings.Contains(code, `rm -f "$ROOT/screenshot.png"`) {
+		t.Error("removing the last frame must delete the preview copy too")
+	}
+}
+
+// The preview copy lands in the repo root and must never be committed.
+func TestScreenshotPreviewCopyIsGitignored(t *testing.T) {
+	data, err := os.ReadFile(".gitignore")
+	if err != nil {
+		t.Fatalf("read .gitignore: %s", err)
+	}
+	if !strings.Contains(string(data), "/screenshot.png") {
+		t.Error("the preview copy at the repo root must be gitignored")
 	}
 }
 

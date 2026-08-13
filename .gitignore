@@ -31,3 +31,8 @@ Trustable
 # Never commit it.
 .op.json
 *.lic
+
+# screenshot.sh copies the launched app's animation here so it can be previewed
+# in the editor. It is a scratch copy of <app>/screenshot.png, which is the
+# versioned artifact — this one is never committed.
+/screenshot.png
