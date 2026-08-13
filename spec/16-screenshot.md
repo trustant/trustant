@@ -163,6 +163,29 @@ or desktop layout. Remember the viewport changes *what the app renders*, not jus
 the image size — a narrower setting will collapse responsive layouts to their
 mobile form.
 
+## Hiding the element selector
+
+Apps scaffolded with `@agentic-react/vite` render an element-selector toolbar on
+top of the page. It would appear in every frame, so the capture removes it two
+ways before the shutter:
+
+1. **`window.__AGENTIC_REACT__.hideToolkit()`** — the plugin's own runtime API,
+   and the supported route. `exitSelectionMode()` is called too, so a session
+   left in selection mode does not record highlight overlays.
+2. **A CSS rule on the `data-agentic-react-*` attributes** — a fallback for a
+   build whose API differs, covering every piece the toolkit injects: the
+   launcher, dim layers, hover and selection labels, and the tuning modal.
+
+Both calls are optional-chained and the style tag is `.catch()`-guarded, so an
+app without the plugin captures normally.
+
+Those attributes are the only stable handle: the toolkit's elements have **no id
+and no class**, and their `z-index: 2147482997` comes from a stylesheet rather
+than an inline `style` attribute — an earlier `div[style*="2147482997"]` rule
+matched nothing at all. Verified against a live app: the toolkit's corner drops
+from 1417 distinct colours to 15 (flat background), with each mechanism working
+independently of the other.
+
 # Installation on demand
 
 Both installers are idempotent and run on every invocation:
@@ -203,7 +226,26 @@ versioned artifact; the root copy is gitignored (`/screenshot.png`) and is
 deleted when the last frame is removed, so it never shows frames that no longer
 exist.
 
-The frame count and the preview path are printed on every change.
+## Viewing the animation
+
+**An APNG only animates in a browser.** VS Code's built-in image preview renders
+the first frame and stops, so opening the file from the explorer makes a working
+recording look like a still.
+
+The animation lives in the app root, which Vite already serves, so the loop
+prints a URL on every change:
+
+```
+✓ 3 frame(s) — http://localhost:5173/screenshot.png?v=3
+```
+
+Open it with **Simple Browser: Show** from the VS Code Command Palette, or in any
+external browser. The `?v=<count>` query string defeats the browser cache, which
+would otherwise keep showing the previous capture. The same URL, without the
+query, is printed in the startup help.
+
+A recording whose frames are all identical animates but looks static — that is
+not a defect in the file. Capture, change the app, capture again to see motion.
 
 # Git
 

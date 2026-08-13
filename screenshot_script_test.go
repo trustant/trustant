@@ -177,6 +177,15 @@ func TestScreenshotScriptPreviewsByCopyingNotByDrawing(t *testing.T) {
 	if !strings.Contains(code, `cp -f "$source" "$ROOT/screenshot.png"`) {
 		t.Error("the preview must be a copy of the animated PNG next to the script")
 	}
+	// An APNG only animates in a browser — the editor's image preview stops at
+	// the first frame — so the loop prints a URL the app's own Vite server
+	// already serves. The query string defeats the browser cache.
+	if !strings.Contains(code, `$URL/screenshot.png?v=$count`) {
+		t.Error("each change must print a cache-busted URL for viewing the animation in a browser")
+	}
+	if !strings.Contains(code, "Simple Browser: Show") {
+		t.Error("the startup help must name the VS Code command that opens the URL")
+	}
 	if !strings.Contains(code, `source="$APP_DIR/screenshot.png"`) {
 		t.Error("the preview must copy the app's animated PNG")
 	}
@@ -220,6 +229,28 @@ func TestScreenshotCaptureUsesFixedViewportAndNoSandbox(t *testing.T) {
 	}
 	if !strings.Contains(capture, "await browser.close()") {
 		t.Error("the browser must always be closed, or chromium leaks across loop iterations")
+	}
+}
+
+// WHY: apps scaffolded with @agentic-react/vite render an element-selector
+// toolbar over the page, which would otherwise appear in every frame. Both
+// mechanisms are needed — hideToolkit() is the supported API, and the
+// data-agentic-react-* rule covers a build that lacks it. The elements carry no
+// id or class, so those attributes are the only stable handle.
+func TestScreenshotCaptureHidesTheElementSelector(t *testing.T) {
+	capture := readScreenshotCapture(t)
+	if !strings.Contains(capture, "hideToolkit") {
+		t.Error("the capture must call the plugin's hideToolkit() runtime API")
+	}
+	if !strings.Contains(capture, "data-agentic-react-toolkit") {
+		t.Error("the CSS fallback must target the data-agentic-react-* attributes")
+	}
+	if !strings.Contains(capture, "data-agentic-react-launcher") {
+		t.Error("the launcher button is a separate element and must be hidden too")
+	}
+	// An app without the plugin must still capture rather than throw.
+	if !strings.Contains(capture, "?.hideToolkit?.()") {
+		t.Error("the call must be optional-chained: most apps have no such plugin")
 	}
 }
 

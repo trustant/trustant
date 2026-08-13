@@ -158,7 +158,12 @@ preview() {
   cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
     || warn "could not copy the preview to $ROOT/screenshot.png"
 
-  ok "$count frame(s) — preview: $ROOT/screenshot.png"
+  # The animation lives in the app root, which Vite already serves, so it can be
+  # opened by URL. That matters: an APNG only animates in a browser — VS Code's
+  # built-in image preview renders the first frame and stops, so the copied file
+  # on its own looks like a still. The query string defeats the browser cache,
+  # which would otherwise keep showing the previous capture.
+  ok "$count frame(s) — $URL/screenshot.png?v=$count"
 }
 
 # --- 7. Commit ---
@@ -257,7 +262,14 @@ show_help() {
   echo "  Frames are kept per app in <app>/screenshot/ and are preserved when you"
   echo "  switch apps — launch another app and press SPACE to load its recording."
   echo
-  echo "  Open $ROOT/screenshot.png in the editor to watch it animate as you go."
+  echo "  To watch it animate, open this in a browser — in VS Code use"
+  echo "  'Simple Browser: Show' from the Command Palette:"
+  echo
+  echo "      $URL/screenshot.png"
+  echo
+  echo "  The editor's own image preview shows only the first frame; an animated"
+  echo "  PNG needs a browser. Reload after each capture, or use the ?v= URL"
+  echo "  printed below, to get past the browser cache."
   echo
 }
 

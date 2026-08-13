@@ -31,6 +31,41 @@ try {
   // networkidle means the requests stopped, not that the paint settled. A short
   // pause lets fonts and CSS transitions land so frames are not caught midway.
   await page.waitForTimeout(1000);
+
+  // Hide the @agentic-react element selector so the recording shows the app,
+  // not the dev toolbar sitting on top of it.
+  //
+  // Two mechanisms, because either alone can miss. hideToolkit() is the
+  // plugin's own runtime API and the supported route. The CSS rule covers a
+  // build whose API differs, and every part the toolkit leaves visible: each
+  // piece it injects (launcher, dim layers, hover and selection labels, tuning
+  // modal) carries a data-agentic-react-* attribute, which is the only stable
+  // handle — the elements have no id or class.
+  await page.addStyleTag({
+    content: `[data-agentic-react-dim],
+              [data-agentic-react-toolkit],
+              [data-agentic-react-launcher],
+              [data-agentic-react-hover],
+              [data-agentic-react-hover-label],
+              [data-agentic-react-selected],
+              [data-agentic-react-selected-label],
+              [data-agentic-react-selected-actions],
+              [data-agentic-react-clear-all],
+              [data-agentic-react-tuning-modal],
+              [data-agentic-react-tuning-surface],
+              [data-agentic-react-tuning-panel] { display: none !important; }`,
+  }).catch(() => {});
+  await page.evaluate(() => {
+    try {
+      globalThis.__AGENTIC_REACT__?.hideToolkit?.();
+      globalThis.__AGENTIC_REACT__?.exitSelectionMode?.();
+    } catch {
+      /* app without the plugin: nothing to hide */
+    }
+  });
+  // Let the toolkit's hide transition finish before the shutter.
+  await page.waitForTimeout(300);
+
   await page.screenshot({ path: out, fullPage: false });
 } finally {
   // Always close: a leaked Chromium keeps running after the loop moves on.
