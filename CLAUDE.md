@@ -105,10 +105,12 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 The one feature that is a shell script rather than a Go file is the screenshot
 recorder: [screenshot.sh](screenshot.sh) + [tests/screenshot.mjs](tests/screenshot.mjs),
 specced in [spec/16-screenshot.md](spec/16-screenshot.md). **Its animations are
-written by Pillow, never ImageMagick** — ImageMagick 6 has no APNG encoder and
-delegates `apng:` to ffmpeg, which re-times every frame at 25fps and destroys the
-one-second frame delay. `screenshot_script_test.go` fails the build if the script
-grows an `apng:` reference.
+written by calling ffmpeg directly, never through ImageMagick** — ImageMagick 6
+has no APNG encoder and delegates `apng:` to ffmpeg, which re-times every frame
+at 25fps and destroys the one-second frame delay. `screenshot_script_test.go`
+fails the build if the script grows an `apng:` reference, loses `-nostdin` (ffmpeg
+otherwise eats the interactive loop's keystrokes), or switches the frame input
+back to a glob or the concat demuxer (both miscount frames here).
 
 When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.
 
@@ -175,7 +177,7 @@ Never push to any `olaris*` repository without explicit user authorization, incl
 
 - `go test ./...` runs Go unit tests (`*_test.go`) — coverage is minimal; mostly `configure_test.go`.
 - [tests/](tests/) holds **manual end-to-end test scenarios** (spec markdown + a runnable script per scenario, e.g. `1-reset.sh` wipes miniops users and workspace, then runs `air`). These are not part of `go test`.
-- Some `*_test.go` files assert on the *content* of shell scripts rather than on Go behaviour — `setup_test.go` guards `setup.sh`, and `screenshot_script_test.go` guards `screenshot.sh` and `tests/screenshot.mjs`. They exist to stop invariants that are easy to regress and hard to notice (browser runtimes creeping into `setup.sh`, ImageMagick replacing Pillow, an unscoped `git commit` sweeping the user's workbench).
+- Some `*_test.go` files assert on the *content* of shell scripts rather than on Go behaviour — `setup_test.go` guards `setup.sh`, and `screenshot_script_test.go` guards `screenshot.sh` and `tests/screenshot.mjs`. They exist to stop invariants that are easy to regress and hard to notice (browser runtimes creeping into `setup.sh`, ImageMagick replacing the direct ffmpeg call, an unscoped `git commit` sweeping the user's workbench).
 
 ## Conventions worth knowing
 

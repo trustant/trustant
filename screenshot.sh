@@ -53,12 +53,12 @@ URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
 
 # --- 3. Install what is missing ---
 #
-# WHY Pillow and not ImageMagick: IM 6.9 has no APNG encoder and no apng
-# delegate, so `convert ... apng:out.png` shells out to ffmpeg — a 0-byte file
-# when ffmpeg is absent, and 25fps re-timing when it is present, which discards
-# the one-second frame delay entirely. Pillow writes both formats correctly.
+# ffmpeg is the APNG encoder. It is installed directly rather than reached
+# through ImageMagick: IM 6.9 has no APNG encoder of its own and delegates
+# `apng:` to ffmpeg, writing a 0-byte file when ffmpeg is absent and re-timing
+# every frame at 25fps when it is present, which destroys the one-second delay.
 APT_MISSING=()
-python3 -c 'import PIL' &>/dev/null || APT_MISSING+=(python3-pil)
+command -v ffmpeg &>/dev/null || APT_MISSING+=(ffmpeg)
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
@@ -103,41 +103,65 @@ frame_count() {
   find "$SHOT_DIR" -maxdepth 1 -name '*.png' -type f | wc -l | tr -d ' '
 }
 
-# --- 5. Rebuild both animations from the frames on disk ---
+# --- 5. Rebuild the animation from the frames on disk ---
 #
 # Regenerating from the directory (rather than appending in place) is what makes
-# delete a one-liner and keeps both outputs consistent with the frames.
-regenerate() {
-  python3 - "$SHOT_DIR" "$APP_DIR/screenshot.png" <<'PY' || fail "failed to build the animation"
-import glob, os, sys
-from PIL import Image
-
-shot_dir, apng = sys.argv[1], sys.argv[2]
-files = sorted(glob.glob(os.path.join(shot_dir, "*.png")))
-
-# The last frame was deleted: remove the animation rather than writing an
-# empty one.
-if not files:
-    if os.path.exists(apng):
-        os.remove(apng)
-    print(0)
-    sys.exit(0)
-
-frames = [Image.open(f).convert("RGBA") for f in files]
-
-# duration=1000 writes every APNG fcTL delay as 1000/1000 — exactly one second.
-# loop=0 means loop forever. save_all on a single frame is valid, so the first
-# capture needs no special case.
+# delete a one-liner and keeps the output consistent with the frames.
 #
-# disposal=1/blend=0 is load-bearing, not cosmetic: without it Pillow collapses
-# identical consecutive frames into a single frame with a summed delay. Two
-# captures of a screen that has not changed yet would silently become one frame
-# of two seconds instead of two frames of one.
-frames[0].save(apng, format="PNG", save_all=True, append_images=frames[1:],
-               duration=1000, loop=0, disposal=1, blend=0)
+# ffmpeg is the encoder. `-framerate 1` gives every frame a 1/1 second delay and
+# `-plays 0` loops forever. It is called directly and never through ImageMagick:
+# `convert ... apng:` delegates to ffmpeg anyway, but re-times everything at
+# 25fps on the way, destroying the one-second delay.
+#
+# Frames are fed as a numbered %05d sequence of symlinks rather than by glob or
+# concat, because both of those misbehave here:
+#   - `-pattern_type glob` with this directory failed inside the script (exit
+#     234, "Nothing was written into output file") while the identical command
+#     worked from a shell;
+#   - the concat demuxer applies a duration only when another entry follows, so
+#     it drops the last frame — and repeating that entry adds a spurious one.
+# A %05d sequence has neither problem: N inputs give exactly N frames.
+regenerate() {
+  local apng="$APP_DIR/screenshot.png" count
+  count="$(frame_count)"
 
-print(len(frames))
-PY
+  # The last frame was deleted: remove the animation rather than leaving a stale
+  # one behind or asking ffmpeg to encode nothing.
+  if [[ "$count" == "0" ]]; then
+    rm -f "$apng"
+    echo 0
+    return 0
+  fi
+
+  local seqdir tmp errors index=0
+  seqdir="$(mktemp -d)"
+  tmp="$APP_DIR/.screenshot-$$.png"
+  errors="$(mktemp)"
+
+  # Symlinks, so a large recording costs no extra disk. Sorted by filename,
+  # which is chronological because the frames are timestamped.
+  local frame
+  while IFS= read -r frame; do
+    ln -s "$frame" "$(printf '%s/%05d.png' "$seqdir" "$index")"
+    index=$((index + 1))
+  done < <(find "$SHOT_DIR" -maxdepth 1 -name '*.png' -type f | sort)
+
+  # Encode to a temp file first: a failed or interrupted run must not replace a
+  # good animation with a truncated one.
+  # -nostdin is load-bearing, not tidiness: ffmpeg reads stdin for interactive
+  # keys by default, and this runs inside a loop whose own `read` owns stdin.
+  # Without it ffmpeg swallows the user's keystrokes and aborts the encode with
+  # "at least one of its streams received no packets".
+  if ffmpeg -nostdin -y -loglevel error -framerate 1 -i "$seqdir/%05d.png" \
+       -plays 0 -f apng "$tmp" 2>"$errors" && [[ -s "$tmp" ]]; then
+    mv -f "$tmp" "$apng"
+  else
+    warn "ffmpeg could not build the animation: $(tail -1 "$errors")"
+    rm -f "$tmp"
+  fi
+
+  rm -rf "$seqdir" "$errors"
+  echo "$count"
 }
 
 # --- 6. Publish the animation for preview ---
@@ -204,8 +228,13 @@ capture() {
     suffix=$((suffix + 1))
   done
 
-  node "$ROOT/tests/screenshot.mjs" "$URL" "$target" \
-    || { warn "capture failed"; rm -f "$target"; return 0; }
+  # Capture to a dotfile and rename into place. The rename is atomic and the
+  # frame list ignores dotfiles, so a frame becomes visible to the encoder only
+  # once it is complete.
+  local staged="$SHOT_DIR/.staging-$$.png"
+  node "$ROOT/tests/screenshot.mjs" "$URL" "$staged" \
+    || { warn "capture failed"; rm -f "$staged"; return 0; }
+  mv -f "$staged" "$target"
 
   local count
   count="$(regenerate | tail -1)"

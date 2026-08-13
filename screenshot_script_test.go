@@ -41,9 +41,9 @@ func readScreenshotCapture(t *testing.T) string {
 // WHY: ImageMagick 6 has no APNG encoder and no apng delegate, so
 // `convert ... apng:out.png` silently shells out to ffmpeg — a 0-byte file when
 // ffmpeg is absent, and a 25fps re-encode when it is present, which throws away
-// the one-second frame delay entirely. Pillow is the only thing here that
-// writes a correct APNG, so a "simplification" back to ImageMagick must fail
-// the tests rather than quietly produce a broken animation.
+// the one-second frame delay entirely. ffmpeg is called directly instead, so a
+// "simplification" back to ImageMagick must fail the tests rather than quietly
+// produce a broken animation.
 func TestScreenshotScriptDoesNotUseImageMagickForAPNG(t *testing.T) {
 	script := readScreenshotScript(t)
 	code := scriptCode(script)
@@ -53,8 +53,8 @@ func TestScreenshotScriptDoesNotUseImageMagickForAPNG(t *testing.T) {
 	if strings.Contains(code, "convert -delay") {
 		t.Fatal("screenshot.sh must not build animations with ImageMagick convert")
 	}
-	if !strings.Contains(script, "python3-pil") {
-		t.Fatal("screenshot.sh must install Pillow, which is what writes both animations")
+	if !strings.Contains(code, "APT_MISSING+=(ffmpeg)") {
+		t.Fatal("screenshot.sh must install ffmpeg, which is what encodes the animation")
 	}
 }
 
@@ -73,41 +73,68 @@ func TestScreenshotScriptGuardsVMOnly(t *testing.T) {
 	}
 }
 
-// One second per frame, looping forever, in both formats.
+// One second per frame, looping forever.
 func TestScreenshotScriptWritesOneSecondLoopingFrames(t *testing.T) {
-	script := readScreenshotScript(t)
-	if !strings.Contains(script, "duration=1000") {
-		t.Error("the animation must be written with duration=1000 (one second per frame)")
+	code := scriptCode(readScreenshotScript(t))
+	if !strings.Contains(code, "-framerate 1") {
+		t.Error("the animation must be encoded at -framerate 1 (one second per frame)")
 	}
-	if !strings.Contains(script, "loop=0") {
-		t.Error("the animation must be written with loop=0 (loop forever)")
-	}
-	if !strings.Contains(script, "save_all=True") {
-		t.Error("save_all=True is required to write multi-frame images")
+	if !strings.Contains(code, "-plays 0") {
+		t.Error("the animation must be encoded with -plays 0 (loop forever)")
 	}
 }
 
-// WHY: Pillow merges identical consecutive frames into one frame with a summed
-// delay. Capturing twice before the app changes — a normal thing to do — would
-// otherwise yield one two-second frame instead of two one-second frames, and the
-// animation would disagree with the files on disk. disposal=1/blend=0 keeps
-// every frame. This was observed, not theorised.
-func TestScreenshotScriptKeepsIdenticalFrames(t *testing.T) {
-	script := readScreenshotScript(t)
-	if !strings.Contains(script, "disposal=1") || !strings.Contains(script, "blend=0") {
-		t.Fatal("the APNG save needs disposal=1 and blend=0, or Pillow collapses identical consecutive captures into a single frame")
+// WHY: ffmpeg reads stdin for interactive keys by default, and the encode runs
+// inside a loop whose own `read` owns stdin. Without -nostdin ffmpeg swallows
+// the user's keystrokes and the encode dies with "at least one of its streams
+// received no packets" — the animation is then never written at all. Observed,
+// not theorised: this silently broke every first capture.
+func TestScreenshotScriptKeepsFFmpegOffStdin(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+	if !strings.Contains(code, "ffmpeg -nostdin") {
+		t.Fatal("ffmpeg must run with -nostdin, or it consumes the interactive loop's keystrokes and the encode fails")
 	}
 }
 
-// Deleting the last remaining frame must remove the animations, not write a
-// zero-frame file.
+// WHY the %05d sequence rather than a glob or the concat demuxer: ffmpeg's
+// glob matched nothing from inside the script, and concat applies a duration
+// only when another entry follows, so it drops the final frame (and repeating
+// that entry adds a spurious one). A numbered sequence gives exactly N frames
+// for N inputs.
+func TestScreenshotScriptFeedsFramesAsANumberedSequence(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+	if !strings.Contains(code, `-i "$seqdir/%05d.png"`) {
+		t.Error("frames must be fed to ffmpeg as a numbered %05d sequence")
+	}
+	if strings.Contains(code, "-pattern_type glob") {
+		t.Error("ffmpeg's glob demuxer is unreliable here — use the numbered sequence")
+	}
+	if strings.Contains(code, "-f concat") {
+		t.Error("the concat demuxer miscounts the final frame — use the numbered sequence")
+	}
+}
+
+// Deleting the last remaining frame must remove the animation, not leave a
+// stale one behind.
 func TestScreenshotScriptHandlesTheEmptyCase(t *testing.T) {
-	script := readScreenshotScript(t)
-	if !strings.Contains(script, "if not files:") {
+	code := scriptCode(readScreenshotScript(t))
+	if !strings.Contains(code, `if [[ "$count" == "0" ]]; then`) {
 		t.Error("screenshot.sh must handle the no-frames-left case explicitly")
 	}
-	if !strings.Contains(script, "os.remove(apng)") {
+	if !strings.Contains(code, `rm -f "$apng"`) {
 		t.Error("the last delete must remove screenshot.png")
+	}
+}
+
+// A frame must become visible to the encoder only once it is complete: ffmpeg
+// globs the directory moments after the capture writes into it.
+func TestScreenshotScriptStagesFramesAtomically(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+	if !strings.Contains(code, `staged="$SHOT_DIR/.staging-$$.png"`) {
+		t.Error("captures must be staged to a dotfile and renamed into place")
+	}
+	if !strings.Contains(code, `mv -f "$staged" "$target"`) {
+		t.Error("the staged frame must be renamed into place atomically")
 	}
 }
 

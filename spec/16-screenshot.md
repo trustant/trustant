@@ -49,9 +49,9 @@ file and rebuild — instead of APNG chunk surgery with sequence renumbering, an
 it keeps the output always consistent with the frames on disk.
 
 An animated PNG is the only artifact. A GIF was produced alongside it at one
-point and was dropped: it added a second thing to keep in sync, and Pillow's GIF
-encoder silently merges identical consecutive frames, so it disagreed with the
-APNG whenever the app had not changed between captures.
+point and was dropped: it added a second thing to keep in sync, and the encoder
+then in use silently merged identical consecutive frames, so it disagreed with
+the APNG whenever the app had not changed between captures.
 
 Nothing in the managed `.gitignore` block (`trustableGitignoreEntries` in
 `gitignore.go`, spec [13-gitignore.md](13-gitignore.md)) matches `*.png` or
@@ -70,29 +70,43 @@ delegate**. `convert … apng:out.png` silently shells out to `ffmpeg`:
   one-second frames come back as **99 frames of 1/25s each** and `-delay 100` is
   discarded entirely.
 
-Neither can satisfy the one-second-per-frame requirement. Pillow (`python3-pil`)
-writes a correct APNG — every `fcTL` delay is exactly `1000/1000` — so **Pillow
-is the only image dependency** and ImageMagick is not installed at all.
+Neither can satisfy the one-second-per-frame requirement. **ffmpeg is therefore
+called directly**, and is the only image dependency:
+
+```
+ffmpeg -nostdin -y -framerate 1 -i <seq>/%05d.png -plays 0 -f apng out.png
+```
+
+`-framerate 1` writes every `fcTL` delay as `1/1` — exactly one second — and
+`-plays 0` loops forever. Verified: N inputs give exactly N frames, identical
+consecutive frames included, with no `disposal`/`blend` workaround needed.
 
 `screenshot_script_test.go` asserts the string `apng:` never appears in the
 script, so a future simplification back to `convert` fails the tests rather than
 silently producing a broken file.
 
-# Identical frames must not be merged
+# Three ffmpeg traps, all hit during implementation
 
-Pillow collapses identical consecutive frames into a single frame with a summed
-delay. Capturing an app twice before changing anything — an entirely normal thing
-to do — would otherwise produce one frame of two seconds instead of two frames of
-one, and the animation would disagree with the files on disk.
+**`-nostdin` is mandatory.** ffmpeg reads stdin for interactive keys by default,
+and the encode runs inside a loop whose own `read` owns stdin. Without it ffmpeg
+swallows the user's keystrokes and the encode dies with *"at least one of its
+streams received no packets"* — so the animation is never written at all. This
+silently broke every first capture, and the identical command worked when run by
+hand, which is what made it hard to see.
 
-`disposal=1, blend=0` on the APNG save prevents this, and is therefore
-load-bearing rather than cosmetic. Verified: three pixel-identical captures
-produce a three-frame APNG with all delays at `1000/1000`.
+**Frames are fed as a `%05d` sequence of symlinks, not a glob.** ffmpeg's
+`-pattern_type glob` matched nothing from inside the script (exit 234) while the
+same command worked from a shell. A numbered sequence has no such ambiguity.
+Symlinks keep it free — no frame data is copied.
 
-This is also why there is no GIF: Pillow's GIF encoder merges identical
-consecutive frames regardless of the options given (`disposal`, `optimize` and
-palette conversion all make no difference), so a GIF would disagree with the APNG
-every time the app had not changed between captures.
+**The concat demuxer is not usable here.** It applies a `duration` only when
+another entry follows, so it silently drops the final frame; repeating that entry
+to compensate adds a spurious one. Measured: 5 inputs gave 4 frames, then 6. The
+frame count has to match the files on disk exactly, so concat is out.
+
+Captures are also staged to a dotfile and renamed into place, so a frame becomes
+visible to the encoder only once it is complete — the encode runs moments after
+the capture writes into the same directory.
 
 # The VM guard
 
@@ -190,9 +204,9 @@ independently of the other.
 
 Both installers are idempotent and run on every invocation:
 
-- **Pillow** via the `APT_MISSING` array idiom from `setup.sh`: probed with
-  `python3 -c 'import PIL'` (so a venv Pillow counts), installed with
-  `sudo apt-get install -y python3-pil`. The VM guest has passwordless sudo.
+- **ffmpeg** via the `APT_MISSING` array idiom from `setup.sh`: probed with
+  `command -v ffmpeg`, installed with `sudo apt-get install -y ffmpeg`. The VM
+  guest has passwordless sudo.
 - **Playwright + Chromium** following `tests/e2e_issue98.sh`: `npm install` when
   `node_modules/@playwright/test` is absent, then `npx playwright install
   chromium`, which no-ops when the pinned revision is already cached. Skip with
