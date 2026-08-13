@@ -7,6 +7,7 @@
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
     <script src="js/envtable.js"></script>
+    <script src="js/github-account.js"></script>
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -189,19 +190,26 @@
                     </p>
                     <p id="githubRepoHint" class="text-xs mt-1 text-[color:var(--nu-muted)]"></p>
                 </div>
-                <!-- SSH Key Notice (hidden if key not available) -->
-                <div id="sshKeyNotice" class="nu-banner p-3 hidden">
-                    <p class="text-sm">
-                        To save and read private repo add this
-                        <a href="#" id="sshKeyToggle" onclick="toggleAddAppSshKey();return false"
-                            class="nu-link font-medium">ssh key</a>
-                        to your GitHub account.
+                <!-- Connect first; the SSH key is the fallback for
+                     installations without a connected account. -->
+                <div id="addAppGithubNotice" class="nu-banner p-3 hidden">
+                    <p class="text-sm mb-2">
+                        Connect your GitHub account to read and save private repositories over HTTPS.
                     </p>
-                    <div id="sshKeyReveal" class="hidden mt-2">
+                    <div id="addAppGithubPanel"></div>
+                </div>
+                <!-- SSH Key Notice (hidden if key not available) -->
+                <div id="sshKeyNotice" class="hidden">
+                    <a href="#" id="sshKeyToggle" onclick="toggleAddAppSshKey();return false"
+                        class="nu-link text-sm font-medium">Use an SSH key instead</a>
+                    <div id="sshKeyReveal" class="hidden mt-2 nu-banner p-3">
+                        <p class="text-sm mb-2">
+                            To save and read a private repo add this ssh key to your GitHub account.
+                        </p>
                         <textarea id="addAppSshKey" readonly rows="3"
                             class="nu-input nu-code w-full px-2 py-1 text-xs resize-none"></textarea>
                         <div class="flex items-center gap-2 mt-2">
-                            <button type="button" onclick="copyAddAppSshKey()"
+                            <button type="button" onclick="copyKeyFromTextarea('addAppSshKey', 'addAppSshCopied')"
                                 class="nu-btn nu-btn-secondary nu-btn-compact">
                                 Copy Key
                             </button>
@@ -232,18 +240,29 @@
                 starter or be compatible with
                 <a href="https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable"
                     target="_blank" rel="noopener" class="nu-link">Trustable Conventions</a>.
-                The repo must exist; you can access the repo with the ssh key shown below.
+                The repo must exist. Connect your GitHub account below to access it;
+                Trustable reads and pushes over HTTPS with the connected account.
                 If you use a standard template you can save in your repo later.
             </p>
-            <div id="ownStarterSshBlock" class="nu-banner p-3 mb-4 hidden">
-                <textarea id="ownStarterSshKey" readonly rows="3"
-                    class="nu-input nu-code w-full px-2 py-1 text-xs resize-none"></textarea>
-                <div class="flex items-center gap-2 mt-2">
-                    <button type="button" onclick="copyKeyFromTextarea('ownStarterSshKey', 'ownStarterSshCopied')"
-                        class="nu-btn nu-btn-secondary nu-btn-compact">
-                        Copy Key
-                    </button>
-                    <span id="ownStarterSshCopied" class="text-green-700 text-xs hidden">Copied!</span>
+            <!-- Connecting here is what grants access to the user's own private
+                 starter repo, so the form is in the modal rather than a page away. -->
+            <div id="ownStarterGithubNotice" class="nu-banner p-3 mb-4 hidden">
+                <div id="ownStarterGithubPanel"></div>
+            </div>
+            <p id="ownStarterGithubConnected" class="text-sm text-[color:var(--nu-muted)] mb-4 hidden"></p>
+            <div id="ownStarterSshBlock" class="mb-4 hidden">
+                <a href="#" onclick="toggleOwnStarterSshKey(); return false"
+                    class="nu-link text-sm font-medium">Use an SSH key instead</a>
+                <div id="ownStarterSshReveal" class="hidden mt-2 nu-banner p-3">
+                    <textarea id="ownStarterSshKey" readonly rows="3"
+                        class="nu-input nu-code w-full px-2 py-1 text-xs resize-none"></textarea>
+                    <div class="flex items-center gap-2 mt-2">
+                        <button type="button" onclick="copyKeyFromTextarea('ownStarterSshKey', 'ownStarterSshCopied')"
+                            class="nu-btn nu-btn-secondary nu-btn-compact">
+                            Copy Key
+                        </button>
+                        <span id="ownStarterSshCopied" class="text-green-700 text-xs hidden">Copied!</span>
+                    </div>
                 </div>
             </div>
             <button type="button" onclick="hideOwnStarterModal()" class="nu-btn nu-btn-primary w-full">
@@ -382,18 +401,30 @@
                             title="Format: org/repo"
                             class="nu-input w-full px-3 py-2">
                     </div>
-                    <div id="gitPushSshNotice" class="nu-banner p-3 hidden">
-                        <p class="text-sm">
-                            Add this
-                            <a href="#" onclick="toggleGitPushSshKey(); return false"
-                                class="nu-link font-medium">SSH public key</a>
-                            to the repository's deploy keys (with write access) or to your GitHub account.
+                    <!-- Connecting a GitHub account is the primary way to
+                         authenticate a push: the backend then pushes over HTTPS
+                         with that account. The SSH key below is the fallback for
+                         installations that never connect one. -->
+                    <div id="gitPushGithubNotice" class="nu-banner p-3 hidden">
+                        <p class="text-sm mb-2">
+                            Connect your GitHub account to push. Trustable pushes over HTTPS with the
+                            connected account — no SSH key needed.
                         </p>
-                        <div id="gitPushSshKeyReveal" class="hidden mt-2">
+                        <div id="gitPushGithubPanel"></div>
+                    </div>
+                    <p id="gitPushGithubConnected" class="text-sm text-[color:var(--nu-muted)] hidden"></p>
+                    <div id="gitPushSshNotice" class="hidden">
+                        <a href="#" onclick="toggleGitPushSshKey(); return false"
+                            class="nu-link text-sm font-medium">Use an SSH deploy key instead</a>
+                        <div id="gitPushSshKeyReveal" class="hidden mt-2 nu-banner p-3">
+                            <p class="text-sm mb-2">
+                                Add this SSH public key to the repository's deploy keys (with write
+                                access) or to your GitHub account.
+                            </p>
                             <textarea id="gitPushSshKey" readonly rows="3"
                                 class="nu-input nu-code w-full px-2 py-1 text-xs resize-none"></textarea>
                             <div class="flex items-center gap-2 mt-2">
-                                <button type="button" onclick="copyGitPushSshKey()"
+                                <button type="button" onclick="copyKeyFromTextarea('gitPushSshKey', 'gitPushSshCopied')"
                                     class="nu-btn nu-btn-secondary nu-btn-compact">
                                     Copy Key
                                 </button>
@@ -626,6 +657,7 @@
         let appFilter = 'all';
         let appView = 'list';
         let githubAccountAuthenticated = false;
+        let githubAccountLogin = '';
 
         // The server error prefixes below are a contract with license.go:
         // requireValidLicense writes "License required: ..." and
@@ -780,10 +812,25 @@
                 nameField.value = own ? OWN_STARTER_DEFAULT_NAME : choice.name;
             }
             hideAppNameError();
-            // The GitHub picker and the SSH key only apply to your own repo.
+            // The GitHub picker, the connect form and the SSH key only apply to
+            // your own repo. Connect is offered while no account is attached;
+            // once one is, the picker above already says so.
             document.getElementById('githubRepoNotice').classList.toggle('hidden', !own || !githubAccountAuthenticated);
+            const githubNotice = document.getElementById('addAppGithubNotice');
+            const showConnect = own && !githubAccountAuthenticated;
+            if (githubNotice) {
+                githubNotice.classList.toggle('hidden', !showConnect);
+                if (showConnect) {
+                    mountGitHubPanel('addAppGithubForm', 'addAppGithubPanel', function () {
+                        refreshGitHubRepositories(true);
+                        applyStarterSelection();
+                    });
+                }
+            }
             const sshNotice = document.getElementById('sshKeyNotice');
-            if (sshNotice) sshNotice.classList.toggle('hidden', !own || !sshKeyAvailable);
+            if (sshNotice) {
+                sshNotice.classList.toggle('hidden', !own || !sshKeyAvailable || githubAccountAuthenticated);
+            }
         }
 
         function onStarterChoice(value) {
@@ -791,18 +838,38 @@
             if (value === OWN_STARTER) showOwnStarterModal();
         }
 
+        // Connecting an account here is what grants access to the user's own
+        // private starter repo, so the connect form is offered in the modal
+        // itself; the SSH key stays as the collapsed fallback beneath it.
         async function showOwnStarterModal() {
             const modal = document.getElementById('ownStarterModal');
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             document.getElementById('ownStarterSshCopied').classList.add('hidden');
-            const key = await loadSSHKey();
+            document.getElementById('ownStarterSshReveal').classList.add('hidden');
+            const notice = document.getElementById('ownStarterGithubNotice');
+            const connected = document.getElementById('ownStarterGithubConnected');
             const block = document.getElementById('ownStarterSshBlock');
+            notice.classList.add('hidden');
+            connected.classList.add('hidden');
+            block.classList.add('hidden');
+            if (githubAccountAuthenticated) {
+                showGitHubConnected('ownStarterGithubNotice', 'ownStarterGithubConnected',
+                    { login: githubAccountLogin }, 'ownStarterSshBlock');
+                return;
+            }
+            notice.classList.remove('hidden');
+            mountGitHubPanel('ownStarterGithubForm', 'ownStarterGithubPanel', function (status) {
+                githubAccountLogin = status.login || '';
+                showGitHubConnected('ownStarterGithubNotice', 'ownStarterGithubConnected',
+                    status, 'ownStarterSshBlock');
+                refreshGitHubRepositories(true);
+                applyStarterSelection();
+            });
+            const key = await loadSSHKey();
             if (key) {
                 document.getElementById('ownStarterSshKey').value = key;
                 block.classList.remove('hidden');
-            } else {
-                block.classList.add('hidden');
             }
         }
 
@@ -810,6 +877,7 @@
             const modal = document.getElementById('ownStarterModal');
             modal.classList.add('hidden');
             modal.classList.remove('flex');
+            if (window.ownStarterGithubForm) window.ownStarterGithubForm.stopPolling();
         }
 
         function renderStarters(warning) {
@@ -1136,6 +1204,7 @@
                 const response = await fetch('/api/github/status');
                 const status = await response.json();
                 githubAccountAuthenticated = Boolean(status.authenticated);
+                githubAccountLogin = status.login || '';
                 if (!githubAccountAuthenticated) {
                     if (notice) notice.classList.add('hidden');
                     return;
@@ -1167,6 +1236,7 @@
                 }
             } catch (error) {
                 githubAccountAuthenticated = false;
+                githubAccountLogin = '';
                 if (hint) hint.textContent = 'GitHub status unavailable; manual input and SSH remain available.';
             }
         }
@@ -1191,10 +1261,12 @@
             if (key) {
                 sshKeyAvailable = true;
                 textarea.value = key;
-                // Shown only in "My Application Starter" mode; the warning
+                // Shown only in "My Application Starter" mode, and only as the
+                // fallback when no GitHub account is connected; the warning
                 // dialog carries its own copy of the key.
                 const choice = selectedStarter();
-                notice.classList.toggle('hidden', !(!choice || choice.own === true));
+                const own = !choice || choice.own === true;
+                notice.classList.toggle('hidden', !own || githubAccountAuthenticated);
             } else {
                 sshKeyAvailable = false;
                 textarea.value = '';
@@ -1218,17 +1290,9 @@
             }
         }
 
-        function copyGitPushSshKey() {
-            copyKeyFromTextarea('gitPushSshKey', 'gitPushSshCopied');
-        }
-
         function toggleGitPushSshKey() {
             const el = document.getElementById('gitPushSshKeyReveal');
             el.classList.toggle('hidden');
-        }
-
-        function copyAddAppSshKey() {
-            copyKeyFromTextarea('addAppSshKey', 'addAppSshCopied');
         }
 
         async function toggleAddAppSshKey() {
@@ -1236,6 +1300,50 @@
             const key = await refreshAddAppSshKeyNotice();
             if (!key) return;
             el.classList.toggle('hidden');
+        }
+
+        function toggleOwnStarterSshKey() {
+            document.getElementById('ownStarterSshReveal').classList.toggle('hidden');
+        }
+
+        // Shared GitHub connect panels (web/js/github-account.js). Each of the
+        // three flows that needs repo access mounts the same form: connecting is
+        // the primary path, the SSH key below it only a fallback. Mounts are
+        // created once and reloaded afterwards, so a login started in one panel
+        // is still reflected when the surface is reopened.
+        //
+        // The instances live only on `window` — the component publishes them
+        // there for its inline onclick attributes, and a lexical binding of the
+        // same name would be a second, separate slot.
+        function mountGitHubPanel(globalName, containerId, onAuthenticated) {
+            if (window[globalName]) {
+                window[globalName].load();
+                return window[globalName];
+            }
+            return renderGitHubAccountForm(containerId, {
+                globalName: globalName,
+                compact: true,
+                onStatus: function (status) {
+                    githubAccountAuthenticated = Boolean(status.authenticated);
+                },
+                onAuthenticated: onAuthenticated
+            });
+        }
+
+        // Swaps a surface between "connect" and "connected" once an account is
+        // available, and hides the SSH fallback that is then pointless.
+        function showGitHubConnected(noticeId, connectedId, status, sshNoticeId) {
+            const notice = document.getElementById(noticeId);
+            const connected = document.getElementById(connectedId);
+            if (notice) notice.classList.add('hidden');
+            if (connected) {
+                connected.textContent = `Connected to GitHub as ${status.login || 'github.com'}.`;
+                connected.classList.remove('hidden');
+            }
+            if (sshNoticeId) {
+                const ssh = document.getElementById(sshNoticeId);
+                if (ssh) ssh.classList.add('hidden');
+            }
         }
 
         function showUndeployModal(name) {
@@ -1427,13 +1535,28 @@
             document.getElementById('gitPushSpinner').classList.add('hidden');
             document.getElementById('gitPushForm').classList.remove('hidden');
             document.getElementById('gitPushResult').classList.add('hidden');
-            if (sshKeyAvailable && !githubAccountAuthenticated) {
-                document.getElementById('gitPushSshNotice').classList.remove('hidden');
-                document.getElementById('gitPushSshKeyReveal').classList.add('hidden');
-                document.getElementById('gitPushSshCopied').classList.add('hidden');
-                loadSSHKey().then(key => {
-                    document.getElementById('gitPushSshKey').value = key || 'SSH key not available';
+            document.getElementById('gitPushGithubConnected').classList.add('hidden');
+            document.getElementById('gitPushSshNotice').classList.add('hidden');
+            document.getElementById('gitPushGithubNotice').classList.add('hidden');
+            document.getElementById('gitPushSshKeyReveal').classList.add('hidden');
+            document.getElementById('gitPushSshCopied').classList.add('hidden');
+            if (githubAccountAuthenticated) {
+                showGitHubConnected('gitPushGithubNotice', 'gitPushGithubConnected',
+                    { login: githubAccountLogin }, 'gitPushSshNotice');
+            } else {
+                // Connect is the primary path; the key only backs it up.
+                document.getElementById('gitPushGithubNotice').classList.remove('hidden');
+                mountGitHubPanel('gitPushGithubForm', 'gitPushGithubPanel', function (status) {
+                    githubAccountLogin = status.login || '';
+                    showGitHubConnected('gitPushGithubNotice', 'gitPushGithubConnected',
+                        status, 'gitPushSshNotice');
                 });
+                if (sshKeyAvailable) {
+                    document.getElementById('gitPushSshNotice').classList.remove('hidden');
+                    loadSSHKey().then(key => {
+                        document.getElementById('gitPushSshKey').value = key || 'SSH key not available';
+                    });
+                }
             }
             document.getElementById('gitPushModal').classList.remove('hidden');
             document.getElementById('gitPushModal').classList.add('flex');
@@ -1443,6 +1566,8 @@
             document.getElementById('gitPushModal').classList.add('hidden');
             document.getElementById('gitPushModal').classList.remove('flex');
             document.getElementById('gitPushRepo').value = '';
+            // Leave no poll running behind a closed modal.
+            if (window.gitPushGithubForm) window.gitPushGithubForm.stopPolling();
             gitPushApp = null;
         }
 

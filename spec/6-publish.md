@@ -15,7 +15,7 @@ The local apihosts (`miniops.me`, `localhost`, `127.0.0.1`, `::1`) skip the **ho
 
 There is no `needs_config` fallback for an authorization failure — the user must install a valid license, which the frontend offers through the license modal. The legacy `publishing` flag in the workspace config is removed.
 
-Git-push authentication itself is unchanged: it comes from the managed personal GitHub account when connected, with the existing SSH key as fallback.
+Git-push authentication itself is unchanged: it comes from the managed personal GitHub account when connected, with the existing SSH key as fallback. When the push popup opens because no production repository is configured and no account is connected, it offers the shared GitHub connect form inline ([github.md](github.md)) so the user authenticates without leaving the flow; the SSH key stays behind a collapsed disclosure. This is presentation only — it changes no authorization gate.
 
 # Progress streaming
 

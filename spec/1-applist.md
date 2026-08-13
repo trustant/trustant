@@ -251,8 +251,8 @@ sent** — the app falls back to the global `notebook.repository`. Everything
 downstream (the creating modal, the `missing_env` path, the list refresh) is
 shared with the Starter path.
 
-The GitHub datalist notice and the SSH key notice are **Starter-only**; a
-catalog application's repository is fixed and public.
+The GitHub datalist notice, the GitHub connect form and the SSH key fallback are
+**Starter-only**; a catalog application's repository is fixed and public.
 
 ### Starter tab
 
@@ -286,12 +286,21 @@ Selecting **"My Application Starter"** opens a warning dialog:
 > Warning: if you use your own starter, it must be derived by a standard
 > application starter or be compatible with
 > [Trustable Conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable).
-> The repo must exist; you can access the repo with the ssh key shown below. If
-> you use a standard template you can save in your repo later.
+> The repo must exist. Connect your GitHub account below to access it; Trustable
+> reads and pushes over HTTPS with the connected account. If you use a standard
+> template you can save in your repo later.
 
-The dialog embeds a read-only textarea with the SSH public key and a **Copy
-Key** button when `GET /api/sshkey` returns one, and is dismissed with
-"Understood".
+Connecting an account here is what grants access to the user's own private
+starter repository, so the dialog embeds the shared **GitHub account form**
+([github.md](github.md)) rather than sending the user to the Configure page.
+When an account is already connected the form is replaced by a single line
+naming it. When it is not, connecting inside the dialog refreshes the
+repository datalist in place.
+
+Beneath the form, and only while no account is connected, a collapsed
+**"Use an SSH key instead"** disclosure reveals a read-only textarea with the
+SSH public key and a **Copy Key** button when `GET /api/sshkey` returns one. The
+dialog is dismissed with "Understood".
 
 On **Create** the browser checks, before calling the backend:
 
@@ -325,14 +334,18 @@ available. Public and private repositories are both selectable. Repository
 listing failures do not disable manual input; they show an actionable message
 and preserve the SSH fallback.
 
-If the managed GitHub account is not connected, or the selected repository is
-not available to it, the existing SSH path remains available. If the SSH key is
-available (`GET /api/sshkey` returns 200), show a yellow notice inside the Add
-Application modal with the text:
+If the managed GitHub account is not connected, the Add Application modal offers
+the shared **GitHub account form** ([github.md](github.md)) inside a notice
+reading "Connect your GitHub account to read and save private repositories over
+HTTPS." Connecting there reloads the repository datalist without leaving the
+modal. The form is hidden once an account is connected, because the datalist
+notice above it already names the account.
 
-"To save and read private repo add this **ssh key** to your GitHub account."
-
-The phrase "ssh key" is an inline link. Clicking it toggles a reveal area inside the same notice that contains:
+The existing SSH path remains available as a fallback, offered **only while no
+account is connected**. If the SSH key is available (`GET /api/sshkey` returns
+200), show a collapsed **"Use an SSH key instead"** disclosure beneath the
+form. Expanding it reveals a notice reading "To save and read a private repo add
+this ssh key to your GitHub account." containing:
 
 - a read-only textarea with the `~/.ssh/id_ed25519.pub` content (fetched from `/api/sshkey`),
 - a **Copy Key** button that copies the value to the clipboard.
@@ -341,7 +354,10 @@ The reveal is collapsed by default and reset to collapsed every time the Add App
 
 If the SSH key is not available, do not show this notice.
 
-The Configure page owns a compact **GitHub Account** card. It displays:
+The Configure page owns a compact **GitHub Account** card. Its body is the same
+shared GitHub account form the Add Application, My Application Starter and Git
+Push flows mount ([github.md](github.md)); only the card's heading, description
+and status pill belong to the page. It displays:
 
 - unavailable, disconnected, connecting, connected, cancelled, expired/error;
 - the authenticated `github.com` login, but never a token;
@@ -402,8 +418,16 @@ Each app card has a "Git Push" button. Clicking it calls `POST /api/publish/push
 
 If the backend returns `{"needs_config": true}`, show a popup asking for:
 - The production repository in org/repo format
-- The SSH key notice (same as in app creation: yellow box with "Show Key" button, only if SSH key is available)
-- A note: "The SSH public key must be added to this repository's deploy keys or your GitHub account."
+- The shared **GitHub account form** ([github.md](github.md)), when no account is
+  connected, above the repository field, introduced by "Connect your GitHub
+  account to push. Trustable pushes over HTTPS with the connected account — no
+  SSH key needed." Connecting inside the popup replaces the form with a line
+  naming the account, so the user completes the push without reopening it.
+- The SSH key fallback, offered only while no account is connected and only if
+  the SSH key is available: a collapsed **"Use an SSH deploy key instead"**
+  disclosure revealing the key, a **Copy Key** button, and the note "Add this
+  SSH public key to the repository's deploy keys (with write access) or to your
+  GitHub account."
 
 Once the repo is set, the backend saves it as `OPS_REPO` in production config
 and adds a `production` remote. With a connected managed GitHub account it uses

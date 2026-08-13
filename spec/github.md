@@ -54,6 +54,35 @@ the official `gh auth git-credential` helper. A transient `setup-git` process
 failure is retried exactly once with a fresh bounded command after a short
 delay. Trustable does not retry the Git clone, pull, or push operation itself.
 
+## Presentation
+
+The connect form is **one shared component**, `web/js/github-account.js`. It
+renders the status message, the device panel (one-time code, Copy Code, Open
+GitHub), the error line, and the Connect / Cancel / Disconnect actions, and owns
+the polling loop against the endpoints above. Each mount prefixes its own
+element ids so several copies can coexist on one page, and publishes its
+instance on `window` under a caller-supplied name, because the rendered markup
+drives it through inline `onclick` attributes.
+
+It is mounted by every surface that needs repository access:
+
+- the Configure page's **GitHub Account** card, which supplies its own status
+  pill through `badgeId` and keeps its Git User card coupling through the
+  `onStatus` callback;
+- the **Git Push** popup, when a push needs a production repository;
+- the **Add Application** modal, in "My Application Starter" mode;
+- the **My Application Starter** warning dialog, where connecting is what grants
+  access to the user's own private starter repository.
+
+Connecting is the primary authentication path in all four, because managed
+HTTPS is what the backend prefers. The dedicated SSH key is a **fallback**: each
+applist surface offers it behind a collapsed "Use an SSH key instead"
+disclosure, and only while no account is connected. No surface may present the
+SSH key as the primary path or instruct the user to reach a repository with it
+while the connect form is available. Hosts hang their own behaviour off the
+`onStatus` / `onAuthenticated` callbacks rather than reimplementing the flow;
+`github_account_form_test.go` guards these invariants.
+
 ## Repository operations
 
 Authenticated onboarding validates the requested `org/repo`, obtains its

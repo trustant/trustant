@@ -6,6 +6,7 @@
     <title>Trustable - Configuration</title>
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
+    <script src="js/github-account.js"></script>
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -208,30 +209,11 @@
                 </div>
                 <span id="githubAccountBadge" class="nu-status-pill px-2 py-1">Checking...</span>
             </div>
-            <div class="mt-4">
-                <p id="githubAccountMessage" class="text-sm text-[color:var(--nu-muted)]">
-                    Checking managed GitHub status...
-                </p>
-                <div id="githubDevicePanel" class="hidden nu-feedback nu-feedback-info p-3 mt-3">
-                    <p class="text-sm">Open the device page and enter this one-time code:</p>
-                    <div class="flex flex-wrap items-center gap-2 mt-2">
-                        <code id="githubDeviceCode" class="nu-code text-base font-semibold"></code>
-                        <button type="button" onclick="copyGitHubDeviceCode()"
-                            class="nu-btn nu-btn-secondary nu-btn-compact">Copy Code</button>
-                        <a id="githubDeviceURL" href="https://github.com/login/device"
-                            target="_blank" rel="noopener" class="nu-btn nu-btn-primary">Open GitHub</a>
-                    </div>
-                </div>
-                <p id="githubAccountError" class="hidden nu-feedback nu-feedback-error p-3 mt-3 text-sm"></p>
-                <div class="flex flex-wrap gap-2 mt-4">
-                    <button id="githubConnectBtn" type="button" onclick="startGitHubLogin()"
-                        class="nu-btn nu-btn-primary">Connect GitHub</button>
-                    <button id="githubCancelBtn" type="button" onclick="cancelGitHubLogin()"
-                        class="hidden nu-btn nu-btn-secondary">Cancel</button>
-                    <button id="githubLogoutBtn" type="button" onclick="logoutGitHub()"
-                        class="hidden nu-btn nu-btn-danger">Disconnect</button>
-                </div>
-            </div>
+            <!-- Rendered by web/js/github-account.js, the same component the
+                 Git Push, Add App and My Application Starter flows mount. The
+                 badge stays in the card header, so this mount is compact and
+                 the component drives the external element instead. -->
+            <div id="githubAccountPanel" class="mt-4"></div>
         </div>
 
         <!-- Actions -->
@@ -281,117 +263,29 @@
             pi: { default: '' },
             notebook: { repository: 'trustable-ai/templates', ref: 'main', has_token: false }
         };
-        let githubPollTimer = null;
-
+        // No `let githubAccountForm` here: the component publishes the instance
+        // as window.githubAccountForm for its inline onclick attributes, and a
+        // lexical binding of the same name would be a second, separate slot.
         function setGitHubElementVisible(id, visible) {
             const element = document.getElementById(id);
             if (element) element.classList.toggle('hidden', !visible);
         }
 
-        function scheduleGitHubPoll() {
-            if (githubPollTimer) clearTimeout(githubPollTimer);
-            githubPollTimer = setTimeout(loadGitHubAccount, 1500);
-        }
-
-        async function loadGitHubAccount() {
-            const badge = document.getElementById('githubAccountBadge');
-            const message = document.getElementById('githubAccountMessage');
-            const error = document.getElementById('githubAccountError');
-            try {
-                const [statusResponse, loginResponse] = await Promise.all([
-                    fetch('/api/github/status'),
-                    fetch('/api/github/login')
-                ]);
-                const status = await statusResponse.json();
-                const login = await loginResponse.json();
-                const connecting = !status.authenticated && login.state === 'connecting';
-                badge.textContent = status.authenticated
-                    ? 'Connected'
-                    : connecting
-                        ? 'Connecting'
-                        : status.available
-                            ? 'Disconnected'
-                            : 'Unavailable';
-                message.textContent = status.authenticated
-                    ? `Connected as ${status.login} on ${status.hostname}.`
-                    : connecting
-                        ? 'Waiting for GitHub device authorization.'
-                        : status.error || 'No personal GitHub account is connected.';
-                setGitHubElementVisible('githubConnectBtn', !status.authenticated && !connecting);
-                setGitHubElementVisible('githubCancelBtn', connecting);
-                setGitHubElementVisible('githubLogoutBtn', status.authenticated);
-                setGitHubElementVisible('gitUserCard', !status.authenticated);
-                const hasDevice = connecting && Boolean(login.url || login.code);
-                setGitHubElementVisible('githubDevicePanel', hasDevice);
-                if (hasDevice) {
-                    document.getElementById('githubDeviceCode').textContent = login.code || 'Waiting...';
-                    document.getElementById('githubDeviceURL').href =
-                        login.url || 'https://github.com/login/device';
-                }
-                const loginError = !status.authenticated && login.state === 'failed'
-                    ? login.error
-                    : '';
-                error.textContent = loginError || '';
-                setGitHubElementVisible('githubAccountError', Boolean(loginError));
-                if (connecting) scheduleGitHubPoll();
-            } catch (e) {
-                badge.textContent = 'Unavailable';
-                message.textContent = 'GitHub account status could not be loaded.';
-                error.textContent = e.message;
-                setGitHubElementVisible('githubAccountError', true);
-                setGitHubElementVisible('githubConnectBtn', true);
-                setGitHubElementVisible('githubCancelBtn', false);
-                setGitHubElementVisible('githubLogoutBtn', false);
-                setGitHubElementVisible('gitUserCard', true);
+        // The form itself lives in web/js/github-account.js. Hiding the Git User
+        // card while an account is connected is Configure-specific, so it stays
+        // here and rides the shared component's status callback.
+        function loadGitHubAccount() {
+            if (!window.githubAccountForm) {
+                renderGitHubAccountForm('githubAccountPanel', {
+                    globalName: 'githubAccountForm',
+                    badgeId: 'githubAccountBadge',
+                    onStatus: function (status) {
+                        setGitHubElementVisible('gitUserCard', !status.authenticated);
+                    }
+                });
+                return;
             }
-        }
-
-        async function startGitHubLogin() {
-            const error = document.getElementById('githubAccountError');
-            error.textContent = '';
-            setGitHubElementVisible('githubAccountError', false);
-            try {
-                const response = await fetch('/api/github/login', { method: 'POST' });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || 'GitHub login could not start');
-                await loadGitHubAccount();
-            } catch (e) {
-                error.textContent = e.message;
-                setGitHubElementVisible('githubAccountError', true);
-            }
-        }
-
-        async function cancelGitHubLogin() {
-            await fetch('/api/github/login/cancel', { method: 'POST' });
-            await loadGitHubAccount();
-        }
-
-        async function logoutGitHub() {
-            if (!confirm('Disconnect the managed GitHub account from Trustable?')) return;
-            const response = await fetch('/api/github/logout', { method: 'POST' });
-            const data = await response.json();
-            if (!response.ok) {
-                const error = document.getElementById('githubAccountError');
-                error.textContent = data.error || 'GitHub logout failed';
-                setGitHubElementVisible('githubAccountError', true);
-            }
-            await loadGitHubAccount();
-        }
-
-        async function copyGitHubDeviceCode() {
-            const code = document.getElementById('githubDeviceCode').textContent;
-            if (!code || code === 'Waiting...') return;
-            try {
-                await navigator.clipboard.writeText(code);
-            } catch (e) {
-                const range = document.createRange();
-                range.selectNodeContents(document.getElementById('githubDeviceCode'));
-                const selection = window.getSelection();
-                selection.removeAllRanges();
-                selection.addRange(range);
-                document.execCommand('copy');
-                selection.removeAllRanges();
-            }
+            window.githubAccountForm.load();
         }
 
         function providerLabel(name) {
@@ -1109,7 +1003,7 @@
             }
         })();
         window.addEventListener('beforeunload', () => {
-            if (githubPollTimer) clearTimeout(githubPollTimer);
+            if (window.githubAccountForm) window.githubAccountForm.stopPolling();
         });
     </script>
 </body>
