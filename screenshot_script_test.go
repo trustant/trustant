@@ -281,6 +281,118 @@ func TestScreenshotCaptureHidesTheElementSelector(t *testing.T) {
 	}
 }
 
+// WHY the reporter exists: the route lives in a browser cookie no server code
+// reads, and the preview iframe is cross-origin, so nothing on the Trustable
+// side can see where the user navigated. Without it every frame is the app root.
+func TestScreenshotScriptInjectsTheRouteReporter(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "transformIndexHtml") {
+		t.Error("the reporter must inject via transformIndexHtml, so the app's index.html on disk is never touched")
+	}
+	if !strings.Contains(code, "__trustable_location__") {
+		t.Error("the reporter must publish the location in a known meta element")
+	}
+	// A HashRouter app keeps the route in the hash, so pathname alone is wrong.
+	if !strings.Contains(code, "location.pathname + location.search + location.hash") {
+		t.Error("the reported route must include search and hash, not just pathname")
+	}
+	// Client-side navigation does not fire hashchange or popstate on its own.
+	for _, event := range []string{"hashchange", "popstate", "history.pushState"} {
+		if !strings.Contains(code, event) {
+			t.Errorf("the reporter must keep the route current on %s", event)
+		}
+	}
+	// The block is delimited so removal is exact and re-injection is idempotent.
+	if !strings.Contains(code, "REPORTER_BEGIN=") || !strings.Contains(code, "REPORTER_END=") {
+		t.Error("the injected block needs begin/end markers for idempotent injection and exact removal")
+	}
+}
+
+// WHY skip-worktree and not .gitignore: both files are tracked, and an ignore
+// rule has no effect on a tracked file — adding them to .gitignore leaves them
+// showing as modified, and untracking them to make the rule bite would delete
+// vite.config.ts from the app's repo. skip-worktree is per-file, so the user's
+// own edits stay visible.
+func TestScreenshotScriptHidesOnlyTheConfigFiles(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "update-index --skip-worktree") {
+		t.Error("the injected config must be hidden with git update-index --skip-worktree")
+	}
+	if !strings.Contains(code, "update-index --no-skip-worktree") {
+		t.Error("the flag must be clearable, or git silently refuses to update the file forever")
+	}
+	if !strings.Contains(code, "HIDDEN_FILES=(vite.config.ts .gitignore)") {
+		t.Error("only vite.config.ts and .gitignore may be hidden")
+	}
+	// Only a tracked file can carry the flag; ls-files guards the call.
+	if !strings.Contains(code, "ls-files --error-unmatch") {
+		t.Error("the flag must only be set on tracked files")
+	}
+}
+
+// The injection is working state. A killed session must not strand a modified
+// config or a hidden file, so cleanup runs on every exit path and stale state is
+// cleared before injecting.
+func TestScreenshotScriptCleansUpTheInjection(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "trap cleanup_reporter EXIT INT TERM") {
+		t.Error("the reporter must be removed on every exit path, including ^C")
+	}
+	if !strings.Contains(code, "unhide_all") {
+		t.Error("stale skip-worktree flags from a killed session must be cleared")
+	}
+	if !strings.Contains(code, "remove_reporter") {
+		t.Error("the injected block must be removed, not left in the user's config")
+	}
+}
+
+// The capture must follow the reported route, and must still work for an app
+// with no reporter at all.
+func TestScreenshotScriptCapturesTheReportedRoute(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, `target_url="${URL%/}$route"`) {
+		t.Error("the capture URL must be the app URL joined with the reported route")
+	}
+	if !strings.Contains(code, `[[ -n "$route" ]] || route="/"`) {
+		t.Error("an unavailable route must fall back to /, not fail the capture")
+	}
+	if !strings.Contains(code, `node "$ROOT/tests/screenshot.mjs" "$target_url"`) {
+		t.Error("the capture must use the route-aware URL")
+	}
+}
+
+// The route is read over MCP because MCP reflects the tab the user has open;
+// loading the page ourselves would only report the URL we just requested.
+func TestScreenshotRouteReaderUsesMCP(t *testing.T) {
+	data, err := os.ReadFile("tests/screenshot-route.mjs")
+	if err != nil {
+		t.Fatalf("read tests/screenshot-route.mjs: %s", err)
+	}
+	reader := string(data)
+
+	if !strings.Contains(reader, "get-html-elements") {
+		t.Error("the route must be read with the get-html-elements MCP tool")
+	}
+	if !strings.Contains(reader, "mcp-session-id") {
+		t.Error("the MCP transport requires a session id from initialize")
+	}
+	if !strings.Contains(reader, "domPreview") {
+		t.Error("the meta element's markup comes back as domPreview")
+	}
+	// This runs between a keypress and the shutter: a hung server must not stall
+	// the recorder.
+	if !strings.Contains(reader, "setTimeout") {
+		t.Error("the MCP calls need a timeout so a hung server cannot stall a capture")
+	}
+	if !strings.Contains(reader, `route.startsWith("/")`) {
+		t.Error("only absolute in-app routes may be captured")
+	}
+}
+
 // setup.sh is guarded by setup_test.go against playwright/chromium; the install
 // belongs here instead. This asserts the install actually lives in this script.
 func TestScreenshotScriptOwnsItsBrowserInstall(t *testing.T) {

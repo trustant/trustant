@@ -103,8 +103,14 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [gitignore.go](gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
 
 The one feature that is a shell script rather than a Go file is the screenshot
-recorder: [screenshot.sh](screenshot.sh) + [tests/screenshot.mjs](tests/screenshot.mjs),
-specced in [spec/16-screenshot.md](spec/16-screenshot.md). **Its animations are
+recorder: [screenshot.sh](screenshot.sh) + [tests/screenshot.mjs](tests/screenshot.mjs)
++ [tests/screenshot-route.mjs](tests/screenshot-route.mjs), specced in
+[spec/16-screenshot.md](spec/16-screenshot.md). To capture the page the user is
+actually on, it **temporarily injects a Vite plugin into the app's own
+`vite.config.ts`** and hides that change with `git update-index --skip-worktree`
+— `.gitignore` cannot hide a *tracked* file. The injection is removed and the
+flags cleared on every exit path, and stale state from a killed session is
+cleaned up on the next run. **Its animations are
 written by calling ffmpeg directly, never through ImageMagick** — ImageMagick 6
 has no APNG encoder and delegates `apng:` to ffmpeg, which re-times every frame
 at 25fps and destroys the one-second frame delay. `screenshot_script_test.go`

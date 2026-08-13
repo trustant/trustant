@@ -200,6 +200,95 @@ matched nothing at all. Verified against a live app: the toolkit's corner drops
 from 1417 distinct colours to 15 (flat background), with each mechanism working
 independently of the other.
 
+# Capturing the route the user is on
+
+Without help the recorder always captures `/`. The route lives in a browser
+`ROUTE` cookie that no server-side code reads, and the preview iframe is
+cross-origin (`vite.<domain>` vs `trustable.<domain>`), so nothing on the
+Trustable side can see where the user navigated.
+
+The recorder therefore **injects a reporter into the app's `vite.config.ts`**
+when the current app changes, and reads the route back over the app's MCP server.
+
+## The reporter
+
+A small Vite plugin added to the front of the `plugins` array:
+
+```ts
+// >>> trustable-screenshot reporter — injected by screenshot.sh, removed on quit
+const trustableScreenshotReporter = () => ({
+  name: 'trustable-screenshot-reporter',
+  apply: 'serve',
+  transformIndexHtml() { /* injects the script below */ },
+});
+// <<< trustable-screenshot reporter
+```
+
+It uses `transformIndexHtml`, so the script is added when the page is **served** —
+the app's `index.html` on disk is never modified. That matters because the
+starter template regenerates that file, and because editing it would trigger a
+full Vite reload on every capture.
+
+The injected script keeps `<meta id="__trustable_location__">` in sync with
+`location.pathname + location.search + location.hash`, updating on `hashchange`,
+`popstate`, `pushState`, and `replaceState`. The hash is included because these
+apps use `HashRouter` — the route lives in the hash, so `pathname` alone would
+always read `/`.
+
+Injection is idempotent (the begin marker is checked first) and only applies to a
+config that actually has a `plugins: [` array. Removal is byte-exact: after an
+inject/remove cycle the file's md5 is unchanged.
+
+## Reading it back
+
+`tests/screenshot-route.mjs` calls the app's MCP server at `<app>/mcp` — mounted
+by `@agentic-react/vite` — and asks `get-html-elements` for the meta element,
+reading the route out of the returned `domPreview`.
+
+MCP is used rather than loading the page ourselves because **MCP reflects the tab
+the user actually has open**. Driving our own browser would only ever report the
+URL we just requested.
+
+Consequences worth knowing:
+
+- With no browser tab open on the app there is no route to read. That is a normal
+  state, not an error: the capture falls back to `/`.
+- Every MCP call is bounded by a 5-second timeout, because this runs between the
+  keypress and the shutter. A hung or absent server must not stall the recorder.
+- An app whose config has no `plugins:` array, or no MCP server, records exactly
+  as before. The feature degrades to the old behaviour rather than failing.
+
+`TRUSTABLE_SCREENSHOT_ROUTE` overrides the detected route entirely.
+
+## Hiding the injection
+
+The modified `vite.config.ts` must not appear in the user's `git status`.
+**`.gitignore` cannot do this** — both `vite.config.ts` and `.gitignore` are
+*tracked*, and an ignore rule has no effect on a tracked file. Measured: adding
+them to `.gitignore` leaves both showing ` M`; untracking them to make the rule
+bite marks them `D`, which on commit **deletes `vite.config.ts` from the app's
+repo** and breaks the build for anyone who clones it. This is the same trap
+`gitignore.go` documents for its own managed block.
+
+The mechanism that works is:
+
+```
+git update-index --skip-worktree vite.config.ts .gitignore
+```
+
+It is **strictly per-file**. Verified: with the flag on `vite.config.ts` only,
+edits to `App.tsx`, `README.md`, and `src/main.tsx` all still appeared in
+`git status` — the user's own work stays visible and committable.
+
+Its cost is that git will not update a flagged file, so a `git pull` touching
+`vite.config.ts` fails confusingly. Accepted for this workflow, and mitigated:
+the flags are cleared when the recorder quits (`trap … EXIT INT TERM`) **and**
+before any injection, so a session killed mid-run cannot strand them. A stale
+injection left by such a session is removed on the next run.
+
+Switching apps mid-session removes the injection from the previous app before
+injecting into the new one, so only the app being recorded is ever modified.
+
 # Installation on demand
 
 Both installers are idempotent and run on every invocation:
@@ -297,5 +386,6 @@ folder and commit.
 | Variable | Meaning |
 |---|---|
 | `TRUSTABLE_SCREENSHOT_URL` | capture target, default `http://localhost:5173` |
+| `TRUSTABLE_SCREENSHOT_ROUTE` | force a route (e.g. `/#/dashboard`), skipping MCP detection |
 | `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | viewport, default `600` / `800` |
 | `TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL` | `1` skips `npx playwright install chromium` |
