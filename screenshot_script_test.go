@@ -204,14 +204,14 @@ func TestScreenshotScriptPreviewsByCopyingNotByDrawing(t *testing.T) {
 	if !strings.Contains(code, `cp -f "$source" "$ROOT/screenshot.png"`) {
 		t.Error("the preview must be a copy of the animated PNG next to the script")
 	}
-	// An APNG only animates in a browser — the editor's image preview stops at
-	// the first frame — so the loop prints a URL the app's own Vite server
-	// already serves. The query string defeats the browser cache.
-	if !strings.Contains(code, `$URL/screenshot.png?v=$count`) {
-		t.Error("each change must print a cache-busted URL for viewing the animation in a browser")
+	// The copied file is the preview. Serving it over the app's own dev server
+	// was tried and removed: it made the recorder's output depend on the app
+	// being up, for no gain over opening the file.
+	if !strings.Contains(code, `ok "$count frame(s) — $ROOT/screenshot.png"`) {
+		t.Error("each change must report the preview file path")
 	}
-	if !strings.Contains(code, "Simple Browser: Show") {
-		t.Error("the startup help must name the VS Code command that opens the URL")
+	if strings.Contains(code, "screenshot.png?v=") {
+		t.Error("the preview is a file, not a URL served by the app")
 	}
 	if !strings.Contains(code, `source="$APP_DIR/screenshot.png"`) {
 		t.Error("the preview must copy the app's animated PNG")

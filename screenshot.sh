@@ -219,6 +219,30 @@ PY
   local relative="${config#"$APP_DIR"/}"
   hide_file "$relative"
   hide_file ".gitignore"
+
+  # Vite reads its config once at startup and reloads it only when the file
+  # changes. Writing the plugin in the same second Vite booted is a real race —
+  # observed: the config carried the plugin while the served HTML did not, so
+  # every capture silently fell back to "/". Touching the file after the write
+  # guarantees a change event Vite has not already consumed.
+  sleep 1
+  touch "$config"
+  wait_for_reporter
+  return 0
+}
+
+# Give Vite time to re-read the config and serve the injected script. Polling
+# the served HTML is the honest check: the config being right proves nothing if
+# the running server has not picked it up.
+wait_for_reporter() {
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$LOCATION_ID"; then
+      return 0
+    fi
+    sleep 1
+  done
+  warn "the route reporter is not in the served page yet — captures may use /"
   return 0
 }
 
@@ -332,12 +356,7 @@ preview() {
   cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
     || warn "could not copy the preview to $ROOT/screenshot.png"
 
-  # The animation lives in the app root, which Vite already serves, so it can be
-  # opened by URL. That matters: an APNG only animates in a browser — VS Code's
-  # built-in image preview renders the first frame and stops, so the copied file
-  # on its own looks like a still. The query string defeats the browser cache,
-  # which would otherwise keep showing the previous capture.
-  ok "$count frame(s) — $URL/screenshot.png?v=$count"
+  ok "$count frame(s) — $ROOT/screenshot.png"
 }
 
 # --- 7. Commit ---
@@ -458,14 +477,8 @@ show_help() {
   echo "  Frames are kept per app in <app>/screenshot/ and are preserved when you"
   echo "  switch apps — launch another app and press SPACE to load its recording."
   echo
-  echo "  To watch it animate, open this in a browser — in VS Code use"
-  echo "  'Simple Browser: Show' from the Command Palette:"
-  echo
-  echo "      $URL/screenshot.png"
-  echo
-  echo "  The editor's own image preview shows only the first frame; an animated"
-  echo "  PNG needs a browser. Reload after each capture, or use the ?v= URL"
-  echo "  printed below, to get past the browser cache."
+  echo "  The recording is copied to $ROOT/screenshot.png after every change —"
+  echo "  open it in the editor to see it."
   echo
 }
 

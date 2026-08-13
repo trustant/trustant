@@ -345,21 +345,20 @@ exist.
 
 ## Viewing the animation
 
-**An APNG only animates in a browser.** VS Code's built-in image preview renders
-the first frame and stops, so opening the file from the explorer makes a working
-recording look like a still.
-
-The animation lives in the app root, which Vite already serves, so the loop
-prints a URL on every change:
+The recording is copied next to `screenshot.sh` after every change, and the loop
+prints that path:
 
 ```
-✓ 3 frame(s) — http://localhost:5173/screenshot.png?v=3
+✓ 3 frame(s) — /path/to/trustable-app/screenshot.png
 ```
 
-Open it with **Simple Browser: Show** from the VS Code Command Palette, or in any
-external browser. The `?v=<count>` query string defeats the browser cache, which
-would otherwise keep showing the previous capture. The same URL, without the
-query, is printed in the startup help.
+Open that file in the editor. Serving it over the app's own dev server was tried
+and removed: it tied the recorder's output to the app being up, and cost a
+cache-busting query string, for no gain over opening a file.
+
+Note that an APNG animates in a browser but **not** in VS Code's built-in image
+preview, which renders the first frame and stops. To watch it play, open the file
+in a browser.
 
 A recording whose frames are all identical animates but looks static — that is
 not a defect in the file. Capture, change the app, capture again to see motion.
