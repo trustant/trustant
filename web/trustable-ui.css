@@ -570,7 +570,8 @@ textarea {
 
 .tutorial-card-wait.hidden,
 .tutorial-card-text.hidden,
-.tutorial-card-actions.hidden {
+.tutorial-card-actions.hidden,
+.tutorial-link.hidden {
     display: none;
 }
 
@@ -617,10 +618,24 @@ textarea {
     background: color-mix(in oklab, var(--nu-brand) 88%, black);
 }
 
-.tutorial-exit {
-    display: block;
-    margin-top: 10px;
+/* Skipping and exiting are small links on one line at the foot of the card:
+   always available on every step, but never competing with the step's own
+   action for attention. */
+.tutorial-card-links {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.tutorial-link {
     font-size: .75rem;
     color: var(--nu-muted);
     text-decoration: underline;
+    background: none;
+    border: 0;
+    padding: 0;
+}
+
+.tutorial-link:hover {
+    color: var(--nu-ink);
 }

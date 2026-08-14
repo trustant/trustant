@@ -26,9 +26,9 @@
  * spotlighting the modal it lives in so the error and its recovery buttons
  * stay reachable.
  *
- * Loaded by app.html (which also owns the Tutorial menu) and by applist.html,
- * because the Commit and Push tutorial crosses from one page to the other and
- * resumes from sessionStorage.
+ * Loaded by app.html (which also owns the Tutorial menu) and by applist.html:
+ * both current tours run on app.html, but the engine supports a tutorial that
+ * crosses pages and resumes from sessionStorage, so applist.html keeps it.
  */
 (function () {
     'use strict';
@@ -39,11 +39,11 @@
     // away (navigation, reload, hidden panel) and its targets are unusable.
     const FRAME_STALE_MS = 1500;
     const HOLE_PAD = 6;
-    // How long a step may wait before it offers a way past itself. The frame
-    // budget is shorter because a silent bridge is a configuration problem the
-    // user has to be told about, not something that resolves on its own.
+    // How long a `frame:` step waits before it stops blaming the user and names
+    // the bridge instead: a silent bridge is a configuration problem the user
+    // has to be told about, not something that resolves on its own. Skipping no
+    // longer waits on a timeout — every step offers "Skip this step" outright.
     const FRAME_HELP_MS = 10000;
-    const SKIP_AFTER_MS = 20000;
     // Protocol revision this engine speaks to the tour bridge.
     const FRAME_PROTOCOL = 2;
 
@@ -55,18 +55,6 @@
 
     function el(id) {
         return document.getElementById(id);
-    }
-
-    // getClientRects rather than offsetParent: much of what the tutorials point
-    // at lives inside `position: fixed` modals, where offsetParent lies.
-    function visible(node) {
-        return !!node && !node.classList.contains('hidden') && node.getClientRects().length > 0;
-    }
-
-    /** Modals are toggled by adding/removing `hidden`, not by unmounting. */
-    function modalOpen(id) {
-        const node = el(id);
-        return !!node && !node.classList.contains('hidden');
     }
 
     function cookie(name) {
@@ -308,7 +296,13 @@
         make('span', 'tutorial-spinner', wait);
         const waitText = make('span', 'tutorial-wait-text', wait);
         const actions = make('div', 'tutorial-card-actions', card);
-        const exit = make('button', 'tutorial-exit', card);
+        // Links rather than buttons, on one line at the foot of the card: both
+        // are always available but must not compete with the step's own action.
+        const links = make('div', 'tutorial-card-links', card);
+        const skip = make('button', 'tutorial-link tutorial-skip', links);
+        skip.type = 'button';
+        skip.textContent = 'Skip this step';
+        const exit = make('button', 'tutorial-link tutorial-exit', links);
         exit.type = 'button';
         exit.textContent = 'Exit tutorial';
 
@@ -324,8 +318,14 @@
             text: text,
             wait: wait,
             waitText: waitText,
-            actions: actions
+            actions: actions,
+            skip: skip
         };
+        skip.addEventListener('click', () => {
+            if (!current) return;
+            current.error = null;
+            advance();
+        });
         exit.addEventListener('click', () => stop());
         // The masks are the disabling layer. Swallowing the press outright also
         // stops it reaching document-level handlers — the pages close their
@@ -520,8 +520,38 @@
     function gotoStep(index) {
         current.index = index;
         current.enteredAt = now();
+        // Recomputed on the next tick against the step now being entered.
+        current.latched = null;
         scrolledFor = -1;
-        save({ tour: current.tour, step: index, data: current.data });
+        save({ tour: current.tour, step: index, data: current.data, seen: current.seen });
+    }
+
+    /* The counter numbers the steps the user is actually shown, not positions in
+     * the array. Steps whose `done` already holds — the panel is open, the
+     * catalog is loaded — advance on the first tick without ever being
+     * presented, which is what made the count read 1, 3, 5, 8, 9. `seen` maps a
+     * step id to the number it was given, so Back and a resume on the next page
+     * show the same number again rather than counting the step twice. */
+    function stepNumber(step) {
+        if (!step) return 0;
+        if (current.seen[step.id] === undefined) {
+            current.seen[step.id] = Object.keys(current.seen).length + 1;
+            save({ tour: current.tour, step: current.index, data: current.data, seen: current.seen });
+        }
+        return current.seen[step.id];
+    }
+
+    /* Steps that cannot be skipped are the ones the user is guaranteed to see,
+     * so the total is the count of those plus however many optional ones have
+     * already been shown. It never shrinks under a number already displayed. */
+    function stepTotal() {
+        let total = 0;
+        for (const step of current.steps) {
+            // A `confirm` step waits for a press, so it is always shown and
+            // always counts — like a step with no `done` at all.
+            if (!step.done || step.confirm || current.seen[step.id] !== undefined) total++;
+        }
+        return Math.max(total, Object.keys(current.seen).length);
     }
 
     function gotoId(id) {
@@ -563,8 +593,7 @@
         }
 
         // The step belongs to the other page. Arriving on the page a later step
-        // lives on *is* the completion of the navigation steps in between — the
-        // Back step of the Commit and Push tutorial ends exactly this way — so
+        // lives on *is* the completion of the navigation steps in between, so
         // jump ahead to the first step this page owns. With none, the user
         // navigated away from where the tutorial continues: keep the overlay up
         // and say where to return to.
@@ -590,6 +619,16 @@
         // its own once the state holds — this is what stops a collapsed
         // assistant sidebar from hanging the whole Notebook tutorial.
         if (step.precondition && !step.precondition.ok(c)) {
+            /* A precondition the tutorial can satisfy itself does so instead of
+             * waiting. The menu tours need this: the overlay swallows clicks,
+             * so a dropdown the user is asked to look at can never be opened by
+             * the user — the tutorial has to open it. `fix` runs once per entry
+             * into the step and the tick re-evaluates immediately. */
+            if (step.precondition.fix && current.fixed !== current.index) {
+                current.fixed = current.index;
+                step.precondition.fix(c);
+                if (step.precondition.ok(ctx())) return tick();
+            }
             const holes = resolveTargets(step.precondition, c);
             current.holes = holes;
             maybeScroll(step.precondition, holes, c);
@@ -599,11 +638,39 @@
             return;
         }
 
-        if (!current.error && step.done && step.done(c)) {
-            if (step.onDone) step.onDone(c);
-            if (step.goto) gotoId(step.goto(c));
-            else advance();
-            return;
+        /* A step completes because the user did something, not because the
+         * application happened to already be in that state. Starting the tour
+         * with the panel left open from a previous run used to satisfy `open`
+         * on its very first tick and skip straight past it, so the tutorial
+         * appeared to begin at step 2 or 3 and its own instruction was never
+         * read. A step that is already satisfied when entered is therefore
+         * shown and latched, and advances on the next state change instead.
+         * `settled` steps opt out: "Running" is a pure wait with no
+         * instruction to read, so holding it would strand the user. */
+        if (!current.error && step.done) {
+            const satisfied = step.done(c);
+            // Hold the decision until the state is knowable. A `frame:` step is
+            // evaluated before the first bridge report, where done() is false
+            // only because nothing has been heard yet; latching on that reads
+            // as "not yet satisfied" and lets the very first report advance the
+            // step — the skip this latch exists to prevent.
+            if (current.latched === null && (!step.needsFrame || frameFresh())) {
+                current.latched = satisfied && !step.settled;
+            }
+            /* A `confirm` step never advances on its own: its condition is
+             * satisfied by something the application does rather than by the
+             * user — the catalog finishing its own fetch — so auto-advancing
+             * gave the user a single 150 ms tick to read the card before it
+             * moved on. Once the condition holds it offers Next and waits for
+             * the press. The latch above is a different case: it is about a
+             * condition that is already true on arrival. */
+            if (satisfied && current.latched === false && !step.confirm) {
+                if (step.onDone) step.onDone(c);
+                if (step.goto) gotoId(step.goto(c));
+                else advance();
+                return;
+            }
+            if (current.latched && !satisfied) current.latched = false;
         }
         if (!current.error && step.back && step.back(c)) {
             gotoStep(Math.max(0, current.index - 1));
@@ -699,7 +766,7 @@
     function render(step, holes, opts) {
         const c = ctx();
         paintMasks(holes);
-        ui.step.textContent = 'Step ' + (current.index + 1) + ' of ' + current.steps.length +
+        ui.step.textContent = 'Step ' + stepNumber(stepAt(current.index)) + ' of ' + stepTotal() +
             ' · ' + current.title;
         ui.title.textContent = typeof step.title === 'function' ? step.title(c) : step.title;
         const text = typeof step.text === 'function' ? step.text(c) : step.text;
@@ -722,22 +789,18 @@
         // only way out.
         const wanted = [];
         if (step.next) wanted.push({ key: 'next', label: step.next, primary: true });
+        // A `confirm` step waits for the press rather than advancing itself, so
+        // its Next appears only once the condition actually holds — offering it
+        // while the catalog is still loading would step over what it is for.
+        else if (step.confirm && step.done && step.done(c)) {
+            wanted.push({ key: 'next', label: step.confirm, primary: true });
+        }
         if (step.choices) {
             step.choices.forEach((choice, i) => {
                 wanted.push({ key: 'choice' + i, label: choice.label, primary: !!choice.primary, choice: choice });
             });
         }
         if (step.finish) wanted.push({ key: 'finish', label: step.finish, primary: true });
-        // A step that has waited too long offers a way past itself, so a
-        // condition the engine cannot observe never strands the user.
-        const stalled = !!waiting && (current.error
-            || c.waited > SKIP_AFTER_MS
-            // A silent bridge is a configuration problem that will not resolve
-            // by waiting, so those steps offer the way out sooner.
-            || (step.needsFrame && c.waited > FRAME_HELP_MS && (!frameFresh() || frameOutdated())));
-        if (stalled && !step.finish) {
-            wanted.push({ key: 'skip', label: 'Skip this step', primary: false });
-        }
 
         const signature = wanted.map((w) => w.key + ':' + w.label).join('|');
         if (ui.actions.dataset.signature !== signature) {
@@ -746,7 +809,6 @@
             wanted.forEach((w) => {
                 ui.actions.appendChild(button(w.label, w.primary, () => {
                     if (w.key === 'finish') finish();
-                    else if (w.key === 'skip') { current.error = null; advance(); }
                     else if (w.choice) {
                         if (w.choice.goto) gotoId(w.choice.goto);
                         else advance();
@@ -755,6 +817,9 @@
             });
         }
         ui.actions.classList.toggle('hidden', wanted.length === 0);
+        // Always available, so no step can strand the user — except on a final
+        // step, where there is nothing after this one to skip to.
+        ui.skip.classList.toggle('hidden', !!step.finish);
 
         paintCard(holes);
     }
@@ -831,13 +896,20 @@
             steps: tour.steps,
             index: (state && state.step) || 0,
             data: (state && state.data) || (tour.data ? tour.data() : {}),
+            // Numbers already handed out, so a tutorial that crosses from
+            // app.html to applist.html keeps counting where it left off.
+            seen: (state && state.seen) || {},
             holes: [],
             enteredAt: now(),
+            // null = not yet evaluated for this step; see the `done` check.
+            latched: null,
+            // Index of the step whose precondition `fix` has already run.
+            fixed: -1,
             error: null
         };
         if (current.index >= current.steps.length) current.index = 0;
         scrolledFor = -1;
-        save({ tour: tourId, step: current.index, data: current.data });
+        save({ tour: tourId, step: current.index, data: current.data, seen: current.seen });
         ui.root.classList.add('active');
         document.addEventListener('keydown', onKeydown, true);
         tellFrame({ type: 'start' });
@@ -858,6 +930,12 @@
 
     function stop() {
         clear();
+        // A tour that changed the page to describe it puts it back, however it
+        // ends: the Menus tour opens dropdowns the user cannot close while the
+        // overlay is up, so exiting mid-tour would strand one open.
+        if (current && TOURS[current.tour] && TOURS[current.tour].cleanup) {
+            TOURS[current.tour].cleanup();
+        }
         current = null;
         if (timer !== null) {
             clearInterval(timer);
@@ -885,13 +963,55 @@
         ok: () => !!frameIframe(),
         target: '#sidebarToggleBtn',
         title: 'Show the assistant',
-        text: 'The notebooks live in the assistant panel. Click here to show it.',
+        text: 'The templates live in the assistant panel. Click here to show it.',
         missing: 'Waiting for the assistant panel…'
+    };
+
+    /* The Menus tour describes dropdowns, which the user cannot open while the
+     * overlay is up: the masks swallow the click. So the tour opens the menu
+     * itself through `fix` and closes the other one, keeping exactly the menu
+     * being described on screen. `hidden` is the only state these menus have —
+     * app.html toggles that class and nothing else — so this drives them the
+     * same way the page does, without depending on its globals. */
+    function menuOpen(id) {
+        const node = el(id);
+        return !!node && !node.classList.contains('hidden');
+    }
+
+    function setMenu(id, open) {
+        const node = el(id);
+        if (node) node.classList.toggle('hidden', !open);
+    }
+
+    function MENU_OPEN(menuId, buttonId) {
+        const other = menuId === 'configMenu' ? 'utilsMenu' : 'configMenu';
+        return {
+            ok: () => menuOpen(menuId),
+            fix: () => {
+                setMenu(other, false);
+                setMenu(menuId, true);
+            },
+            target: '#' + buttonId,
+            title: 'Open the menu',
+            text: 'Click here to open the menu.',
+            missing: 'Waiting for the menu…'
+        };
+    }
+
+    /** The last step leaves the bar as the tour found it. */
+    const MENUS_CLOSED = {
+        ok: () => !menuOpen('configMenu') && !menuOpen('utilsMenu'),
+        fix: () => {
+            setMenu('configMenu', false);
+            setMenu('utilsMenu', false);
+        },
+        title: 'Closing the menus',
+        missing: 'Closing the menus…'
     };
 
     const TOURS = {
         notebook: {
-            title: 'Notebook',
+            title: 'Templates',
             steps: [
                 {
                     id: 'open',
@@ -899,8 +1019,8 @@
                     precondition: SIDEBAR_PRECONDITION,
                     needsFrame: true,
                     target: 'frame:notebook-toggle',
-                    title: 'Open Notebook',
-                    text: 'Click here to open your notebooks.',
+                    title: 'Open Templates',
+                    text: 'Click here to open your templates.',
                     missing: 'Waiting for the assistant panel to load…',
                     done: (c) => !!c.frame && c.frame.panelOpen === true
                 },
@@ -910,10 +1030,13 @@
                     precondition: SIDEBAR_PRECONDITION,
                     needsFrame: true,
                     target: 'frame:notebook-refresh',
-                    title: 'Load notebooks',
-                    text: 'Refresh the list if your notebooks are not visible.',
-                    blocked: 'Loading the notebook catalog…',
-                    // Already-loaded catalogs satisfy this step immediately.
+                    title: 'Load templates',
+                    text: 'Refresh the list if your templates are not visible.',
+                    blocked: 'Loading the template catalog…',
+                    // The catalog loads on its own, so this step completes
+                    // without the user doing anything: it waits for Next rather
+                    // than advancing the moment the entries land.
+                    confirm: 'Next',
                     done: (c) => !!c.frame && c.frame.entries > 0
                 },
                 {
@@ -922,9 +1045,9 @@
                     precondition: SIDEBAR_PRECONDITION,
                     needsFrame: true,
                     target: 'frame:notebook-source',
-                    title: 'Configure notebooks',
-                    text: 'From Configure you can create notebooks and connect your GitHub account. ' +
-                        'Nothing to change here while your notebooks are already listed.',
+                    title: 'Configure templates',
+                    text: 'From Configure you can create templates and connect your GitHub account. ' +
+                        'Nothing to change here while your templates are already listed.',
                     next: 'Next'
                 },
                 {
@@ -938,10 +1061,10 @@
                         const wanted = 'frame:notebook-entry@App Suite';
                         return resolveTarget(wanted, c) ? wanted : 'frame:notebook-entry';
                     }],
-                    title: 'Select a notebook',
-                    text: 'Select a notebook to start — for example App Suite.',
+                    title: 'Select a template',
+                    text: 'Select a template to start — for example App Suite.',
                     blocked: 'Loading…',
-                    missing: 'Waiting for the notebook list…',
+                    missing: 'Waiting for the template list…',
                     done: (c) => !!c.frame && c.frame.nodes > 0
                 },
                 {
@@ -950,8 +1073,8 @@
                     precondition: SIDEBAR_PRECONDITION,
                     needsFrame: true,
                     target: 'frame:notebook-close',
-                    title: 'Close the notebook list',
-                    text: 'Close the panel to see the steps of the notebook.',
+                    title: 'Close the template list',
+                    text: 'Close the panel to see the steps of the template.',
                     done: (c) => !!c.frame && c.frame.panelOpen === false
                 },
                 {
@@ -961,8 +1084,8 @@
                     needsFrame: true,
                     target: 'frame:notebook-node-run',
                     title: 'Run the first step',
-                    text: 'Run the first step of the notebook.',
-                    missing: 'Waiting for the notebook steps…',
+                    text: 'Run the first step of the template.',
+                    missing: 'Waiting for the template steps…',
                     done: (c) => !!c.frame &&
                         (c.frame.running === true || c.frame.firstNodeRunState === 'done')
                 },
@@ -972,6 +1095,9 @@
                     precondition: SIDEBAR_PRECONDITION,
                     needsFrame: true,
                     title: 'Running',
+                    // A pure wait with nothing to read or do: when the run has
+                    // already finished there is no reason to hold it.
+                    settled: true,
                     wait: () => 'Waiting for the model to finish…',
                     done: (c) => !!c.frame &&
                         c.frame.running === false && c.frame.firstNodeRunState === 'done'
@@ -992,147 +1118,231 @@
                     precondition: SIDEBAR_PRECONDITION,
                     needsFrame: true,
                     target: 'frame:run-all',
-                    title: 'Run the whole notebook',
-                    text: 'Use this button to run the entire notebook.',
+                    title: 'Run the whole template',
+                    text: 'Use this button to run the entire template.',
                     next: 'Next'
                 },
                 {
                     id: 'complete',
                     page: 'app',
                     title: 'Tutorial complete',
-                    text: 'You now know how to open and run a notebook.',
+                    text: 'You now know how to open and run a template.',
                     finish: 'Close'
                 }
             ]
         },
 
-        commitpush: {
-            title: 'Commit and Push',
-            data: () => ({ app: cookie('NAME') }),
+        menus: {
+            title: 'Menus',
+            cleanup: () => {
+                setMenu('configMenu', false);
+                setMenu('utilsMenu', false);
+            },
             steps: [
+                {
+                    id: 'config',
+                    page: 'app',
+                    precondition: MENU_OPEN('configMenu', 'configBtn'),
+                    targets: ['#configBtn', '#configMenu'],
+                    title: 'The Config menu',
+                    text: 'Config holds the settings of your application: its environment ' +
+                        'variables, the skills the assistant can use, and its AGENTS.md.',
+                    next: 'Next'
+                },
+                {
+                    id: 'env',
+                    page: 'app',
+                    precondition: MENU_OPEN('configMenu', 'configBtn'),
+                    target: '#configEnv',
+                    title: 'Env',
+                    text: 'Env edits the environment variables of your application, ' +
+                        'separately for development and for production.',
+                    next: 'Next'
+                },
+                {
+                    id: 'skills',
+                    page: 'app',
+                    precondition: MENU_OPEN('configMenu', 'configBtn'),
+                    target: '#configSkills',
+                    title: 'Skills',
+                    text: 'Skills adds ready-made abilities to the assistant working on ' +
+                        'this application.',
+                    next: 'Next'
+                },
+                {
+                    id: 'agents',
+                    page: 'app',
+                    precondition: MENU_OPEN('configMenu', 'configBtn'),
+                    target: '#configAgents',
+                    title: 'AGENTS.md',
+                    text: 'AGENTS.md is the instructions the assistant reads before working ' +
+                        'on your application. Edit it to tell it how your project works.',
+                    next: 'Next'
+                },
+                {
+                    id: 'utils',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    targets: ['#utilsBtn', '#utilsMenu'],
+                    title: 'The Utils menu',
+                    text: 'Utils holds the actions you run on the application itself, ' +
+                        'from reloading it to inspecting its files.',
+                    next: 'Next'
+                },
+                {
+                    id: 'revert',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    target: '#utilsRevert',
+                    title: 'Revert',
+                    text: 'Revert throws away uncommitted changes and returns the ' +
+                        'application to its last commit. It stays disabled while there is ' +
+                        'nothing to revert.',
+                    next: 'Next'
+                },
+                {
+                    id: 'reload-redeploy',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    targets: ['#utilsReload', '#utilsRedeploy'],
+                    title: 'Reload and Redeploy',
+                    text: 'Reload refreshes the preview only. Redeploy rebuilds the ' +
+                        'application on the server first, which is what you need after ' +
+                        'changing dependencies or configuration.',
+                    next: 'Next'
+                },
+                {
+                    id: 'clean',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    target: '#utilsClean',
+                    title: 'Clean',
+                    text: 'Clean removes the build artefacts of the application and ' +
+                        'rebuilds it from scratch.',
+                    next: 'Next'
+                },
+                {
+                    id: 'debug',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    target: '#utilsDebug',
+                    title: 'Debug',
+                    text: 'Debug opens the log of your running application in a separate ' +
+                        'window, which is where build and runtime errors appear.',
+                    next: 'Next'
+                },
+                {
+                    id: 'files',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    target: '#utilsFiles',
+                    title: 'Files',
+                    text: 'Files browses the source of your application read-only, so you ' +
+                        'can look at what the assistant has written.',
+                    next: 'Next'
+                },
+                {
+                    id: 'upload',
+                    page: 'app',
+                    precondition: MENU_OPEN('utilsMenu', 'utilsBtn'),
+                    target: '#utilsUpload',
+                    title: 'Upload',
+                    text: 'Upload adds a file to your application — an image or a document ' +
+                        'you want the assistant to use.',
+                    next: 'Next'
+                },
+                {
+                    id: 'complete',
+                    page: 'app',
+                    // Leave the page as the tour found it.
+                    precondition: MENUS_CLOSED,
+                    title: 'Tutorial complete',
+                    text: 'Config holds the settings of your application, Utils the actions ' +
+                        'you run on it.',
+                    finish: 'Close'
+                }
+            ]
+        },
+
+        toolbar: {
+            title: 'Toolbar',
+            steps: [
+                {
+                    id: 'pane',
+                    page: 'app',
+                    target: '#sidebarToggleBtn',
+                    title: 'The assistant pane',
+                    text: 'This button hides and shows the assistant pane on the left. ' +
+                        'Hiding it gives the preview the full width; your session keeps running either way.',
+                    next: 'Next'
+                },
+                {
+                    id: 'terminal',
+                    page: 'app',
+                    target: '#terminalBtn',
+                    title: 'The terminal',
+                    text: 'Terminal opens a shell inside your application, below the preview. ' +
+                        'Use it to run commands against the running app.',
+                    next: 'Next'
+                },
                 {
                     id: 'commit',
                     page: 'app',
                     target: '#saveBtn',
                     title: 'Commit',
-                    text: 'Click Commit to save your application to the workspace.',
-                    // Nothing to commit is a dead end while the overlay covers
-                    // the editor, so say so and let the user step past it.
-                    blocked: 'There is nothing to commit yet. Exit the tutorial, change ' +
-                        'something in your application, and start it again.',
-                    done: () => modalOpen('saveModal')
+                    text: 'Commit saves the current state of your application to the workspace. ' +
+                        'It stays disabled while there is nothing to save — the pill on its left ' +
+                        'tells you whether anything has changed.',
+                    next: 'Next'
                 },
                 {
-                    id: 'commit-confirm',
+                    id: 'device',
                     page: 'app',
-                    target: '#saveConfirmBtn',
-                    // On failure the confirm buttons stay hidden; spotlight the
-                    // modal so the error and Continue are usable.
-                    fallback: '#saveModal > *',
-                    title: 'Confirm the commit',
-                    text: 'Confirm to write the changes into the workspace repository.',
-                    wait: () => {
-                        if (visible(el('saveSpinner'))) return 'Committing…';
-                        if (commitFailed()) return 'The commit did not succeed — read the message, then continue and try again.';
-                        return null;
-                    },
-                    // Only a green result counts: an error leaves the step in
-                    // place so the user can read it and retry.
-                    done: () => visible(el('saveResult')) &&
-                        el('saveResultText').classList.contains('text-green-700'),
-                    back: () => !modalOpen('saveModal')
+                    // The three segments are one control, so the whole group is
+                    // spotlighted rather than any single button.
+                    target: '#deviceToggle',
+                    title: 'Desktop, tablet and mobile',
+                    text: 'These three buttons resize the preview to a desktop, a tablet (820x1180) ' +
+                        'or a phone (390x844), so you can check how your application looks on each.',
+                    next: 'Next'
                 },
                 {
-                    id: 'commit-done',
+                    id: 'route',
                     page: 'app',
-                    target: '#saveContinueBtn',
-                    title: 'Committed',
-                    text: 'Your application is saved to the workspace.',
-                    done: () => !modalOpen('saveModal')
+                    target: '#routeBtn',
+                    title: 'The route',
+                    text: 'Route controls which page of your application the preview opens, ' +
+                        'and lets you add query parameters. The current route is shown on the button.',
+                    next: 'Next'
+                },
+                {
+                    id: 'reload',
+                    page: 'app',
+                    target: '#reloadBtn',
+                    title: 'Reload',
+                    text: 'Reload refreshes the preview. Hold Shift while clicking to redeploy the ' +
+                        'application instead, which rebuilds it before reloading.',
+                    next: 'Next'
                 },
                 {
                     id: 'back',
                     page: 'app',
                     target: '#backBtn',
                     title: 'Back',
-                    text: 'Go back to continue.',
-                    elsewhere: 'Waiting for the application list…',
-                    // Leaving the page is the completion: the tutorial picks up
-                    // again from sessionStorage once applist.html loads.
-                    done: () => false
+                    text: 'Back leaves the workbench and returns to the list of your applications.',
+                    next: 'Next'
                 },
                 {
-                    id: 'choose',
-                    page: 'applist',
-                    // Two permitted actions, as the tutorial specifies: the
-                    // application's own Git Push button and a real Cancel.
-                    target: () => '[data-tour-push="' + cssEscape(currentApp()) + '"]',
-                    title: 'Choose what to do',
-                    text: 'Push your committed application to a GitHub repository, or cancel and push it later.',
-                    missing: 'Waiting for your application in the list… If it is filtered out, clear the search box.',
-                    elsewhere: 'Return to the application list to continue.',
-                    choices: [{ label: 'Cancel', goto: 'cancelled' }],
-                    done: () => modalOpen('gitPushModal')
-                },
-                {
-                    id: 'push',
-                    page: 'applist',
-                    // While the push runs there is nothing to click; when the
-                    // repository is not configured the whole form is live, so
-                    // the repository name can actually be typed.
-                    targets: [() => visible(el('gitPushForm')) ? '#gitPushForm' : null],
-                    fallback: '#gitPushModal > *',
-                    title: 'Push to GitHub',
-                    text: () => visible(el('gitPushForm'))
-                        ? 'Enter the GitHub repository and press Push.'
-                        : '',
-                    wait: () => {
-                        if (visible(el('gitPushForm'))) return null;
-                        if (pushFailed()) return 'The push did not succeed — read the message and try again.';
-                        if (modalOpen('licenseModal')) return 'Publishing needs a valid license. Add one to continue, or exit the tutorial.';
-                        return 'Pushing to GitHub…';
-                    },
-                    done: () => visible(el('gitPushResult')) &&
-                        el('gitPushResultText').className.indexOf('nu-feedback-success') >= 0,
-                    back: () => !modalOpen('gitPushModal') && !modalOpen('licenseModal')
-                },
-                {
-                    id: 'pushed',
-                    page: 'applist',
+                    id: 'complete',
+                    page: 'app',
                     title: 'Tutorial complete',
-                    text: 'Your application has been committed and pushed to GitHub.',
-                    finish: 'Close'
-                },
-                {
-                    id: 'cancelled',
-                    page: 'applist',
-                    title: 'Tutorial complete',
-                    text: 'Your application has been committed to the workspace. You can push it to GitHub later.',
+                    text: 'That is the toolbar: the assistant pane, the terminal, Commit, the ' +
+                        'preview sizes, the route, Reload and Back.',
                     finish: 'Close'
                 }
             ]
         }
     };
-
-    function commitFailed() {
-        const node = el('saveResultText');
-        return visible(el('saveResult')) && !!node && node.classList.contains('text-red-700');
-    }
-
-    function pushFailed() {
-        const node = el('gitPushResultText');
-        return visible(el('gitPushResult')) && !!node &&
-            node.className.indexOf('nu-feedback-success') < 0;
-    }
-
-    function currentApp() {
-        return (current && current.data && current.data.app) || '';
-    }
-
-    /** Attribute selectors are built from an app name, so quote it safely. */
-    function cssEscape(value) {
-        return String(value).replace(/["\\]/g, '\\$&');
-    }
 
     window.Tutorial = {
         start: start,

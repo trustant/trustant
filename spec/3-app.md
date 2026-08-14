@@ -19,7 +19,7 @@ In the bar, aligned to the left:
 - the **sidebar toggle** (icon-only, panel glyph), immediately before the Terminal button — see "Sidebar Toggle" below
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
 - the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
-- the **"Tutorial" pulldown** (book icon, chevron-down icon), immediately to the right of Utils — it starts the guided tutorials described in [16-tutorial.md](16-tutorial.md)
+- the **"Tutorial" pulldown** (book icon, chevron-down icon), immediately after the sidebar open/close toggle and before Terminal — it starts the guided tutorials described in [16-tutorial.md](16-tutorial.md)
 - the **"Sessions" pulldown** (history icon and persistent-session count) —
   see "Sessions Pulldown" below
 
@@ -38,13 +38,13 @@ Toolbar buttons use inline SVG icons that inherit the current button text color.
 
 The **Terminal** button (gray, terminal icon) sits on the left side of the toolbar, immediately before the Config button — see "Terminal" below.
 
-The **Config** pulldown groups the three configuration entries (Env, Skills, Memory) under a single button on the left side of the toolbar, immediately after the Credits box (or after the app name when the Credits box is not shown).
+The **Config** pulldown groups the three configuration entries (Env, Skills, AGENTS.md) under a single button on the left side of the toolbar, immediately after the Credits box (or after the app name when the Credits box is not shown).
 
 The button shows a gear icon, the label "Config", and a chevron-down icon. Clicking it toggles a dropdown containing, in this order:
 
 1. **Env** (gear icon) — opens the editable environment-variables modal described in "Env (Editable)".
 2. **Skills** (book icon) — opens the Skills modal described in "Skills" ([7-skills.md](7-skills.md)).
-3. **Memory** (brain icon) — opens the AGENTS.md editor described in "Memory".
+3. **AGENTS.md** (brain icon) — opens the AGENTS.md editor described in "AGENTS.md".
 
 The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
 
@@ -87,13 +87,14 @@ Each item triggers the same behavior documented in the "Revert", "Reload", "Rede
 
 # Tutorial Pulldown
 
-Immediately to the right of the Utils pulldown, a **Tutorial** pulldown (book
-icon, label "Tutorial", chevron-down) offers the two guided tutorials:
-**Notebook** and **Commit and Push**. Selecting one starts the spotlight
+Second in the top bar, immediately after the sidebar open/close toggle and
+before Terminal, a **Tutorial** pulldown
+(book icon, label "Tutorial", chevron-down) offers the three guided tutorials:
+**Templates**, **Menus** and **Toolbar**. Selecting one starts the spotlight
 walkthrough described in [16-tutorial.md](16-tutorial.md); the pulldown closes
 on selection and on an outside click, like Config and Utils.
 
-The Notebook tutorial points at controls inside the left iframe, so it needs
+The Templates tutorial points at controls inside the left iframe, so it needs
 that iframe visible. When the sidebar toggle has hidden it, the tutorial
 spotlights the toggle first and continues once the assistant is back — the
 controls it waits on cannot report while the frame is hidden. This is why
@@ -260,9 +261,11 @@ rendering assistant-authored markup.
 The modal can be closed with the X button, the Close button, Escape, or clicking
 the backdrop.
 
-# Memory
+# AGENTS.md
 
-Add a Memory Button with Brain icon to the toolbar.
+The **AGENTS.md** entry of the Config pulldown carries a brain icon. The menu
+entry and the modal heading both read "AGENTS.md" — the file is what the user is
+editing, so it is what the interface names.
 
 Clicking it will show the text editor codejar allowing to edit the file AGENTS.md with a popup centered and the buttons save and cancel
 
