@@ -20,9 +20,7 @@ Once implemented, update the issue with what was actually done (deviations from 
 
 When creating a PR always add a comment listing all the open PR related to the implemented issue.
 
-When I ask to merge, merge all the submodules and the main module to the main branch.
-
-
+When I ask to merge, merge all the submodules and the main module to the main branch, ensure it is pushed on remote and  and remove the local branch.
 
 ## What this is
 

@@ -127,6 +127,7 @@ Everything lives in `package main`. Rather than splitting into many packages, th
 | [auth.go](auth.go) | [authentication.md](spec/authentication.md) | Optional local auth — login, sessions, CSRF, rate limiting |
 | [github.go](github.go) | [github.md](spec/github.md) | `/api/github/*` — GitHub login, logout, and repo listing |
 | [starters.go](starters.go) | [15-starters.md](spec/15-starters.md) | `/api/starters` — starter application catalog |
+| [support/index.py](support/index.py) | [15a-index.md](spec/15a-index.md) | Maintainer script that generates the published `index.json` |
 
 ### Host-based routing
 
