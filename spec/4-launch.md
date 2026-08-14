@@ -125,6 +125,27 @@ missing variable simply continues.
 Cancelling the editor abandons the launch. Nothing was started on the cluster,
 so there is nothing to undo.
 
+### Use predefined values
+
+When the workspace has predefined environment variables (`predefined_env`, see
+[2a-config.md](2a-config.md)), the editor shows a **Use predefined values**
+button beside **Add Variable**. It is hidden when the palette is empty.
+
+Pressing it fills Development values in the table, and is deliberately
+conservative because the user did not choose these values for this app:
+
+- only variables the app **already declares** are touched, so the app's `.env`
+  stays what its template declared and nothing is injected into it;
+- only **empty** Development values are filled, so a value the user typed or the
+  template supplied is never replaced — the button is safe to press twice;
+- readonly rows (the fixed `OPS_*` keys) are skipped.
+
+It reports what it did inline ("Filled N variables from predefined values.
+Review and press Save.", or "No empty variables matched your predefined
+values."), and **saves nothing**. The user reviews the filled table and presses
+the existing Save, which is the only way a predefined value reaches an
+application.
+
 The same editor opens right after a clone/import that seeded empty keys, so a
 freshly added app can be completed before its first launch rather than failing
 into the gate.

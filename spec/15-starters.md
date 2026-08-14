@@ -32,7 +32,7 @@ https://raw.githubusercontent.com/trustable-ai/.github/refs/heads/main/index.jso
       { "name": "documentchatai",
         "title": "AI Document Manager",
         "repo": "https://github.com/trustable-ai/documentchatai",
-        "icon": "https://raw.githubusercontent.com/trustable-ai/truchat-templates/refs/heads/main/documentchatai.png",
+        "icon": "https://raw.githubusercontent.com/trustable-ai/documentchatai/refs/heads/main/screenshot.png",
         "description": "Manage Documents with AI" }
     ]
   }
@@ -93,7 +93,7 @@ sibling, falling back to the repository itself. It lists them one per line:
 The linked file **names the template**: `- [<title>](<template>.md) <description>`.
 The application itself lives in the repository of that name in the organization,
 `https://github.com/trustable-ai/<template>`, not in the starter or templates
-repository — those only publish the listing and the icons. Each line therefore
+repository — those only publish the listing. Each line therefore
 carries all three of the entry's text fields: the template is its identity, the
 link text its display name, and the trailing prose its description.
 
@@ -108,8 +108,11 @@ above, with the `# ` marker removed):
 - `repo` is the application's own repository, `https://github.com/trustable-ai/`
   followed by `name`
   (`aidocumentmanager.md` → `https://github.com/trustable-ai/aidocumentmanager`);
-- `icon` is the linked `.md` path with the extension swapped for `.png`,
-  resolved as a full raw URL against the repository the `_index.md` came from;
+- `icon` is the `screenshot.png` published by the application's **own**
+  repository,
+  `https://raw.githubusercontent.com/trustable-ai/<name>/refs/heads/main/screenshot.png`
+  — the file `./screenshot.sh` stages in a workbench, so an application ships
+  its own image;
 - `description` is the text following the link, whitespace-collapsed.
 
 Lines that do not match the `- [title](template.md) description` shape are ignored, so
@@ -130,13 +133,13 @@ Every `icon` is checked with a `HEAD` request and a missing one is **warned
 about, not fatal**:
 
 ```
-warning: trustable-ai/truchat: no icon for AI Email Manager — https://raw.git…/aiemailmanager.png
+warning: trustable-ai/aiemailmanager: no icon for AI Email Manager — https://raw.git…/aiemailmanager/refs/heads/main/screenshot.png
 
 4 of 7 applications have no icon published.
 ```
 
 The entry stays in the index with its `icon` set, so the image can be added to
-the templates repository later without regenerating anything. Applications
+the application's repository later without regenerating anything. Applications
 missing an icon are also marked `(no icon)` in the run summary. A network failure
 during the check counts as missing, so a connectivity problem produces noisy
 warnings rather than a failed run.

@@ -180,6 +180,35 @@
             </div>
         </div>
 
+        <!-- Predefined environment variables. Saved by their own button against
+             /api/predefined-env: POST /api/configuration runs a model probe and
+             navigates away on success, which editing a variable must not do. -->
+        <div class="nu-card p-5 mb-4">
+            <h2 class="text-lg font-medium mb-1">Predefined Environment Variables</h2>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+                These values are offered when an imported or newly created application asks for
+                variables that have no value. Nothing is applied automatically — you confirm them
+                in the application's own environment editor.
+            </p>
+            <table class="nu-table text-sm w-full">
+                <thead>
+                    <tr>
+                        <th class="text-left">Variable</th>
+                        <th class="text-left">Value</th>
+                        <th class="text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="predefinedEnvTableBody"></tbody>
+            </table>
+            <div class="flex flex-wrap items-center gap-2 mt-4">
+                <button type="button" onclick="addPredefinedEnvRow()"
+                    class="nu-btn nu-btn-secondary">Add Variable</button>
+                <button type="button" id="predefinedEnvSaveBtn" onclick="savePredefinedEnv()"
+                    class="nu-btn nu-btn-primary">Save Variables</button>
+                <span id="predefinedEnvStatus" class="text-sm"></span>
+            </div>
+        </div>
+
         <!-- Git User -->
         <div id="gitUserCard" class="nu-card p-5 mb-4">
             <h2 class="text-lg font-medium mb-4">Git User</h2>
@@ -847,7 +876,12 @@
                     email: document.getElementById('gitEmail').value.trim()
                 },
                 notebook,
-                apps: config.apps || {}
+                apps: config.apps || {},
+                // Echoed back for the same reason as `apps`: this POST is a
+                // full-document write, so a field left out here is erased from
+                // trustable.json. The predefined variables are edited by their
+                // own card against /api/predefined-env, never by this payload.
+                predefined_env: config.predefined_env || {}
             };
         }
 
@@ -901,6 +935,104 @@
             } else {
                 el.classList.add('text-[color:var(--nu-muted)]');
                 el.textContent = msg;
+            }
+        }
+
+        // Predefined environment variables.
+        //
+        // Deliberately not an EnvTable: that component is bound to one app's
+        // dev/prod pair and posts to /api/appconfig/<name>, which is both the
+        // wrong shape and the wrong endpoint here.
+        let predefinedEnvVars = [];
+
+        function renderPredefinedEnv() {
+            const tbody = document.getElementById('predefinedEnvTableBody');
+            if (predefinedEnvVars.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-sm text-[color:var(--nu-muted)] py-3">'
+                    + 'No predefined variables yet.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = predefinedEnvVars.map((v, i) => `
+                <tr>
+                    <td class="pr-2 py-1">
+                        <input type="text" value="${escapeAttr(v.name)}"
+                            placeholder="VARIABLE_NAME"
+                            onchange="updatePredefinedEnv(${i}, 'name', this.value)"
+                            class="nu-input nu-code w-full px-2 py-1 text-sm">
+                    </td>
+                    <td class="pr-2 py-1">
+                        <input type="text" value="${escapeAttr(v.value)}"
+                            onchange="updatePredefinedEnv(${i}, 'value', this.value)"
+                            class="nu-input nu-code w-full px-2 py-1 text-sm">
+                    </td>
+                    <td class="text-right py-1">
+                        <button type="button" onclick="removePredefinedEnvRow(${i})"
+                            class="nu-btn nu-btn-secondary nu-btn-compact">Remove</button>
+                    </td>
+                </tr>`).join('');
+        }
+
+        function updatePredefinedEnv(index, field, value) {
+            predefinedEnvVars[index][field] = value;
+            setPredefinedEnvStatus('', '');
+        }
+
+        function addPredefinedEnvRow() {
+            predefinedEnvVars.push({ name: '', value: '' });
+            renderPredefinedEnv();
+        }
+
+        function removePredefinedEnvRow(index) {
+            predefinedEnvVars.splice(index, 1);
+            renderPredefinedEnv();
+            setPredefinedEnvStatus('', '');
+        }
+
+        function setPredefinedEnvStatus(message, kind) {
+            const el = document.getElementById('predefinedEnvStatus');
+            el.textContent = message;
+            el.classList.remove('text-green-700', 'text-red-700', 'text-[color:var(--nu-muted)]');
+            if (!message) return;
+            el.classList.add(kind === 'error' ? 'text-red-700'
+                : kind === 'ok' ? 'text-green-700' : 'text-[color:var(--nu-muted)]');
+        }
+
+        async function loadPredefinedEnv() {
+            try {
+                const resp = await fetch('/api/predefined-env');
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                predefinedEnvVars = Array.isArray(data.vars) ? data.vars : [];
+            } catch (e) {
+                predefinedEnvVars = [];
+                setPredefinedEnvStatus('Could not load predefined variables: ' + e.message, 'error');
+            }
+            renderPredefinedEnv();
+        }
+
+        async function savePredefinedEnv() {
+            const btn = document.getElementById('predefinedEnvSaveBtn');
+            btn.disabled = true;
+            setPredefinedEnvStatus('Saving…', 'info');
+            try {
+                const resp = await fetch('/api/predefined-env', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vars: predefinedEnvVars })
+                });
+                if (!resp.ok) {
+                    setPredefinedEnvStatus((await resp.text()).trim() || 'Save failed', 'error');
+                    return;
+                }
+                const data = await resp.json();
+                // Reload so the server's canonical set (sorted, blank rows
+                // dropped) is what the user sees afterwards.
+                await loadPredefinedEnv();
+                setPredefinedEnvStatus(`Saved ${data.count} variable${data.count === 1 ? '' : 's'}.`, 'ok');
+            } catch (e) {
+                setPredefinedEnvStatus('Error saving: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
             }
         }
 
@@ -984,7 +1116,7 @@
             } catch (e) {
                 console.error('Failed to check version:', e);
             }
-            await Promise.all([loadConfig(), loadGitHubAccount()]);
+            await Promise.all([loadConfig(), loadGitHubAccount(), loadPredefinedEnv()]);
 
             // setup=1 is provider-independent: every provider must make the
             // new Pi selection explicitly because legacy opencode settings are
