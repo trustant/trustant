@@ -94,7 +94,15 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		`cp ../trustable-acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
 		`cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
 		`cp ../trustable-acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"`,
-		`printf 'trustable-acp=%s:%s\n' "$TRUACP_REF" "$TRUACP_HASH"`,
+		// The staged artifact must still be identified by the submodule commit
+		// it came from and by a content hash of what was actually staged.
+		// These used to feed `printf 'trustable-acp=%s:%s\n'` into a BASE_HASH
+		// cache key for a hash-tagged base image; that two-stage split was
+		// removed in 0bebc41 because buildkit cannot resolve `FROM base`
+		// against an image it has just built, so the key it fed is gone with
+		// it. What must not regress is that both values are still derived.
+		`TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"`,
+		`TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"`,
 	} {
 		if !strings.Contains(staging, required) {
 			t.Fatalf("TruACP artifact staging contract missing %q", required)

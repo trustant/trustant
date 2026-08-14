@@ -328,7 +328,11 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 	}
 	start := string(content)
 	for _, required := range []string{
-		`git -C "$MOUNT_DIR" submodule update --init --recursive mcp trustable-acp`,
+		// Not the whole command line: start.sh threads `-c core.autocrlf=false
+		// -c core.eol=lf` between `git -C "$MOUNT_DIR"` and the subcommand so a
+		// fresh Windows checkout lands as LF. What must hold is that both
+		// source submodules are initialised recursively, not the exact flags.
+		`submodule update --init --recursive mcp trustable-acp`,
 		`[[ -f "$MOUNT_DIR/mcp/package.json" ]]`,
 		`[[ -f "$MOUNT_DIR/trustable-acp/package.json" ]]`,
 		`ensure_source_submodules`,
@@ -336,6 +340,10 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 		if !strings.Contains(start, required) {
 			t.Fatalf("start.sh is missing portable TruACP source setup fragment %q", required)
 		}
+	}
+	// The submodule update must still be scoped to the mounted worktree.
+	if !strings.Contains(start, `git -C "$MOUNT_DIR"`) {
+		t.Fatal(`start.sh must run the submodule update with git -C "$MOUNT_DIR"`)
 	}
 }
 
@@ -381,13 +389,24 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	run := string(content)
 	for _, required := range []string{
 		`write_dev_build_metadata`,
-		`[[ -s _build.txt ]] || write_dev_build_metadata`,
 		`TRUSTABLE_BUILD_BRANCH`,
 		`> _build.txt`,
 	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("run.sh is missing clean-worktree build metadata fragment %q", required)
 		}
+	}
+	// The metadata used to be written only when _build.txt was missing or
+	// empty (`[[ -s _build.txt ]] || write_dev_build_metadata`). A reused
+	// worktree carries an ignored _build.txt from an earlier image build, so
+	// that left Air running with stale release metadata; run.sh now always
+	// overwrites it. Guard the unconditional call so the skip cannot come back.
+	if strings.Contains(run, `[[ -s _build.txt ]] || write_dev_build_metadata`) {
+		t.Fatal("run.sh must overwrite _build.txt unconditionally, not skip it when one already exists")
+	}
+	body := run[strings.Index(run, "write_dev_build_metadata() {"):]
+	if !strings.Contains(body, "\nwrite_dev_build_metadata\n") {
+		t.Fatal("run.sh must call write_dev_build_metadata unconditionally before starting Air")
 	}
 }
 
