@@ -8,6 +8,8 @@
     <script src="trustable-auth.js"></script>
     <script src="js/envtable.js"></script>
     <script src="js/github-account.js"></script>
+    <!-- Resumes any tutorial that crosses over from app.html. -->
+    <script src="js/tutorial.js" defer></script>
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -438,7 +440,7 @@
                         class="nu-btn nu-btn-secondary flex-1">
                         Cancel
                     </button>
-                    <button onclick="confirmGitPush()"
+                    <button id="gitPushConfirmBtn" onclick="confirmGitPush()"
                         class="nu-btn nu-btn-primary flex-1">
                         Push
                     </button>
@@ -2007,7 +2009,7 @@
                     <div class="p-3 flex flex-wrap gap-2">
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
                         ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
-                        ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
+                        ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo', `data-tour-push="${escapeAttr(app.name)}"`)}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
                         ${actionButton('Undeploy', `showUndeployModal('${escapeAttr(app.name)}')`, undeployIcon(), 'orange')}
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')"
@@ -2054,7 +2056,7 @@
                         <button onclick="launchApp('${escapeAttr(app.name)}')" class="nu-btn nu-btn-primary">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
                         ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
-                        ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo')}
+                        ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo', `data-tour-push="${escapeAttr(app.name)}"`)}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
                         ${actionButton('Undeploy', `showUndeployModal('${escapeAttr(app.name)}')`, undeployIcon(), 'orange')}
                         <button onclick="showDeleteModal('${escapeAttr(app.name)}')" class="nu-btn nu-btn-danger">${trashIcon()} Delete</button>
@@ -2171,7 +2173,9 @@
             return `w-11 h-11 rounded border ${colors[code % colors.length]} flex items-center justify-center font-semibold text-sm shrink-0`;
         }
 
-        function actionButton(label, action, icon, color) {
+        // `attrs` carries extra markup such as the data-tour-push marker the
+        // guided tutorial spotlights (spec/16-tutorial.md).
+        function actionButton(label, action, icon, color, attrs) {
             const colors = {
                 purple: 'nu-btn-secondary',
                 indigo: 'nu-btn-secondary',
@@ -2179,7 +2183,7 @@
                 orange: 'nu-btn-secondary',
                 neutral: 'nu-btn-secondary'
             };
-            return `<button onclick="${action}" class="nu-btn ${colors[color]}">${icon}${label}</button>`;
+            return `<button onclick="${action}" ${attrs || ''} class="nu-btn ${colors[color]}">${icon}${label}</button>`;
         }
 
         function editIcon(cls) {

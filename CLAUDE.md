@@ -150,6 +150,12 @@ Plain HTML + Tailwind (via [web/tailwind.js](web/tailwind.js)) — **no build st
 
 Pages talk to the backend only through `/api/*` JSON endpoints.
 
+[web/js/tutorial.js](web/js/tutorial.js) ([spec/16-tutorial.md](spec/16-tutorial.md)) adds the
+spotlight tutorials started from the Tutorial pulldown in `app.html`; `applist.html` loads it too
+because the Commit and Push tutorial resumes there. Steps that point inside the TruACP iframe are
+served by the tour bridge in the `trustable-acp` submodule (`web/tour-bridge.ts`), which reports
+`data-tour` rects and notebook state across the origin boundary.
+
 ### Configuration layering
 
 Config is loaded by merging two `trustable.json` files (see [spec/2a-config.md](spec/2a-config.md)):

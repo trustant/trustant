@@ -425,6 +425,14 @@ The Revert action is part of the **Utils** pulldown in the application screen (`
 
 Each app card has a "Git Push" button. Clicking it calls `POST /api/publish/push` with the app name.
 
+In both the grid and the list view the button carries
+`data-tour-push="<app name>"`. No tutorial currently addresses it — the
+walkthrough that did was replaced by the **Toolbar** tour (see
+[16-tutorial.md](16-tutorial.md)) — but the marker is kept so a tutorial can
+reach the button again without changing this page. The page still loads
+`js/tutorial.js`, because the engine resumes a tutorial that crosses pages and
+watches `appList` so a spotlight follows the list when it re-renders.
+
 If the backend returns `{"needs_config": true}`, show a popup asking for:
 - The production repository in org/repo format
 - The shared **GitHub account form** ([github.md](github.md)), when no account is

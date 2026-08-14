@@ -488,3 +488,154 @@ textarea {
     border-color: color-mix(in oklab, var(--nu-danger) 22%, white);
     color: var(--nu-ink);
 }
+
+/* Guided tutorials (spec/16-tutorial.md).
+   The masks tile the viewport around the spotlit controls: they are what
+   disables the rest of the application, so they must stay above every modal
+   (z-50) while the holes between them leave the targets clickable. A step may
+   spotlight more than one control, so both masks and rings are pooled and
+   sized per repaint rather than being a fixed set of four. */
+#tutorialOverlay {
+    display: none;
+}
+
+#tutorialOverlay.active {
+    display: block;
+}
+
+.tutorial-mask {
+    position: fixed;
+    /* Light enough that the application underneath stays readable, which is
+       what tells the user where they are in it. */
+    background: rgb(255 255 255 / 66%);
+    z-index: 9998;
+    /* Deliberately not animated. A transition on the geometry means the hole
+       arrives after the card has already invited the click, so the press lands
+       on a mask that has not finished moving out of the way. */
+}
+
+.tutorial-ring {
+    position: fixed;
+    z-index: 9998;
+    border: 2px solid var(--nu-brand);
+    border-radius: 6px;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--nu-brand) 22%, transparent);
+    pointer-events: none;
+    transition: opacity .2s ease;
+}
+
+.tutorial-card {
+    position: fixed;
+    z-index: 9999;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    width: 320px;
+    max-width: calc(100vw - 16px);
+    background: white;
+    border: 1px solid var(--nu-rule);
+    border-radius: 4px;
+    box-shadow: 0 10px 30px rgb(0 0 0 / 12%);
+    padding: 14px 16px;
+    transition: top .25s ease, left .25s ease;
+}
+
+.tutorial-card-step {
+    font-size: var(--nu-label-size);
+    font-weight: var(--nu-label-weight);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--nu-muted);
+}
+
+.tutorial-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 2px 0 6px;
+}
+
+.tutorial-card-text {
+    font-size: .875rem;
+    color: var(--nu-muted);
+    margin: 0;
+}
+
+.tutorial-card-wait {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: .875rem;
+    color: var(--nu-control-text);
+}
+
+.tutorial-card-wait.hidden,
+.tutorial-card-text.hidden,
+.tutorial-card-actions.hidden,
+.tutorial-link.hidden {
+    display: none;
+}
+
+.tutorial-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--nu-brand-soft);
+    border-top-color: var(--nu-brand);
+    border-radius: 50%;
+    animation: tutorial-spin .8s linear infinite;
+    flex: none;
+}
+
+@keyframes tutorial-spin {
+    to { transform: rotate(360deg); }
+}
+
+.tutorial-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.tutorial-btn {
+    border: 1px solid var(--nu-control-border);
+    background: var(--nu-control-bg);
+    color: var(--nu-control-text);
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: .875rem;
+}
+
+.tutorial-btn:hover {
+    background: var(--nu-control-hover);
+}
+
+.tutorial-btn-primary {
+    background: var(--nu-brand);
+    border-color: var(--nu-brand);
+    color: white;
+}
+
+.tutorial-btn-primary:hover {
+    background: color-mix(in oklab, var(--nu-brand) 88%, black);
+}
+
+/* Skipping and exiting are small links on one line at the foot of the card:
+   always available on every step, but never competing with the step's own
+   action for attention. */
+.tutorial-card-links {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.tutorial-link {
+    font-size: .75rem;
+    color: var(--nu-muted);
+    text-decoration: underline;
+    background: none;
+    border: 0;
+    padding: 0;
+}
+
+.tutorial-link:hover {
+    color: var(--nu-ink);
+}
