@@ -26,6 +26,9 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
         "repository": "trustable-ai/templates",
         "ref": "main"
     },
+    "predefined_env": {
+        "SHARED_API_KEY": "<value offered when an app asks for this name>"
+    },
     "apps": {
         "<app-name>": {
             "password": "<ops user password>",
@@ -48,7 +51,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   - **Ollama** — `api_key = "dummy"`. `base_url` depends on the Ollama mode picked on the splash sub-modal (see "Ollama mode selection"). For **internal** Ollama it is fixed to `http://localhost:11434/v1`; for **own host** the user enters host and port and `base_url` becomes `http://<host>:<port>/v1`. Scheme is always `http://` and path is always `/v1` — no HTTPS, no auth, no other paths.
   - **Trustable** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
   - **Private AI** — both are supplied by the user in the Private AI dialog on the splash (see [1-index.md](1-index.md)). `base_url` is any OpenAI-compatible endpoint matching `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve. `api_key` is optional and is persisted as `"dummy"` when left empty, because Pi requires a non-empty value to consider the provider configured (see [pi.md](pi.md)).
-  There is **no** global `env` section in `trustable.json`. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`.
+  There is **no** global `env` section in `trustable.json`, and no global block is ever merged into an application. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`. The separate `predefined_env` map is **not** an exception: it is a palette of values the user is *offered*, never applied — see "Predefined environment variables" below.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
 - `pi.default` — must be a name that exists as a key in `models`. The
   configurator UI presents it as a single dropdown populated from `models`.
@@ -351,7 +354,7 @@ use generated service bindings directly.
 
 Production `.env.production` is written from the per-app `production` values.
 
-There is no global `env` section: environment variables for an app come only from the fixed vars above and the per-app `development` / `production` maps.
+There is no global `env` section: environment variables for an app come only from the fixed vars above and the per-app `development` / `production` maps. `predefined_env` is **not** an input to `generateAppEnvFiles` — a predefined value reaches a generated `.env` only after the user has copied it into the app's `development` map through the editor, at which point it is an ordinary per-app value like any other.
 
 `regenerateAllAppEnvFiles()` iterates all apps and regenerates for each that has a workbench directory.
 
@@ -445,6 +448,70 @@ an unfilled required variable would vanish from the editor and stop being
 reported as missing. Rows with an empty **name** are still discarded, and the
 fixed `OPS_*` keys are never stored as empty development entries because the
 server regenerates them.
+
+## Predefined environment variables
+
+`predefined_env` is a workspace-level map of name→value pairs the user maintains
+on the Configure page. It exists so that values shared across applications — an
+API key, a shared endpoint — do not have to be retyped for every imported or
+newly created app.
+
+It is a **palette, not a source**. Nothing merges it into an application:
+
+- `missingAppEnvKeys` does not consult it. A predefined value never satisfies a
+  `.env.dist` key, so the variable still appears in the missing-variables
+  editor. Were it otherwise, a value would reach an app without the user ever
+  seeing it.
+- `seedMissingEnvKeys` still seeds an **empty** string, not the predefined value.
+- `generateAppEnvFiles` does not read it.
+
+The only path from the palette into an application is the **Use predefined
+values** button in the missing-variables editor (see
+[4-launch.md](4-launch.md)), followed by the user pressing Save. This keeps
+the rule stated under "Per-app .env generation": variables are not added to an
+app's config without the user asking for them.
+
+Layering follows `models` / `model_versions` — key-by-key, workspace over base —
+rather than the whole-map replacement used for `apps`.
+
+### GET /api/predefined-env
+
+Returns `{"vars": [{"name": "...", "value": "..."}]}` from the **merged** config,
+sorted by name so the table renders in a stable order.
+
+### POST /api/predefined-env
+
+Accepts the same shape and replaces the whole set, writing only `predefined_env`
+on the workspace config.
+
+- Names must match `^[A-Za-z_][A-Za-z0-9_]*$` — what a shell and a `.env` file
+  accept. A bad name is **400** and the response names the offending key.
+- Duplicate names are **400**.
+- Rows with a blank name are dropped: that is how the table represents a row the
+  user has not filled in yet, and it must not fail the save they just asked for.
+- An empty **value** is kept. It records the name as predefined without yet
+  having anything to offer, and will not satisfy a required variable.
+- More than 256 entries is **400**, so the config file cannot become a data
+  store.
+
+This is a separate endpoint rather than part of `POST /api/configuration`
+because that handler runs a model connectivity probe on every call and the
+Configure page navigates to the app list when it succeeds. Editing an
+environment variable must do neither.
+
+### Preservation
+
+`saveWorkspaceConfig` writes the whole struct, so any field a client omits is
+erased. `predefined_env` is therefore preserved on **both** sides, and both are
+required:
+
+- `handlePostConfiguration` re-attaches it from the existing workspace config
+  when the payload omits it, alongside `apps`, `current` and `notebook`;
+- the Configure page's `buildConfig()` echoes it back, as it already does for
+  `apps`, because that POST is a full-document write.
+
+Without either half, saving a provider from the Configure page silently wipes
+the user's predefined variables.
 
 ## Current app tracking
 
@@ -675,7 +742,13 @@ its immediate catalog-reselect redirect. This guarantees that a successful
 configuration can exit the configure screen even if a status response changes
 concurrently; normal `modelsVersion` checks resume on the next app-list load.
 
-The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, and `apps` fields when saving. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
+The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, `apps`, and `predefined_env` fields when saving — this POST is a full-document write, so a field left out is erased. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
+
+The Configure page also owns a **Predefined Environment Variables** card, sitting
+between Template Repository and Git User. It edits `predefined_env` through
+`GET`/`POST /api/predefined-env` with its **own** Save button and inline status:
+it does not go through **Save & Configure**, does not run a model probe, and does
+not navigate away. See "Predefined environment variables" above.
 
 Read the configuration with `GET /api/configuration`. **Save & Configure** calls
 `POST /api/configuration`, which persists, runs testmodel, and writes Pi's

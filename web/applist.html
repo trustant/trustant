@@ -615,8 +615,14 @@
                     </thead>
                     <tbody id="missingEnvTableBody"></tbody>
                 </table>
-                <div class="mt-4">
+                <div class="flex flex-wrap items-center gap-2 mt-4">
                     <button onclick="missingEnvTable.add()" class="nu-btn nu-btn-secondary">Add Variable</button>
+                    <!-- Shown only when the workspace has predefined variables.
+                         Fills empty Development values in place; the user still
+                         reviews the table and presses Save. -->
+                    <button id="missingEnvPredefinedBtn" onclick="applyPredefinedEnv()"
+                        class="hidden nu-btn nu-btn-secondary">Use predefined values</button>
+                    <span id="missingEnvPredefinedStatus" class="text-sm text-[color:var(--nu-muted)]"></span>
                 </div>
             </div>
             <div id="missingEnvError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
@@ -2532,13 +2538,44 @@
             }
         }
 
+        // The workspace's predefined variables, fetched when the modal opens.
+        // They are only ever offered here, through the button — nothing applies
+        // them to an app automatically (spec/2a-config.md).
+        let predefinedEnvValues = {};
+
+        async function loadPredefinedEnvValues() {
+            const button = document.getElementById('missingEnvPredefinedBtn');
+            document.getElementById('missingEnvPredefinedStatus').textContent = '';
+            predefinedEnvValues = {};
+            try {
+                const response = await fetch('/api/predefined-env');
+                if (response.ok) {
+                    const data = await response.json();
+                    (data.vars || []).forEach(v => {
+                        if (v.name && v.value) predefinedEnvValues[v.name] = v.value;
+                    });
+                }
+            } catch (e) {
+                // A missing palette is not an error worth blocking the editor.
+            }
+            button.classList.toggle('hidden', Object.keys(predefinedEnvValues).length === 0);
+        }
+
+        function applyPredefinedEnv() {
+            const status = document.getElementById('missingEnvPredefinedStatus');
+            const result = missingEnvTable.applyPredefined(predefinedEnvValues);
+            status.textContent = result.filled > 0
+                ? `Filled ${result.filled} variable${result.filled === 1 ? '' : 's'} from predefined values. Review and press Save.`
+                : 'No empty variables matched your predefined values.';
+        }
+
         async function loadMissingEnv(name) {
             document.getElementById('missingEnvLoading').classList.remove('hidden');
             document.getElementById('missingEnvContent').classList.add('hidden');
             try {
                 missingEnvTable.appName = name;
                 missingEnvTable.highlightMissing = true;
-                await missingEnvTable.load();
+                await Promise.all([missingEnvTable.load(), loadPredefinedEnvValues()]);
                 document.getElementById('missingEnvLoading').classList.add('hidden');
                 document.getElementById('missingEnvContent').classList.remove('hidden');
             } catch (error) {

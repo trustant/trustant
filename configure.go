@@ -119,6 +119,14 @@ type trustableConfig struct {
 	Notebook      *NotebookConfig         `json:"notebook,omitempty"`
 	Apps          map[string]*AppConfig   `json:"apps,omitempty"`
 	Current       string                  `json:"current,omitempty"`
+	// PredefinedEnv is a palette of name/value pairs the user maintains on the
+	// Configure page. It is NEVER applied to an application on its own: the only
+	// path into an app is the "Use predefined values" button in the
+	// missing-variables editor, followed by an explicit save. Nothing here is an
+	// input to generateAppEnvFiles or missingAppEnvKeys — a predefined value that
+	// silently satisfied a required key would reach the app without the user ever
+	// seeing it. See spec/2a-config.md.
+	PredefinedEnv map[string]string `json:"predefined_env,omitempty"`
 
 	// RegisterURL is populated at GET-time from the AIP_REGISTER_URL env var
 	// (mandatory at startup). It points at the proxy's registration UI; the
@@ -314,6 +322,21 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 
 	if override.Apps != nil {
 		result.Apps = override.Apps
+	}
+
+	// Key-by-key, following ModelVersions/Models rather than the whole-map
+	// replacement used for Apps: spec/2a-config.md documents maps as merging
+	// key-by-key, and a base-supplied default should survive a workspace that
+	// defines its own predefined variables.
+	if len(override.PredefinedEnv) > 0 {
+		merged := make(map[string]string)
+		for k, v := range base.PredefinedEnv {
+			merged[k] = v
+		}
+		for k, v := range override.PredefinedEnv {
+			merged[k] = v
+		}
+		result.PredefinedEnv = merged
 	}
 
 	return &result
@@ -2524,6 +2547,13 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		if wsCfg.Notebook != nil && cfg.Notebook == nil {
 			cfg.Notebook = wsCfg.Notebook
 		}
+		// saveWorkspaceConfig writes the whole struct, so a payload that omits
+		// predefined_env would erase it. The Configure page echoes the field
+		// back, but a stale tab or any other client need not; preserving it here
+		// is what stops saving a provider from wiping the user's variables.
+		if len(wsCfg.PredefinedEnv) > 0 && cfg.PredefinedEnv == nil {
+			cfg.PredefinedEnv = wsCfg.PredefinedEnv
+		}
 	}
 
 	if err := normalizeNotebookConfig(&cfg); err != nil {
@@ -2879,7 +2909,8 @@ func generateAppEnvFiles(appName string) error {
 	devVars["OPS_REPO"] = getAppRepo(appName)
 	devVars["OPS_SKILLS"] = OpsSkills
 
-	// Per-app development overrides (no global env section). Service runtime
+	// Per-app development overrides (no global env section; predefined_env is a
+	// palette the user copies from by hand, never an input here). Service runtime
 	// credentials from ops ide login are intentionally not written here: they are
 	// injected only into the OpenCode/ops process environment at launch time.
 	for k, v := range appCfg.Development {
@@ -3004,7 +3035,8 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	vars = append(vars, EnvVar{Name: "OPS_REPO", DevValue: getAppRepo(name), ProdValue: appCfg.Production["OPS_REPO"], Readonly: true})
 	vars = append(vars, EnvVar{Name: "OPS_SKILLS", DevValue: OpsSkills, ProdValue: appCfg.Production["OPS_SKILLS"], Readonly: true})
 
-	// Custom vars (per-app development/production only — there is no global env section)
+	// Custom vars (per-app development/production only — there is no global env
+	// section, and predefined_env is never merged in here)
 	seen := make(map[string]bool)
 	for _, k := range fixedKeys {
 		seen[k] = true
@@ -3097,4 +3129,115 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
+}
+
+// Predefined environment variables. These live on their own endpoint rather
+// than riding POST /api/configuration because that handler runs a model
+// connectivity probe on every call and the Configure page navigates away when
+// it succeeds — editing a variable must do neither. See spec/2a-config.md.
+
+// predefinedEnvNamePattern is what a shell and a .env file will accept.
+var predefinedEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// maxPredefinedEnvVars stops the config file being used as a data store.
+const maxPredefinedEnvVars = 256
+
+// PredefinedEnvVar is one name/value pair as exchanged with the frontend. The
+// list form keeps the order stable for rendering; storage is a map.
+type PredefinedEnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func handlePredefinedEnv(w http.ResponseWriter, r *http.Request) {
+	if expiredGuard(w) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		handleGetPredefinedEnv(w, r)
+	case http.MethodPost:
+		handlePostPredefinedEnv(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleGetPredefinedEnv returns the merged set, sorted by name so the table
+// renders in a stable order.
+func handleGetPredefinedEnv(w http.ResponseWriter, r *http.Request) {
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	names := make([]string, 0, len(cfg.PredefinedEnv))
+	for name := range cfg.PredefinedEnv {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	vars := make([]PredefinedEnvVar, 0, len(names))
+	for _, name := range names {
+		vars = append(vars, PredefinedEnvVar{Name: name, Value: cfg.PredefinedEnv[name]})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"vars": vars})
+}
+
+// handlePostPredefinedEnv replaces the whole set. It touches only
+// PredefinedEnv on the workspace config, so nothing else in the file moves.
+func handlePostPredefinedEnv(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Vars []PredefinedEnvVar `json:"vars"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(request.Vars) > maxPredefinedEnvVars {
+		http.Error(
+			w,
+			fmt.Sprintf("Too many predefined variables: %d exceeds the limit of %d", len(request.Vars), maxPredefinedEnvVars),
+			http.StatusBadRequest,
+		)
+		return
+	}
+	predefined := make(map[string]string)
+	for _, v := range request.Vars {
+		name := strings.TrimSpace(v.Name)
+		// A blank row is how the table represents "not filled in yet"; drop it
+		// rather than failing the save the user just asked for.
+		if name == "" {
+			continue
+		}
+		if !predefinedEnvNamePattern.MatchString(name) {
+			http.Error(w, "Invalid variable name: "+name, http.StatusBadRequest)
+			return
+		}
+		if _, exists := predefined[name]; exists {
+			http.Error(w, "Duplicate variable name: "+name, http.StatusBadRequest)
+			return
+		}
+		// An empty value is allowed: it records the name as predefined without
+		// yet having something to offer, and will not satisfy a required key.
+		predefined[name] = v.Value
+	}
+
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(predefined) == 0 {
+		wsCfg.PredefinedEnv = nil
+	} else {
+		wsCfg.PredefinedEnv = predefined
+	}
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "saved", "count": len(predefined)})
 }

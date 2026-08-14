@@ -225,6 +225,40 @@
         return { total: entries.length, added, updated, skippedReadonly, scope };
     };
 
+    // Fills Development values from the workspace's predefined variables
+    // (spec/2a-config.md). Unlike importEnvText this is deliberately
+    // conservative, because it runs on a whole set of values the user did not
+    // pick for this app:
+    //
+    // - only variables the app already declares are touched, so an app's .env
+    //   stays what its template declared;
+    // - only empty Development values are filled, so a value the user typed or
+    //   the template supplied is never replaced and the button is safe to click
+    //   twice;
+    // - readonly rows (the fixed OPS_* keys) are skipped, matching
+    //   importEnvText and isMissing.
+    //
+    // Nothing is saved here: the caller re-renders and the user still presses
+    // Save, which is the only path by which a predefined value reaches an app.
+    EnvTable.prototype.applyPredefined = function (predefined) {
+        if (!predefined) return { filled: 0, names: [] };
+        const names = [];
+        this.vars.forEach((v) => {
+            if (v.readonly) return;
+            if ((v.dev_value || '').trim() !== '') return;
+            if (!Object.prototype.hasOwnProperty.call(predefined, v.name)) return;
+            const value = predefined[v.name];
+            if (!value) return;
+            v.dev_value = value;
+            names.push(v.name);
+        });
+        if (names.length > 0) {
+            this.render();
+            this.onChange();
+        }
+        return { filled: names.length, names: names };
+    };
+
     // Posts the whole vars array. Empty values are preserved server-side, which
     // is what keeps an unfilled required variable visible after a partial save.
     EnvTable.prototype.save = async function () {
