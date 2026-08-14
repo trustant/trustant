@@ -889,6 +889,15 @@ const (
 	// Pi resolves this reference through auth.json, keeping the real secret out
 	// of the model catalog regardless of the selected provider origin.
 	piAPIKeyRef = "$OPENAI_API_KEY"
+	// Limits used when the catalog reports none. These are two unrelated
+	// budgets and are named separately so a future edit cannot move both at
+	// once: the context window was raised from 32768 because a provider whose
+	// catalog carries no size (own-host OpenAI-compatible endpoints) was being
+	// pinned to 32K against a model that usually supports far more, while
+	// raising the output budget would over-claim capacity on models that cap
+	// lower. Both are user-editable per model in Configure.
+	piDefaultContextWindow = 128000
+	piDefaultMaxOutput     = 32768
 )
 
 // piProviderNameForConfig keeps Pi's provider prefix aligned with the source
@@ -1140,7 +1149,7 @@ func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
 			log.Printf("Skipping Pi model %s: %s", modelID, reason)
 			continue
 		}
-		contextWindow, maxTokens := 32768, 32768
+		contextWindow, maxTokens := piDefaultContextWindow, piDefaultMaxOutput
 		if limits != nil {
 			if limits.MaxToken > 0 {
 				contextWindow = limits.MaxToken

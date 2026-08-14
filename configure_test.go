@@ -2463,3 +2463,123 @@ func TestApihostFilePathFor(t *testing.T) {
 		})
 	}
 }
+
+// The unconfigured context window is the regression issue #148 fixes: a
+// provider whose catalog carries no size was pinned to 32K. The output budget
+// is asserted alongside it because both used to come from one literal, and
+// raising the context must not drag the output up with it.
+func TestBuildPiModelsDefaultsContextWithoutMovingMaxOutput(t *testing.T) {
+	cfg := &trustableConfig{
+		Provider: "private",
+		Models: map[string]*ModelLimits{
+			"no-limits-model": {Roles: []string{"coding"}},
+		},
+		Pi: &piConfig{Default: "no-limits-model"},
+	}
+
+	models := buildPiModels(cfg)
+	if len(models) != 1 {
+		t.Fatalf("expected one model, got %d", len(models))
+	}
+	if got := models[0]["contextWindow"]; got != piDefaultContextWindow {
+		t.Fatalf("contextWindow = %v, want %d", got, piDefaultContextWindow)
+	}
+	if got := models[0]["maxTokens"]; got != piDefaultMaxOutput {
+		t.Fatalf("maxTokens = %v, want %d", got, piDefaultMaxOutput)
+	}
+	if piDefaultContextWindow != 128000 || piDefaultMaxOutput != 32768 {
+		t.Fatalf("defaults drifted: context=%d output=%d", piDefaultContextWindow, piDefaultMaxOutput)
+	}
+}
+
+func TestBuildPiModelsResolvesLimitsInPrecedenceOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		limits        *ModelLimits
+		contextWindow int
+		maxTokens     int
+	}{
+		{
+			name:          "maxToken wins over the default",
+			limits:        &ModelLimits{MaxToken: 262144, Roles: []string{"coding"}},
+			contextWindow: 262144,
+			maxTokens:     piDefaultMaxOutput,
+		},
+		{
+			name:          "maxInput is used when maxToken is absent",
+			limits:        &ModelLimits{MaxInput: 200000, Roles: []string{"coding"}},
+			contextWindow: 200000,
+			maxTokens:     piDefaultMaxOutput,
+		},
+		{
+			name:          "maxToken takes precedence over maxInput",
+			limits:        &ModelLimits{MaxToken: 262144, MaxInput: 200000, Roles: []string{"coding"}},
+			contextWindow: 262144,
+			maxTokens:     piDefaultMaxOutput,
+		},
+		{
+			name:          "maxOutput drives maxTokens independently",
+			limits:        &ModelLimits{MaxOutput: 8192, Roles: []string{"coding"}},
+			contextWindow: piDefaultContextWindow,
+			maxTokens:     8192,
+		},
+		{
+			name:          "both limits are carried through together",
+			limits:        &ModelLimits{MaxToken: 262144, MaxOutput: 8192, Roles: []string{"coding"}},
+			contextWindow: 262144,
+			maxTokens:     8192,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &trustableConfig{
+				Provider: "private",
+				Models:   map[string]*ModelLimits{"model": tc.limits},
+				Pi:       &piConfig{Default: "model"},
+			}
+			models := buildPiModels(cfg)
+			if len(models) != 1 {
+				t.Fatalf("expected one model, got %d", len(models))
+			}
+			if got := models[0]["contextWindow"]; got != tc.contextWindow {
+				t.Fatalf("contextWindow = %v, want %d", got, tc.contextWindow)
+			}
+			if got := models[0]["maxTokens"]; got != tc.maxTokens {
+				t.Fatalf("maxTokens = %v, want %d", got, tc.maxTokens)
+			}
+		})
+	}
+}
+
+// The "256K" string form predates the object shape and still appears in older
+// workspace files, so it must keep reaching buildPiModels as a real number.
+func TestModelLimitsUnmarshalsLegacyStringContextSize(t *testing.T) {
+	// The legacy shape is the whole entry as a string — `"model": "256K"` —
+	// which UnmarshalJSON turns into MaxToken. The object form never carried a
+	// string maxToken.
+	var limits ModelLimits
+	if err := json.Unmarshal([]byte(`"256K"`), &limits); err != nil {
+		t.Fatalf("unmarshal legacy entry: %s", err)
+	}
+	if limits.MaxToken != 262144 {
+		t.Fatalf("MaxToken = %d, want 262144", limits.MaxToken)
+	}
+
+	// And it round-trips through a real models map, which is how it arrives.
+	var parsed map[string]*ModelLimits
+	if err := json.Unmarshal([]byte(`{"legacy-model":"256K"}`), &parsed); err != nil {
+		t.Fatalf("unmarshal legacy models map: %s", err)
+	}
+	if parsed["legacy-model"].MaxToken != 262144 {
+		t.Fatalf("MaxToken via map = %d, want 262144", parsed["legacy-model"].MaxToken)
+	}
+
+	cfg := &trustableConfig{
+		Provider: "private",
+		Models:   map[string]*ModelLimits{"legacy": {MaxToken: limits.MaxToken, Roles: []string{"coding"}}},
+		Pi:       &piConfig{Default: "legacy"},
+	}
+	models := buildPiModels(cfg)
+	if len(models) != 1 || models[0]["contextWindow"] != 262144 {
+		t.Fatalf("legacy context size did not reach Pi: %#v", models)
+	}
+}
