@@ -35,4 +35,11 @@ Trustable
 # screenshot.sh copies the launched app's animation here so it can be previewed
 # in the editor. It is a scratch copy of <app>/screenshot.png, which is the
 # versioned artifact — this one is never committed.
-/screenshot.png
+screenshot.png
+
+# Symlinks screenshot.sh maintains into the currently-launched app, so its
+# animation and frame directory can be opened without typing the workbench path.
+# They point outside the repo and follow whichever app is current, so they are
+# per-machine working state, never committed.
+aaa-screenshot.png
+aaa-screenshot

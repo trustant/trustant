@@ -665,31 +665,55 @@ refresh_support_files() {
   [[ -f "$LIMA_KEY.pub" ]] && cp "$LIMA_KEY.pub" "$SUPPORT_DIR/id_ed25519.pub"
   ok "copied Lima key -> id_ed25519"
 
-  if ./ssh.sh true 2>/dev/null; then
-    ok "ssh.sh reaches trustable@$IP"
+  if probe_ssh "$IP"; then
+    ok "ssh reaches $USER@$IP"
   else
-    warn "ssh.sh could not connect yet (key auth may need a moment)"
+    warn "ssh could not connect yet (key auth may need a moment)"
   fi
 
   ensure_guest_user
   ensure_ssh_config "$IP"
 }
 
-# Wait until ssh.sh can execute a command in the VM. This is used for the
+# Can we run a command in the VM over plain ssh, with the identity that was just
+# copied into the support dir?
+#
+# This deliberately does NOT go through ./ssh.sh. That script is the user-facing
+# wrapper: it takes no command and always `exec bash`, so calling it here opened
+# an interactive shell and blocked the rest of the start — `./start.sh -v` never
+# reached the step that opens VS Code, and the user was left in a VM shell.
+#
+# It also does not go through run_guest/limactl, because what needs proving is
+# specifically that *ssh* works with *that identity*: it is the path VS Code
+# Remote-SSH takes, and limactl would succeed even when ssh could not connect.
+#
+# BatchMode keeps a missing or unauthorized key a failure instead of a password
+# prompt that would hang an unattended start.
+probe_ssh() {
+  local IP="$1"
+  ssh -i "$SUPPORT_DIR/id_ed25519" \
+      -o BatchMode=yes -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+      "$USER@$IP" true >/dev/null 2>&1
+}
+
+# Wait until a command can be executed in the VM over ssh. Used by the
 # existing-VM fast path after start, so VS Code Remote-SSH opens against a ready
 # endpoint instead of racing the guest boot.
 wait_for_ssh_ready() {
   local retries=30
   local delay_secs=2
+  local IP
+  IP="$(cat "$SUPPORT_DIR/current.ip")"
   echo "--- Waiting for SSH readiness ---"
   for _ in $(seq 1 "$retries"); do
-    if ./ssh.sh true >/dev/null 2>&1; then
+    if probe_ssh "$IP"; then
       ok "SSH is ready"
       return 0
     fi
     sleep "$delay_secs"
   done
-  fail "ssh.sh could not reach the VM after $((retries * delay_secs))s"
+  fail "ssh could not reach the VM after $((retries * delay_secs))s"
 }
 
 # Read the host-reachable IP from the running VM and write the Trustable support
@@ -724,7 +748,7 @@ finish() {
   echo -e "${GREEN}=== Trustable VM ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
-  echo "  ssh:          ./ssh.sh <cmd>   |   ssh $HOST_USER@$IP   |   ssh trudev"
+  echo "  ssh:          ./ssh.sh   |   ssh $HOST_USER@$IP   |   ssh trudev"
   echo "  next:         ./run.sh in the VM, started below (./start.sh -n to skip)"
   echo "  vscode:       ./start.sh -v (opens this folder over Remote-SSH instead)"
   echo "  ollama:       http://localhost:11434  (CPU, in-VM)"
