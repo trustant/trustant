@@ -136,6 +136,11 @@ SHUTTER_ID="__trustable_shutter__"
 SHOT_ENDPOINT="/__trustable_shot"
 SHOT_URL="${URL%/}$SHOT_ENDPOINT"
 
+# Set by inject_reporter: 1 once the running dev server actually serves the
+# shutter. Declared here so a caller reading it after an injection that bailed
+# out early sees "not served" rather than a stale 1 from a previous app.
+SHUTTER_SERVED=0
+
 # Files whose changes are hidden while the recorder runs. vite.config.ts carries
 # the injection; .gitignore is included because the recorder may add the preview
 # copy to it. Both are tracked, and .gitignore has no effect on a tracked file —
@@ -174,8 +179,16 @@ unhide_all() {
 
 inject_reporter() {
   local config
+  # Reset up front, so this always describes the current call. The early return
+  # below leaves it 0 rather than a stale 1 from a previous app.
+  SHUTTER_SERVED=0
   config="$(vite_config_path)" || return 1
-  grep -qF "$REPORTER_BEGIN" "$config" && return 0
+  # Already injected: nothing to write, but still confirm the server serves it,
+  # or the caller would be told "not served" without anyone having looked.
+  if grep -qF "$REPORTER_BEGIN" "$config"; then
+    wait_for_shutter && SHUTTER_SERVED=1
+    return 0
+  fi
 
   # A missing plugins array is not a reason to give up: the starter templates
   # generate configs without one (and in the function form,
@@ -526,7 +539,13 @@ PY
   # guarantees a change event Vite has not already consumed.
   sleep 1
   touch "$config"
-  wait_for_shutter
+
+  # The exit status stays "did the config get written", so a caller can tell a
+  # config it cannot inject into from one Vite has not re-read yet. Whether the
+  # page actually serves the shutter is reported by wait_for_shutter itself, and
+  # recorded here for the caller to consult.
+  SHUTTER_SERVED=0
+  wait_for_shutter && SHUTTER_SERVED=1
   return 0
 }
 
@@ -550,8 +569,11 @@ wait_for_shutter() {
     fi
     sleep 1
   done
+  # Report the failure to the caller rather than swallowing it. The injection
+  # itself succeeded, so this is not fatal — but the caller must not go on to
+  # announce a working shutter over the top of this warning.
   warn "the shutter is not in the served page yet — reload the app tab in your browser"
-  return 0
+  return 1
 }
 
 remove_reporter() {
@@ -773,13 +795,24 @@ show_current() {
   # Re-inject when the served page has no shutter. Checking the served page
   # rather than the file on disk is the honest test: a config carrying the
   # plugin proves nothing if the running server has not read it.
-  if ! curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$SHUTTER_ID"; then
+  #
+  # Always report the outcome, including the case where nothing needed doing.
+  # SPACE is the key you press *because* the ● is missing, so silence is the one
+  # useless answer: it leaves you unable to tell "the page has it, your tab is
+  # stale" from "the key did nothing".
+  if curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$SHUTTER_ID"; then
+    ok "shutter already served by $APP — reload the app tab if the ● is missing"
+  else
     # Remove first, so a block already in the file is rewritten rather than
     # skipped: inject_reporter is idempotent and returns early when it finds its
     # own markers, which is precisely the state that needs repairing here.
     remove_reporter
     if inject_reporter; then
-      ok "shutter (re)injected — reload the app tab if the ● is still missing"
+      if [[ "$SHUTTER_SERVED" == "1" ]]; then
+        ok "shutter (re)injected into $APP — reload the app tab to get the ●"
+      else
+        warn "shutter written to $APP's vite config but not served yet — is the app still running?"
+      fi
     else
       warn "could not add the shutter to $APP's vite config"
     fi
@@ -876,7 +909,13 @@ while true; do
       # Inject into the app that is now current. Failure is not fatal: without
       # a reporter the recorder simply captures "/" as it always did.
       if inject_reporter; then
-        ok "shutter active — click the ● at the top right of the app to capture"
+        if [[ "$SHUTTER_SERVED" == "1" ]]; then
+          ok "shutter active in $APP — click the ● at the top right of the app to capture"
+        else
+          # wait_for_shutter has already said what to do; do not claim success
+          # over the top of it.
+          warn "shutter injected into $APP but not served yet — press SPACE to retry"
+        fi
       else
         warn "no shutter for $APP — its vite.config has no plugins array to inject into"
       fi

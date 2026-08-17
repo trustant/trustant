@@ -347,6 +347,45 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 	}
 }
 
+// WHY: ssh.sh is the user-facing wrapper — it takes no command and always ends
+// in `exec bash`. start.sh once probed reachability with `./ssh.sh true`, whose
+// argument was ignored, so the probe opened an interactive shell and blocked the
+// rest of the run: `./start.sh -v` never reached the step that opens VS Code and
+// the user was dropped into a VM shell with no error explaining it.
+func TestStartDoesNotShellOutToSSHScript(t *testing.T) {
+	content, err := os.ReadFile("start.sh")
+	if err != nil {
+		t.Fatalf("read start.sh: %s", err)
+	}
+	// Comments explain why the call is forbidden, so only executable lines count.
+	var code []string
+	for _, line := range strings.Split(string(content), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			code = append(code, line)
+		}
+	}
+	start := strings.Join(code, "\n")
+
+	// The echoed help line naming ./ssh.sh for the user is fine; invoking it is
+	// not. Only the call forms are rejected.
+	for _, forbidden := range []string{`./ssh.sh true`, `if ./ssh.sh`, `./ssh.sh >`} {
+		if strings.Contains(start, forbidden) {
+			t.Fatalf("start.sh must not invoke ssh.sh (%q): it always execs an interactive shell and would block the start", forbidden)
+		}
+	}
+	// Reachability is proven over ssh with the support-dir identity, because that
+	// is the path VS Code Remote-SSH takes. limactl would succeed even when ssh
+	// could not connect.
+	if !strings.Contains(start, "probe_ssh") {
+		t.Fatal("start.sh must probe ssh reachability directly, via probe_ssh")
+	}
+	// BatchMode keeps a missing or unauthorized key a failure rather than a
+	// password prompt that would hang an unattended start.
+	if !strings.Contains(start, "BatchMode=yes") {
+		t.Fatal("the ssh probe must use BatchMode=yes, or a key problem hangs on a password prompt")
+	}
+}
+
 func TestStartAllocatesBuildCapableLimaDisk(t *testing.T) {
 	content, err := os.ReadFile("start.sh")
 	if err != nil {
