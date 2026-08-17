@@ -595,21 +595,20 @@ next to the mandatory `.env`, read with the same `parseEnvFile` — is folded in
 - Failure is non-fatal: a malformed optional file logs a warning and the server
   starts. Values are never logged, only names — they may be credentials.
 
-The lookup is **working-directory relative**, so the file only exists in a
-deployment if the image puts it there. The container build ships it as
-[image/env.default](../image/env.default), copied by the Dockerfile to
-`/home/trustable/.env.default` beside the `env` → `.env` copy. The build-context
-name deliberately has **no leading dot**: `.gitignore` excludes `.env*`, so a
-dot-named seed could never be committed and the `COPY` would fail the build.
+**This file is a local testing affordance and is never shipped.** The container
+image deliberately does **not** contain one, so in a deployment the import is
+always a no-op and the palette starts empty — that is the intended state, not a
+defect. The user fills the palette in on the Configure page.
 
-The seed is committed, so it carries no secrets — `AI_API_KEY` ships **empty**,
-which is exactly the "recorded, no value yet" state above. The user fills it in
-on the Configure page and the keep-existing rule protects it from then on.
+Two reasons it stays out of the image: a shipped seed would hand every
+deployment a palette nobody chose, and a committed seed file is a standing
+invitation to put a credential in it. `TestImageDoesNotShipADefaultEnvPalette`
+fails the build if a `COPY` for it or an `image/env.default` reappears.
 
-Absence being a silent no-op is what makes the missing copy easy to miss: the
-startup log reads `✓ Predefined environment variables up to date` whether the
-file was imported or was never there. `TestImageShipsTheDefaultEnvPalette`
-guards the Dockerfile copy and the seed's parseability for that reason.
+One consequence worth knowing when reading logs: because absence is a silent
+no-op, startup prints `✓ Predefined environment variables up to date` whether
+the file was imported or was never there. An empty palette in a pod is expected
+and is not evidence of a failed import.
 
 ### Neither path applies anything
 

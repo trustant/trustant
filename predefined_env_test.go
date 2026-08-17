@@ -437,38 +437,21 @@ func TestConfigurePageSavesRowsWithoutRelyingOnBlur(t *testing.T) {
 	}
 }
 
-// The palette seed only reaches the server if the image ships it: the lookup is
-// CWD-relative and silently a no-op when the file is absent, which is how a
-// missing COPY turned into a startup log line claiming success.
-func TestImageShipsTheDefaultEnvPalette(t *testing.T) {
+// .env.default is a LOCAL TESTING affordance and must never be baked into the
+// image. Shipping one would hand every deployment a palette nobody chose, and a
+// committed seed is a standing invitation to put a credential in it. An empty
+// palette in a deployed pod is the intended state, not a bug — the user fills it
+// in on the Configure page.
+func TestImageDoesNotShipADefaultEnvPalette(t *testing.T) {
 	dockerfile, err := os.ReadFile("image/Dockerfile")
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
-	if !strings.Contains(string(dockerfile), "env.default .env.default") {
-		t.Errorf("image/Dockerfile no longer copies the palette seed to %s", defaultEnvFileName)
+	if strings.Contains(string(dockerfile), defaultEnvFileName) {
+		t.Errorf("image/Dockerfile copies %s into the image; it is for local testing only",
+			defaultEnvFileName)
 	}
-
-	// Named without the leading dot in the build context on purpose: .gitignore
-	// excludes `.env*`, so a dot-named seed would never be committed and the
-	// COPY above would fail the build.
-	seed, err := os.ReadFile("image/env.default")
-	if err != nil {
-		t.Fatalf("read image/env.default: %s", err)
+	if _, err := os.Stat("image/env.default"); err == nil {
+		t.Error("image/env.default exists; a palette seed must not be committed to the build context")
 	}
-	if len(parseEnvFileBytesForTest(t, seed)) == 0 {
-		t.Error("image/env.default has no variables, so the palette import stays a no-op")
-	}
-}
-
-// parseEnvFileBytesForTest runs the shipped seed through the same parser the
-// server uses, so a seed that parses to nothing fails here rather than silently
-// importing zero variables at startup.
-func parseEnvFileBytesForTest(t *testing.T, content []byte) map[string]string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), defaultEnvFileName)
-	if err := os.WriteFile(path, content, 0644); err != nil {
-		t.Fatalf("write seed copy: %s", err)
-	}
-	return parseEnvFile(path)
 }

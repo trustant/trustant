@@ -202,11 +202,6 @@ COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]
 
 COPY --chown=trustable:trustable env .env
-# The optional palette seed, read CWD-relative by importDefaultPredefinedEnv.
-# Unrelated to .env above: this only pre-fills predefined_env on the Configure
-# page. Named without the leading dot in the build context because .gitignore
-# excludes `.env*`, which would keep it out of the image entirely.
-COPY --chown=trustable:trustable env.default .env.default
 COPY --chown=trustable:trustable trustable.json trustable.json
 
 # start.sh / supervisord must run as root: start.sh chowns $HOME and
