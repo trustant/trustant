@@ -2999,6 +2999,10 @@ func handleAppConfig(w http.ResponseWriter, r *http.Request) {
 
 	workspacePath := filepath.Join(WorkspaceDir, "workspace", name)
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		// Logged because this branch returns before anything else runs: a save
+		// that 404s here is otherwise invisible in the server log, which is what
+		// made a failed app creation look like a broken config editor.
+		log.Printf("appconfig %s: app not found at %s", name, workspacePath)
 		http.Error(w, "App not found", http.StatusNotFound)
 		return
 	}

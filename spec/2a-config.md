@@ -511,6 +511,23 @@ because that handler runs a model connectivity probe on every call and the
 Configure page navigates to the app list when it succeeds. Editing an
 environment variable must do neither.
 
+#### The table is the source of truth at save time
+
+**Save Variables** reads the name/value pairs **out of the DOM** immediately
+before building the payload, rather than trusting the in-memory row array to be
+current. The rows also bind with `oninput` so the array tracks typing.
+
+Both halves are required, and the DOM read is the one that matters. `change`
+fires on **blur**, so binding the rows with `onchange` alone loses the row the
+user just typed: clicking the button blurs the input in the same turn that the
+click handler reads the array. For a row added with **Add Variable** — pushed as
+a blank `{name:'', value:''}` — the name is still empty, the blank-name rule
+above drops it server-side, and the save reports success having stored nothing.
+
+Because a dropped row and a deliberate clear are indistinguishable in the
+response, a **count of 0 is reported as an error**, not as a success. Only a
+non-zero count renders as "Saved N variables."
+
 ### Preservation
 
 `saveWorkspaceConfig` writes the whole struct, so any field a client omits is
@@ -577,6 +594,22 @@ next to the mandatory `.env`, read with the same `parseEnvFile` — is folded in
   churn on every restart.
 - Failure is non-fatal: a malformed optional file logs a warning and the server
   starts. Values are never logged, only names — they may be credentials.
+
+The lookup is **working-directory relative**, so the file only exists in a
+deployment if the image puts it there. The container build ships it as
+[image/env.default](../image/env.default), copied by the Dockerfile to
+`/home/trustable/.env.default` beside the `env` → `.env` copy. The build-context
+name deliberately has **no leading dot**: `.gitignore` excludes `.env*`, so a
+dot-named seed could never be committed and the `COPY` would fail the build.
+
+The seed is committed, so it carries no secrets — `AI_API_KEY` ships **empty**,
+which is exactly the "recorded, no value yet" state above. The user fills it in
+on the Configure page and the keep-existing rule protects it from then on.
+
+Absence being a silent no-op is what makes the missing copy easy to miss: the
+startup log reads `✓ Predefined environment variables up to date` whether the
+file was imported or was never there. `TestImageShipsTheDefaultEnvPalette`
+guards the Dockerfile copy and the seed's parseability for that reason.
 
 ### Neither path applies anything
 

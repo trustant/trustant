@@ -398,3 +398,77 @@ func TestConfigurePageImportsEnvFilesConsistently(t *testing.T) {
 		t.Errorf("the file picker grew an accept filter, which hides validly-named env files: %s", control)
 	}
 }
+
+// Save Variables must not depend on a blur having fired. Binding the rows with
+// `onchange` alone meant clicking the button read the model in the same turn as
+// the blur it caused, so a freshly-added row was still blank and the server
+// dropped it as unnamed — a green "Saved 0 variables" that stored nothing.
+func TestConfigurePageSavesRowsWithoutRelyingOnBlur(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+	for name, needle := range map[string]string{
+		"reads the rows out of the DOM at save time": "function collectPredefinedEnvRows()",
+		"uses that read to build the payload":        "predefinedEnvVars = collectPredefinedEnvRows();",
+		"marks the name inputs":                      `data-predefined-env="name"`,
+		"marks the value inputs":                     `data-predefined-env="value"`,
+	} {
+		if !strings.Contains(code, needle) {
+			t.Errorf("the palette save no longer %s (missing %q)", name, needle)
+		}
+	}
+
+	// The row inputs must track typing, not only blur.
+	rows := code[strings.Index(code, "function renderPredefinedEnv()"):]
+	rows = rows[:strings.Index(rows, "function updatePredefinedEnv")]
+	if strings.Contains(rows, "onchange=\"updatePredefinedEnv") {
+		t.Error("the palette rows went back to onchange, which only commits on blur")
+	}
+	if strings.Count(rows, "oninput=\"updatePredefinedEnv") != 2 {
+		t.Errorf("expected both palette row inputs to bind with oninput:\n%s", rows)
+	}
+
+	// A zero-count save is exactly what the dropped-row bug looked like, so it
+	// must never be reported as success.
+	if !strings.Contains(code, "if (data.count === 0)") {
+		t.Error("a zero-count save is no longer called out separately from a real save")
+	}
+}
+
+// The palette seed only reaches the server if the image ships it: the lookup is
+// CWD-relative and silently a no-op when the file is absent, which is how a
+// missing COPY turned into a startup log line claiming success.
+func TestImageShipsTheDefaultEnvPalette(t *testing.T) {
+	dockerfile, err := os.ReadFile("image/Dockerfile")
+	if err != nil {
+		t.Fatalf("read image/Dockerfile: %s", err)
+	}
+	if !strings.Contains(string(dockerfile), "env.default .env.default") {
+		t.Errorf("image/Dockerfile no longer copies the palette seed to %s", defaultEnvFileName)
+	}
+
+	// Named without the leading dot in the build context on purpose: .gitignore
+	// excludes `.env*`, so a dot-named seed would never be committed and the
+	// COPY above would fail the build.
+	seed, err := os.ReadFile("image/env.default")
+	if err != nil {
+		t.Fatalf("read image/env.default: %s", err)
+	}
+	if len(parseEnvFileBytesForTest(t, seed)) == 0 {
+		t.Error("image/env.default has no variables, so the palette import stays a no-op")
+	}
+}
+
+// parseEnvFileBytesForTest runs the shipped seed through the same parser the
+// server uses, so a seed that parses to nothing fails here rather than silently
+// importing zero variables at startup.
+func parseEnvFileBytesForTest(t *testing.T, content []byte) map[string]string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), defaultEnvFileName)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("write seed copy: %s", err)
+	}
+	return parseEnvFile(path)
+}
