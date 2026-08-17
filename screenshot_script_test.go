@@ -29,15 +29,6 @@ func scriptCode(script string) string {
 	return strings.Join(code, "\n")
 }
 
-func readScreenshotCapture(t *testing.T) string {
-	t.Helper()
-	data, err := os.ReadFile("tests/screenshot.mjs")
-	if err != nil {
-		t.Fatalf("read tests/screenshot.mjs: %s", err)
-	}
-	return string(data)
-}
-
 // WHY: ImageMagick 6 has no APNG encoder and no apng delegate, so
 // `convert ... apng:out.png` silently shells out to ffmpeg — a 0-byte file when
 // ffmpeg is absent, and a 25fps re-encode when it is present, which throws away
@@ -58,20 +49,27 @@ func TestScreenshotScriptDoesNotUseImageMagickForAPNG(t *testing.T) {
 	}
 }
 
-// WHY: headless Chromium renders with the system's fonts, and a bare VM ships
-// none carrying emoji glyphs — every emoji captures as an empty box. Observed:
-// 117 fonts installed, zero with emoji, and 🎉 ✅ 🚀 rendered as tofu until
-// fonts-noto-color-emoji was installed.
-func TestScreenshotScriptInstallsAnEmojiFont(t *testing.T) {
-	code := scriptCode(readScreenshotScript(t))
+// WHY: the page captures itself in the user's own browser now, so the VM never
+// rasterizes app content. A browser install here would gate every screenshot
+// behind a ~150MB download for a code path that no longer exists, and the emoji
+// font existed only because headless Chromium rendered the app with the VM's
+// fonts — the user's browser brings its own.
+func TestScreenshotScriptNeedsNoBrowser(t *testing.T) {
+	script := readScreenshotScript(t)
+	code := scriptCode(script)
 
-	if !strings.Contains(code, "APT_MISSING+=(fonts-noto-color-emoji)") {
-		t.Error("screenshot.sh must install an emoji font, or captures show boxes instead of emoji")
+	if strings.Contains(code, "playwright install") {
+		t.Error("the recorder no longer drives a browser: the page captures itself")
 	}
-	// fontconfig is not in the runtime image, so an fc-list probe would fail
-	// open and silently skip the font.
-	if strings.Contains(code, "fc-list") {
-		t.Error("the font probe must not depend on fc-list: fontconfig is absent from the runtime image")
+	if strings.Contains(code, "@playwright/test") {
+		t.Error("the recorder must not depend on Playwright")
+	}
+	if strings.Contains(code, "fonts-noto-color-emoji") {
+		t.Error("the emoji font was for headless Chromium in the VM, which no longer renders anything")
+	}
+	// ffmpeg is the one binary that is still genuinely needed.
+	if !strings.Contains(code, "APT_MISSING+=(ffmpeg)") {
+		t.Error("ffmpeg is still the encoder and must still be installed")
 	}
 }
 
@@ -284,74 +282,130 @@ func TestScreenshotPreviewCopyIsGitignored(t *testing.T) {
 	}
 }
 
-// Frames must share dimensions or the animation is corrupt, so the viewport is
-// fixed and fullPage is off.
-func TestScreenshotCaptureUsesFixedViewportAndNoSandbox(t *testing.T) {
-	capture := readScreenshotCapture(t)
-	if !strings.Contains(capture, `"--no-sandbox"`) {
-		t.Error("chromium must launch with --no-sandbox in the VM")
+// WHY this is the load-bearing invariant: ffmpeg's APNG encoder requires every
+// frame in the %05d sequence to share dimensions. Playwright used to guarantee
+// that structurally, by being *told* the viewport. getDisplayMedia returns the
+// tab's real size instead — which differs per machine AND changes when the user
+// resizes the window mid-session. A stray size fails the encode several captures
+// after the resize that caused it, so it surfaces far from its cause.
+func TestScreenshotShutterNormalizesFrameSize(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	// The size is baked in from the shell, so blank_preview and real frames can
+	// never disagree.
+	if !strings.Contains(code, "$SHOT_WIDTH") || !strings.Contains(code, "$SHOT_HEIGHT") {
+		t.Error("the fixed frame size must be passed into the payload by the shell")
 	}
-	if !strings.Contains(capture, "TRUSTABLE_SCREENSHOT_WIDTH || 600") {
-		t.Error("the capture must default to a 600px wide viewport")
+	if !strings.Contains(code, "canvas.width") || !strings.Contains(code, "canvas.height") {
+		t.Error("the grabbed frame must be drawn onto a fixed-size canvas before it is posted")
 	}
-	if !strings.Contains(capture, "TRUSTABLE_SCREENSHOT_HEIGHT || 800") {
-		t.Error("the capture must default to an 800px tall viewport")
+	// Contain-fit, not cover: the tab is landscape and the canvas portrait, so a
+	// crop would discard most of the width — including the app's left nav.
+	if !strings.Contains(code, "Math.min(W / bitmap.width, H / bitmap.height)") {
+		t.Error("the frame must be contain-fit, not stretched or cropped")
 	}
-	if !strings.Contains(capture, "fullPage: false") {
-		t.Error("fullPage must stay false: a full-page shot varies with content and breaks the animation")
+	// The letterbox bars and ffmpeg's blank placeholder must be the same colour,
+	// or the animation flashes between white and black.
+	if !strings.Contains(code, `ctx.fillStyle = "#ffffff"`) {
+		t.Error("the canvas must be filled white to match blank_preview's ffmpeg placeholder")
 	}
-	if !strings.Contains(capture, "await browser.close()") {
-		t.Error("the browser must always be closed, or chromium leaks across loop iterations")
+	// getDisplayMedia already returns device pixels; scaling by DPR would give
+	// 1200x1600 frames on Retina and reintroduce the variance.
+	if strings.Contains(code, "devicePixelRatio") {
+		t.Error("getDisplayMedia already returns device pixels — scaling by DPR breaks the fixed size")
 	}
 }
 
 // WHY: apps scaffolded with @agentic-react/vite render an element-selector
-// toolbar over the page, which would otherwise appear in every frame. Both
-// mechanisms are needed — hideToolkit() is the supported API, and the
-// data-agentic-react-* rule covers a build that lacks it. The elements carry no
-// id or class, so those attributes are the only stable handle.
-func TestScreenshotCaptureHidesTheElementSelector(t *testing.T) {
-	capture := readScreenshotCapture(t)
-	if !strings.Contains(capture, "hideToolkit") {
-		t.Error("the capture must call the plugin's hideToolkit() runtime API")
+// toolbar over the page, which would otherwise appear in every frame — and so
+// would our own shutter button, which sits on the very page being captured.
+// Both hide mechanisms are needed: hideToolkit() is the supported API, and the
+// data-agentic-react-* rule covers a build that lacks it. Those elements carry
+// no id or class, so the attributes are the only stable handle.
+func TestScreenshotShutterHidesChromeIncludingItself(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "hideToolkit") {
+		t.Error("the injected script must call the plugin's hideToolkit() runtime API")
 	}
-	if !strings.Contains(capture, "data-agentic-react-toolkit") {
+	if !strings.Contains(code, "data-agentic-react-toolkit") {
 		t.Error("the CSS fallback must target the data-agentic-react-* attributes")
 	}
-	if !strings.Contains(capture, "data-agentic-react-launcher") {
+	if !strings.Contains(code, "data-agentic-react-launcher") {
 		t.Error("the launcher button is a separate element and must be hidden too")
 	}
 	// An app without the plugin must still capture rather than throw.
-	if !strings.Contains(capture, "?.hideToolkit?.()") {
+	if !strings.Contains(code, "?.hideToolkit?.()") {
 		t.Error("the call must be optional-chained: most apps have no such plugin")
+	}
+	// The button draws on the page it captures. Without this it is in every frame.
+	if !strings.Contains(code, "data-trustable-shutter") {
+		t.Error("the shutter must hide ITSELF, or it appears in every frame")
+	}
+	// A style change needs a composited frame before it reaches the video stream,
+	// and the toolkit animates out rather than snapping.
+	if !strings.Contains(code, "requestAnimationFrame") {
+		t.Error("the capture must wait for a painted frame after hiding")
+	}
+	// requestVideoFrameCallback fires only once a NEW frame is presented. Without
+	// it a buffered pre-hide frame can be grabbed, baking the toolkit into an
+	// occasional frame — an intermittent race that is very hard to diagnose.
+	if !strings.Contains(code, "requestVideoFrameCallback") {
+		t.Error("the frame must be taken after a fresh presentation, or a pre-hide frame can be captured")
+	}
+	// A capture that throws must not leave the user's toolkit hidden forever.
+	if !strings.Contains(code, "showChrome(style)") {
+		t.Error("hidden chrome must be restored in a finally, or a failed capture disfigures the app")
 	}
 }
 
-// WHY the reporter exists: the route lives in a browser cookie no server code
-// reads, and the preview iframe is cross-origin, so nothing on the Trustable
-// side can see where the user navigated. Without it every frame is the app root.
-func TestScreenshotScriptInjectsTheRouteReporter(t *testing.T) {
+// WHY the injection exists at all: the recorder cannot reproduce the user's tab
+// — its form input, open modals, scroll position, and tab-storage auth. Driving
+// a fresh browser reproduced the route but not the state, so the recording
+// showed a page the user had never seen. The page must therefore capture itself,
+// which means shipping a button and an upload endpoint into the running app.
+func TestScreenshotScriptInjectsTheShutter(t *testing.T) {
 	code := scriptCode(readScreenshotScript(t))
 
 	if !strings.Contains(code, "transformIndexHtml") {
-		t.Error("the reporter must inject via transformIndexHtml, so the app's index.html on disk is never touched")
+		t.Error("the client script must inject via transformIndexHtml, so the app's index.html on disk is never touched")
 	}
-	if !strings.Contains(code, "__trustable_location__") {
-		t.Error("the reporter must publish the location in a known meta element")
+	if !strings.Contains(code, "getDisplayMedia") {
+		t.Error("the page must capture itself, which is what reproduces the user's actual tab")
 	}
-	// A HashRouter app keeps the route in the hash, so pathname alone is wrong.
-	if !strings.Contains(code, "location.pathname + location.search + location.hash") {
-		t.Error("the reported route must include search and hash, not just pathname")
+	// WHY a dev-server middleware and not the app's MCP server: get-html-elements
+	// truncates its reply at 800 characters, so an image could never come back
+	// that way, and MCP custom tools would need a zod import in the user's config
+	// and only exist on @agentic-react apps.
+	if !strings.Contains(code, "configureServer") {
+		t.Error("the upload endpoint must be mounted with configureServer")
 	}
-	// Client-side navigation does not fire hashchange or popstate on its own.
-	for _, event := range []string{"hashchange", "popstate", "history.pushState"} {
-		if !strings.Contains(code, event) {
-			t.Errorf("the reporter must keep the route current on %s", event)
-		}
+	if !strings.Contains(code, "server.middlewares.use") {
+		t.Error("the endpoint must be a connect middleware on the dev server")
+	}
+	// WHY not `return () => {...}` from configureServer: a returned function
+	// mounts AFTER Vite's internal middlewares, and the SPA fallback would then
+	// answer the endpoint with index.html before we ever see the request.
+	if strings.Contains(code, "return () => {") {
+		t.Error("the middleware must mount before Vite's SPA fallback, not after")
+	}
+	// One definition, shared by the injected plugin and the curl retrieval.
+	if !strings.Contains(code, "SHOT_ENDPOINT=") {
+		t.Error("the endpoint path must be a single variable shared by the plugin and the retrieval")
 	}
 	// The block is delimited so removal is exact and re-injection is idempotent.
 	if !strings.Contains(code, "REPORTER_BEGIN=") || !strings.Contains(code, "REPORTER_END=") {
 		t.Error("the injected block needs begin/end markers for idempotent injection and exact removal")
+	}
+	// The route reporter is obsolete: the tab is already on the page to capture.
+	if strings.Contains(code, "__trustable_location__") {
+		t.Error("the route reporter is obsolete — the page captures itself, so there is no route to report")
+	}
+	// The factory name appears in the injection AND in remove_reporter's replace
+	// string. If they drift, removal silently no-ops and the user's vite.config
+	// keeps a call to a plugin that is no longer defined.
+	if strings.Count(code, "trustableScreenshotShutter") < 3 {
+		t.Error("the factory name must match across injection and removal, or removal silently no-ops")
 	}
 }
 
@@ -395,72 +449,77 @@ func TestScreenshotScriptCleansUpTheInjection(t *testing.T) {
 	}
 }
 
-// The capture must follow the reported route, and must still work for an app
-// with no reporter at all.
-func TestScreenshotScriptCapturesTheReportedRoute(t *testing.T) {
+// WHY: the frame now arrives from the user's own tab over HTTP, so the recorder
+// is a receiver. ENTER collects whatever is waiting and returns immediately — a
+// blocking wait would make 'q' unreachable, and an empty queue is the normal
+// state between clicks rather than an error.
+func TestScreenshotScriptCollectsPostedFrames(t *testing.T) {
 	code := scriptCode(readScreenshotScript(t))
 
-	if !strings.Contains(code, `target_url="${URL%/}$route"`) {
-		t.Error("the capture URL must be the app URL joined with the reported route")
+	if !strings.Contains(code, "fetch_frame") {
+		t.Error("frames must be retrieved from the dev-server endpoint")
 	}
-	if !strings.Contains(code, `route="${detected:-/}"`) {
-		t.Error("an unavailable route must fall back to /, not fail the capture")
+	if !strings.Contains(code, `SHOT_URL="${URL%/}$SHOT_ENDPOINT"`) {
+		t.Error("the retrieval URL must be the app URL joined with the endpoint path")
 	}
-	if !strings.Contains(code, `node "$ROOT/tests/screenshot.mjs" "$target_url"`) {
-		t.Error("the capture must use the route-aware URL")
+	// WHY the magic-number check: a dev server whose plugin is not mounted
+	// answers the endpoint with index.html and a 200. Without this, that HTML
+	// lands in screenshot/<stamp>.png and ffmpeg fails on a later regenerate,
+	// far from the cause.
+	if !strings.Contains(code, "89504e470d0a1a0a") {
+		t.Error("a retrieved frame must be verified as a PNG, or the SPA fallback's HTML is saved as a frame")
 	}
-
-	// The URL is announced BEFORE the shutter, and the fallback is called out.
-	// Printing only on success, or staying silent when the route is "/", makes a
-	// wrong capture impossible to diagnose: you cannot tell "never detected" from
-	// "detected and wrong".
-	if !strings.Contains(code, `ok "capturing $target_url"`) {
-		t.Error("the URL being captured must be printed before the capture")
+	// Playwright no longer captures: a fresh browser cannot reproduce the user's
+	// tab, which is the whole reason for this design.
+	if strings.Contains(code, "tests/screenshot.mjs") {
+		t.Fatal("the capture must come from the user's own tab, not a fresh Playwright browser")
 	}
-	if !strings.Contains(code, "no route reported") {
-		t.Error("falling back to / must say so, not silently capture the app root")
-	}
-}
-
-// The route is read over MCP because MCP reflects the tab the user has open;
-// loading the page ourselves would only report the URL we just requested.
-func TestScreenshotRouteReaderUsesMCP(t *testing.T) {
-	data, err := os.ReadFile("tests/screenshot-route.mjs")
-	if err != nil {
-		t.Fatalf("read tests/screenshot-route.mjs: %s", err)
-	}
-	reader := string(data)
-
-	if !strings.Contains(reader, "get-html-elements") {
-		t.Error("the route must be read with the get-html-elements MCP tool")
-	}
-	if !strings.Contains(reader, "mcp-session-id") {
-		t.Error("the MCP transport requires a session id from initialize")
-	}
-	if !strings.Contains(reader, "domPreview") {
-		t.Error("the meta element's markup comes back as domPreview")
-	}
-	// This runs between a keypress and the shutter: a hung server must not stall
-	// the recorder.
-	if !strings.Contains(reader, "setTimeout") {
-		t.Error("the MCP calls need a timeout so a hung server cannot stall a capture")
-	}
-	if !strings.Contains(reader, `route.startsWith("/")`) {
-		t.Error("only absolute in-app routes may be captured")
+	// An empty queue must say so and return, not stall the loop.
+	if !strings.Contains(code, "no frame waiting") {
+		t.Error("an empty queue must be reported, not treated as a failure")
 	}
 }
 
-// setup.sh is guarded by setup_test.go against playwright/chromium; the install
-// belongs here instead. This asserts the install actually lives in this script.
-func TestScreenshotScriptOwnsItsBrowserInstall(t *testing.T) {
-	script := readScreenshotScript(t)
-	if !strings.Contains(script, "npx playwright install chromium") {
-		t.Error("screenshot.sh must install chromium on demand")
+// WHY IndexedDB rather than a plain variable: a frame captured moments before
+// Vite hot-reloads, or before the dev server restarts, would simply vanish.
+// IndexedDB survives both, holds Blobs without a base64 round-trip, and queues
+// several clicks so a burst becomes several frames rather than one.
+func TestScreenshotShutterQueuesFramesDurably(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "indexedDB.open") {
+		t.Error("captured frames must be queued in IndexedDB, or a reload loses them")
 	}
-	if !strings.Contains(script, "TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL") {
-		t.Error("the browser install needs a skip flag, like the e2e harness has")
+	// Stored first, uploaded second: a POST that fails must leave the frame
+	// recoverable rather than dropping it.
+	if !strings.Contains(code, "drain()") {
+		t.Error("queued frames must be re-uploaded, not dropped when the first POST fails")
 	}
-	if strings.Contains(script, "playwright install-deps") {
-		t.Fatal("install-deps is a large unattended sudo install and must stay manual")
+	// getDisplayMedia needs transient user activation, and an await consumes it.
+	// The database is therefore opened at load — moving that open into the click
+	// handler makes captures fail with NotAllowedError on some machines only.
+	if !strings.Contains(code, "var dbp = new Promise") {
+		t.Error("the IndexedDB connection must be opened at load, not inside the click handler")
+	}
+}
+
+// WHY the GET is destructive: the recorder saves whatever it retrieves, so a
+// frame left in the server's queue would be saved again on the next collect,
+// producing a recording of duplicates.
+func TestScreenshotEndpointHandsEachFrameOutOnce(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	if !strings.Contains(code, "frames.shift()") {
+		t.Error("GET must remove the frame it returns, or the next collect saves it again")
+	}
+	// A user clicking while the recorder is not polling must not grow the dev
+	// server's heap without bound. The shell drain loop is capped to match.
+	if !strings.Contains(code, "MAX_FRAMES") {
+		t.Error("the in-memory queue must be bounded")
+	}
+	// The only privacy control in the design: a full-screen share would post
+	// whatever else is on the user's screen into a git-staged file.
+	if !strings.Contains(code, `displaySurface !== "browser"`) {
+		t.Error("a non-tab share must be refused, or the capture can leak the user's screen")
 	}
 }

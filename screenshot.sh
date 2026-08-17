@@ -2,10 +2,11 @@
 #
 # screenshot.sh — record the launched app INSIDE the trudev VM (spec/16-screenshot.md).
 #
-# An interactive loop: ENTER captures a frame, SPACE refreshes the preview,
-# DEL/BACKSPACE drops the last frame, q quits. Every change rebuilds the app's
-# screenshot.png (an animated PNG, one second per frame) from the frames on disk
-# and copies it next to this script so it can be previewed in the editor.
+# The app captures itself: a shutter button injected into the running app takes
+# the frame, and this loop collects it. ENTER collects, SPACE refreshes the
+# preview, DEL/BACKSPACE drops the last frame, q quits. Every change rebuilds the
+# app's screenshot.png (an animated PNG, one second per frame) from the frames on
+# disk and copies it next to this script so it can be previewed in the editor.
 #
 # Frames live in $WORKBENCH_DIR/<current>/screenshot/<timestamp>.png. The current
 # app is re-read every iteration, so launching a different app mid-session moves
@@ -51,47 +52,31 @@ WORKBENCH_DIR="$(eval echo "$WORKBENCH_DIR")"
 
 URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
 
-# Kept in step with the defaults in tests/screenshot.mjs, so a blank placeholder
-# has the same dimensions as a real frame.
+# The output canvas, baked into the injected plugin so the page and this script
+# can never disagree — a blank placeholder must match a real frame exactly, or
+# ffmpeg refuses to encode the sequence.
 SHOT_WIDTH="${TRUSTABLE_SCREENSHOT_WIDTH:-600}"
 SHOT_HEIGHT="${TRUSTABLE_SCREENSHOT_HEIGHT:-800}"
 
 # --- 3. Install what is missing ---
 #
-# ffmpeg is the APNG encoder. It is installed directly rather than reached
-# through ImageMagick: IM 6.9 has no APNG encoder of its own and delegates
-# `apng:` to ffmpeg, writing a 0-byte file when ffmpeg is absent and re-timing
-# every frame at 25fps when it is present, which destroys the one-second delay.
+# ffmpeg is the only binary this needs. It is the APNG encoder, and it is
+# installed directly rather than reached through ImageMagick: IM 6.9 has no APNG
+# encoder of its own and delegates `apng:` to ffmpeg, writing a 0-byte file when
+# ffmpeg is absent and re-timing every frame at 25fps when it is present, which
+# destroys the one-second delay.
+#
+# There is deliberately no browser and no font here. Both were needed while the
+# VM rasterized the app with headless Chromium; the page now captures itself in
+# the user's own browser, so the VM never renders app content and a ~150MB
+# Chromium download would gate every screenshot on a code path that is gone.
 APT_MISSING=()
 command -v ffmpeg &>/dev/null || APT_MISSING+=(ffmpeg)
 
-# Headless Chromium renders whatever fonts the system has, and a bare VM has no
-# emoji font at all — every emoji comes out as an empty box. Verified: with 117
-# fonts installed but none carrying emoji glyphs, 🎉 ✅ 🚀 rendered as tofu.
-# fonts-noto-color-emoji (~10MB) is what makes them appear in captures.
-#
-# The package directory is checked directly rather than through fc-list, because
-# fontconfig is not in the runtime image — a missing fc-list would make the probe
-# silently succeed and skip the font.
-if ! find /usr/share/fonts -iname '*emoji*' -print -quit 2>/dev/null | grep -q .; then
-  APT_MISSING+=(fonts-noto-color-emoji)
-fi
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
   sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
-fi
-
-command -v npm &>/dev/null || fail "npm not found — run ./setup.sh first"
-if [[ ! -d "$ROOT/node_modules/@playwright/test" ]]; then
-  warn "installing @playwright/test..."
-  ( cd "$ROOT" && npm install --no-audit --no-fund ) || fail "npm install failed"
-fi
-if [[ "${TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL:-}" != "1" ]]; then
-  # Idempotent: no-ops when the pinned Chromium revision is already cached.
-  # install-deps is deliberately NOT run here — it is a large unattended sudo
-  # install. spec/16-screenshot.md documents it as the manual fallback.
-  ( cd "$ROOT" && npx playwright install chromium ) || fail "playwright install chromium failed"
 fi
 
 # --- 4. Resolve the current app ---
@@ -123,23 +108,33 @@ frame_count() {
   find "$SHOT_DIR" -maxdepth 1 -name '*.png' -type f | wc -l | tr -d ' '
 }
 
-# --- 4b. Report the route the user is actually on ---
+# --- 4b. The shutter the user clicks ---
 #
-# Without this the recorder always captures "/". The route lives in a browser
-# cookie no server code reads, and the preview iframe is cross-origin, so
-# nothing on the Trustable side can see where the user navigated.
+# The recorder cannot reproduce the user's tab. Driving a fresh headless browser
+# at the app reproduces the *route* but not the *state*: form input, open modals,
+# scroll position, and anything the app keeps in tab storage (auth included) are
+# all absent. The recording showed a page the user had never seen.
 #
-# The fix is a Vite plugin injected into the app's own vite.config.ts. It uses
-# transformIndexHtml, so the script is added when the page is *served* — the
-# app's index.html on disk is never touched, which matters because the starter
-# template regenerates that file.
+# So the page captures itself. A Vite plugin injected into the app's own
+# vite.config.ts renders a button, and the click captures the live tab with
+# getDisplayMedia. The plugin uses transformIndexHtml, so the script is added
+# when the page is *served* — the app's index.html on disk is never touched,
+# which matters because the starter template regenerates that file.
 #
-# The injected script keeps a meta tag in sync with location, and the recorder
-# reads that tag back over the app's MCP server. HashRouter apps keep the route
-# in the hash, so pathname alone would not be enough.
-REPORTER_BEGIN="// >>> trustable-screenshot reporter — injected by screenshot.sh, removed on quit"
-REPORTER_END="// <<< trustable-screenshot reporter"
-LOCATION_ID="__trustable_location__"
+# The same plugin mounts an upload endpoint on the dev server; the page POSTs the
+# PNG there and this script collects it with plain curl. A dev-server middleware
+# rather than the app's MCP server because MCP's get-html-elements truncates its
+# reply at 800 characters — an image could never come back that way — and because
+# a middleware works for any Vite app, not just @agentic-react ones.
+#
+# The REPORTER_* names are historical: this began as a route reporter. The
+# injection *mechanism* is unchanged, so the names stayed to keep that contract
+# (and its guards) stable.
+REPORTER_BEGIN="// >>> trustable-screenshot shutter — injected by screenshot.sh, removed on quit"
+REPORTER_END="// <<< trustable-screenshot shutter"
+SHUTTER_ID="__trustable_shutter__"
+SHOT_ENDPOINT="/__trustable_shot"
+SHOT_URL="${URL%/}$SHOT_ENDPOINT"
 
 # Files whose changes are hidden while the recorder runs. vite.config.ts carries
 # the injection; .gitignore is included because the recorder may add the preview
@@ -187,41 +182,282 @@ inject_reporter() {
   grep -qE 'plugins:[[:space:]]*\[' "$config" || return 1
 
   unhide_all
-  python3 - "$config" "$REPORTER_BEGIN" "$REPORTER_END" "$LOCATION_ID" <<'PY' || return 1
+  python3 - "$config" "$REPORTER_BEGIN" "$REPORTER_END" "$SHUTTER_ID" \
+           "$SHOT_ENDPOINT" "$SHOT_WIDTH" "$SHOT_HEIGHT" <<'PY' || return 1
 import re, sys
 path, begin, end, marker = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+endpoint, width, height = sys.argv[5], sys.argv[6], sys.argv[7]
 source = open(path).read()
 
+# The client script is assembled with single quotes and concatenation, never
+# backticks: it lives inside a JS template literal inside this f-string, and a
+# stray backtick would end the literal early.
+#
+# No line inside this payload may start with '#'. screenshot_script_test.go
+# strips comment lines before asserting, and would strip such a line too.
 plugin = f"""{begin}
-const trustableScreenshotReporter = () => ({{
-  name: 'trustable-screenshot-reporter',
-  apply: 'serve',
-  transformIndexHtml() {{
-    return [{{
-      tag: 'script',
-      injectTo: 'head-prepend',
-      attrs: {{ type: 'text/javascript' }},
-      children: `(function () {{
-        function report() {{
-          var el = document.getElementById('{marker}');
-          if (!el) {{
-            el = document.createElement('meta');
-            el.id = '{marker}';
-            document.head.appendChild(el);
-          }}
-          el.setAttribute('content', location.pathname + location.search + location.hash);
+const trustableScreenshotShutter = () => {{
+  // Newest last, in memory only: the recorder drains this over HTTP, and a dev
+  // server restart is a new recording session anyway. Bounded, so a user who
+  // clicks ten times while the recorder is not polling cannot grow the heap.
+  const frames = [];
+  const MAX_FRAMES = 16;
+
+  return {{
+    name: 'trustable-screenshot-shutter',
+    apply: 'serve',
+
+    // Mounted synchronously, NOT by returning a function. A returned function
+    // installs the middleware *after* Vite's own, and the SPA fallback would
+    // then answer this path with index.html before we ever see the request.
+    configureServer(server) {{
+      server.middlewares.use('{endpoint}', (req, res) => {{
+        if (req.method === 'POST') {{
+          const chunks = [];
+          let size = 0;
+          req.on('data', (c) => {{
+            size += c.length;
+            if (size > 32 * 1024 * 1024) {{ req.destroy(); return; }}
+            chunks.push(c);
+          }});
+          req.on('end', () => {{
+            if (!chunks.length) {{ res.statusCode = 400; res.end('empty'); return; }}
+            frames.push(Buffer.concat(chunks));
+            while (frames.length > MAX_FRAMES) frames.shift();
+            res.statusCode = 204;
+            res.end();
+          }});
+          return;
         }}
-        report();
-        addEventListener('hashchange', report);
-        addEventListener('popstate', report);
-        var push = history.pushState;
-        history.pushState = function () {{ push.apply(this, arguments); report(); }};
-        var replace = history.replaceState;
-        history.replaceState = function () {{ replace.apply(this, arguments); report(); }};
-      }})();`,
-    }}];
-  }},
-}});
+        if (req.method === 'GET') {{
+          // Destructive read: the recorder saves whatever it retrieves, so a
+          // frame left in the queue would be saved again on the next collect —
+          // a recording of duplicates.
+          const frame = frames.shift();
+          if (!frame) {{ res.statusCode = 204; res.end(); return; }}
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('Content-Length', String(frame.length));
+          res.end(frame);
+          return;
+        }}
+        res.statusCode = 405;
+        res.end();
+      }});
+    }},
+
+    transformIndexHtml() {{
+      return [{{
+        tag: 'script',
+        injectTo: 'head-prepend',
+        attrs: {{ type: 'text/javascript' }},
+        children: [
+          '(function () {{',
+          // A full page reload re-runs this script; the button must not stack.
+          '  if (window.__trustableShutter) return;',
+          '  window.__trustableShutter = true;',
+          '  var W = {width}, H = {height};',
+          '  var ENDPOINT = "{endpoint}";',
+
+          // --- IndexedDB queue ---
+          //
+          // Frames outlive HMR, a reload, and a dev server that is not up yet.
+          // Blobs are stored natively, so there is no base64 round-trip. The
+          // connection is opened HERE, at load — never inside the click
+          // handler, where an await before getDisplayMedia would consume the
+          // transient user activation the call requires.
+          '  var dbp = new Promise(function (resolve, reject) {{',
+          '    var rq = indexedDB.open("trustable-shots", 1);',
+          '    rq.onupgradeneeded = function () {{',
+          '      rq.result.createObjectStore("frames", {{ keyPath: "id", autoIncrement: true }});',
+          '    }};',
+          '    rq.onsuccess = function () {{ resolve(rq.result); }};',
+          '    rq.onerror = function () {{ reject(rq.error); }};',
+          '  }});',
+          '  function tx(mode, fn) {{',
+          '    return dbp.then(function (db) {{',
+          '      return new Promise(function (resolve, reject) {{',
+          '        var t = db.transaction("frames", mode);',
+          '        var out = fn(t.objectStore("frames"));',
+          '        t.oncomplete = function () {{ resolve(out && out.result); }};',
+          '        t.onerror = function () {{ reject(t.error); }};',
+          '      }});',
+          '    }});',
+          '  }}',
+          '  function dbPut(blob) {{ return tx("readwrite", function (s) {{ return s.add({{ blob: blob, at: Date.now() }}); }}); }}',
+          '  function dbAll() {{ return tx("readonly", function (s) {{ return s.getAll(); }}); }}',
+          '  function dbDelete(id) {{ return tx("readwrite", function (s) {{ return s.delete(id); }}); }}',
+
+          // Relative path, never absolute: same-origin keeps the POST free of a
+          // CORS preflight (image/png is not a simple content type) and keeps
+          // working through the vite.<domain> ingress.
+          '  async function drain() {{',
+          '    var pending = await dbAll();',
+          '    for (var i = 0; i < pending.length; i++) {{',
+          '      try {{',
+          '        var res = await fetch(ENDPOINT, {{ method: "POST", headers: {{ "Content-Type": "image/png" }}, body: pending[i].blob }});',
+          '        if (!res.ok) break;',
+          '        await dbDelete(pending[i].id);',
+          '      }} catch (e) {{ break; }}',
+          '    }}',
+          '  }}',
+
+          // --- The button ---
+          //
+          // Top-right, because the @agentic-react launcher sits bottom-right at
+          // z-index 2147483000 as a plain body child with no shadow DOM. One
+          // above it, not INT_MAX: squatting on the ceiling would make this
+          // un-overridable inside someone else's app.
+          //
+          // Styles are inline, not a stylesheet: an injected <style> loses to
+          // the app's own reset, and a Tailwind-preflight rule resetting every
+          // button property would erase this button entirely.
+          '  var btn = document.createElement("button");',
+          '  btn.id = "{marker}";',
+          '  btn.setAttribute("data-trustable-shutter", "");',
+          '  btn.type = "button";',
+          '  btn.title = "Capture a screenshot frame";',
+          // A geometric glyph, not an emoji: this renders in the USER's browser,
+          // whose font coverage is unknown. The VM's emoji font is irrelevant here.
+          '  btn.textContent = "\\u25CF";',
+          '  btn.style.cssText = "position:fixed;top:12px;right:12px;width:36px;height:36px;"',
+          '    + "border-radius:50%;border:1px solid rgba(0,0,0,.2);background:#ffffff;color:#dd3333;"',
+          '    + "font:16px/1 system-ui,sans-serif;cursor:pointer;padding:0;z-index:2147483001;"',
+          '    + "box-shadow:0 1px 4px rgba(0,0,0,.3)";',
+          '  function mount() {{ if (document.body) document.body.appendChild(btn); }}',
+          '  if (document.body) mount(); else addEventListener("DOMContentLoaded", mount);',
+
+          '  function flash(text, good) {{',
+          '    btn.title = text;',
+          '    btn.style.color = good ? "#22aa22" : "#dd3333";',
+          '    setTimeout(function () {{ btn.style.color = "#dd3333"; btn.title = "Capture a screenshot frame"; }}, 1200);',
+          '  }}',
+
+          // --- Hiding the chrome, this button included ---
+          //
+          // The button sits on the page it is capturing, so without hiding
+          // itself it lands in every frame. visibility:hidden rather than
+          // display:none keeps geometry stable, so nothing reflows mid-capture.
+          '  function hideChrome() {{',
+          '    var style = document.createElement("style");',
+          '    style.textContent = "[data-agentic-react-dim],[data-agentic-react-toolkit],"',
+          '      + "[data-agentic-react-launcher],[data-agentic-react-hover],"',
+          '      + "[data-agentic-react-hover-label],[data-agentic-react-selected],"',
+          '      + "[data-agentic-react-selected-label],[data-agentic-react-selected-actions],"',
+          '      + "[data-agentic-react-clear-all],[data-agentic-react-tuning-modal],"',
+          '      + "[data-agentic-react-tuning-surface],[data-agentic-react-tuning-panel],"',
+          '      + "[data-trustable-shutter]{{visibility:hidden !important;}}";',
+          '    document.head.appendChild(style);',
+          '    try {{',
+          '      globalThis.__AGENTIC_REACT__?.hideToolkit?.();',
+          '      globalThis.__AGENTIC_REACT__?.exitSelectionMode?.();',
+          '    }} catch (e) {{ /* app without the plugin: nothing to hide */ }}',
+          '    return style;',
+          '  }}',
+          // Restoring is mandatory, unlike the Playwright version which threw the
+          // whole browser away. A capture that throws must not leave the user's
+          // toolkit invisible.
+          '  function showChrome(style) {{',
+          '    if (style && style.parentNode) style.parentNode.removeChild(style);',
+          '    try {{ globalThis.__AGENTIC_REACT__?.showToolkit?.(); }} catch (e) {{}}',
+          '  }}',
+
+          // requestVideoFrameCallback fires only once a NEW frame has been
+          // presented — the only reliable signal that the post-hide paint
+          // reached the stream. Without it a buffered pre-hide frame can be
+          // grabbed, baking the toolkit into an occasional frame.
+          '  async function grabFrame(stream) {{',
+          '    var video = document.createElement("video");',
+          '    video.srcObject = stream;',
+          '    video.muted = true;',
+          '    video.playsInline = true;',
+          '    await video.play();',
+          '    if (video.requestVideoFrameCallback) {{',
+          '      await new Promise(function (r) {{ video.requestVideoFrameCallback(function () {{ r(); }}); }});',
+          '    }} else {{',
+          '      await new Promise(function (r) {{ setTimeout(r, 100); }});',
+          '    }}',
+          '    var bmp = await createImageBitmap(video);',
+          '    video.srcObject = null;',
+          '    return bmp;',
+          '  }}',
+
+          // --- Fixed output size: the load-bearing invariant ---
+          //
+          // ffmpeg's APNG encoder needs every frame in the sequence to share
+          // dimensions. getDisplayMedia returns the tab's real size, which
+          // differs per machine AND changes when the window is resized
+          // mid-session, so the frame is contain-fit onto a fixed canvas here,
+          // at the point of creation.
+          //
+          // Contain-fit, not crop: the tab is landscape and the canvas portrait,
+          // so a cover-fit crop would discard most of the width. White fill, to
+          // match the ffmpeg blank placeholder so the animation does not flash.
+          //
+          // The pixel ratio is deliberately not applied: getDisplayMedia already
+          // returns device pixels, so scaling by DPR again would give 1200x1600
+          // frames on Retina and reintroduce the variance.
+          '  function normalize(bitmap) {{',
+          '    var canvas = document.createElement("canvas");',
+          '    canvas.width = W;',
+          '    canvas.height = H;',
+          '    var ctx = canvas.getContext("2d");',
+          '    ctx.fillStyle = "#ffffff";',
+          '    ctx.fillRect(0, 0, W, H);',
+          '    var scale = Math.min(W / bitmap.width, H / bitmap.height);',
+          '    var w = Math.round(bitmap.width * scale);',
+          '    var h = Math.round(bitmap.height * scale);',
+          '    ctx.imageSmoothingEnabled = true;',
+          '    ctx.imageSmoothingQuality = "high";',
+          '    ctx.drawImage(bitmap, Math.round((W - w) / 2), Math.round((H - h) / 2), w, h);',
+          '    return new Promise(function (resolve, reject) {{',
+          '      canvas.toBlob(function (b) {{ b ? resolve(b) : reject(new Error("toBlob")); }}, "image/png");',
+          '    }});',
+          '  }}',
+
+          '  async function capture() {{',
+          '    btn.disabled = true;',
+          '    var stream = null, style = null;',
+          '    try {{',
+          // getDisplayMedia MUST be the first statement: transient user
+          // activation is consumed across awaits, and any await moved ahead of
+          // it makes this fail with NotAllowedError on some machines only.
+          '      stream = await navigator.mediaDevices.getDisplayMedia({{',
+          '        video: {{ frameRate: 30 }}, audio: false, preferCurrentTab: true,',
+          '        selfBrowserSurface: "include", surfaceSwitching: "exclude", systemAudio: "exclude",',
+          '      }});',
+          // The only privacy control here: a full-screen share would post
+          // whatever else is on the user's screen into a git-staged file.
+          '      if (stream.getVideoTracks()[0].getSettings().displaySurface !== "browser") {{',
+          '        throw new Error("share this tab, not the screen");',
+          '      }}',
+          // Hide only AFTER the grant. Hiding first would leave the app
+          // disfigured and the button invisible when the prompt is denied.
+          '      style = hideChrome();',
+          '      await new Promise(function (r) {{ requestAnimationFrame(function () {{ requestAnimationFrame(r); }}); }});',
+          '      await new Promise(function (r) {{ setTimeout(r, 350); }});',
+          '      var bitmap = await grabFrame(stream);',
+          '      var blob = await normalize(bitmap);',
+          '      if (bitmap.close) bitmap.close();',
+          '      await dbPut(blob);',
+          '      await drain();',
+          '      flash("captured", true);',
+          '    }} catch (e) {{',
+          '      flash(e && e.name === "NotAllowedError" ? "cancelled" : ("capture failed: " + (e && e.message)), false);',
+          '    }} finally {{',
+          '      if (stream) stream.getTracks().forEach(function (t) {{ t.stop(); }});',
+          '      showChrome(style);',
+          '      btn.disabled = false;',
+          '    }}',
+          '  }}',
+          '  btn.addEventListener("click", capture);',
+          // Recover anything a reload stranded before it was uploaded.
+          '  drain();',
+          '}})();',
+        ].join('\\n'),
+      }}];
+    }},
+  }};
+}};
 {end}
 """
 
@@ -231,7 +467,7 @@ at = imports[-1].end() if imports else 0
 source = source[:at] + "\n" + plugin + source[at:]
 
 # First plugins array only: nested ones belong to other tools.
-source = re.sub(r'plugins:\s*\[', 'plugins: [trustableScreenshotReporter(), ', source, count=1)
+source = re.sub(r'plugins:\s*\[', 'plugins: [trustableScreenshotShutter(), ', source, count=1)
 
 open(path, 'w').write(source)
 PY
@@ -247,22 +483,31 @@ PY
   # guarantees a change event Vite has not already consumed.
   sleep 1
   touch "$config"
-  wait_for_reporter
+  wait_for_shutter
   return 0
 }
 
-# Give Vite time to re-read the config and serve the injected script. Polling
-# the served HTML is the honest check: the config being right proves nothing if
-# the running server has not picked it up.
-wait_for_reporter() {
+# Give Vite time to re-read the config and serve the injected plugin. Polling is
+# the honest check: the config being right proves nothing if the running server
+# has not picked it up.
+#
+# Both halves are probed because transformIndexHtml and configureServer apply at
+# different points in Vite's lifecycle — the HTML can carry the script while the
+# middleware is not yet mounted, and a probe of only one would let the loop start
+# against a dead endpoint.
+wait_for_shutter() {
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$LOCATION_ID"; then
-      return 0
+    if curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$SHUTTER_ID"; then
+      # 204 is the empty queue, i.e. our middleware answered. Vite's SPA
+      # fallback would answer 200 with index.html instead.
+      if [[ "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 "$SHOT_URL" 2>/dev/null)" == "204" ]]; then
+        return 0
+      fi
     fi
     sleep 1
   done
-  warn "the route reporter is not in the served page yet — captures may use /"
+  warn "the shutter is not in the served page yet — reload the app tab in your browser"
   return 0
 }
 
@@ -277,7 +522,7 @@ source = open(path).read()
 # Consume the blank line the injection added ahead of the block, so removal is
 # byte-exact and the file stops showing as modified.
 source = re.sub(r'\n?' + re.escape(begin) + r'.*?' + re.escape(end) + r'\n?', '', source, flags=re.S)
-source = source.replace('plugins: [trustableScreenshotReporter(), ', 'plugins: [')
+source = source.replace('plugins: [trustableScreenshotShutter(), ', 'plugins: [')
 source = re.sub(r'\n{3,}', '\n\n', source)
 open(path, 'w').write(source)
 PY
@@ -285,16 +530,21 @@ PY
   unhide_all
 }
 
-# Ask the app's MCP server for the meta tag the reporter maintains. Returns the
-# route on stdout, or nothing when it cannot be determined — the caller then
-# falls back to "/", so an app without the reporter still records.
+# Take one frame off the dev server's queue and write it to $1. Returns 1 when
+# the queue is empty — the normal state between clicks, not an error.
 #
-# MCP reflects a live browser tab: with no tab open on the app there is no route
-# to read. That is a normal state, not an error.
-read_current_route() {
-  [[ -n "${TRUSTABLE_SCREENSHOT_ROUTE:-}" ]] && { echo "$TRUSTABLE_SCREENSHOT_ROUTE"; return 0; }
-  command -v node &>/dev/null || return 0
-  node "$ROOT/tests/screenshot-route.mjs" "$URL" "$LOCATION_ID" 2>/dev/null || true
+# The GET is destructive server-side, so a frame is handed out exactly once and
+# repeated calls drain the queue in click order.
+fetch_frame() {
+  local out="$1" code
+  code="$(curl -sS -o "$out" -w '%{http_code}' --max-time 5 "$SHOT_URL" 2>/dev/null)" || return 1
+  [[ "$code" == "200" ]] || return 1
+  [[ -s "$out" ]] || return 1
+  # A dev server whose plugin is not mounted answers this path with index.html
+  # and a 200. Without this check that HTML would be saved as a .png and ffmpeg
+  # would fail on a later regenerate, far from the cause.
+  [[ "$(head -c 8 "$out" | od -An -tx1 | tr -d ' \n')" == "89504e470d0a1a0a" ]] || return 1
+  return 0
 }
 
 # --- 5. Rebuild the animation from the frames on disk ---
@@ -415,47 +665,44 @@ stage_change() {
 }
 
 # --- 8. Actions ---
+# Collect every frame the page has posted since the last collect. The click is
+# the shutter; this is only the pickup, so it never blocks — an empty queue is
+# the normal answer between clicks, and blocking would make 'q' unreachable.
 capture() {
   # Errors are silenced because the warning below says the same thing more
   # clearly; a raw "curl: (7) Failed to connect" line only adds noise.
   curl -fsS -o /dev/null --max-time 5 "$URL" 2>/dev/null \
     || { warn "the app is not answering at $URL — launch '$APP' first"; return 0; }
 
-  # Capture the page the user is on, not the app root. An empty route is the
-  # normal answer when no browser tab is open on the app, or the app has no
-  # reporter — "/" is then correct rather than a failure.
-  local route target_url detected
-  detected="$(read_current_route)"
-  route="${detected:-/}"
-  target_url="${URL%/}$route"
+  mkdir -p "$SHOT_DIR"
+  local staged="$SHOT_DIR/.staging-$$.png"
+  local saved=0 stamp target suffix
 
-  # Announce the URL before the shutter, not after. When the captured page is
-  # not the one expected, this line is what tells you whether the route was
-  # never detected (falling back to /) or detected and wrong.
-  if [[ -n "$detected" ]]; then
-    ok "capturing $target_url"
-  else
-    ok "capturing $target_url  (no route reported — using /)"
+  # Frames are staged to a dotfile and renamed into place. The rename is atomic
+  # and the frame list ignores dotfiles, so a frame becomes visible to the
+  # encoder only once it is complete.
+  #
+  # Bounded by the server's own MAX_FRAMES, so a misbehaving endpoint cannot
+  # spin this loop forever.
+  while [[ $saved -lt 16 ]] && fetch_frame "$staged"; do
+    stamp="$(date -u +%Y%m%d-%H%M%S)"
+    target="$SHOT_DIR/$stamp.png"
+    suffix=1
+    while [[ -e "$target" ]]; do
+      target="$SHOT_DIR/$stamp-$suffix.png"
+      suffix=$((suffix + 1))
+    done
+    mv -f "$staged" "$target"
+    saved=$((saved + 1))
+  done
+  rm -f "$staged"
+
+  if [[ $saved -eq 0 ]]; then
+    warn "no frame waiting — click the ● button at the top right of the app"
+    return 0
   fi
 
-  mkdir -p "$SHOT_DIR"
-  local stamp target suffix
-  stamp="$(date -u +%Y%m%d-%H%M%S)"
-  target="$SHOT_DIR/$stamp.png"
-  suffix=1
-  while [[ -e "$target" ]]; do
-    target="$SHOT_DIR/$stamp-$suffix.png"
-    suffix=$((suffix + 1))
-  done
-
-  # Capture to a dotfile and rename into place. The rename is atomic and the
-  # frame list ignores dotfiles, so a frame becomes visible to the encoder only
-  # once it is complete.
-  local staged="$SHOT_DIR/.staging-$$.png"
-  node "$ROOT/tests/screenshot.mjs" "$target_url" "$staged" \
-    || { warn "capture failed"; rm -f "$staged"; return 0; }
-  mv -f "$staged" "$target"
-
+  ok "collected $saved frame(s)"
   local count
   count="$(regenerate | tail -1)"
   stage_change
@@ -504,8 +751,11 @@ remove_last() {
 # --- 9. The loop ---
 show_help() {
   echo
-  echo "  ENTER  capture a frame of the running app"
-  echo "  SPACE  refresh the preview from the current app (nothing is captured)"
+  echo "  Click the ● button at the TOP RIGHT of the app to capture a frame."
+  echo "  Your browser asks which surface to share — pick this tab."
+  echo
+  echo "  ENTER  collect the frames you have captured"
+  echo "  SPACE  refresh the preview from the current app (nothing is collected)"
   echo "  DEL    remove the most recent frame"
   echo "  q      quit"
   echo
@@ -519,6 +769,7 @@ show_help() {
 
 echo
 echo "Recording the launched app from $URL"
+echo "Click the ● at the top right of the app to capture, then press ENTER here."
 show_help
 
 # The injected reporter and the skip-worktree flags are working state, not
@@ -551,9 +802,9 @@ while true; do
       # Inject into the app that is now current. Failure is not fatal: without
       # a reporter the recorder simply captures "/" as it always did.
       if inject_reporter; then
-        ok "route reporter active — captures follow the page you are on"
+        ok "shutter active — click the ● at the top right of the app to capture"
       else
-        warn "no route reporter for $APP — captures will use /"
+        warn "no shutter for $APP — its vite.config has no plugins array to inject into"
       fi
 
       # Publish this app's recording immediately — blank when it has none — so
@@ -561,7 +812,7 @@ while true; do
       # current, rather than lingering from the previous one.
       preview "$(frame_count)"
     fi
-    printf 'ENTER capture · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
+    printf 'ENTER collect · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
   else
     printf 'no app launched — launch one from the Trustable UI  [q quits] '
   fi

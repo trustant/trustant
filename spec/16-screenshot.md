@@ -1,30 +1,50 @@
 # Screenshot recorder
 
-`screenshot.sh` records what the launched application looks like over time. It is
-an interactive loop: press Enter to capture a frame, Space to refresh the preview
-from the current app, Backspace/Delete to drop the last frame, `q` to quit.
+`screenshot.sh` records what the launched application looks like over time.
+
+**The app captures itself.** A shutter button injected into the running app takes
+the frame; the recorder only collects it. The loop is interactive: press Enter to
+collect the frames you have captured, Space to refresh the preview from the
+current app, Backspace/Delete to drop the last frame, `q` to quit.
 
 Every change rebuilds one artifact — an **animated PNG**, one second per frame,
 looping forever — in the app's own repo, then copies it next to `screenshot.sh`
 so it can be previewed in the editor.
 
-Code lives in `screenshot.sh` (the loop) and `tests/screenshot.mjs` (the capture).
+All the code lives in `screenshot.sh`: the loop, and the Vite plugin it injects
+into the app (the button, the capture, and the upload endpoint).
 
 Runs **inside the VM only** — see "The VM guard" below.
 
-# Why the capture is a headless browser here
+# Why the page captures itself
 
-An earlier design captured in the browser, from the Trustable UI, using
-`getDisplayMedia`. The preview iframe is served from `vite.<domain>` while the UI
-is on `trustable.<domain>`, so the page cannot rasterize the frame itself: a
-cross-origin document is unreachable from script and drawing it taints the
-canvas. `getDisplayMedia` works around that but costs a screen-share picker on
-every capture and requires a secure context, which a plain-HTTP `nip.io` dev host
-is not — so it did not work in development at all.
+The recorder used to drive headless Chromium at the app's URL. That reproduces
+the *route* but not the *tab*: form input, open modals, scroll position, and
+anything the app keeps in tab storage — auth included — are all absent from a
+fresh browser. The recording showed a page the user had never seen.
 
-Inside the VM none of that applies. Playwright drives headless Chromium straight
-at the Vite dev server, with no picker, no origin restriction, and no HTTPS
-requirement.
+An earlier design, in the Trustable UI, rejected `getDisplayMedia` for reasons
+that were correct **there** and do not apply **here**. That reasoning is easy to
+re-derive and get wrong, so both halves are recorded:
+
+- *In the Trustable UI*: the preview iframe is served from `vite.<domain>` while
+  the UI is on `trustable.<domain>`, so the page cannot rasterize the frame
+  itself — a cross-origin document is unreachable from script and drawing it
+  taints the canvas. `getDisplayMedia` works around that, but requires a secure
+  context, and a plain-HTTP `nip.io` dev host is not one.
+- *In the app itself, inside the VM*: neither holds. A page capturing **itself**
+  is same-origin by definition, and `http://localhost:5173` **is** a secure
+  context under the localhost exception.
+
+A `MediaStream` from `getDisplayMedia` also does **not** taint the canvas, unlike
+a cross-origin `<img>` — so `toBlob` works. That is precisely the property the
+original UI design was reaching for and could not have.
+
+The cost is a screen-share picker on every click. That is accepted: it buys a
+pixel-perfect capture of the real tab, with no bundled dependency and no change
+to the app's `package.json`. Chromium's `preferCurrentTab` reduces it to a single
+confirm; Firefox and Safari show a full picker, so **Chromium is the supported
+browser for recording**.
 
 # Storage layout
 
@@ -121,16 +141,30 @@ those two environments while adding nothing.
 
 # The loop
 
+The **● button at the top right of the app is the shutter**; the keys below only
+manage what it has already captured.
+
 ```
-ENTER capture · SPACE refresh · DEL remove · q quit  [myapp: 3 frames]
+ENTER collect · SPACE refresh · DEL remove · q quit  [myapp: 3 frames]
 ```
 
 | Key | Action |
 |---|---|
-| Enter | capture a frame of the running app |
-| Space | refresh the preview from the current app — captures nothing |
+| Enter | collect the frames you have captured |
+| Space | refresh the preview from the current app — collects nothing |
 | Backspace / Delete | remove the most recent frame |
 | `q` | quit |
+
+Enter **never blocks**. An empty queue is the normal state between clicks, not a
+wait condition, and a blocking collect would make `q` unreachable — leaving `^C`
+as the only way out. Collecting drains the whole queue, so three clicks followed
+by one Enter yields three frames.
+
+A background poller was rejected: its output would land mid-line on the prompt
+the foreground loop has already written, and fixing that needs cursor
+save/restore escapes — exactly the per-terminal fragility this tool avoids
+elsewhere. It would also race `regenerate` and `git add` against a foreground
+Delete.
 
 Keys are read one character at a time with `read -rsn1`, which returns an empty
 string for Enter, `$'\177'` for Backspace/Delete, and the literal character
@@ -162,22 +196,51 @@ benefit when the tool already runs in the VM. Override with
 `TRUSTABLE_SCREENSHOT_URL`.
 
 A `curl -fsS --max-time 5` liveness check runs first, so an app that is not
-serving fails immediately instead of after a browser launch.
+serving fails immediately instead of after a fruitless retrieval.
 
-`tests/screenshot.mjs` uses the Playwright library API re-exported by
-`@playwright/test` — not `playwright test`, which would need a spec file, a
-reporter, and a `test-results/` directory for a one-shot capture. Chromium is
-launched with `--no-sandbox`, matching `tests/playwright.config.mjs`.
+## 600×800 is the output canvas, not a viewport
 
-**The viewport is fixed at 600×800 and `fullPage` is false.** Both matter: every
-frame in an animation must share the same dimensions, and `fullPage: true` varies
-with page content. 600×800 is portrait but wide enough to clear the common mobile
-breakpoint (typically 640px or 768px), so most apps render close to their tablet
-or desktop layout. Remember the viewport changes *what the app renders*, not just
-the image size — a narrower setting will collapse responsive layouts to their
-mobile form.
+The numbers are unchanged from the Playwright design but **their meaning has
+inverted**, which makes this the paragraph most likely to mislead.
 
-## Hiding the element selector
+It no longer controls what the app renders — the app renders at whatever size the
+user's window happens to be. The grabbed frame is contain-fit onto a fixed
+600×800 canvas, filled white and centred, so the whole tab is always visible and
+every frame is always the same size. Override with `TRUSTABLE_SCREENSHOT_WIDTH` /
+`_HEIGHT`.
+
+**The fixed size is load-bearing.** ffmpeg's APNG encoder requires identical
+dimensions across the `%05d` sequence, and `getDisplayMedia` returns the tab's
+real dimensions — which differ per machine *and change when the user resizes the
+window mid-session*. A stray size fails the encode several captures after the
+resize that caused it, so it surfaces as a random ffmpeg fault far from its cause.
+
+Normalization therefore happens **in the page, before the POST**, where the frame
+is created and the invariant cannot be forgotten. The shell bakes its
+`SHOT_WIDTH`/`SHOT_HEIGHT` into the injected plugin, so the page and the recorder
+can never disagree — which is also what keeps `blank_preview`'s placeholder the
+same size as a real frame.
+
+**Contain-fit, not crop.** The tab is landscape and the canvas is portrait, so a
+cover-fit crop would discard roughly 60% of the width, the app's left nav
+included. The user clicked the button on the page they wanted recorded; silently
+throwing most of it away is the worst available outcome. Stretching is worse
+still — it squashes text by about 2.4×.
+
+Letterbox bars are **white**, matching the `color=c=white` placeholder
+`blank_preview` writes with ffmpeg, so the animation does not flash between
+backgrounds.
+
+The device pixel ratio is deliberately **not** applied: `getDisplayMedia` already
+returns device pixels, so scaling by DPR again would yield 1200×1600 frames on
+Retina and reintroduce the very variance this prevents.
+
+600×800 remains the default. Now that it is an output canvas rather than a
+viewport a landscape default would suit better, but changing it is a separate
+decision with a migration cost: `blank_preview` and every recording already on
+disk are 600×800, and mixing sizes re-breaks the invariant.
+
+## Hiding the chrome — the shutter included
 
 Apps scaffolded with `@agentic-react/vite` render an element-selector toolbar on
 top of the page. It would appear in every frame, so the capture removes it two
@@ -190,8 +253,8 @@ ways before the shutter:
    build whose API differs, covering every piece the toolkit injects: the
    launcher, dim layers, hover and selection labels, and the tuning modal.
 
-Both calls are optional-chained and the style tag is `.catch()`-guarded, so an
-app without the plugin captures normally.
+Both calls are optional-chained and wrapped in `try`, so an app without the
+plugin captures normally.
 
 Those attributes are the only stable handle: the toolkit's elements have **no id
 and no class**, and their `z-index: 2147482997` comes from a stylesheet rather
@@ -200,79 +263,187 @@ matched nothing at all. Verified against a live app: the toolkit's corner drops
 from 1417 distinct colours to 15 (flat background), with each mechanism working
 independently of the other.
 
-# Capturing the route the user is on
+**The same rule carries `[data-trustable-shutter]`, so the button hides itself.**
+It sits on the very page it is capturing; without this it is in every frame. The
+rule uses `visibility:hidden` rather than `display:none` so geometry stays stable
+and nothing reflows mid-capture.
 
-Without help the recorder always captures `/`. The route lives in a browser
-`ROUTE` cookie that no server-side code reads, and the preview iframe is
-cross-origin (`vite.<domain>` vs `trustable.<domain>`), so nothing on the
-Trustable side can see where the user navigated.
+**Everything hidden is restored in a `finally`.** Playwright never needed this —
+it threw the whole browser away. Leaving a user's toolkit permanently invisible
+because a capture threw is a bad failure mode.
 
-The recorder therefore **injects a reporter into the app's `vite.config.ts`**
-when the current app changes, and reads the route back over the app's MCP server.
+### Waiting for the paint
 
-## The reporter
+Hiding is not instant, and the capture is reading a live video stream:
 
-A small Vite plugin added to the front of the `plugins` array:
+- a double `requestAnimationFrame` guarantees the style change has been through
+  at least one composited frame;
+- a further 350 ms covers the toolkit's own hide *transition* — it animates out
+  rather than snapping. (The Playwright version used 300 ms for the same reason.)
+  Do not shorten it: the failure it prevents, a half-faded toolkit baked into a
+  frame, is silent.
+- the frame is then taken via **`requestVideoFrameCallback`**, which fires only
+  once a *new* frame has actually been presented. Without it a buffered pre-hide
+  frame can be grabbed — an intermittent race that bakes the toolkit into an
+  occasional frame and is very hard to diagnose. `ImageCapture.grabFrame()` is
+  deliberately not used: it is Chromium-only and inconsistent on display tracks.
+
+The order matters and is not arbitrary: **the chrome is hidden only after the
+share is granted.** Hiding first would mean a denied prompt leaves the app
+disfigured and the shutter itself invisible — unrecoverable without a reload.
+
+# The shutter
+
+The recorder **injects a Vite plugin into the app's `vite.config.ts`** when the
+current app changes. The plugin does two things: it renders the button, and it
+mounts the endpoint the button uploads to.
 
 ```ts
-// >>> trustable-screenshot reporter — injected by screenshot.sh, removed on quit
-const trustableScreenshotReporter = () => ({
-  name: 'trustable-screenshot-reporter',
+// >>> trustable-screenshot shutter — injected by screenshot.sh, removed on quit
+const trustableScreenshotShutter = () => ({
+  name: 'trustable-screenshot-shutter',
   apply: 'serve',
-  transformIndexHtml() { /* injects the script below */ },
+  configureServer(server) { /* mounts /__trustable_shot */ },
+  transformIndexHtml() { /* injects the client script */ },
 });
-// <<< trustable-screenshot reporter
+// <<< trustable-screenshot shutter
 ```
 
-It uses `transformIndexHtml`, so the script is added when the page is **served** —
-the app's `index.html` on disk is never modified. That matters because the
-starter template regenerates that file, and because editing it would trigger a
-full Vite reload on every capture.
-
-The injected script keeps `<meta id="__trustable_location__">` in sync with
-`location.pathname + location.search + location.hash`, updating on `hashchange`,
-`popstate`, `pushState`, and `replaceState`. The hash is included because these
-apps use `HashRouter` — the route lives in the hash, so `pathname` alone would
-always read `/`.
+`transformIndexHtml` means the script is added when the page is **served** — the
+app's `index.html` on disk is never modified. That matters because the starter
+template regenerates that file, and because editing it would trigger a full Vite
+reload on every capture.
 
 Injection is idempotent (the begin marker is checked first) and only applies to a
 config that actually has a `plugins: [` array. Removal is byte-exact: after an
 inject/remove cycle the file's md5 is unchanged.
 
-## Reading it back
+> The shell functions are still named `inject_reporter` / `remove_reporter` /
+> `cleanup_reporter`, and the markers still use `REPORTER_BEGIN`/`REPORTER_END`.
+> Those names are historical — this began as a route reporter — and were kept
+> because the injection *mechanism* is unchanged. The factory name
+> `trustableScreenshotShutter` appears in **both** the injection and
+> `remove_reporter`'s replace string; if they ever drift, removal silently
+> no-ops and leaves a call to an undefined plugin in the user's config. A guard
+> in `screenshot_script_test.go` counts the occurrences for exactly this reason.
 
-`tests/screenshot-route.mjs` calls the app's MCP server at `<app>/mcp` — mounted
-by `@agentic-react/vite` — and asks `get-html-elements` for the meta element,
-reading the route out of the returned `domPreview`.
+## The button
 
-MCP is used rather than loading the page ourselves because **MCP reflects the tab
-the user actually has open**. Driving our own browser would only ever report the
-URL we just requested.
+A `<button>` appended to `document.body`, `position:fixed`, **top right**, 36px,
+carrying `data-trustable-shutter` and the id `__trustable_shutter__`.
 
-Consequences worth knowing:
+- **Top right**, because the `@agentic-react` launcher is bottom-right and 58px —
+  no geometric overlap.
+- **`z-index: 2147483001`**, exactly one above that launcher's `2147483000`, so
+  it can never be occluded. Deliberately *not* `2147483647`: squatting on
+  `INT_MAX`, where browsers clamp, would make it un-overridable inside someone
+  else's app.
+- **Inline styles, never a stylesheet.** An injected `<style>` loses to the app's
+  own CSS reset — a Tailwind-preflight rule resetting every button property would
+  erase the button outright. Inline styles beat any selector short of
+  `!important`.
+- **`●` (U+25CF), not an emoji.** This renders in the *user's* browser, whose font
+  coverage is unknown. The VM's emoji font is irrelevant now that the VM does not
+  render app content.
+- **No `data-agentic-react-*` attribute.** That namespace belongs to the toolkit;
+  borrowing it would make the button vanish under hide logic we do not control.
 
-- With no browser tab open on the app there is no route to read. That is a normal
-  state, not an error: the capture falls back to `/`.
-- Every MCP call is bounded by a 5-second timeout, because this runs between the
-  keypress and the shutter. A hung or absent server must not stall the recorder.
-- An app whose config has no `plugins:` array, or no MCP server, records exactly
-  as before. The feature degrades to the old behaviour rather than failing.
+The button is disabled for the duration of a capture, so a double-click cannot
+start two `getDisplayMedia` calls — the second would throw `InvalidStateError`
+and could fire its picker while the chrome is hidden. It also flashes its colour
+and `title` for ~1.2 s after each attempt (`captured` / `cancelled` /
+`capture failed`), because the terminal is not necessarily visible.
 
-`TRUSTABLE_SCREENSHOT_ROUTE` overrides the detected route entirely.
+## Refusing a non-tab share
 
-## What the loop prints
+After the grant, the capture checks
+`stream.getVideoTracks()[0].getSettings().displaySurface === 'browser'` and
+refuses anything else.
 
-The URL is announced **before** the shutter, and the fallback is named:
+**This is the only privacy control in the design.** The picker still allows
+choosing a window or the whole screen; a full-screen share would capture whatever
+else is on the user's display and POST it into a file the recorder then `git
+add`s. The check cannot verify it is *this* tab, but it filters the case that
+matters.
 
-```
-✓ capturing http://localhost:5173/#/dashboard
-✓ capturing http://localhost:5173/  (no route reported — using /)
-```
+## The queue: IndexedDB, then the endpoint
 
-Both halves matter for diagnosis. Printing only after a successful capture is
-useless when the wrong page was captured, and staying silent when the route is
-`/` makes "the route was never detected" indistinguishable from "the route was
-detected and is wrong".
+The capture is stored **durably first and uploaded second**:
+
+1. the normalized PNG is `put` into IndexedDB (db `trustable-shots`, store
+   `frames`, `autoIncrement`);
+2. `drain()` POSTs each pending record to the endpoint and deletes it on a 204.
+
+A failed POST leaves the record in place for the next `drain()`, which also runs
+at script load — so a frame captured moments before a reload, or while the dev
+server was down, is recovered rather than lost. IndexedDB also holds `Blob`s
+natively, avoiding a base64 round-trip that would inflate a 2 MB PNG to 2.7 MB of
+string on the main thread.
+
+**The IndexedDB connection is opened at load, never inside the click handler.**
+`getDisplayMedia` requires transient user activation, and an `await` consumes it;
+any await placed ahead of that call makes captures fail with `NotAllowedError` on
+some machines and not others. For the same reason `getDisplayMedia` is the
+literal first statement of the handler.
+
+## The endpoint
+
+`configureServer` mounts `/__trustable_shot` on the dev server:
+
+| Method | Behaviour |
+|---|---|
+| `POST` | append the body to an in-memory queue; `204`. Bodies over 32 MB are dropped. |
+| `GET` | **shift** the oldest frame and return it as `image/png`; `204` when empty. |
+| other | `405` |
+
+**The GET is destructive.** The recorder saves whatever it retrieves, so a frame
+left in the queue would be saved again on the next collect — a recording of
+duplicates. The queue is bounded at `MAX_FRAMES` (16), so clicking while the
+recorder is not polling cannot grow the dev server's heap; the shell's drain loop
+is capped to the same number so it cannot spin.
+
+The middleware is mounted **synchronously in the `configureServer` body, not by
+returning a function.** A returned function installs after Vite's own
+middlewares, and the SPA fallback would then answer `/__trustable_shot` with
+`index.html`. That is the difference between a working endpoint and one that
+returns HTML to `curl` — and it is why `fetch_frame` verifies the PNG magic
+number `89504e470d0a1a0a` before accepting a frame. Without that check the HTML
+would be saved as a `.png` and ffmpeg would fail on a later `regenerate`, far
+from the cause.
+
+The POST is **same-origin and uses a relative path**. Both matter: a `POST` with
+`Content-Type: image/png` is not a CORS-simple request, so cross-origin it would
+trigger an `OPTIONS` preflight the middleware does not answer. A relative path
+also keeps working when the app is reached through the `vite.<domain>` ingress,
+which a hard-coded absolute URL would not.
+
+## Why not MCP
+
+The obvious alternative was to read the frame back over the app's MCP server,
+which the route reporter already used. It does not work:
+
+- **`get-html-elements` truncates `domPreview` at 800 characters** (silently, with
+  no ellipsis). A PNG is 100 KB–1 MB, so it could never come back that way.
+- The only untruncated channel is a **custom tool**, which would require adding a
+  `zod` import and a `customTools` entry to the user's `vite.config`, works only
+  on `@agentic-react` apps, is bounded by a 10-second bridge timeout, and
+  broadcasts to every open tab — picking the winner by *connection order*, not
+  by which tab is focused.
+
+A dev-server middleware has none of those limits and works for **any** Vite app.
+
+## Readiness
+
+`wait_for_shutter` polls both halves, because `transformIndexHtml` and
+`configureServer` apply at different points in Vite's lifecycle: the served HTML
+can carry the client script while the middleware is not yet mounted. It checks
+that the HTML contains the button id **and** that the endpoint answers `204`.
+
+A missed config reload now means *no button at all*, where it previously degraded
+to capturing `/` — so the warning tells the user to **reload the app tab**. Even
+after Vite re-reads the config, an already-open tab still holds the old HTML.
+This is also why the `sleep 1; touch "$config"` reload nudge matters more than it
+used to.
 
 ## Hiding the injection
 
@@ -305,28 +476,28 @@ injecting into the new one, so only the app being recorded is ever modified.
 
 # Installation on demand
 
-Both installers are idempotent and run on every invocation:
+**ffmpeg is the only binary this needs**, installed via the `APT_MISSING` array
+idiom from `setup.sh`: probed with `command -v ffmpeg`, installed with
+`sudo apt-get install -y ffmpeg`. The VM guest has passwordless sudo. The
+installer is idempotent and runs on every invocation.
 
-- **ffmpeg** via the `APT_MISSING` array idiom from `setup.sh`: probed with
-  `command -v ffmpeg`, installed with `sudo apt-get install -y ffmpeg`. The VM
-  guest has passwordless sudo.
-- **`fonts-noto-color-emoji`** (~10MB), because headless Chromium renders with
-  the system's fonts and a bare VM has none carrying emoji glyphs. Measured: 117
-  fonts installed, zero with emoji, and 🎉 ✅ 🚀 captured as empty boxes until
-  this package was added. The probe is a `find` over `/usr/share/fonts` rather
-  than `fc-list`, because fontconfig is **not** in the runtime image — a missing
-  `fc-list` would make the check fail open and silently skip the font.
-- **Playwright + Chromium** following `tests/e2e_issue98.sh`: `npm install` when
-  `node_modules/@playwright/test` is absent, then `npx playwright install
-  chromium`, which no-ops when the pinned revision is already cached. Skip with
-  `TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL=1`.
+Two dependencies were **removed** when the page took over capturing, and should
+not come back:
 
-`npx playwright install-deps` is **not** run automatically — it is a large
-unattended `sudo apt-get` of system libraries. If Chromium fails to launch on a
-bare VM, run `npx playwright install-deps chromium` by hand.
+- **Playwright + Chromium.** The VM no longer rasterizes app content at all, so a
+  browser install here would gate every screenshot behind a ~150 MB download for
+  a code path that no longer exists. (`@playwright/test` stays in the repo's
+  `package.json` — the e2e suite under `tests/` still uses it. It is only the
+  *recorder* that no longer needs it.)
+- **`fonts-noto-color-emoji`.** It existed because headless Chromium rendered the
+  app with the VM's fonts, and a bare VM has none carrying emoji glyphs
+  (measured: 117 fonts installed, zero with emoji, and 🎉 ✅ 🚀 captured as empty
+  boxes). Rendering now happens in the user's own browser on the host, which
+  brings its own fonts.
 
-None of this belongs in `setup.sh`: `setup_test.go` fails the Go tests if that
-file contains `playwright` or `chromium`.
+`TestScreenshotScriptNeedsNoBrowser` fails the build if either creeps back in.
+Neither ever belonged in `setup.sh` either: `setup_test.go` fails the Go tests if
+that file contains `playwright` or `chromium`.
 
 # Preview
 
@@ -418,7 +589,35 @@ folder and commit.
 
 | Variable | Meaning |
 |---|---|
-| `TRUSTABLE_SCREENSHOT_URL` | capture target, default `http://localhost:5173` |
-| `TRUSTABLE_SCREENSHOT_ROUTE` | force a route (e.g. `/#/dashboard`), skipping MCP detection |
-| `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | viewport, default `600` / `800` |
-| `TRUSTABLE_SCREENSHOT_SKIP_BROWSER_INSTALL` | `1` skips `npx playwright install chromium` |
+| `TRUSTABLE_SCREENSHOT_URL` | app origin, default `http://localhost:5173` |
+| `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | output canvas, default `600` / `800` |
+
+# What can go wrong
+
+**The picker appears on every click.** Two extra interactions per frame, so a
+five-frame recording costs ten. `preferCurrentTab: true` reduces it to a single
+confirm in Chromium and must not be dropped.
+
+**The prompt is denied.** `getDisplayMedia` rejects with `NotAllowedError`, the
+button flashes `cancelled`, and the `finally` restores everything. Because the
+chrome is hidden only *after* the grant, a denial leaves nothing to repair.
+
+**The wrong surface is shared.** Refused by the `displaySurface` check above.
+
+**Several tabs are open on the app.** Each gets its own button and each POSTs to
+the same queue, so frames arrive in click order regardless of which tab produced
+them. A stale background tab is harmless unless clicked — and it cannot be
+clicked without being focused first.
+
+**The dev server restarts.** The in-memory queue is lost by design. Frames still
+in IndexedDB (not yet acknowledged with a 204) survive and are re-POSTed on the
+next `drain()`; a frame already acknowledged but not yet collected is gone.
+Pressing Enter promptly after clicking is the practical mitigation.
+
+**HMR runs.** `transformIndexHtml` is not re-run for a hot update, and the button
+— a `document.body` child — survives it. A *full* reload does re-run the script,
+which is why it guards on `window.__trustableShutter` before mounting a second
+button, and why `drain()` runs at load.
+
+**The app has no `plugins: [` array.** No injection, so no button. The recorder
+says so on startup and the loop still manages existing frames.
