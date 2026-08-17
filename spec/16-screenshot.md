@@ -151,7 +151,7 @@ ENTER collect · SPACE refresh · DEL remove · q quit  [myapp: 3 frames]
 | Key | Action |
 |---|---|
 | Enter | collect the frames you have captured |
-| Space | refresh the preview from the current app — collects nothing |
+| Space | refresh the preview — and re-inject the shutter if it went missing |
 | Backspace / Delete | remove the most recent frame |
 | `q` | quit |
 
@@ -196,6 +196,16 @@ discarded on a switch**. That is what Space is for: launch a different app, pres
 Space, and its own recording is rebuilt and copied to the preview — so it is easy
 to see what has already been captured for whichever app is now current. Switching
 away and back continues that app's recording where it left off.
+
+**Space is also the repair key.** It checks whether the *served page* carries the
+shutter, and re-injects when it does not. The injection can go missing for
+reasons the loop cannot observe — the app was relaunched over its checkout, the
+user reverted the config, or Vite never picked the change up — so the one
+keystroke that fixes a missing ● is worth having. The served page is checked
+rather than the file on disk, because a config carrying the plugin proves nothing
+if the running server has not read it. The repair removes before re-injecting:
+`inject_reporter` is idempotent and returns early when it finds its own markers,
+which is exactly the state that needs rewriting.
 
 A missing `current` file and an empty one are reported as distinct, actionable
 states. Empty is a real case — it must never be joined onto `$WORKBENCH_DIR/` to
@@ -328,9 +338,50 @@ app's `index.html` on disk is never modified. That matters because the starter
 template regenerates that file, and because editing it would trigger a full Vite
 reload on every capture.
 
-Injection is idempotent (the begin marker is checked first) and only applies to a
-config that actually has a `plugins: [` array. Removal is byte-exact: after an
-inject/remove cycle the file's md5 is unchanged.
+Injection is idempotent (the begin marker is checked first). Removal is
+byte-exact: after an inject/remove cycle the file's md5 is unchanged.
+
+## Configs with no `plugins` array
+
+An earlier version refused any config without a `plugins: [` array. That left
+real apps with no shutter and no explanation — the starter templates generate
+configs like this, and several use the **function form**, where there is not even
+a top-level object literal to anchor to:
+
+```ts
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return { root: '.', server: { port: 5173 } };   // <- no plugins key
+});
+```
+
+The array is now **added** when absent. The anchor is the opening brace of the
+config object, matched in this order — most specific first:
+
+1. `return {` — the function form above;
+2. `defineConfig((env) => ({` — an arrow returning an object literal;
+3. `defineConfig({` — the plain object form.
+
+Order matters. The arrow pattern must be tried before the plain one because a
+parameter list can itself contain braces (`({ mode }) => ({ … })`), and the
+looser pattern would otherwise anchor on the *destructured parameter* rather
+than the config object. A config where none of the three match is still declined.
+
+> **The anchor is chosen before the factory is spliced in**, and the insertion
+> offset is then shifted past it. The injected factory contains a `return {` of
+> its own, so searching the combined text finds *that* one first — the plugin
+> would declare itself as its own `plugins` array. It parses cleanly, Vite
+> starts without complaint, and nothing whatsoever happens. This was hit during
+> implementation and is guarded by
+> `TestScreenshotScriptAddsAMissingPluginsArray`.
+
+Removal takes the whole line back out when the array was added by the injection,
+rather than leaving an empty `plugins: [],` behind — otherwise the round-trip
+would not be byte-exact and the file would stay dirty in the user's `git status`.
+
+Verified across all five shapes — object and function form, with and without an
+existing array, plus the arrow-literal form — each injecting outside the factory
+and removing byte-exactly.
 
 > The shell functions are still named `inject_reporter` / `remove_reporter` /
 > `cleanup_reporter`, and the markers still use `REPORTER_BEGIN`/`REPORTER_END`.
@@ -633,5 +684,11 @@ Pressing Enter promptly after clicking is the practical mitigation.
 which is why it guards on `window.__trustableShutter` before mounting a second
 button, and why `drain()` runs at load.
 
-**The app has no `plugins: [` array.** No injection, so no button. The recorder
-says so on startup and the loop still manages existing frames.
+**The app has no `plugins: [` array.** One is added — see "Configs with no
+`plugins` array" above. Only a config whose object cannot be located at all is
+declined, and the recorder says so on startup.
+
+**The ● is missing anyway.** Press **Space**: it re-injects when the served page
+has no shutter. If the button still does not appear, reload the app tab — an
+already-open tab holds the HTML from before the injection, and no amount of
+re-injecting changes what that tab already loaded.

@@ -177,10 +177,12 @@ inject_reporter() {
   config="$(vite_config_path)" || return 1
   grep -qF "$REPORTER_BEGIN" "$config" && return 0
 
-  # Only touch a config that actually uses the Vite plugin array. Anything else
-  # is a shape this cannot safely edit.
-  grep -qE 'plugins:[[:space:]]*\[' "$config" || return 1
-
+  # A missing plugins array is not a reason to give up: the starter templates
+  # generate configs without one (and in the function form,
+  # `defineConfig(({ mode }) => ({ ... }))`, where there is no object literal to
+  # match either). The rewriter below adds `plugins: []` when it has to, so those
+  # apps get a shutter too. It still declines a config whose config object it
+  # cannot locate at all — see the failure paths in the Python block.
   unhide_all
   python3 - "$config" "$REPORTER_BEGIN" "$REPORTER_END" "$SHUTTER_ID" \
            "$SHOT_ENDPOINT" "$SHOT_WIDTH" "$SHOT_HEIGHT" <<'PY' || return 1
@@ -461,13 +463,54 @@ const trustableScreenshotShutter = () => {{
 {end}
 """
 
+# Where the app's own config object is edited is decided BEFORE the factory is
+# spliced in. The factory contains a `return {` of its own, and searching the
+# combined text would find that one first — the plugin would then declare itself
+# as its own plugins array, which parses cleanly and does nothing at all.
+if re.search(r'plugins:\s*\[', source):
+    # The easy case: an array already exists. First one only — nested arrays
+    # belong to other tools (test.deps, storybook, and so on).
+    edit_at = None
+else:
+    # No plugins array: one has to be added. The starter templates generate
+    # configs like this, and in the function form —
+    #   export default defineConfig(({ mode }) => { ... return { ... }; })
+    # — there is not even a top-level object literal to anchor to.
+    #
+    # The anchor is the opening brace of the config object: the `return {` of a
+    # function-form config, or the `defineConfig({` of the object form, or an
+    # arrow that returns an object directly. Inserting just after it puts the
+    # array at the top level of the config object, the only place Vite reads it.
+    # Ordered most-specific first. The arrow-returning-a-literal form,
+    #   defineConfig((env) => ({ ... }))
+    # has to be tried before the plain `defineConfig({` pattern, because the
+    # parameter list may itself contain braces — ({ mode }) => ({ ... }) — and
+    # the looser pattern would then anchor on the destructured parameter
+    # instead of the config object.
+    anchor = (re.search(r'(?m)^\s*return\s*\{', source)
+              or re.search(r'defineConfig\s*\((?:[^()]|\([^()]*\))*=>\s*\(\s*\{', source)
+              or re.search(r'defineConfig\s*\(\s*\{', source))
+    if not anchor:
+        raise SystemExit('no config object found to add a plugins array to')
+    edit_at = anchor.end()
+    # Match the indentation of the anchor's line, so the result still reads like
+    # the file it was added to.
+    line_start = source.rfind('\n', 0, anchor.start()) + 1
+    indent = re.match(r'[ \t]*', source[line_start:]).group(0) + '  '
+
 # After the final top-level import, so the factory is defined before use.
 imports = list(re.finditer(r'(?m)^import[^\n]*\n', source))
 at = imports[-1].end() if imports else 0
-source = source[:at] + "\n" + plugin + source[at:]
+prelude = "\n" + plugin
+source = source[:at] + prelude + source[at:]
 
-# First plugins array only: nested ones belong to other tools.
-source = re.sub(r'plugins:\s*\[', 'plugins: [trustableScreenshotShutter(), ', source, count=1)
+if edit_at is None:
+    source = re.sub(r'plugins:\s*\[', 'plugins: [trustableScreenshotShutter(), ', source, count=1)
+else:
+    # The splice above shifted everything after the insertion point.
+    if edit_at >= at:
+        edit_at += len(prelude)
+    source = source[:edit_at] + '\n' + indent + 'plugins: [trustableScreenshotShutter()],' + source[edit_at:]
 
 open(path, 'w').write(source)
 PY
@@ -522,7 +565,16 @@ source = open(path).read()
 # Consume the blank line the injection added ahead of the block, so removal is
 # byte-exact and the file stops showing as modified.
 source = re.sub(r'\n?' + re.escape(begin) + r'.*?' + re.escape(end) + r'\n?', '', source, flags=re.S)
+
+# The whole line goes when the array was added by the injection: leaving an
+# empty `plugins: [],` behind would not be byte-exact, and the file would keep
+# showing as modified in the user's git status. Ordered before the in-place
+# case so the more specific pattern wins.
+source = re.sub(r'(?m)^[ \t]*plugins: \[trustableScreenshotShutter\(\)\],\n', '', source)
+
+# The array already existed: take out only our call, leave theirs alone.
 source = source.replace('plugins: [trustableScreenshotShutter(), ', 'plugins: [')
+
 source = re.sub(r'\n{3,}', '\n\n', source)
 open(path, 'w').write(source)
 PY
@@ -709,14 +761,34 @@ capture() {
   preview "$count"
 }
 
-# Redraw the current app's animation without changing anything. The point is
-# switching apps: pre-existing frames are preserved, so this shows what has
-# already been recorded for whichever app is now current.
+# Redraw the current app's animation, and make sure the shutter is really there.
+# The point is switching apps: pre-existing frames are preserved, so this shows
+# what has already been recorded for whichever app is now current.
+#
+# SPACE is also the repair key. The injection can be absent for reasons the loop
+# cannot see — the app was relaunched over its checkout, the user reverted the
+# config, or Vite never picked the change up — and re-running it is cheap and
+# idempotent, so this is the one keystroke that gets a missing button back.
 show_current() {
+  # Re-inject when the served page has no shutter. Checking the served page
+  # rather than the file on disk is the honest test: a config carrying the
+  # plugin proves nothing if the running server has not read it.
+  if ! curl -fsS --max-time 3 "$URL" 2>/dev/null | grep -qF "$SHUTTER_ID"; then
+    # Remove first, so a block already in the file is rewritten rather than
+    # skipped: inject_reporter is idempotent and returns early when it finds its
+    # own markers, which is precisely the state that needs repairing here.
+    remove_reporter
+    if inject_reporter; then
+      ok "shutter (re)injected — reload the app tab if the ● is still missing"
+    else
+      warn "could not add the shutter to $APP's vite config"
+    fi
+  fi
+
   local count
   count="$(frame_count)"
   if [[ "$count" == "0" ]]; then
-    warn "$APP has no frames yet — press ENTER to capture one"
+    warn "$APP has no frames yet — click the ● at the top right of the app"
     return 0
   fi
   # Rebuild first: the animations may predate a frame added or removed outside
@@ -755,7 +827,7 @@ show_help() {
   echo "  Your browser asks which surface to share — pick this tab."
   echo
   echo "  ENTER  collect the frames you have captured"
-  echo "  SPACE  refresh the preview from the current app (nothing is collected)"
+  echo "  SPACE  refresh the preview — and put the ● back if it went missing"
   echo "  DEL    remove the most recent frame"
   echo "  q      quit"
   echo

@@ -430,6 +430,36 @@ func TestScreenshotScriptInjectsTheShutter(t *testing.T) {
 	}
 }
 
+// WHY: the starter templates generate configs with no `plugins` array at all,
+// and in the function form — defineConfig(({ mode }) => { ... return {...} }) —
+// there is not even a top-level object literal to anchor to. Refusing those
+// left real apps (observed: the `tetris` template) with no shutter and no
+// explanation, which is exactly the "I launched it and there is no button"
+// report this guards against.
+func TestScreenshotScriptAddsAMissingPluginsArray(t *testing.T) {
+	code := scriptCode(readScreenshotScript(t))
+
+	// The old hard refusal must not come back.
+	if strings.Contains(code, `grep -qE 'plugins:[[:space:]]*\[' "$config" || return 1`) {
+		t.Error("a config without a plugins array must gain one, not be refused")
+	}
+	if !strings.Contains(code, `re.search(r'(?m)^\s*return\s*\{', source)`) {
+		t.Error("the function form of defineConfig must be handled, not just an object literal")
+	}
+	// WHY the anchor is chosen before the factory is spliced in: the factory
+	// contains a `return {` of its own, so searching the combined text finds
+	// that one first — the plugin then declares itself as its own plugins
+	// array, which parses cleanly and does absolutely nothing.
+	if !strings.Contains(code, "edit_at += len(prelude)") {
+		t.Error("the insertion point must be offset past the spliced factory, or the plugin is added to itself")
+	}
+	// An added array must be removed whole; leaving `plugins: [],` behind is not
+	// byte-exact and keeps the file dirty in the user's git status.
+	if !strings.Contains(code, `plugins: \[trustableScreenshotShutter\(\)\],\n`) {
+		t.Error("an array added by the injection must be removed entirely on cleanup")
+	}
+}
+
 // WHY skip-worktree and not .gitignore: both files are tracked, and an ignore
 // rule has no effect on a tracked file — adding them to .gitignore leaves them
 // showing as modified, and untracking them to make the rule bite would delete
