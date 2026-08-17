@@ -17,7 +17,10 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
     "base_url": "<provider base URL>",
     "api_key": "<provider API key>",
     "models": {
-        "<model-name>": "<context-size>"
+        "<model-name>": {
+            "maxToken": 262144,
+            "maxOutput": 8192
+        }
     },
     "pi": {
         "default": "<chosen Pi model name>"
@@ -53,6 +56,15 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   - **Private AI** — both are supplied by the user in the Private AI dialog on the splash (see [1-index.md](1-index.md)). `base_url` is any OpenAI-compatible endpoint matching `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve. `api_key` is optional and is persisted as `"dummy"` when left empty, because Pi requires a non-empty value to consider the provider configured (see [pi.md](pi.md)).
   There is **no** global `env` section in `trustable.json`, and no global block is ever merged into an application. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`. The separate `predefined_env` map is **not** an exception: it is a palette of values the user is *offered*, never applied — see "Predefined environment variables" below.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
+
+  Each entry is an object of optional limits. Two of them are **user-editable per model** in Configure, for every provider:
+
+  - `maxToken` — the context window. Falls back to `maxInput`, then to **128000**.
+  - `maxOutput` — the output budget. Falls back to **32768**.
+
+  Both are written to Pi's `models.json` as `contextWindow` / `maxTokens` (see [pi.md](pi.md)). An absent key means "use the default"; clearing a field in the UI deletes the key rather than storing `0`, since the Go side treats absent and zero identically and a stored `0` would only mislead whoever reads this file.
+
+  A legacy form exists where the whole entry is a string context size — `"<model-name>": "256K"` — which is still parsed into `maxToken` on read. It is never written.
 - `pi.default` — must be a name that exists as a key in `models`. The
   configurator UI presents it as a single dropdown populated from `models`.
   Legacy `opencode.default` and `opencode.small` are ignored rather than
@@ -222,7 +234,7 @@ host editor, `resolveOllamaRoot` still resolves a non-localhost host, and the
 reselect exemption in "Exception — own-host Ollama" still applies. Those paths
 are no longer reachable from a first-run provider choice.
 
-On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** builds `base_url = "http://<host>:<port>/v1"` from the inputs and calls `POST /api/discover-models` with that `base_url` and `api_key = "dummy"`. On success the frontend writes the same `base_url` into `config.base_url`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 131072, maxOutput: 32768}`, and resets `config.pi.default` so the user makes an explicit selection.
+On `configure.html?ollama=own` the Ollama Host section is shown with empty inputs, three help bullets ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication") and a **Test** button. Clicking **Test** builds `base_url = "http://<host>:<port>/v1"` from the inputs and calls `POST /api/discover-models` with that `base_url` and `api_key = "dummy"`. On success the frontend writes the same `base_url` into `config.base_url`, replaces `config.models` with one entry per discovered model using default limits `{maxToken: 128000, maxOutput: 32768}`, and resets `config.pi.default` so the user makes an explicit selection.
 
 After **Save & Configure**, `GET /api/configure` reaches the user's host (via `cfg.base_url` stripped of `/v1`) for the connectivity check and for capability discovery via `/api/show`. The model-pull loop (Step 2) is **skipped** when the resolved host is not localhost — the user's host already has the models installed locally; pulling them again would be wasteful. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)` instead.
 
@@ -252,7 +264,7 @@ internal-Ollama host, but is changed by re-picking the provider rather than
 edited in place — keeping this issue's diff contained). `loadPrivateModels`
 calls `POST /api/discover-models` with the stored `base_url` and `api_key`,
 populating `config.models` with one entry per discovered model using default
-limits `{maxToken: 131072, maxOutput: 32768}` while preserving any
+limits `{maxToken: 128000, maxOutput: 32768}` while preserving any
 previously-saved limits and Pi selection. The model table is **editable**
 (Add/Remove, like own-host Ollama); the `/api/status` **Refresh** button is
 hidden (there is no `status.private` catalog). `model_versions` and the
@@ -705,8 +717,8 @@ Sections (rendered top to bottom in this order):
 
 - **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
     - In **internal** mode (or when `base_url` parses as `http://(localhost|127.0.0.1|ollama):...`) the inputs are pre-filled from the existing `base_url`. The Test button is still available for re-validation but is not required.
-    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting default limits `maxToken=131072` i.e. 128K, `maxOutput=32768` i.e. 32K) and resets `config.pi.default` so the user chooses the Pi model.
-- **`<Provider> Models`** — a table of the currently selected provider's models with context size and a **For coding** column that shows whether each model can be selected for coding agent work. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
+    - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting the default limits `maxToken=128000`, `maxOutput=32768`) and resets `config.pi.default` so the user chooses the Pi model.
+- **`<Provider> Models`** — a table of the currently selected provider's models with editable **Context Size** and **Max Output** columns and a **For coding** column that shows whether each model can be selected for coding agent work. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
   - **Ollama** — editable. The user can add or remove rows; adds/removes only edit the workspace `models` map (they do not change the catalog). The header shows an **Add Model** button and each row has a **Remove** button.
   - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map and `pi.default` from `status.trustable`. The dropdown repopulates from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
 - **Pi Model** — one `<select>` labelled "Default Model", populated from the

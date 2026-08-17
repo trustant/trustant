@@ -95,12 +95,13 @@
                     <tr>
                         <th class="text-left">Model</th>
                         <th class="text-left">Context Size</th>
+                        <th class="text-left">Max Output</th>
                         <th class="text-left">For coding</th>
                         <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="modelTableBody">
-                    <tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">Loading...</td></tr>
+                    <tr><td colspan="5" class="text-center py-4 text-[color:var(--nu-muted)]">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -271,6 +272,13 @@
                     <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Context Size</label>
                     <input type="text" id="newModelContext" placeholder="e.g. 256K"
                         class="nu-input w-full px-3 py-2 text-sm">
+                    <p class="mt-1 text-xs text-[color:var(--nu-muted)]">Leave empty to use the default.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Max Output</label>
+                    <input type="text" id="newModelMaxOutput" placeholder="e.g. 8192"
+                        class="nu-input w-full px-3 py-2 text-sm">
+                    <p class="mt-1 text-xs text-[color:var(--nu-muted)]">Leave empty to use the default.</p>
                 </div>
             </div>
             <div class="flex gap-3 mt-4">
@@ -287,6 +295,14 @@
     </div>
 
     <script>
+        // The limits used when nothing is configured. These must match
+        // piDefaultContextWindow / piDefaultMaxOutput in configure.go: the Go
+        // side is authoritative, and the UI shows what it will actually apply.
+        // Defined once so the modal, both discovery paths, and the table cannot
+        // drift apart.
+        const DEFAULT_CONTEXT = 128000;
+        const DEFAULT_MAX_OUTPUT = 32768;
+
         let config = {
             models: {},
             pi: { default: '' },
@@ -500,7 +516,7 @@
                 const prev = config.models || {};
                 const next = {};
                 for (const name of models) {
-                    next[name] = prev[name] || { maxToken: 131072, maxOutput: 32768 };
+                    next[name] = prev[name] || { maxToken: DEFAULT_CONTEXT, maxOutput: DEFAULT_MAX_OUTPUT };
                 }
                 config.models = next;
                 renderModels();
@@ -593,7 +609,7 @@
                 config.api_key = 'dummy';
                 config.models = {};
                 for (const name of models) {
-                    config.models[name] = { maxToken: 131072, maxOutput: 32768 };
+                    config.models[name] = { maxToken: DEFAULT_CONTEXT, maxOutput: DEFAULT_MAX_OUTPUT };
                 }
                 // A discovered catalog requires an explicit Pi selection; do
                 // not silently reuse an identifier from the previous host.
@@ -624,7 +640,7 @@
             document.getElementById('refreshModelsBtn').classList.toggle('hidden', !config.provider || config.provider === 'ollama' || config.provider === 'private');
 
             if (keys.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-[color:var(--nu-muted)]">No models configured</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-[color:var(--nu-muted)]">No models configured</td></tr>';
                 return;
             }
             tbody.innerHTML = keys.map(name => {
@@ -637,7 +653,18 @@
                 return `
                 <tr>
                     <td class="nu-code text-xs">${escapeHtml(name)}</td>
-                    <td>${escapeHtml(formatContextSize(models[name]))}</td>
+                    <td>
+                        <input type="text" value="${escapeAttr(formatSize(effectiveContext(models[name])))}"
+                            onchange="setModelLimit('${escapeAttr(name)}', 'maxToken', this.value, this)"
+                            title="Context window. Empty uses the default (${formatSize(DEFAULT_CONTEXT)})."
+                            class="nu-input nu-code w-24 px-2 py-1 text-xs">
+                    </td>
+                    <td>
+                        <input type="text" value="${escapeAttr(formatSize(effectiveMaxOutput(models[name])))}"
+                            onchange="setModelLimit('${escapeAttr(name)}', 'maxOutput', this.value, this)"
+                            title="Maximum output tokens. Empty uses the default (${formatSize(DEFAULT_MAX_OUTPUT)})."
+                            class="nu-input nu-code w-24 px-2 py-1 text-xs">
+                    </td>
                     <td>
                         <span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass}">
                             ${badgeText}
@@ -693,13 +720,95 @@
             }
         }
 
-        function formatContextSize(entry) {
-            if (entry == null) return '';
-            if (typeof entry === 'string') return entry; // legacy "256K" form
-            const n = entry.maxToken || entry.maxInput || 0;
+        /**
+         * "256K" / "262144" -> 262144. Returns null for empty input, meaning
+         * "use the default", and NaN for anything unparsable so callers can
+         * tell a cleared field from a typo. The K-suffix form is also parsed on
+         * the Go side; keep the two in step rather than adding a third copy.
+         */
+        function parseSizeInput(text) {
+            const raw = String(text == null ? '' : text).trim();
+            if (!raw) return null;
+            const upper = raw.toUpperCase();
+            const n = upper.endsWith('K')
+                ? parseInt(upper.slice(0, -1), 10) * 1024
+                : parseInt(raw, 10);
+            if (!Number.isFinite(n) || n <= 0) return NaN;
+            return n;
+        }
+
+        /**
+         * 262144 -> "256K". Used for both limit columns so they read alike.
+         *
+         * Only powers-of-two multiples are abbreviated. 128000 is also an exact
+         * multiple of 1024, but rendering the default as "125K" reads like a
+         * typo next to the 128000 the user typed — and "256K" is only a helpful
+         * shorthand because 256 is itself round. Anything else stays a plain
+         * number, which parseSizeInput reads back unchanged either way.
+         */
+        function formatSize(n) {
             if (!n) return '';
-            if (n >= 1024 && n % 1024 === 0) return (n / 1024) + 'K';
+            if (n >= 1024 && n % 1024 === 0) {
+                const k = n / 1024;
+                if ((k & (k - 1)) === 0) return k + 'K';   // 8K, 32K, 256K
+            }
             return String(n);
+        }
+
+        /**
+         * The context window a model will actually get: the same
+         * maxToken -> maxInput -> default precedence buildPiModels applies.
+         * Never blank — a model with no catalog size is exactly the one whose
+         * effective value the user cannot otherwise see.
+         */
+        function effectiveContext(entry) {
+            if (entry == null) return DEFAULT_CONTEXT;
+            if (typeof entry === 'string') {           // legacy "256K" form
+                const n = parseSizeInput(entry);
+                return Number.isFinite(n) && n > 0 ? n : DEFAULT_CONTEXT;
+            }
+            return entry.maxToken || entry.maxInput || DEFAULT_CONTEXT;
+        }
+
+        function effectiveMaxOutput(entry) {
+            if (entry == null || typeof entry === 'string') return DEFAULT_MAX_OUTPUT;
+            return entry.maxOutput || DEFAULT_MAX_OUTPUT;
+        }
+
+        /**
+         * Write one of the two limits for a model. An empty box deletes the key
+         * rather than storing 0: Go treats absent and zero identically
+         * (omitempty plus the `> 0` guards), so a stored 0 would only mislead
+         * whoever reads trustable.json.
+         */
+        function setModelLimit(name, field, value, input) {
+            if (!config.models) config.models = {};
+            let entry = config.models[name];
+            if (entry == null || typeof entry !== 'object') {
+                // Legacy string entries carry a context size and nothing else.
+                const legacy = typeof entry === 'string' ? parseSizeInput(entry) : null;
+                entry = Number.isFinite(legacy) && legacy > 0 ? { maxToken: legacy } : {};
+                config.models[name] = entry;
+            }
+            const n = parseSizeInput(value);
+            if (Number.isNaN(n)) {
+                alert('Invalid size (use e.g. 256K or 262144)');
+                if (input) {
+                    input.value = field === 'maxToken'
+                        ? formatSize(effectiveContext(config.models[name]))
+                        : formatSize(effectiveMaxOutput(config.models[name]));
+                }
+                return;
+            }
+            if (n === null) delete entry[field];
+            else entry[field] = n;
+            // maxInput would otherwise keep winning over a cleared maxToken.
+            if (field === 'maxToken' && n === null) delete entry.maxInput;
+            if (input) {
+                input.value = formatSize(field === 'maxToken'
+                    ? effectiveContext(entry)
+                    : effectiveMaxOutput(entry));
+            }
         }
 
         function hasModelRole(entry, roles) {
@@ -802,7 +911,10 @@
 
         function showAddModelModal() {
             document.getElementById('newModelName').value = '';
-            document.getElementById('newModelContext').value = '';
+            // Prefilled rather than blank, so the value that will be applied is
+            // visible and can be edited instead of guessed at.
+            document.getElementById('newModelContext').value = formatSize(DEFAULT_CONTEXT);
+            document.getElementById('newModelMaxOutput').value = formatSize(DEFAULT_MAX_OUTPUT);
             document.getElementById('addModelModal').classList.remove('hidden');
             document.getElementById('addModelModal').classList.add('flex');
             document.getElementById('newModelName').focus();
@@ -815,21 +927,29 @@
 
         function addModel() {
             const name = document.getElementById('newModelName').value.trim();
-            const ctx = document.getElementById('newModelContext').value.trim();
-            if (!name || !ctx) {
-                alert('Both model name and context size are required');
+            if (!name) {
+                alert('Model name is required');
                 return;
             }
-            const upper = ctx.toUpperCase();
-            let n = upper.endsWith('K')
-                ? parseInt(upper.slice(0, -1), 10) * 1024
-                : parseInt(ctx, 10);
-            if (!Number.isFinite(n) || n <= 0) {
+            // Only the name is mandatory: an empty size box means "use the
+            // default", which is what the table's inputs mean too.
+            const ctx = parseSizeInput(document.getElementById('newModelContext').value);
+            if (Number.isNaN(ctx)) {
                 alert('Invalid context size (use e.g. 256K or 262144)');
                 return;
             }
+            const out = parseSizeInput(document.getElementById('newModelMaxOutput').value);
+            if (Number.isNaN(out)) {
+                alert('Invalid max output (use e.g. 8192)');
+                return;
+            }
             if (!config.models) config.models = {};
-            config.models[name] = { maxToken: n };
+            // Both limits are seeded, so a manually added model does not
+            // silently differ in shape from a discovered one.
+            const entry = {};
+            if (ctx !== null) entry.maxToken = ctx;
+            if (out !== null) entry.maxOutput = out;
+            config.models[name] = entry;
             renderModels();
             renderPiSelect();
             hideAddModelModal();

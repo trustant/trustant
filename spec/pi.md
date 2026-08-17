@@ -65,8 +65,26 @@ npm adapter.
 
 Writers merge Trustable-owned keys into existing JSON and preserve unrelated Pi
 settings and providers. Invalid or missing JSON is treated as empty. Model
-entries are sorted, embedding/reranking/non-coding models are filtered, and
-limits fall back to 32768 when the catalog provides none.
+entries are sorted and embedding/reranking/non-coding models are filtered.
+
+The two limits are resolved independently, each from the model's entry in the
+workspace `models` map:
+
+- `contextWindow` ← `maxToken`, else `maxInput`, else **128000**
+  (`piDefaultContextWindow`).
+- `maxTokens` ← `maxOutput`, else **32768** (`piDefaultMaxOutput`).
+
+They are separate constants deliberately. The context default was raised from
+32768 because a provider whose catalog reports no size — an own-host
+OpenAI-compatible endpoint, or any model whose `/api/status` entry omits limits
+— was pinned to 32K against a model that usually supports far more. The output
+default stays 32768, since raising it would over-claim output capacity on
+models that cap lower.
+
+Both limits are user-editable per model in Configure (see
+[2a-config.md](2a-config.md)), for every provider: a catalog that reports no
+size, or a wrong one, is exactly the case this has to fix. An absent value in
+`trustable.json` means "use the default"; zero and absent are equivalent.
 
 Pi reasoning capability is written per model. Explicit catalog values for
 `reasoning` and `thinkingLevelMap` are preserved after validating Pi's known

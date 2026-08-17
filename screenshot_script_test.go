@@ -331,14 +331,29 @@ func TestScreenshotPreviewCopyIsGitignored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .gitignore: %s", err)
 	}
-	if !strings.Contains(string(data), "/screenshot.png") {
+	// Matched per line, and with the leading "/" optional. A substring search is
+	// wrong here in both directions: "/screenshot.png" is a substring of
+	// "aaa-screenshot.png", so the preview check passed on the wrong entry, and
+	// anchoring is a free choice — "screenshot.png" ignores the file at any depth,
+	// "/screenshot.png" only at the root. Both are correct for this purpose.
+	ignored := func(entry string) bool {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == entry || line == "/"+entry {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !ignored("screenshot.png") {
 		t.Error("the preview copy at the repo root must be gitignored")
 	}
 	// The aaa-* links point outside the repo, into $WORKBENCH_DIR, and follow
 	// whichever app is current. Committing one would put a per-machine absolute
 	// path into the tree.
-	for _, link := range []string{"/aaa-screenshot.png", "/aaa-screenshot"} {
-		if !strings.Contains(string(data), link) {
+	for _, link := range []string{"aaa-screenshot.png", "aaa-screenshot"} {
+		if !ignored(link) {
 			t.Errorf("%s is a symlink into the workbench and must be gitignored", link)
 		}
 	}
