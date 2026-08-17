@@ -569,55 +569,10 @@ next to the mandatory `.env`, read with the same `parseEnvFile` — is folded in
 - Failure is non-fatal: a malformed optional file logs a warning and the server
   starts. Values are never logged, only names — they may be credentials.
 
-### Seeding the AI variables from Pi
-
-When there is **no** `.env.default`, the three names below are seeded from the
-provider settings Trustable has already resolved for Pi, so an application that
-wants to talk to a model finds working values in the palette:
-
-| Name | Source |
-|---|---|
-| `AI_BASE_URL` | `piBaseURL(cfg)` — already normalized, so Ollama carries its `/v1` suffix. Not raw `base_url`. |
-| `AI_API_KEY` | `cfg.APIKey`, the real secret written to Pi's `auth.json` — **not** the `$OPENAI_API_KEY` reference stored in `models.json`. |
-| `AI_CHAT_MODEL` | `piDefaultModel(cfg)`, i.e. `pi.default`. |
-
-Values are read from the **merged** config (`base_url` may come from the base
-layer); the write targets the **workspace** layer, as everywhere else here.
-
-Preconditions, both required:
-
-1. **No `.env.default` exists.** A present seed file is authoritative for the
-   palette even when it never mentions these three names, and even when it is
-   empty. The user placed a file; the server does not second-guess it.
-2. **The name has no value** — absent, or present with an empty value. Each name
-   is judged on its own, so a user who set only `AI_BASE_URL` keeps it and gets
-   the other two filled.
-
-Filling a name that is present with an **empty** value is the one deliberate
-departure from the keep-existing rule above. There, an empty value means
-"recorded, no value yet" and is preserved; here it is exactly the hole being
-filled. A **non-empty** value is never touched.
-
-A source value that is itself empty seeds nothing for that name — no provider
-chosen yet, no `pi.default` — because writing empty over empty would only churn
-the file. Seeding therefore does nothing on a first boot before the splash flow
-picks a provider, and does its work on the next start.
-
-Seeding runs at preflight **only**. Changing provider in Configure later does
-not rewrite a palette entry that by then has a value.
-
-`AI_API_KEY` is a live credential, and this is the first thing that copies it
-into `predefined_env`. It is stored in the workspace `trustable.json` and echoed
-verbatim by `GET /api/predefined-env`, so it is visible in the Configure page's
-table. That is accepted — a placeholder would not work — and recorded here so it
-is a decision rather than a surprise. It is not a new exposure boundary: the key
-already reaches the same file as `api_key`. As with the file import, only names
-are logged.
-
 ### Neither path applies anything
 
-All three routes above populate the palette and go no further. The palette
-remains **not a source**: `missingAppEnvKeys`, `seedMissingEnvKeys` and
+Both routes above populate the palette and go no further. The palette remains
+**not a source**: `missingAppEnvKeys`, `seedMissingEnvKeys` and
 `generateAppEnvFiles` are unchanged, and the only way a value reaches an
 application is still the **Use predefined values** button followed by an
 explicit save.

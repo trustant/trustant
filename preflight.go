@@ -177,7 +177,7 @@ func runPreflight() error {
 	// migrateToLayeredConfig, which is what guarantees a workspace
 	// trustable.json exists to write into.
 	log.Println("[3/4] Importing predefined environment variables...")
-	if err := importPredefinedEnvDefaults(); err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		log.Printf("Warning: predefined env import failed: %v", err)
 	} else {
 		log.Println("✓ Predefined environment variables up to date")

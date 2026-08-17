@@ -268,12 +268,8 @@ func TestImportDefaultPredefinedEnvMissingFileIsANoOp(t *testing.T) {
 	withPredefinedEnvImportDir(t, "{}", `{"predefined_env":{"KEEP":"mine"}}`, "")
 	before := workspaceConfigBytes(t)
 
-	found, err := importDefaultPredefinedEnv()
-	if err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		t.Fatalf("import: %s", err)
-	}
-	if found {
-		t.Fatal("reported a .env.default that does not exist")
 	}
 	if got := string(workspaceConfigBytes(t)); got != string(before) {
 		t.Fatalf("the workspace config was rewritten with nothing to import:\n%s", got)
@@ -283,12 +279,8 @@ func TestImportDefaultPredefinedEnvMissingFileIsANoOp(t *testing.T) {
 func TestImportDefaultPredefinedEnvImportsIntoEmptyPalette(t *testing.T) {
 	withPredefinedEnvImportDir(t, "{}", "{}", "# a comment\n\nSTRIPE_KEY=sk_live_1\nAPI_URL=https://api.example.com\n")
 
-	found, err := importDefaultPredefinedEnv()
-	if err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		t.Fatalf("import: %s", err)
-	}
-	if !found {
-		t.Fatal("expected the .env.default to be found")
 	}
 	stored := readPredefinedEnvFromDisk(t)
 	if stored["STRIPE_KEY"] != "sk_live_1" || stored["API_URL"] != "https://api.example.com" {
@@ -304,7 +296,7 @@ func TestImportDefaultPredefinedEnvKeepsExistingValues(t *testing.T) {
 		`{"predefined_env":{"STRIPE_KEY":"sk_mine","PENDING":""}}`,
 		"STRIPE_KEY=sk_from_file\nPENDING=value_from_file\nFRESH=new\n")
 
-	if _, err := importDefaultPredefinedEnv(); err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		t.Fatalf("import: %s", err)
 	}
 	stored := readPredefinedEnvFromDisk(t)
@@ -324,7 +316,7 @@ func TestImportDefaultPredefinedEnvKeepsExistingValues(t *testing.T) {
 func TestImportDefaultPredefinedEnvSkipsInvalidNames(t *testing.T) {
 	withPredefinedEnvImportDir(t, "{}", "{}", "has-dash=x\n1BAD=y\nGOOD=z\n")
 
-	if _, err := importDefaultPredefinedEnv(); err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		t.Fatalf("import: %s", err)
 	}
 	stored := readPredefinedEnvFromDisk(t)
@@ -339,7 +331,7 @@ func TestImportDefaultPredefinedEnvDoesNotWriteWhenNothingIsAdded(t *testing.T) 
 	withPredefinedEnvImportDir(t, "{}", `{"predefined_env":{"ONLY":"mine"}}`, "ONLY=from_file\n")
 	before := workspaceConfigBytes(t)
 
-	if _, err := importDefaultPredefinedEnv(); err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		t.Fatalf("import: %s", err)
 	}
 	if got := string(workspaceConfigBytes(t)); got != string(before) {
@@ -364,128 +356,11 @@ func TestImportDefaultPredefinedEnvStopsAtTheCap(t *testing.T) {
 	}
 	withPredefinedEnvImportDir(t, "{}", string(wsJSON), file.String())
 
-	if _, err := importDefaultPredefinedEnv(); err != nil {
+	if err := importDefaultPredefinedEnv(); err != nil {
 		t.Fatalf("import: %s", err)
 	}
 	if stored := readPredefinedEnvFromDisk(t); len(stored) != maxPredefinedEnvVars {
 		t.Fatalf("expected the palette to stop at %d, got %d", maxPredefinedEnvVars, len(stored))
-	}
-}
-
-// Seeding the AI variables from the settings already resolved for Pi.
-
-const piSeedWorkspace = `{"provider":"trustable","base_url":"https://api.example.com/v1","api_key":"aip_secret","pi":{"default":"big-model"}}`
-
-func TestSeedPredefinedEnvFromPiFillsEmptyPalette(t *testing.T) {
-	withPredefinedEnvImportDir(t, "{}", piSeedWorkspace, "")
-
-	if err := seedPredefinedEnvFromPi(); err != nil {
-		t.Fatalf("seed: %s", err)
-	}
-	stored := readPredefinedEnvFromDisk(t)
-	if stored[aiBaseURLEnvName] != "https://api.example.com/v1" {
-		t.Errorf("unexpected %s: %q", aiBaseURLEnvName, stored[aiBaseURLEnvName])
-	}
-	if stored[aiAPIKeyEnvName] != "aip_secret" {
-		t.Errorf("unexpected %s: %q", aiAPIKeyEnvName, stored[aiAPIKeyEnvName])
-	}
-	if stored[aiChatModelEnvName] != "big-model" {
-		t.Errorf("unexpected %s: %q", aiChatModelEnvName, stored[aiChatModelEnvName])
-	}
-}
-
-// A present .env.default is authoritative for the palette, even when it never
-// mentions the AI variables. This is the precondition, so it is asserted
-// through the preflight entry point rather than the seeder directly.
-func TestImportPredefinedEnvDefaultsSkipsSeedingWhenDefaultFileExists(t *testing.T) {
-	withPredefinedEnvImportDir(t, "{}", piSeedWorkspace, "UNRELATED=x\n")
-
-	if err := importPredefinedEnvDefaults(); err != nil {
-		t.Fatalf("import: %s", err)
-	}
-	stored := readPredefinedEnvFromDisk(t)
-	if stored["UNRELATED"] != "x" {
-		t.Fatalf("the .env.default was not imported: %#v", stored)
-	}
-	for _, name := range []string{aiBaseURLEnvName, aiAPIKeyEnvName, aiChatModelEnvName} {
-		if _, seeded := stored[name]; seeded {
-			t.Errorf("%s was seeded even though a .env.default is present", name)
-		}
-	}
-}
-
-// Each name is judged on its own: a value the user set is kept while the others
-// are still filled.
-func TestSeedPredefinedEnvFromPiKeepsNonEmptyValues(t *testing.T) {
-	withPredefinedEnvImportDir(t, "{}",
-		`{"provider":"trustable","base_url":"https://api.example.com/v1","api_key":"aip_secret","pi":{"default":"big-model"},
-		  "predefined_env":{"AI_BASE_URL":"https://mine.example.com/v1"}}`, "")
-
-	if err := seedPredefinedEnvFromPi(); err != nil {
-		t.Fatalf("seed: %s", err)
-	}
-	stored := readPredefinedEnvFromDisk(t)
-	if stored[aiBaseURLEnvName] != "https://mine.example.com/v1" {
-		t.Errorf("seeding overwrote a value the user had set: %q", stored[aiBaseURLEnvName])
-	}
-	if stored[aiAPIKeyEnvName] != "aip_secret" || stored[aiChatModelEnvName] != "big-model" {
-		t.Errorf("the remaining names were not seeded: %#v", stored)
-	}
-}
-
-// The one deliberate departure from the keep-existing rule: an empty value is
-// what we were asked to fill. Asserted explicitly so the two rules cannot be
-// quietly unified later.
-func TestSeedPredefinedEnvFromPiFillsNamesRecordedWithAnEmptyValue(t *testing.T) {
-	withPredefinedEnvImportDir(t, "{}",
-		`{"provider":"trustable","base_url":"https://api.example.com/v1","api_key":"aip_secret","pi":{"default":"big-model"},
-		  "predefined_env":{"AI_CHAT_MODEL":""}}`, "")
-
-	if err := seedPredefinedEnvFromPi(); err != nil {
-		t.Fatalf("seed: %s", err)
-	}
-	if stored := readPredefinedEnvFromDisk(t); stored[aiChatModelEnvName] != "big-model" {
-		t.Fatalf("an empty recorded value was not filled: %q", stored[aiChatModelEnvName])
-	}
-}
-
-// No provider and no Pi default: seeding empty over empty would only churn the
-// file. A later start does the work instead.
-func TestSeedPredefinedEnvFromPiWritesNothingWithoutAProvider(t *testing.T) {
-	withPredefinedEnvImportDir(t, "{}", `{"predefined_env":{"KEEP":"mine"}}`, "")
-
-	if err := seedPredefinedEnvFromPi(); err != nil {
-		t.Fatalf("seed: %s", err)
-	}
-	stored := readPredefinedEnvFromDisk(t)
-	if _, seeded := stored[aiAPIKeyEnvName]; seeded {
-		t.Error("an empty API key was seeded into the palette")
-	}
-	if _, seeded := stored[aiChatModelEnvName]; seeded {
-		t.Error("an empty chat model was seeded into the palette")
-	}
-	// piBaseURL falls back to the local Ollama root, so AI_BASE_URL is the one
-	// name that legitimately has a value here; the file is therefore written.
-	if stored[aiBaseURLEnvName] == "" {
-		t.Fatalf("expected the base URL fallback to be seeded, got %#v", stored)
-	}
-	if stored["KEEP"] != "mine" {
-		t.Fatalf("seeding disturbed an existing value: %#v", stored)
-	}
-}
-
-// The value must come from piBaseURL, not raw cfg.BaseURL: Ollama needs the
-// /v1 suffix that only piBaseURL adds.
-func TestSeedPredefinedEnvFromPiUsesPiResolvedBaseURL(t *testing.T) {
-	withPredefinedEnvImportDir(t, "{}",
-		`{"provider":"ollama","base_url":"http://ignored.example.com","api_key":"dummy","pi":{"default":"qwen"}}`, "")
-
-	if err := seedPredefinedEnvFromPi(); err != nil {
-		t.Fatalf("seed: %s", err)
-	}
-	stored := readPredefinedEnvFromDisk(t)
-	if !strings.HasSuffix(stored[aiBaseURLEnvName], "/v1") {
-		t.Fatalf("expected the Pi-resolved Ollama root with a /v1 suffix, got %q", stored[aiBaseURLEnvName])
 	}
 }
 
