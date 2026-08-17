@@ -1087,12 +1087,14 @@
                     <td class="pr-2 py-1">
                         <input type="text" value="${escapeAttr(v.name)}"
                             placeholder="VARIABLE_NAME"
-                            onchange="updatePredefinedEnv(${i}, 'name', this.value)"
+                            data-predefined-env="name" data-index="${i}"
+                            oninput="updatePredefinedEnv(${i}, 'name', this.value)"
                             class="nu-input nu-code w-full px-2 py-1 text-sm">
                     </td>
                     <td class="pr-2 py-1">
                         <input type="text" value="${escapeAttr(v.value)}"
-                            onchange="updatePredefinedEnv(${i}, 'value', this.value)"
+                            data-predefined-env="value" data-index="${i}"
+                            oninput="updatePredefinedEnv(${i}, 'value', this.value)"
                             class="nu-input nu-code w-full px-2 py-1 text-sm">
                     </td>
                     <td class="text-right py-1">
@@ -1218,8 +1220,33 @@
             renderPredefinedEnv();
         }
 
+        // The table, not the model, is the source of truth at save time. The row
+        // inputs bind with `oninput`, but relying on any event to have fired is
+        // what made "Save Variables" silently store nothing: clicking the button
+        // reads the array in the same turn as the blur it causes, and a row still
+        // holding its initial blank name is dropped by the server as "not filled
+        // in yet". Reading the DOM here cannot lose an edit the user can see.
+        function collectPredefinedEnvRows() {
+            const tbody = document.getElementById('predefinedEnvTableBody');
+            const names = tbody.querySelectorAll('input[data-predefined-env="name"]');
+            const rows = [];
+            names.forEach(nameInput => {
+                const i = nameInput.dataset.index;
+                const valueInput = tbody.querySelector(
+                    `input[data-predefined-env="value"][data-index="${i}"]`);
+                rows.push({
+                    name: nameInput.value,
+                    value: valueInput ? valueInput.value : ''
+                });
+            });
+            return rows;
+        }
+
         async function savePredefinedEnv() {
             const btn = document.getElementById('predefinedEnvSaveBtn');
+            // Keep the model in step with what is about to be sent, so a failed
+            // save leaves the user's edits in place rather than reverting them.
+            predefinedEnvVars = collectPredefinedEnvRows();
             btn.disabled = true;
             setPredefinedEnvStatus('Saving…', 'info');
             try {
@@ -1236,6 +1263,15 @@
                 // Reload so the server's canonical set (sorted, blank rows
                 // dropped) is what the user sees afterwards.
                 await loadPredefinedEnv();
+                // A zero-count save is a real outcome (clearing the palette) but
+                // it is also what a silently-dropped row looks like, so never
+                // dress it as success — green "Saved 0 variables" is exactly how
+                // this bug hid.
+                if (data.count === 0) {
+                    setPredefinedEnvStatus(
+                        'Nothing saved: no variables with a name. The palette is now empty.', 'error');
+                    return;
+                }
                 setPredefinedEnvStatus(`Saved ${data.count} variable${data.count === 1 ? '' : 's'}.`, 'ok');
             } catch (e) {
                 setPredefinedEnvStatus('Error saving: ' + e.message, 'error');
