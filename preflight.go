@@ -143,7 +143,7 @@ func runPreflight() error {
 	log.Println("✓ Environment loaded")
 
 	// Step 1: Clean up PGID file if exists
-	log.Println("[1/3] Checking for leftover process groups...")
+	log.Println("[1/4] Checking for leftover process groups...")
 	if err := cleanupPgidFile(); err != nil {
 		log.Printf("Warning: PGID cleanup failed: %v", err)
 	} else {
@@ -151,7 +151,7 @@ func runPreflight() error {
 	}
 
 	// Step 2: Clean up ports
-	log.Println("[2/3] Checking ports 8910, 4096, 5173...")
+	log.Println("[2/4] Checking ports 8910, 4096, 5173...")
 	if err := cleanupPorts(); err != nil {
 		log.Printf("Warning: Port cleanup failed: %v", err)
 	} else {
@@ -172,8 +172,19 @@ func runPreflight() error {
 		log.Println("✓ Pi configuration restore complete")
 	}
 
-	// Step 3: Check SSH key
-	log.Println("[3/3] Checking SSH key...")
+	// Step 3: Seed the predefined-env palette. Optional and non-fatal: a
+	// malformed .env.default must not stop the server from starting. Runs after
+	// migrateToLayeredConfig, which is what guarantees a workspace
+	// trustable.json exists to write into.
+	log.Println("[3/4] Importing predefined environment variables...")
+	if err := importPredefinedEnvDefaults(); err != nil {
+		log.Printf("Warning: predefined env import failed: %v", err)
+	} else {
+		log.Println("✓ Predefined environment variables up to date")
+	}
+
+	// Step 4: Check SSH key
+	log.Println("[4/4] Checking SSH key...")
 	checkSSHKey()
 	if sshKeyAvailable {
 		log.Println("✓ SSH key ready")

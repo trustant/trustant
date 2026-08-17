@@ -55,6 +55,26 @@ shell by the terminal (see [12-terminal.md](12-terminal.md)).
 
 - use lsof -i and check for processes occupying in port 8910 4096 and 5173 and kill them
 
+# import predefined environment variables
+
+After the migration above — which is what guarantees a workspace
+`trustable.json` exists to write into — and before the SSH key check, seed the
+`predefined_env` palette:
+
+- If an **optional** `.env.default` exists in the working directory, fold it into
+  `predefined_env`, adding only names that are not already there.
+- Otherwise, seed `AI_BASE_URL`, `AI_API_KEY` and `AI_CHAT_MODEL` from the
+  provider settings already resolved for Pi, for those names that have no value.
+
+A present `.env.default` suppresses the seeding entirely. Both paths only
+populate the palette; nothing reaches an application. Failure is **non-fatal** —
+log a warning and carry on, as with the pgid and port cleanup: a malformed
+optional file must not stop the server from starting. Only variable names are
+logged, never values.
+
+The rules in full, including why the two paths treat an empty value differently,
+are in [2a-config.md](2a-config.md) under "Predefined environment variables".
+
 # check ssh key
 
 Ensure a persistent ed25519 key exists under

@@ -51,6 +51,15 @@ stores the literal `$OPENAI_API_KEY` reference; the real key is only in
 `auth.json`. Keyless providers use `dummy` so Pi considers the provider
 configured.
 
+`seedPredefinedEnvFromPi` mirrors these same resolved values into the
+`predefined_env` palette as `AI_BASE_URL` / `AI_API_KEY` / `AI_CHAT_MODEL` (see
+[2a-config.md](2a-config.md)), reading `piBaseURL` and `piDefaultModel` rather
+than re-deriving them. It takes the **real** key, not the `$OPENAI_API_KEY`
+reference, since a palette value has to work as-is. A change to `piBaseURL` or
+to the provider naming above therefore has one more caller to check. Unlike
+`writePiGlobalConfig`, it does not substitute `dummy` for an empty key: nothing
+is seeded for a name whose source value is empty.
+
 TruACP resolves that reference server-side from `auth.json` for its `/models`
 probe and never returns a stored key through `/api/pi/config/get`. Trustable
 launches TruACP with `TRUSTABLE_MANAGED_RUNTIME=1`; a failed probe then directs

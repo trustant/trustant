@@ -525,6 +525,103 @@ required:
 Without either half, saving a provider from the Configure page silently wipes
 the user's predefined variables.
 
+### Importing from a file
+
+The Configure page's **Import from .env** button fills the table from a local
+`.env`-style file instead of row-by-row typing. The file is read and parsed **in
+the browser**; it is never uploaded, and no endpoint exists for it.
+
+The parse rules are deliberately identical to `parseEnvFile` in
+[configure.go](../configure.go), so the two import paths cannot drift: trim the
+line, skip empty lines and lines starting with `#`, split on the **first** `=`,
+trim both sides. There is no `export ` stripping and no quote unwrapping.
+
+- **Merge rule: uploaded wins.** A parsed name already in the table replaces
+  that row's value; a new name is appended. This is the opposite of the
+  `.env.default` rule below, and correct here: the user just picked this file.
+- The same limits the server enforces are checked client-side before anything is
+  merged — names must match `^[A-Za-z_][A-Za-z0-9_]*$`, and the resulting table
+  must not exceed 256 rows. A violation names the offending key and merges
+  **nothing**: a partial import would leave the table in a state the user did
+  not choose.
+- Nothing is persisted. The status line says so, and the user reviews the table
+  and presses the existing **Save Variables**, which POSTs to
+  `/api/predefined-env` as usual.
+
+### Automatic import of `.env.default`
+
+At preflight, an **optional** `.env.default` in the server's working directory —
+next to the mandatory `.env`, read with the same `parseEnvFile` — is folded into
+`predefined_env`. The two files are unrelated: `.env` is server configuration,
+`.env.default` only pre-fills this palette.
+
+- **Conflict rule: keep existing.** Only names absent from `predefined_env` are
+  added; a name the user already has is never overwritten. This is what makes
+  the import idempotent and safe to run on every start. A name present with an
+  **empty** value counts as present and is kept — that is the deliberate
+  "recorded, no value yet" state described above.
+- A name failing the name pattern is skipped and logged; the valid names in the
+  same file still import.
+- The 256-entry cap applies, and the remainder is dropped with a log line rather
+  than writing a map that `POST /api/predefined-env` would then reject.
+- If nothing was added, the config is **not written**, so the file does not
+  churn on every restart.
+- Failure is non-fatal: a malformed optional file logs a warning and the server
+  starts. Values are never logged, only names — they may be credentials.
+
+### Seeding the AI variables from Pi
+
+When there is **no** `.env.default`, the three names below are seeded from the
+provider settings Trustable has already resolved for Pi, so an application that
+wants to talk to a model finds working values in the palette:
+
+| Name | Source |
+|---|---|
+| `AI_BASE_URL` | `piBaseURL(cfg)` — already normalized, so Ollama carries its `/v1` suffix. Not raw `base_url`. |
+| `AI_API_KEY` | `cfg.APIKey`, the real secret written to Pi's `auth.json` — **not** the `$OPENAI_API_KEY` reference stored in `models.json`. |
+| `AI_CHAT_MODEL` | `piDefaultModel(cfg)`, i.e. `pi.default`. |
+
+Values are read from the **merged** config (`base_url` may come from the base
+layer); the write targets the **workspace** layer, as everywhere else here.
+
+Preconditions, both required:
+
+1. **No `.env.default` exists.** A present seed file is authoritative for the
+   palette even when it never mentions these three names, and even when it is
+   empty. The user placed a file; the server does not second-guess it.
+2. **The name has no value** — absent, or present with an empty value. Each name
+   is judged on its own, so a user who set only `AI_BASE_URL` keeps it and gets
+   the other two filled.
+
+Filling a name that is present with an **empty** value is the one deliberate
+departure from the keep-existing rule above. There, an empty value means
+"recorded, no value yet" and is preserved; here it is exactly the hole being
+filled. A **non-empty** value is never touched.
+
+A source value that is itself empty seeds nothing for that name — no provider
+chosen yet, no `pi.default` — because writing empty over empty would only churn
+the file. Seeding therefore does nothing on a first boot before the splash flow
+picks a provider, and does its work on the next start.
+
+Seeding runs at preflight **only**. Changing provider in Configure later does
+not rewrite a palette entry that by then has a value.
+
+`AI_API_KEY` is a live credential, and this is the first thing that copies it
+into `predefined_env`. It is stored in the workspace `trustable.json` and echoed
+verbatim by `GET /api/predefined-env`, so it is visible in the Configure page's
+table. That is accepted — a placeholder would not work — and recorded here so it
+is a decision rather than a surprise. It is not a new exposure boundary: the key
+already reaches the same file as `api_key`. As with the file import, only names
+are logged.
+
+### Neither path applies anything
+
+All three routes above populate the palette and go no further. The palette
+remains **not a source**: `missingAppEnvKeys`, `seedMissingEnvKeys` and
+`generateAppEnvFiles` are unchanged, and the only way a value reaches an
+application is still the **Use predefined values** button followed by an
+explicit save.
+
 ## Current app tracking
 
 The `current` field in the workspace `trustable.json` stores the name of the currently launched app. It is set when an app is launched (`writeCurrentApp`) and cleared when the launch is stopped (`removeCurrentFile`). The `workbench/current` file is also maintained for backward compatibility.

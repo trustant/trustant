@@ -72,6 +72,8 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 Both flags are read by `envFlag` (unset/empty/`0`/`false`/`no`/`off` = off) and reported to the frontend as the `license` and `regolo` booleans on `/api/version`.
 
+`.env.default` is a **different, optional** file in the same directory — not server configuration and not part of `.env`. When present at startup its variables are folded into the `predefined_env` palette shown on the Configure page (keep-existing, never overwriting a user edit); when absent, `AI_BASE_URL` / `AI_API_KEY` / `AI_CHAT_MODEL` are seeded from the provider settings already resolved for Pi. Neither path applies anything to an application. See [spec/2a-config.md](spec/2a-config.md).
+
 
 ## Architecture
 

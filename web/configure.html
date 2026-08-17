@@ -204,6 +204,12 @@
             <div class="flex flex-wrap items-center gap-2 mt-4">
                 <button type="button" onclick="addPredefinedEnvRow()"
                     class="nu-btn nu-btn-secondary">Add Variable</button>
+                <!-- The file is parsed in the browser and merged into the table
+                     only; nothing is stored until Save Variables. -->
+                <button type="button" onclick="document.getElementById('predefinedEnvFile').click()"
+                    class="nu-btn nu-btn-secondary">Import from .env</button>
+                <input type="file" id="predefinedEnvFile" class="hidden"
+                    accept=".env,.txt,text/plain" onchange="importPredefinedEnvFile(this)">
                 <button type="button" id="predefinedEnvSaveBtn" onclick="savePredefinedEnv()"
                     class="nu-btn nu-btn-primary">Save Variables</button>
                 <span id="predefinedEnvStatus" class="text-sm"></span>
@@ -1106,6 +1112,75 @@
             predefinedEnvVars.splice(index, 1);
             renderPredefinedEnv();
             setPredefinedEnvStatus('', '');
+        }
+
+        // Same rules as parseEnvFile in configure.go: trim the line, skip empty
+        // lines and comments, split on the FIRST '=', trim both sides. No
+        // `export ` stripping and no quote unwrapping — the two paths have to
+        // agree, so this parser is deliberately as plain as the Go one.
+        function parsePredefinedEnvText(text) {
+            const parsed = [];
+            for (const rawLine of text.split('\n')) {
+                const line = rawLine.trim();
+                if (line === '' || line.startsWith('#')) continue;
+                const eq = line.indexOf('=');
+                if (eq < 0) continue;
+                parsed.push({
+                    name: line.slice(0, eq).trim(),
+                    value: line.slice(eq + 1).trim()
+                });
+            }
+            return parsed;
+        }
+
+        async function importPredefinedEnvFile(input) {
+            const file = input.files && input.files[0];
+            // Reset first so re-picking the same file fires `change` again.
+            input.value = '';
+            if (!file) return;
+
+            let parsed;
+            try {
+                parsed = parsePredefinedEnvText(await file.text());
+            } catch (e) {
+                setPredefinedEnvStatus('Could not read the file: ' + e.message, 'error');
+                return;
+            }
+            if (parsed.length === 0) {
+                setPredefinedEnvStatus('No variables found in that file.', 'error');
+                return;
+            }
+
+            // Validate everything before merging anything: a partial import
+            // would leave the table in a state the user did not choose.
+            const namePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
+            for (const v of parsed) {
+                if (!namePattern.test(v.name)) {
+                    setPredefinedEnvStatus('Invalid variable name: ' + v.name, 'error');
+                    return;
+                }
+            }
+            // Same limit the server enforces in handlePostPredefinedEnv.
+            const merged = predefinedEnvVars.slice();
+            for (const v of parsed) {
+                const existing = merged.findIndex(row => row.name.trim() === v.name);
+                if (existing >= 0) {
+                    merged[existing] = { name: merged[existing].name, value: v.value };
+                } else {
+                    merged.push({ name: v.name, value: v.value });
+                }
+            }
+            if (merged.length > 256) {
+                setPredefinedEnvStatus(
+                    `Too many predefined variables: ${merged.length} exceeds the limit of 256.`, 'error');
+                return;
+            }
+
+            predefinedEnvVars = merged;
+            renderPredefinedEnv();
+            setPredefinedEnvStatus(
+                `Imported ${parsed.length} variable${parsed.length === 1 ? '' : 's'}`
+                + ' — press Save Variables to store them.', 'info');
         }
 
         function setPredefinedEnvStatus(message, kind) {

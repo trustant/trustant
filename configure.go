@@ -3250,3 +3250,170 @@ func handlePostPredefinedEnv(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "saved", "count": len(predefined)})
 }
+
+// defaultEnvFileName is an OPTIONAL palette seed in the process working
+// directory, next to the mandatory .env. The two are unrelated: .env is server
+// configuration read by loadEnv, this one only pre-fills the predefined_env
+// palette the user sees on the Configure page.
+const defaultEnvFileName = ".env.default"
+
+// Names seeded from the provider settings already resolved for Pi when nothing
+// else supplies them. See seedPredefinedEnvFromPi.
+const (
+	aiBaseURLEnvName   = "AI_BASE_URL"
+	aiAPIKeyEnvName    = "AI_API_KEY"
+	aiChatModelEnvName = "AI_CHAT_MODEL"
+)
+
+// importDefaultPredefinedEnv folds ./.env.default into predefined_env, adding
+// only names that are not already present. Keeping existing values makes the
+// import idempotent: it runs on every start and must never clobber an edit the
+// user made on the Configure page.
+//
+// The bool reports whether the file existed at all, which is what decides
+// whether seedPredefinedEnvFromPi runs — a present seed file is authoritative
+// for the palette even when it says nothing about the AI variables, and
+// returning the fact here avoids a second os.Stat racing the first.
+func importDefaultPredefinedEnv() (found bool, err error) {
+	if _, statErr := os.Stat(defaultEnvFileName); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to stat %s: %w", defaultEnvFileName, statErr)
+	}
+
+	parsed := parseEnvFile(defaultEnvFileName)
+	if len(parsed) == 0 {
+		log.Printf("  %s has no variables to import", defaultEnvFileName)
+		return true, nil
+	}
+
+	// The workspace layer, not the merged one: saving a merged config would
+	// fold the base defaults into the workspace file.
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return true, fmt.Errorf("failed to read configuration: %w", err)
+	}
+
+	// Sorted so a truncated import at the cap is deterministic rather than
+	// dependent on map iteration order.
+	names := make([]string, 0, len(parsed))
+	for name := range parsed {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	added := make([]string, 0, len(names))
+	dropped := 0
+	for _, name := range names {
+		if !predefinedEnvNamePattern.MatchString(name) {
+			log.Printf("  Skipping invalid variable name in %s: %s", defaultEnvFileName, name)
+			continue
+		}
+		// Present with an empty value is a deliberate "recorded, no value yet"
+		// state (spec/2a-config.md); it counts as present and is kept.
+		if _, exists := wsCfg.PredefinedEnv[name]; exists {
+			continue
+		}
+		if len(wsCfg.PredefinedEnv) >= maxPredefinedEnvVars {
+			dropped++
+			continue
+		}
+		if wsCfg.PredefinedEnv == nil {
+			wsCfg.PredefinedEnv = make(map[string]string)
+		}
+		wsCfg.PredefinedEnv[name] = parsed[name]
+		added = append(added, name)
+	}
+	if dropped > 0 {
+		log.Printf("  Dropped %d variable(s) from %s: predefined_env is at its limit of %d",
+			dropped, defaultEnvFileName, maxPredefinedEnvVars)
+	}
+	if len(added) == 0 {
+		// Nothing new: do not write, or the config file churns on every restart.
+		return true, nil
+	}
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		return true, fmt.Errorf("failed to save configuration: %w", err)
+	}
+	// Names only. Values may be credentials.
+	log.Printf("  Imported %d variable(s) from %s: %s", len(added), defaultEnvFileName, strings.Join(added, ", "))
+	return true, nil
+}
+
+// seedPredefinedEnvFromPi fills AI_BASE_URL / AI_API_KEY / AI_CHAT_MODEL in
+// predefined_env from the provider settings already chosen for Pi, so an app
+// that wants to talk to a model finds working values in the palette.
+//
+// It runs only when no .env.default supplied the palette, and only for names
+// that have no value. Filling a name that is present with an EMPTY value is a
+// deliberate departure from importDefaultPredefinedEnv's keep-existing rule:
+// there an empty value means "recorded, no value yet" and is preserved, here it
+// is exactly the hole we were asked to fill. A non-empty value is never touched.
+func seedPredefinedEnvFromPi() error {
+	// The merged config: base_url may come from the base layer.
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read configuration: %w", err)
+	}
+
+	// The values Pi itself is configured with (see writePiGlobalConfig), not
+	// the raw config fields: piBaseURL normalizes Ollama's /v1 suffix, and the
+	// key is the real secret rather than the piAPIKeyRef placeholder that goes
+	// into models.json.
+	seeds := []struct{ name, value string }{
+		{aiBaseURLEnvName, piBaseURL(cfg)},
+		{aiAPIKeyEnvName, strings.TrimSpace(cfg.APIKey)},
+		{aiChatModelEnvName, piDefaultModel(cfg)},
+	}
+
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read configuration: %w", err)
+	}
+
+	added := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		// No provider chosen yet, or no Pi default: seeding empty over empty
+		// would only churn the file. A later start does the work instead.
+		if seed.value == "" {
+			continue
+		}
+		if strings.TrimSpace(wsCfg.PredefinedEnv[seed.name]) != "" {
+			continue
+		}
+		if _, exists := wsCfg.PredefinedEnv[seed.name]; !exists && len(wsCfg.PredefinedEnv) >= maxPredefinedEnvVars {
+			log.Printf("  Not seeding %s: predefined_env is at its limit of %d", seed.name, maxPredefinedEnvVars)
+			continue
+		}
+		if wsCfg.PredefinedEnv == nil {
+			wsCfg.PredefinedEnv = make(map[string]string)
+		}
+		wsCfg.PredefinedEnv[seed.name] = seed.value
+		added = append(added, seed.name)
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+	// Names only: AI_API_KEY is a live credential.
+	log.Printf("  Seeded %d AI variable(s) from the Pi provider settings: %s", len(added), strings.Join(added, ", "))
+	return nil
+}
+
+// importPredefinedEnvDefaults is the preflight step: one .env.default import,
+// falling back to the Pi-derived AI variables when that file is absent.
+func importPredefinedEnvDefaults() error {
+	found, err := importDefaultPredefinedEnv()
+	if err != nil {
+		return err
+	}
+	if found {
+		// A present seed file is authoritative for the palette, even when it
+		// never mentions the AI variables.
+		return nil
+	}
+	return seedPredefinedEnvFromPi()
+}
