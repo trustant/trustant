@@ -6,5 +6,6 @@ fi
 
 ID=~/Library/Application\ Support/Trustable/id_ed25519
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
-ssh -i "$ID" trustable@$IP "$@"
+
+ssh -i "$ID" -t $USER@$IP "cd '$PWD' && exec bash"
 

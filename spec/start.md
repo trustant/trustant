@@ -68,6 +68,24 @@ ssh.sh connects as trustable@<ip> with the Lima identity, but the package create
 the 'trustable' user without any authorized_keys. Append the Lima pubkey(s) to
 /home/trustable/.ssh/authorized_keys during install.
 
+### start.sh must never call ./ssh.sh
+
+`ssh.sh` is the **user-facing** wrapper: it takes no command and always ends in
+`exec bash`, an interactive shell. `start.sh` once probed reachability with
+`./ssh.sh true` — the argument was ignored, so the probe opened a shell and
+blocked the rest of the run. `./start.sh -v` therefore never reached the step
+that opens VS Code, and the user was dropped into a VM shell instead, with no
+error to explain it.
+
+Reachability is probed by `probe_ssh` calling `ssh` directly with the identity in
+the support dir, under `BatchMode=yes` so a missing or unauthorized key fails
+instead of prompting for a password and hanging an unattended start.
+
+It deliberately does **not** use `run_guest`/`limactl shell` either. What has to
+be proven is that *ssh with that identity* works, because that is the path VS
+Code Remote-SSH takes; `limactl` would succeed even when ssh could not connect,
+and the failure would surface later as a Remote-SSH error with no context.
+
 ## Mount the current folder
 
 Mount the folder start.sh runs from (`$(pwd)`) into the VM at the SAME path via a
@@ -254,9 +272,9 @@ destroying a VM must never require a token.
 
 `./start.sh` is idempotent — an existing VM is not an error:
 
-- Running: skip provisioning/setup, refresh support files, wait until `ssh.sh`
-	can execute in the VM, then take the selected final step (`run.sh` by default,
-	VS Code with `-v`, neither with `-n`).
+- Running: skip provisioning/setup, refresh support files, wait until a command
+	can be executed in the VM over ssh, then take the selected final step (`run.sh`
+	by default, VS Code with `-v`, neither with `-n`).
 - Stopped: `limactl start` the existing instance, skip provisioning/setup,
 	refresh support files, wait for SSH readiness, then take the same final step.
 
