@@ -185,8 +185,17 @@ func TestScreenshotScriptHandlesAllKeys(t *testing.T) {
 			t.Errorf("screenshot.sh must handle the %s key", want)
 		}
 	}
-	if !strings.Contains(script, "read -rsn1 key || ") {
-		t.Error("a failed read (EOF) must exit the loop instead of spinning")
+	// The read must time out, or the app-switch check above it is only ever
+	// evaluated after a keypress — launching a different app would then appear to
+	// do nothing, and the new app would get no shutter, until a key is pressed.
+	if !strings.Contains(script, "read -rsn1 -t") {
+		t.Error("the read must time out so the loop notices a new current app on its own")
+	}
+	// A timeout and EOF are both non-zero exits from read. They must be told
+	// apart by status: >128 is the timeout and loops again, anything else is a
+	// non-terminal stdin, where looping would spin forever on a burnt core.
+	if !strings.Contains(script, "$status -gt 128") {
+		t.Error("a failed read (EOF) must exit the loop instead of spinning; a timeout must not")
 	}
 }
 
@@ -202,6 +211,18 @@ func TestScreenshotScriptRereadsCurrentApp(t *testing.T) {
 	}
 	if strings.Count(script, "resolve_app") < 3 {
 		t.Error("resolve_app must be called inside the loop, not only once at startup")
+	}
+	// Re-reading per iteration is worth nothing if the iteration only advances on
+	// a keypress: the user launches an app, and the shutter is injected only
+	// whenever they next happen to press a key. The timeout is what makes the
+	// loop follow a launch on its own.
+	if !strings.Contains(script, "read -rsn1 -t") {
+		t.Error("the loop must poll, or a newly launched app gets no shutter until a key is pressed")
+	}
+	// The prompt is reprinted on every tick otherwise, scrolling the terminal
+	// while the user does nothing.
+	if !strings.Contains(script, `"$PROMPT" != "$LAST_PROMPT"`) {
+		t.Error("the prompt must only redraw when it changes, or polling scrolls the terminal")
 	}
 }
 

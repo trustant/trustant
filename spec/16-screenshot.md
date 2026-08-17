@@ -169,8 +169,22 @@ Delete.
 Keys are read one character at a time with `read -rsn1`, which returns an empty
 string for Enter, `$'\177'` for Backspace/Delete, and the literal character
 otherwise. Any unrecognized key reprints the options summary, which is also shown
-at startup. A read failure (EOF, e.g. stdin is a pipe) exits the loop rather than
-spinning.
+at startup.
+
+**The read times out (`-t 2`), so the loop polls rather than blocking.** This is
+load-bearing, not a nicety: the app-switch check sits *above* the read, so with a
+blocking read a newly launched app is only noticed when the user next happens to
+press a key — and gets no shutter until then. Launching an app and seeing no
+button is exactly the symptom.
+
+A timeout and EOF are both non-zero exits from `read`, and they must be told
+apart by status: **`>128` is the timeout** and loops again, while anything else
+means stdin is not a terminal (a pipe), where looping would spin forever.
+
+Because the loop now ticks on its own, the prompt line is only redrawn when its
+text actually changes (`$PROMPT` vs `$LAST_PROMPT`). Reprinting on every tick
+would scroll the terminal continuously while the user does nothing. Any action
+that prints above the prompt clears `LAST_PROMPT` to force one redraw.
 
 The **current app is re-read from `$WORKBENCH_DIR/current` on every iteration**,
 not once at startup. `writeCurrentApp` in `launch.go` rewrites that file whenever

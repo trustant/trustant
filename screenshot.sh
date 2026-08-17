@@ -784,6 +784,8 @@ cleanup_reporter() {
 trap cleanup_reporter EXIT INT TERM
 
 LAST_APP=""
+LAST_PROMPT=""
+PROMPT=""
 while true; do
   if resolve_app; then
     if [[ "$APP" != "$LAST_APP" ]]; then
@@ -811,15 +813,42 @@ while true; do
       # the preview file always exists and always belongs to the app now
       # current, rather than lingering from the previous one.
       preview "$(frame_count)"
+
+      # The lines above were printed over the prompt; force a redraw.
+      LAST_PROMPT=""
     fi
-    printf 'ENTER collect · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)"
+    PROMPT="$(printf 'ENTER collect · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)")"
   else
-    printf 'no app launched — launch one from the Trustable UI  [q quits] '
+    PROMPT='no app launched — launch one from the Trustable UI  [q quits] '
   fi
 
-  # A failed read means EOF (stdin is not a terminal): leave, do not spin.
-  IFS= read -rsn1 key || { echo; break; }
+  # Only redraw when the line actually changed. The read below times out every
+  # couple of seconds, and reprinting on every tick would scroll the terminal
+  # continuously while the user is doing nothing.
+  if [[ "$PROMPT" != "$LAST_PROMPT" ]]; then
+    printf '%s' "$PROMPT"
+    LAST_PROMPT="$PROMPT"
+  fi
+
+  # The read times out so the loop can notice a launch on its own. Without it
+  # the app switch above is only ever evaluated after a keypress, so launching a
+  # different app appears to do nothing until the user happens to press a key —
+  # and the new app gets no shutter in the meantime.
+  #
+  # -t distinguishes its two failure modes by exit status: >128 is the timeout
+  # (go round again), anything else is EOF, i.e. stdin is not a terminal, where
+  # spinning would burn a core forever.
+  IFS= read -rsn1 -t 2 key
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    [[ $status -gt 128 ]] && continue
+    echo
+    break
+  fi
   echo
+  # The keypress moved the cursor off the prompt line and the action below adds
+  # its own output, so the prompt has to be drawn again next time round.
+  LAST_PROMPT=""
 
   case "$key" in
     q|Q) break ;;
