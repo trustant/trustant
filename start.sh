@@ -570,6 +570,24 @@ ensure_env_file() {
   fi
 }
 
+# Install gh as the HOST's git credential helper for github.com. Distinct from
+# login_github_from_token, which runs via run_guest and so only ever configures
+# the VM: the private submodule clones in ensure_source_submodules happen on the
+# host, before the VM exists. Warning-only — a host without gh can still start,
+# it just cannot clone private submodules.
+setup_git_credential_helper() {
+  echo "--- Configuring git credential helper ---"
+  if ! command -v gh >/dev/null 2>&1; then
+    warn "gh is not installed on this host; private submodule clones may fail"
+    return 0
+  fi
+  if gh auth setup-git --hostname github.com >/dev/null 2>&1; then
+    ok "git will authenticate to github.com through gh"
+  else
+    warn "could not configure gh as a git credential helper"
+  fi
+}
+
 # First real step of every start: the run provisions a cluster and clones private
 # sources, so a missing GitHub token is worth catching up front rather than 10
 # minutes later at login_github_from_token. Prompt for it when absent and persist
@@ -1268,6 +1286,13 @@ fi
 # First steps of a real start on either host. Placed after the -s/-k branches,
 # which exit above and must not need a .env or a token to stop or destroy a VM.
 ensure_env_file
+# WHY: `gh auth login --with-token` authenticates the gh CLI but does NOT install
+# a git credential helper, so plain `git` still has no way to read github.com.
+# ensure_source_submodules runs on the HOST and clones private submodules
+# (trustable-acp, olaris-bestia) over https, which then fails with
+# "could not read Username for 'https://github.com'". This wires gh in as the
+# host's credential helper so those fetches authenticate with the existing token.
+setup_git_credential_helper
 require_gh_token
 
 # --- native Linux: no VM, initialize this host directly ----------------------
