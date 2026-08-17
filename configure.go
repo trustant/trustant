@@ -3250,3 +3250,80 @@ func handlePostPredefinedEnv(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"status": "saved", "count": len(predefined)})
 }
+
+// defaultEnvFileName is an OPTIONAL palette seed in the process working
+// directory, next to the mandatory .env. The two are unrelated: .env is server
+// configuration read by loadEnv, this one only pre-fills the predefined_env
+// palette the user sees on the Configure page.
+const defaultEnvFileName = ".env.default"
+
+// importDefaultPredefinedEnv folds ./.env.default into predefined_env, adding
+// only names that are not already present. Keeping existing values makes the
+// import idempotent: it runs on every start and must never clobber an edit the
+// user made on the Configure page.
+func importDefaultPredefinedEnv() error {
+	if _, statErr := os.Stat(defaultEnvFileName); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return nil
+		}
+		return fmt.Errorf("failed to stat %s: %w", defaultEnvFileName, statErr)
+	}
+
+	parsed := parseEnvFile(defaultEnvFileName)
+	if len(parsed) == 0 {
+		log.Printf("  %s has no variables to import", defaultEnvFileName)
+		return nil
+	}
+
+	// The workspace layer, not the merged one: saving a merged config would
+	// fold the base defaults into the workspace file.
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read configuration: %w", err)
+	}
+
+	// Sorted so a truncated import at the cap is deterministic rather than
+	// dependent on map iteration order.
+	names := make([]string, 0, len(parsed))
+	for name := range parsed {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	added := make([]string, 0, len(names))
+	dropped := 0
+	for _, name := range names {
+		if !predefinedEnvNamePattern.MatchString(name) {
+			log.Printf("  Skipping invalid variable name in %s: %s", defaultEnvFileName, name)
+			continue
+		}
+		// Present with an empty value is a deliberate "recorded, no value yet"
+		// state (spec/2a-config.md); it counts as present and is kept.
+		if _, exists := wsCfg.PredefinedEnv[name]; exists {
+			continue
+		}
+		if len(wsCfg.PredefinedEnv) >= maxPredefinedEnvVars {
+			dropped++
+			continue
+		}
+		if wsCfg.PredefinedEnv == nil {
+			wsCfg.PredefinedEnv = make(map[string]string)
+		}
+		wsCfg.PredefinedEnv[name] = parsed[name]
+		added = append(added, name)
+	}
+	if dropped > 0 {
+		log.Printf("  Dropped %d variable(s) from %s: predefined_env is at its limit of %d",
+			dropped, defaultEnvFileName, maxPredefinedEnvVars)
+	}
+	if len(added) == 0 {
+		// Nothing new: do not write, or the config file churns on every restart.
+		return nil
+	}
+	if err := saveWorkspaceConfig(wsCfg); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+	// Names only. Values may be credentials.
+	log.Printf("  Imported %d variable(s) from %s: %s", len(added), defaultEnvFileName, strings.Join(added, ", "))
+	return nil
+}

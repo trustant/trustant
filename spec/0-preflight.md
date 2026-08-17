@@ -55,6 +55,21 @@ shell by the terminal (see [12-terminal.md](12-terminal.md)).
 
 - use lsof -i and check for processes occupying in port 8910 4096 and 5173 and kill them
 
+# import predefined environment variables
+
+After the migration above — which is what guarantees a workspace
+`trustable.json` exists to write into — and before the SSH key check, fold an
+**optional** `.env.default` in the working directory into the `predefined_env`
+palette, adding only names that are not already there.
+
+This only populates the palette; nothing reaches an application. Failure is
+**non-fatal** — log a warning and carry on, as with the pgid and port cleanup: a
+malformed optional file must not stop the server from starting. Only variable
+names are logged, never values.
+
+The rules in full are in [2a-config.md](2a-config.md) under "Predefined
+environment variables".
+
 # check ssh key
 
 Ensure a persistent ed25519 key exists under

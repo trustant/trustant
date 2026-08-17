@@ -525,6 +525,67 @@ required:
 Without either half, saving a provider from the Configure page silently wipes
 the user's predefined variables.
 
+### Importing from a file
+
+The Configure page's **Import from file** button fills the table from a local
+`.env`-style file instead of row-by-row typing. The file is read and parsed **in
+the browser**; it is never uploaded, and no endpoint exists for it.
+
+**Any text file is accepted.** The picker carries no `accept` filter, because
+env files are routinely named `.env.local`, `.env.production`, `env.txt` or have
+no extension at all, and an extension hint greys exactly those out in the OS
+dialog. What the file is *called* is not evidence of what it contains, so the
+content decides: a NUL byte or a U+FFFD replacement character — the marks of a
+failed UTF-8 decode — rejects the file as binary with a message saying so.
+`File.text()` decodes arbitrary bytes without throwing, so without that check a
+JPEG would parse into mojibake rows rather than being refused.
+
+The parse rules are deliberately identical to `parseEnvFile` in
+[configure.go](../configure.go), so the two import paths cannot drift: trim the
+line, skip empty lines and lines starting with `#`, split on the **first** `=`,
+trim both sides. There is no `export ` stripping and no quote unwrapping.
+
+- **Merge rule: uploaded wins.** A parsed name already in the table replaces
+  that row's value; a new name is appended. This is the opposite of the
+  `.env.default` rule below, and correct here: the user just picked this file.
+- The same limits the server enforces are checked client-side before anything is
+  merged — names must match `^[A-Za-z_][A-Za-z0-9_]*$`, and the resulting table
+  must not exceed 256 rows. A violation names the offending key and merges
+  **nothing**: a partial import would leave the table in a state the user did
+  not choose.
+- Nothing is persisted. The status line says so, and the user reviews the table
+  and presses the existing **Save Variables**, which POSTs to
+  `/api/predefined-env` as usual.
+
+### Automatic import of `.env.default`
+
+At preflight, an **optional** `.env.default` in the server's working directory —
+next to the mandatory `.env`, read with the same `parseEnvFile` — is folded into
+`predefined_env`. The two files are unrelated: `.env` is server configuration,
+`.env.default` only pre-fills this palette.
+
+- **Conflict rule: keep existing.** Only names absent from `predefined_env` are
+  added; a name the user already has is never overwritten. This is what makes
+  the import idempotent and safe to run on every start. A name present with an
+  **empty** value counts as present and is kept — that is the deliberate
+  "recorded, no value yet" state described above.
+- A name failing the name pattern is skipped and logged; the valid names in the
+  same file still import.
+- The 256-entry cap applies, and the remainder is dropped with a log line rather
+  than writing a map that `POST /api/predefined-env` would then reject.
+- If nothing was added, the config is **not written**, so the file does not
+  churn on every restart.
+- Failure is non-fatal: a malformed optional file logs a warning and the server
+  starts. Values are never logged, only names — they may be credentials.
+
+### Neither path applies anything
+
+Both routes above populate the palette and go no further. The palette remains
+**not a source**: `missingAppEnvKeys`, `seedMissingEnvKeys` and
+`generateAppEnvFiles` are unchanged, and the only way a value reaches an
+application is still the **Use predefined values** button followed by an
+explicit save.
+
 ## Current app tracking
 
 The `current` field in the workspace `trustable.json` stores the name of the currently launched app. It is set when an app is launched (`writeCurrentApp`) and cleared when the launch is stopped (`removeCurrentFile`). The `workbench/current` file is also maintained for backward compatibility.
