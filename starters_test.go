@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -232,5 +233,20 @@ func TestHandleStartersRejectsNonGET(t *testing.T) {
 	handleStarters(rec, httptest.NewRequest(http.MethodPost, "/api/starters", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+// The index host is load-bearing, not cosmetic. raw.githubusercontent.com
+// rate-limits and was observed returning 429, which makes fetchStarterIndex
+// fail and leaves the Add Application modal empty; the icon URLs carried inside
+// the index point at the same host, so the browser's per-tile requests are
+// throttled with it. This pins the endpoint so it cannot regress by a careless
+// edit or a revert.
+func TestStartersIndexURLIsNotRateLimitedHost(t *testing.T) {
+	if !strings.HasPrefix(startersIndexURL, "https://trustable.it/") {
+		t.Errorf("startersIndexURL = %q, want it served from trustable.it", startersIndexURL)
+	}
+	if strings.Contains(startersIndexURL, "raw.githubusercontent.com") {
+		t.Errorf("startersIndexURL points back at the rate-limited host: %q", startersIndexURL)
 	}
 }
