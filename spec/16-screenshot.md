@@ -36,6 +36,53 @@ re-derive and get wrong, so both halves are recorded:
   is same-origin by definition, and `http://localhost:5173` **is** a secure
   context under the localhost exception.
 
+**Which tab you record in therefore matters, and it is the one thing users get
+wrong.** The localhost exception is what makes this work, so the app must be open
+on `http://localhost:5173` directly. Reaching the same app through the Trustable
+UI serves it from `http://vite.<ip>.nip.io:8910` — plain HTTP on a non-localhost
+host, which is *not* a secure context. The shutter still renders there (the
+plugin is served either way), but `navigator.mediaDevices` is `undefined`, so
+clicking it can only fail. Without a check the click throws a bare `TypeError`
+that the catch renders as a 1.2-second tooltip change — indistinguishable from
+the button doing nothing.
+
+So the button **moves the user instead of only explaining**: on a non-secure
+origin the click opens the same route on the capture origin — the very URL the
+recorder polls, baked into the payload from `$URL` so the two cannot drift — and
+the click there, now on `localhost`, captures. `location.pathname`, `search` and
+`hash` are carried across, so the window lands on the route the tab was already
+showing. What cannot survive an origin change is tab-local state: form input,
+open modals and scroll position are lost in the hop. That is why this is a
+fallback rather than the normal path — recording from `localhost:5173` in the
+first place keeps the state the recorder exists to capture.
+
+**The window is sized to the capture canvas**, not left to the browser. It opens
+at `SHOT_WIDTH`×`SHOT_HEIGHT` — 600×800, a 3:4 portrait — so the viewport is
+already in the ratio the frame will be encoded at. A viewport in the canvas ratio
+is letterboxed edge to edge, so the recording carries no white bars and the app
+lays itself out at the shape it is actually recorded in. The dimensions are read
+from the same `W`/`H` the normalization uses, never written a second time, so the
+window cannot drift from the frame size.
+
+Two corrections apply to that size:
+
+- **Browser chrome.** `window.open` sizes the *whole window*, so the content area
+  comes out short by the height of the toolbars — the body would not be in the
+  requested ratio at all. The popup measures its own `innerWidth`/`innerHeight`
+  and `resizeBy()`s the difference, on both `load` and a 400ms timer, since some
+  browsers report a stale inner size at `load`.
+- **Small screens.** A 600×800 window does not fit every display, so the size is
+  capped to the available screen area and scaled down *proportionally*, keeping
+  3:4 exactly. Never scaled up past 1:1.
+
+A blocked popup is reported (`allow popups for this site`) rather than swallowed:
+silence there would read as the button doing nothing, which is the very failure
+this path exists to remove.
+
+A page already on the capture origin never redirects. If capture is missing
+*there*, the browser simply lacks the API, and the button says to use Chromium
+rather than reloading forever.
+
 A `MediaStream` from `getDisplayMedia` also does **not** taint the canvas, unlike
 a cross-origin `<img>` — so `toBlob` works. That is precisely the property the
 original UI design was reaching for and could not have.
@@ -57,7 +104,42 @@ $WORKBENCH_DIR/<current>/
 
 <repo root>/
   screenshot.png            scratch copy for editor preview, gitignored
+  aaa-screenshot.png -> $WORKBENCH_DIR/<current>/screenshot.png
+  aaa-screenshot     -> $WORKBENCH_DIR/<current>/screenshot/
 ```
+
+## The aaa-* links
+
+Two symlinks next to `screenshot.sh` point **into** the currently-launched app,
+which is what distinguishes them from `./screenshot.png` — that one is a *copy*.
+Both exist on purpose: the copy is a stable preview that survives an app switch
+and can be opened even with no app launched, while the links always resolve to
+the live artifact and the frame directory, so individual frames can be opened
+without typing the workbench path.
+
+The `aaa-` prefix is not decoration: it sorts them to the top of an editor's file
+tree, which is the only place they are useful.
+
+They are **refreshed on every app switch**, from `preview()`, and **removed when
+no app is current** — a link resolving to the previously-launched app's recording
+is worse than an absent one.
+
+Recreated rather than repointed, because `ln -sf` *without* `-n` follows an
+existing symlink to a directory and creates the new link **inside the old
+target** — leaving `aaa-screenshot/screenshot` behind in the previous app while
+the link itself never moves. `ln -sfn` gets this right, but removing first is
+immune either way and also clears a leftover real directory. `rm -rf` never
+touches the *target*: `rm` does not follow a symlink, so the app's own
+`screenshot/` directory is safe.
+
+A link whose target does not exist yet is still created. The app may have no
+recording, and the link resolves by itself the moment the first frame is
+collected. Creating the target to avoid a dangling link was tried and rejected:
+it left an empty `screenshot/` directory in the checkout of an app the user never
+recorded, and git does not track empty directories, so it bought nothing.
+
+Both are gitignored — they hold per-machine absolute paths pointing outside the
+repo.
 
 Frames are individual files named `YYYYMMDD-HHMMSS.png` from `date -u`, so they
 sort chronologically as plain text and `sorted()` is the frame order. Two
@@ -228,10 +310,17 @@ The numbers are unchanged from the Playwright design but **their meaning has
 inverted**, which makes this the paragraph most likely to mislead.
 
 It no longer controls what the app renders — the app renders at whatever size the
-user's window happens to be. The grabbed frame is contain-fit onto a fixed
-600×800 canvas, filled white and centred, so the whole tab is always visible and
-every frame is always the same size. Override with `TRUSTABLE_SCREENSHOT_WIDTH` /
-`_HEIGHT`.
+user's window happens to be. A window the shutter opened is resized to the canvas
+before each grab; whatever arrives is then fitted by width onto a fixed 600×800
+canvas, so every frame is always the same size. Override with
+`TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT`.
+
+The size is also requested from the capture itself, as
+`video: { width: { ideal: W }, height: { ideal: H } }`, so the browser's own
+tab-capture scaler delivers the target shape where it can and there is nothing
+left to letterbox. `ideal`, never `exact`: an unmeetable `exact` constraint fails
+the whole call with `OverconstrainedError`, and a letterboxed frame beats no
+capture at all.
 
 **The fixed size is load-bearing.** ffmpeg's APNG encoder requires identical
 dimensions across the `%05d` sequence, and `getDisplayMedia` returns the tab's
@@ -245,15 +334,40 @@ is created and the invariant cannot be forgotten. The shell bakes its
 can never disagree — which is also what keeps `blank_preview`'s placeholder the
 same size as a real frame.
 
-**Contain-fit, not crop.** The tab is landscape and the canvas is portrait, so a
-cover-fit crop would discard roughly 60% of the width, the app's left nav
-included. The user clicked the button on the page they wanted recorded; silently
-throwing most of it away is the worst available outcome. Stretching is worse
-still — it squashes text by about 2.4×.
+**The viewport is shaped before the frame is grabbed.** White bands come from a
+source whose ratio differs from the canvas, so the *source* is corrected rather
+than the result padded. After the share is granted and before the grab, a window
+the shutter opened resizes itself until `innerWidth`/`innerHeight` match the
+canvas, within a two-pixel slop and capped at three attempts.
 
-Letterbox bars are **white**, matching the `color=c=white` placeholder
-`blank_preview` writes with ffmpeg, so the animation does not flash between
-backgrounds.
+The timing is forced: Chrome pushes a **"Sharing this tab" bar** into the window
+once sharing starts, which steals viewport height. That bar does not exist at
+`window.open` time, so the size cannot be got right in advance — it can only be
+measured and given back once sharing is under way. The slop and the attempt cap
+exist because a browser may clamp the size it will accept; without them the loop
+chases the last pixel and can oscillate.
+
+Only a window this script opened may resize itself, so an ordinary tab is left
+alone and falls through to the fit below.
+
+**Width-first, cropping the bottom.** Whatever the source, the frame is scaled so
+its **width matches the canvas exactly** and is anchored **top-left**. The width
+carries the layout — left nav, content column, right rail — so it is never
+cropped; the height that implies is then taken from the top, and a page taller
+than the canvas loses its bottom, which is the part below the fold.
+
+This replaced a contain-fit, which scaled to whichever axis fit *worst* and
+letterboxed the rest: 1512×832 onto a 600×800 canvas filled barely a third of the
+height and banded the remainder. Anchoring top-left rather than centring matters
+for the same reason — centring a too-tall frame cuts the header off as well as
+the footer, and the header is what identifies the page.
+
+Whatever area is still left over is filled with **the page's own background
+colour**, sampled from `body` then `documentElement` and skipping `transparent`.
+It used to be hardcoded `#ffffff` to match `blank_preview`'s `color=c=white`
+ffmpeg placeholder, which is exactly why the bands were so conspicuous: on a dark
+app they flashed bright white. The placeholder only ever shows *before the first
+frame exists*, so matching it was never worth a visible seam in real frames.
 
 The device pixel ratio is deliberately **not** applied: `getDisplayMedia` already
 returns device pixels, so scaling by DPR again would yield 1200×1600 frames on
@@ -290,7 +404,16 @@ independently of the other.
 **The same rule carries `[data-trustable-shutter]`, so the button hides itself.**
 It sits on the very page it is capturing; without this it is in every frame. The
 rule uses `visibility:hidden` rather than `display:none` so geometry stays stable
-and nothing reflows mid-capture.
+and nothing reflows mid-capture. `!important` in a `<head>` stylesheet reaches
+the button whether or not it is in the top layer.
+
+**The shutter also leaves the top layer for the duration** — `hidePopover()`
+before the grab, `showPopover()` again in `showChrome`. Turning it invisible is
+already sufficient for the frame; leaving the top layer as well means the
+popover keeps no compositing surface over the page, and the app's own modal
+stays the frontmost thing in the capture. Re-entering afterwards also makes the
+button the newest top-layer entry again, so it is still clickable over a modal
+that is still open.
 
 **Everything hidden is restored in a `finally`.** Playwright never needed this —
 it threw the whole browser away. Leaving a user's toolkit permanently invisible
@@ -399,10 +522,35 @@ carrying `data-trustable-shutter` and the id `__trustable_shutter__`.
 
 - **Top right**, because the `@agentic-react` launcher is bottom-right and 58px —
   no geometric overlap.
-- **`z-index: 2147483001`**, exactly one above that launcher's `2147483000`, so
-  it can never be occluded. Deliberately *not* `2147483647`: squatting on
-  `INT_MAX`, where browsers clamp, would make it un-overridable inside someone
-  else's app.
+- **`z-index: 2147483001`**, exactly one above that launcher's `2147483000`.
+  Deliberately *not* `2147483647`: squatting on `INT_MAX`, where browsers clamp,
+  would make it un-overridable inside someone else's app.
+- **A manual popover, because z-index is not enough.** A `<dialog open>` or any
+  element with `popover` renders in the browser's **top layer**, which paints
+  above the entire z-index stack — `2147483001` loses to it exactly as `1`
+  would, so the shutter would be buried under the app's own modals. The button
+  therefore enters the top layer itself via `btn.popover = "manual"` +
+  `showPopover()`, where it stacks above earlier top-layer entries and stays
+  clickable over a modal. The z-index still carries the fallback case: a browser
+  without popover support throws from `showPopover`, and the button remains an
+  ordinary `position:fixed` body child.
+
+  `manual`, never `auto`: an auto popover light-dismisses on any outside click,
+  so the first click anywhere in the app would close the shutter and the `●`
+  would simply vanish.
+
+  Top-layer order is **entry order**, so a dialog opened *after* the button
+  paints above it. A `MutationObserver` on `[open]` / `popover` re-enters the
+  top layer (`hidePopover()` then `showPopover()`) whenever the app opens a
+  newer dialog or popover, making the button the newest entry again. Observing
+  is both cheaper and more reliable than guessing how each framework opens
+  modals.
+
+  Being a popover drags in the UA stylesheet's `[popover]` rule, which sets
+  `inset: 0` and centering margins. `inset:auto;margin:0` therefore comes
+  **before** `top:12px;right:12px` in the `cssText`: `inset` is a shorthand for
+  all four offsets, so declared *after* them in the same block it would wipe the
+  corner placement.
 - **Inline styles, never a stylesheet.** An injected `<style>` loses to the app's
   own CSS reset — a Tailwind-preflight rule resetting every button property would
   erase the button outright. Inline styles beat any selector short of

@@ -43,6 +43,14 @@ case " ${ID:-} ${ID_LIKE:-} " in
 esac
 
 # --- 2. Environment ---
+#
+# The recorder is a keyboard loop, so it needs a terminal on stdin. Without one
+# every read hits EOF immediately and the loop exits after drawing its prompt
+# once — which looks like a crash, and is the confusing half of running this
+# through a pipe or a non-interactive ssh. Refuse up front, before anything is
+# injected into the user's config, and name the fix.
+[[ -t 0 ]] || fail "screenshot.sh needs an interactive terminal — run it in a shell (./ssh.sh, then ./screenshot.sh), not piped or through 'ssh <host> ./screenshot.sh'"
+
 [[ -f .env ]] || fail ".env not found — run ./setup.sh first"
 # shellcheck disable=SC1091
 source ./.env
@@ -198,10 +206,13 @@ inject_reporter() {
   # cannot locate at all — see the failure paths in the Python block.
   unhide_all
   python3 - "$config" "$REPORTER_BEGIN" "$REPORTER_END" "$SHUTTER_ID" \
-           "$SHOT_ENDPOINT" "$SHOT_WIDTH" "$SHOT_HEIGHT" <<'PY' || return 1
+           "$SHOT_ENDPOINT" "$SHOT_WIDTH" "$SHOT_HEIGHT" "$URL" <<'PY' || return 1
 import re, sys
 path, begin, end, marker = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 endpoint, width, height = sys.argv[5], sys.argv[6], sys.argv[7]
+# The origin the recorder polls, so the redirect target below can never drift
+# from the port this script actually collects frames from.
+capture_origin = sys.argv[8].rstrip('/')
 source = open(path).read()
 
 # The client script is assembled with single quotes and concatenation, never
@@ -323,6 +334,16 @@ const trustableScreenshotShutter = () => {{
           // above it, not INT_MAX: squatting on the ceiling would make this
           // un-overridable inside someone else's app.
           //
+          // z-index alone is not enough. A <dialog open> or any element with
+          // popover renders in the browser's TOP LAYER, which paints above the
+          // whole z-index stack — no value, 2147483001 or INT_MAX, can climb
+          // over it. So the button is a manual popover itself: that puts it in
+          // the top layer too, where it stacks above earlier top-layer entries
+          // and stays clickable over the app's modals. The z-index still
+          // matters for the ordinary-stacking case (a browser without popover
+          // support, where showPopover throws and the button remains a plain
+          // fixed child).
+          //
           // Styles are inline, not a stylesheet: an injected <style> loses to
           // the app's own reset, and a Tailwind-preflight rule resetting every
           // button property would erase this button entirely.
@@ -334,12 +355,48 @@ const trustableScreenshotShutter = () => {{
           // A geometric glyph, not an emoji: this renders in the USER's browser,
           // whose font coverage is unknown. The VM's emoji font is irrelevant here.
           '  btn.textContent = "\\u25CF";',
-          '  btn.style.cssText = "position:fixed;top:12px;right:12px;width:36px;height:36px;"',
+          // "inset:auto;margin:0" must precede top/right: the UA stylesheet for
+          // [popover] sets inset:0 and centering margins, and inset is a
+          // shorthand for top/right/bottom/left — declared after them in the
+          // same block it would wipe the corner placement.
+          '  btn.style.cssText = "position:fixed;inset:auto;margin:0;top:12px;right:12px;"',
+          '    + "width:36px;height:36px;overflow:visible;"',
           '    + "border-radius:50%;border:1px solid rgba(0,0,0,.2);background:#ffffff;color:#dd3333;"',
           '    + "font:16px/1 system-ui,sans-serif;cursor:pointer;padding:0;z-index:2147483001;"',
           '    + "box-shadow:0 1px 4px rgba(0,0,0,.3)";',
-          '  function mount() {{ if (document.body) document.body.appendChild(btn); }}',
+          // A manual popover, not auto: an auto popover light-dismisses on any
+          // outside click, so the first click anywhere in the app would close
+          // the shutter. Manual only closes when asked.
+          //
+          // "margin:0" is set with the inline styles above because the UA
+          // stylesheet gives [popover] centering margins that would drag the
+          // button out of the corner.
+          '  function raise() {{',
+          '    try {{',
+          '      if (btn.isConnected && btn.popover && !btn.matches(":popover-open")) btn.showPopover();',
+          '    }} catch (e) {{ /* no popover support: the z-index path stands */ }}',
+          '  }}',
+          '  function mount() {{',
+          '    if (!document.body) return;',
+          '    document.body.appendChild(btn);',
+          '    if ("popover" in btn) btn.popover = "manual";',
+          '    raise();',
+          '  }}',
           '  if (document.body) mount(); else addEventListener("DOMContentLoaded", mount);',
+          // Top-layer order is entry order, so a dialog opened AFTER the button
+          // paints above it. Re-entering the top layer on each new dialog/popover
+          // makes the button the newest entry again. Observing is cheaper and
+          // more reliable than guessing which frameworks open modals how.
+          '  if (typeof MutationObserver === "function") {{',
+          '    new MutationObserver(function () {{',
+          '      if (document.querySelector("dialog[open],[popover]:popover-open:not([data-trustable-shutter])")) {{',
+          '        try {{ if (btn.matches(":popover-open")) btn.hidePopover(); }} catch (e) {{}}',
+          '        raise();',
+          '      }}',
+          '    }}).observe(document.documentElement, {{',
+          '      subtree: true, childList: true, attributes: true, attributeFilter: ["open", "popover"],',
+          '    }});',
+          '  }}',
 
           '  function flash(text, good) {{',
           '    btn.title = text;',
@@ -362,6 +419,11 @@ const trustableScreenshotShutter = () => {{
           '      + "[data-agentic-react-tuning-surface],[data-agentic-react-tuning-panel],"',
           '      + "[data-trustable-shutter]{{visibility:hidden !important;}}";',
           '    document.head.appendChild(style);',
+          // The visibility rule above already covers the button, top layer or
+          // not. Leaving the top layer as well is belt-and-braces: a popover
+          // still in the top layer keeps a compositing surface over the page,
+          // and the app's own modal must stay the frontmost thing in the frame.
+          '    try {{ if (btn.matches(":popover-open")) btn.hidePopover(); }} catch (e) {{}}',
           '    try {{',
           '      globalThis.__AGENTIC_REACT__?.hideToolkit?.();',
           '      globalThis.__AGENTIC_REACT__?.exitSelectionMode?.();',
@@ -373,6 +435,9 @@ const trustableScreenshotShutter = () => {{
           // toolkit invisible.
           '  function showChrome(style) {{',
           '    if (style && style.parentNode) style.parentNode.removeChild(style);',
+          // Back into the top layer, as the newest entry — so the button is
+          // clickable again even though the app's modal is still open.
+          '    raise();',
           '    try {{ globalThis.__AGENTIC_REACT__?.showToolkit?.(); }} catch (e) {{}}',
           '  }}',
 
@@ -401,29 +466,63 @@ const trustableScreenshotShutter = () => {{
           // ffmpeg's APNG encoder needs every frame in the sequence to share
           // dimensions. getDisplayMedia returns the tab's real size, which
           // differs per machine AND changes when the window is resized
-          // mid-session, so the frame is contain-fit onto a fixed canvas here,
-          // at the point of creation.
+          // mid-session, so the frame is fitted onto a fixed canvas here, at
+          // the point of creation.
           //
-          // Contain-fit, not crop: the tab is landscape and the canvas portrait,
-          // so a cover-fit crop would discard most of the width. White fill, to
-          // match the ffmpeg blank placeholder so the animation does not flash.
+          // The fit is WIDTH-first, cropping the bottom. An earlier version
+          // contain-fit the frame, which letterboxed every landscape tab: at
+          // 1512x832 onto a 600x800 portrait canvas the image occupies barely a
+          // third of the height and the rest is band. Fitting the width instead
+          // keeps the layout at full scale and simply ends the frame lower down
+          // the page.
+          //
+          // The fill still matters for the opposite case — a tab WIDER in ratio
+          // than the canvas leaves space under the image — and it is the page's
+          // own background colour, not #ffffff, so that leftover blends into a
+          // dark app instead of glaring. ffmpeg's blank placeholder is white,
+          // but that only ever shows before the first frame exists.
           //
           // The pixel ratio is deliberately not applied: getDisplayMedia already
           // returns device pixels, so scaling by DPR again would give 1200x1600
           // frames on Retina and reintroduce the variance.
+          '  function pageBackground() {{',
+          '    try {{',
+          '      var els = [document.body, document.documentElement];',
+          '      for (var i = 0; i < els.length; i++) {{',
+          '        if (!els[i]) continue;',
+          '        var c = getComputedStyle(els[i]).backgroundColor;',
+          // Skip transparent: it says nothing about what the user actually sees.
+          '        if (c && c !== "transparent" && !/rgba\\(0,\\s*0,\\s*0,\\s*0\\)/.test(c)) return c;',
+          '      }}',
+          '    }} catch (e) {{}}',
+          '    return "#ffffff";',
+          '  }}',
           '  function normalize(bitmap) {{',
           '    var canvas = document.createElement("canvas");',
           '    canvas.width = W;',
           '    canvas.height = H;',
           '    var ctx = canvas.getContext("2d");',
-          '    ctx.fillStyle = "#ffffff";',
+          '    ctx.fillStyle = pageBackground();',
           '    ctx.fillRect(0, 0, W, H);',
-          '    var scale = Math.min(W / bitmap.width, H / bitmap.height);',
-          '    var w = Math.round(bitmap.width * scale);',
+          // Fit the WIDTH, always. The width is what carries the layout — the
+          // left nav, the content column, the right rail — so it is scaled to
+          // the canvas exactly and never cropped. Whatever height that implies
+          // is then taken from the TOP: a tab that is too tall loses its
+          // bottom, which is the part below the fold the user was not looking
+          // at anyway.
+          //
+          // This replaces a contain-fit, which letterboxed every landscape tab
+          // with thick bands. Cropping the bottom is not a compromise here: it
+          // is what "record the page" means at a portrait canvas.
+          '    var scale = W / bitmap.width;',
+          '    var w = W;',
           '    var h = Math.round(bitmap.height * scale);',
           '    ctx.imageSmoothingEnabled = true;',
           '    ctx.imageSmoothingQuality = "high";',
-          '    ctx.drawImage(bitmap, Math.round((W - w) / 2), Math.round((H - h) / 2), w, h);',
+          // Anchored top-left, not centred: centring a too-tall frame would cut
+          // the header off as well as the footer, and the header is the part
+          // that identifies the page.
+          '    ctx.drawImage(bitmap, 0, 0, w, h);',
           '    return new Promise(function (resolve, reject) {{',
           '      canvas.toBlob(function (b) {{ b ? resolve(b) : reject(new Error("toBlob")); }}, "image/png");',
           '    }});',
@@ -433,11 +532,80 @@ const trustableScreenshotShutter = () => {{
           '    btn.disabled = true;',
           '    var stream = null, style = null;',
           '    try {{',
+          // Screen capture exists only in a secure context. Opening the app
+          // through the Trustable UI puts it on http://vite.<ip>.nip.io, which
+          // is plain HTTP and not localhost, so navigator.mediaDevices is
+          // undefined and the click could only throw a TypeError the catch
+          // below turns into a 1.2s tooltip — the "shutter does nothing"
+          // report.
+          //
+          // So move the user instead of just telling them: open the same route
+          // on the origin the recorder polls, which is localhost and therefore
+          // a secure context. The path, query and hash are carried over so the
+          // window lands where the tab already was; tab-local state (form
+          // input, modals, scroll) cannot survive an origin change, which is
+          // why this is a fallback and not the normal path.
+          //
+          // A new window rather than this tab, sized so its *content area*
+          // matches the capture canvas exactly. That is the whole point of the
+          // popup: a viewport already in the canvas ratio is letterboxed edge
+          // to edge, so the recording carries no white bars and the app lays
+          // itself out at the shape it will be recorded in.
+          //
+          // This guard is synchronous on purpose: an await here would consume
+          // the transient user activation getDisplayMedia needs.
+          '      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {{',
+          '        var target = "{capture_origin}" + location.pathname + location.search + location.hash;',
+          // Guard against a reopen loop: if we are already on the capture
+          // origin, screen capture is missing for some other reason (an
+          // unsupported browser), and opening another window achieves nothing.
+          '        if (location.origin === "{capture_origin}") {{',
+          '          throw new Error("this browser has no screen capture — use Chromium");',
+          '        }}',
+          // The ratio is derived from the canvas, never written twice: these
+          // are the same numbers ffmpeg encodes, so the window cannot drift
+          // from the frame size the way a second hardcoded pair would.
+          '        var vw = W, vh = H;',
+          '        var cap = Math.min((screen.availWidth - 80) / vw, (screen.availHeight - 120) / vh, 1);',
+          '        vw = Math.round(vw * cap); vh = Math.round(vh * cap);',
+          '        var win = window.open(target, "trustable-capture",',
+          '          "width=" + vw + ",height=" + vh + ",menubar=0,toolbar=0,location=0,status=0");',
+          '        if (!win) {{',
+          '          throw new Error("allow popups for this site, then click again");',
+          '        }}',
+          // window.open sizes the whole window, chrome included, so the content
+          // area comes out short by the height of the toolbars. Correct it once
+          // the popup can measure itself: resizeBy works on the outer size, and
+          // the difference between requested and actual inner size is exactly
+          // the correction needed. Same-origin is not required for resizeBy on
+          // a window we opened, but reading innerWidth is, so this runs inside
+          // the popup via its own load handler.
+          '        var fix = function () {{',
+          '          try {{',
+          '            var dw = vw - win.innerWidth, dh = vh - win.innerHeight;',
+          '            if (dw || dh) win.resizeBy(dw, dh);',
+          '          }} catch (e) {{ /* cross-origin or blocked: keep the requested size */ }}',
+          '        }};',
+          // Two attempts: the load event fires once the popup has a layout, and
+          // the timeout covers browsers that report a stale innerHeight there.
+          '        win.addEventListener("load", fix);',
+          '        setTimeout(fix, 400);',
+          '        flash("opened " + vw + "x" + vh, true);',
+          '        return;',
+          '      }}',
           // getDisplayMedia MUST be the first statement: transient user
           // activation is consumed across awaits, and any await moved ahead of
           // it makes this fail with NotAllowedError on some machines only.
+          // The ideal width/height ask the tab-capture scaler for the output
+          // shape directly, which is what removes the letterbox in the common
+          // case: a viewport whose chrome could not be fully resized away
+          // arrives already at the canvas ratio instead of a few pixels short.
+          // "ideal", not "exact": an exact constraint the browser cannot meet
+          // fails the whole call with OverconstrainedError, and a slightly
+          // letterboxed frame is far better than no capture at all.
           '      stream = await navigator.mediaDevices.getDisplayMedia({{',
-          '        video: {{ frameRate: 30 }}, audio: false, preferCurrentTab: true,',
+          '        video: {{ frameRate: 30, width: {{ ideal: W }}, height: {{ ideal: H }} }},',
+          '        audio: false, preferCurrentTab: true,',
           '        selfBrowserSurface: "include", surfaceSwitching: "exclude", systemAudio: "exclude",',
           '      }});',
           // The only privacy control here: a full-screen share would post
@@ -445,6 +613,32 @@ const trustableScreenshotShutter = () => {{
           '      if (stream.getVideoTracks()[0].getSettings().displaySurface !== "browser") {{',
           '        throw new Error("share this tab, not the screen");',
           '      }}',
+          // Shape the viewport to the canvas BEFORE grabbing, so the frame is
+          // already the right ratio and the fit below has nothing to correct.
+          // This is the real fix for the white bands: they come from a source
+          // whose ratio differs from the canvas, so the source is corrected
+          // rather than the result padded.
+          //
+          // It runs here, after the grant, on purpose. Granting the share makes
+          // Chrome push a "Sharing this tab" bar into the window, which steals
+          // viewport height; that bar does not exist at window.open time, so
+          // the size cannot be got right in advance — only measured and fixed
+          // once sharing has actually started.
+          //
+          // resizeTo/resizeBy only apply to a window this script opened, so a
+          // normal tab is left alone and falls through to the width-first fit.
+          '      try {{',
+          '        if (window.name === "trustable-capture") {{',
+          '          for (var attempt = 0; attempt < 3; attempt++) {{',
+          '            var dw = W - window.innerWidth, dh = H - window.innerHeight;',
+          // A pixel or two of slop is not worth a resize round-trip, and
+          // chasing it can oscillate when the browser clamps the size.
+          '            if (Math.abs(dw) <= 2 && Math.abs(dh) <= 2) break;',
+          '            window.resizeBy(dw, dh);',
+          '            await new Promise(function (r) {{ setTimeout(r, 120); }});',
+          '          }}',
+          '        }}',
+          '      }} catch (e) {{ /* resize refused: the width-first fit still applies */ }}',
           // Hide only AFTER the grant. Hiding first would leave the app
           // disfigured and the button invisible when the prompt is denied.
           '      style = hideChrome();',
@@ -704,8 +898,57 @@ blank_preview() {
     || : > "$ROOT/screenshot.png"
 }
 
+# Symlinks next to this script that follow whichever app is current:
+#
+#   aaa-screenshot.png -> $WORKBENCH_DIR/<current>/screenshot.png
+#   aaa-screenshot     -> $WORKBENCH_DIR/<current>/screenshot/
+#
+# These point INTO the app, unlike ./screenshot.png, which is a copy. That is
+# the whole point of having both: the copy is a stable preview that survives an
+# app switch, while these always resolve to the live artifact and the frame
+# directory, so the frames can be opened without typing the workbench path.
+#
+# The "aaa-" prefix is deliberate: it sorts them to the top of the file tree,
+# which is where they are useful in an editor sidebar.
+#
+# Removed and recreated rather than replaced in place. `ln -sf` alone is the
+# trap: on an existing symlink to a DIRECTORY it follows the link and creates
+# the new one *inside* the old target (leaving aaa-screenshot/screenshot behind
+# in the previous app) instead of replacing it. `ln -sfn` gets that right, but
+# `rm -rf` first is immune either way, and also clears a leftover real directory.
+#
+# rm -rf, not rm -f, only because the path may be a directory in that leftover
+# case. It is never the link's *target* being removed: rm does not follow a
+# symlink, so the app's own screenshot/ directory is untouched.
+
+refresh_app_links() {
+  local animation="$APP_DIR/screenshot.png" frames="$APP_DIR/screenshot"
+
+  rm -rf "${ROOT}/aaa-screenshot.png" "${ROOT}/aaa-screenshot" 2>/dev/null || true
+
+  # A link to a target that does not exist yet is deliberately still created: the
+  # app may have no recording, and the link resolves by itself the moment the
+  # first frame is collected. Creating the target to avoid a dangling link was
+  # tried and rejected — it would leave an empty screenshot/ directory in the
+  # user's checkout for an app they never recorded, and git does not track empty
+  # directories anyway, so it bought nothing.
+  ln -s "$animation" "$ROOT/aaa-screenshot.png" 2>/dev/null \
+    || warn "could not link aaa-screenshot.png -> $animation"
+  ln -s "$frames" "$ROOT/aaa-screenshot" 2>/dev/null \
+    || warn "could not link aaa-screenshot -> $frames"
+}
+
+# Called when no app is current, so the links never point at a stale app.
+clear_app_links() {
+  rm -rf "${ROOT}/aaa-screenshot.png" "${ROOT}/aaa-screenshot" 2>/dev/null || true
+}
+
 preview() {
   local source="$APP_DIR/screenshot.png" count="$1"
+
+  # The links follow the app, not the frame count, so they are refreshed even
+  # when there is nothing recorded yet.
+  refresh_app_links
 
   # No frames: publish a blank preview rather than leaving a stale one behind.
   if [[ ! -f "$source" ]]; then
@@ -717,7 +960,10 @@ preview() {
   cp -f "$source" "$ROOT/screenshot.png" 2>/dev/null \
     || warn "could not copy the preview to $ROOT/screenshot.png"
 
-  ok "$count frame(s) — $ROOT/screenshot.png"
+  # The app name comes from APP_DIR, the same variable the links are built from,
+  # rather than from $APP — so the label can never disagree with what the links
+  # actually point at.
+  ok "$count frame(s) — $ROOT/screenshot.png · aaa-screenshot.png → ${APP_DIR##*/}"
 }
 
 # --- 7. Commit ---
@@ -930,6 +1176,13 @@ while true; do
     fi
     PROMPT="$(printf 'ENTER collect · SPACE refresh · DEL remove · q quit  [%s: %s frames] ' "$APP" "$(frame_count)")"
   else
+    # No app is current. Drop the links rather than leaving them aimed at an app
+    # that is no longer launched — a link that resolves to the wrong recording is
+    # worse than one that is absent.
+    if [[ -n "$LAST_APP" ]]; then
+      clear_app_links
+      LAST_APP=""
+    fi
     PROMPT='no app launched — launch one from the Trustable UI  [q quits] '
   fi
 
@@ -949,11 +1202,22 @@ while true; do
   # -t distinguishes its two failure modes by exit status: >128 is the timeout
   # (go round again), anything else is EOF, i.e. stdin is not a terminal, where
   # spinning would burn a core forever.
-  IFS= read -rsn1 -t 2 key
-  status=$?
+  # `|| status=$?` is load-bearing, not a style choice. Under `set -e` a bare
+  # `read` that returns non-zero kills the script outright, so `status=$?` never
+  # runs and the timeout branch below is dead code: the loop dies on the first
+  # tick with no keypress, the EXIT trap strips the injection, and the app
+  # reloads without the shutter. That is a silent exit two seconds after start.
+  status=0
+  IFS= read -rsn1 -t 2 key || status=$?
   if [[ $status -ne 0 ]]; then
     [[ $status -gt 128 ]] && continue
+    # Not a timeout, so stdin is at EOF. Say so before leaving: the loop has
+    # just drawn a prompt, and exiting silently underneath it looks like the
+    # recorder crashed on its own rather than like it was never given a
+    # keyboard. The preflight above catches the usual cause up front; this
+    # covers stdin closing mid-session.
     echo
+    warn "stdin closed — nothing left to read, so the recorder is stopping"
     break
   fi
   echo
