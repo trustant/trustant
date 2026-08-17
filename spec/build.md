@@ -7,7 +7,8 @@ script and no build mode to select: the host is detected from the presence of
 
 Every build, on every host:
 
-1. computes the tag, forces the git tag, and writes `_build.txt`
+1. computes the tag, **deletes every existing git tag**, forces the new one, and
+   writes `_build.txt`
 2. **writes the image tag into `olaris-bestia/opsroot.json`** via `jq`, then
    commits, so the deployment plugin always records the image just built
 3. builds the Go binary for linux/amd64 and linux/arm64
@@ -160,6 +161,42 @@ does not exist. Before starting Air it writes local development build metadata;
 the macOS wrapper records the real host worktree branch, while direct Linux/WSL
 runs use `TRUSTABLE_BUILD_BRANCH` when supplied and otherwise report the
 `development` fallback. Release metadata remains owned by the build scripts.
+
+## Build tags
+
+A build tag is disposable: it marks the working tree that produced one image and
+is superseded by the next build. So both `build.sh` and `image/image.sh` delete
+**every** existing tag before creating theirs, and the repo carries exactly one.
+
+The deletion must be written as:
+
+```bash
+git tag -l | xargs -r git tag -d
+```
+
+Not as `git tag -d "$(git tag)"`. The quoted command substitution passes the
+whole list as a **single argument** with embedded newlines, so git reports
+`tag 'a\nb\nc' not found` and a trailing `|| true` swallows the non-zero exit —
+the script prints its usual output while deleting nothing, and tags accumulate on
+every build (69 had built up before this was spotted). `xargs` splits on newlines,
+and `-r` skips the call when there is nothing to delete, which keeps the first
+build in a fresh clone from failing. `build_script_test.go` asserts the correct
+form in both scripts and rejects the quoted-substitution spelling.
+
+This is not housekeeping. `.github/workflows/images.yml` triggers on
+`push: tags: ['*_*_*']`, and `publish.sh` pushes with `--tags`, which pushes
+**every** local tag rather than only the `$TAG` it selected. So each stale tag
+that reaches the remote starts its own container build: with 47 such tags
+present, one republish queues 47 builds. The single-tag invariant above is the
+only thing standing between `--tags` and a build storm, which is why it is
+tested rather than left to the comment in the script.
+
+Deleting local tags does not delete remote ones — `git push --tags` never
+removes anything, so a tag that has already reached the remote stays until it is
+explicitly deleted with `git push origin :refs/tags/<name>`. Deletion itself does
+not trigger CI, which keys on tag creation. Tags that cannot match `*_*_*`
+(`v0.3.14`, `v0.3.4-beta`, the old date-only ones) are inert and are kept as
+release markers.
 
 Build environment:
 
