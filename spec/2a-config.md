@@ -527,9 +527,18 @@ the user's predefined variables.
 
 ### Importing from a file
 
-The Configure page's **Import from .env** button fills the table from a local
+The Configure page's **Import from file** button fills the table from a local
 `.env`-style file instead of row-by-row typing. The file is read and parsed **in
 the browser**; it is never uploaded, and no endpoint exists for it.
+
+**Any text file is accepted.** The picker carries no `accept` filter, because
+env files are routinely named `.env.local`, `.env.production`, `env.txt` or have
+no extension at all, and an extension hint greys exactly those out in the OS
+dialog. What the file is *called* is not evidence of what it contains, so the
+content decides: a NUL byte or a U+FFFD replacement character — the marks of a
+failed UTF-8 decode — rejects the file as binary with a message saying so.
+`File.text()` decodes arbitrary bytes without throwing, so without that check a
+JPEG would parse into mojibake rows rather than being refused.
 
 The parse rules are deliberately identical to `parseEnvFile` in
 [configure.go](../configure.go), so the two import paths cannot drift: trim the

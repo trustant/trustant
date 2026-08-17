@@ -380,9 +380,21 @@ func TestConfigurePageImportsEnvFilesConsistently(t *testing.T) {
 		"enforces the server name rule": "/^[A-Za-z_][A-Za-z0-9_]*$/",
 		"enforces the 256 cap":          "merged.length > 256",
 		"resets the picker":             "input.value = '';",
+		"rejects binary input":          `/[\0`,
 	} {
 		if !strings.Contains(code, needle) {
-			t.Errorf("the .env import no longer %s (missing %q)", name, needle)
+			t.Errorf("the file import no longer %s (missing %q)", name, needle)
 		}
+	}
+
+	// Any text file must be selectable: env files are routinely named
+	// .env.local, .env.production or env.txt, and an accept filter greys the
+	// real ones out in the OS picker. The binary check above is what replaces it.
+	control := code[strings.Index(code, `id="predefinedEnvFile"`):]
+	if end := strings.Index(control, ">"); end > 0 {
+		control = control[:end]
+	}
+	if strings.Contains(control, "accept=") {
+		t.Errorf("the file picker grew an accept filter, which hides validly-named env files: %s", control)
 	}
 }

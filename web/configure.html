@@ -207,9 +207,13 @@
                 <!-- The file is parsed in the browser and merged into the table
                      only; nothing is stored until Save Variables. -->
                 <button type="button" onclick="document.getElementById('predefinedEnvFile').click()"
-                    class="nu-btn nu-btn-secondary">Import from .env</button>
+                    class="nu-btn nu-btn-secondary">Import from file</button>
+                <!-- No accept filter: env files come as .env, .env.local,
+                     .env.production, env.txt or no extension at all, and an
+                     extension hint greys the real ones out in the OS picker.
+                     Anything textual is parsed; binary input is rejected below. -->
                 <input type="file" id="predefinedEnvFile" class="hidden"
-                    accept=".env,.txt,text/plain" onchange="importPredefinedEnvFile(this)">
+                    onchange="importPredefinedEnvFile(this)">
                 <button type="button" id="predefinedEnvSaveBtn" onclick="savePredefinedEnv()"
                     class="nu-btn nu-btn-primary">Save Variables</button>
                 <span id="predefinedEnvStatus" class="text-sm"></span>
@@ -1139,13 +1143,22 @@
             input.value = '';
             if (!file) return;
 
-            let parsed;
+            let text;
             try {
-                parsed = parsePredefinedEnvText(await file.text());
+                text = await file.text();
             } catch (e) {
                 setPredefinedEnvStatus('Could not read the file: ' + e.message, 'error');
                 return;
             }
+            // Any text file is welcome, but the picker now offers binaries too.
+            // File.text() decodes arbitrary bytes without throwing, so reject
+            // here instead of letting mojibake become variable rows: a NUL byte
+            // or a U+FFFD from a failed UTF-8 decode means this is not text.
+            if (/[\0�]/.test(text)) {
+                setPredefinedEnvStatus('That looks like a binary file, not a text file.', 'error');
+                return;
+            }
+            const parsed = parsePredefinedEnvText(text);
             if (parsed.length === 0) {
                 setPredefinedEnvStatus('No variables found in that file.', 'error');
                 return;
