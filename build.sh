@@ -35,7 +35,13 @@ BRANCH="${BRANCH:-detached}"
 STREAM="${TRUSTABLE_BUILD_STREAM:-$BRANCH}"
 echo "New Tag: $TAG"
 
-git tag -d "$(git tag)" || true
+# Delete every existing tag before creating this build's one. Quoting
+# "$(git tag)" passed the whole list as a SINGLE argument with embedded
+# newlines, so git reported `tag 'a\nb\nc' not found`, `|| true` swallowed it,
+# and nothing was ever deleted — tags accumulated on every build. xargs splits
+# on newlines and -r skips the call when there are none; same form image.sh
+# already uses.
+git tag -l | xargs -r git tag -d
 git tag -f "$TAG"
 printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n" \
     "$VERSION" "$TAG" "$BRANCH" "$STREAM" "$EXPIRY" > _build.txt
