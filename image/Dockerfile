@@ -1,5 +1,5 @@
 ARG OLLAMA_VERSION=0.32.14
-ARG OPS_BRANCH=bestia
+ARG OPS_BRANCH=0.1.0
 ARG OPS_REPO=https://github.com/nuvolaris/bestia
 # WHY: VM setup reads these exact values too, so image and development installs
 # cannot drift back to the upstream Milvus MCP or a floating branch.
