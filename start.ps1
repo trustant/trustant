@@ -1,10 +1,11 @@
 # start.ps1 - bring up the Trustable development environment on a Windows host.
 #
 # The Windows counterpart of start.sh's macOS half: where start.sh provisions a
-# Lima VM, this provisions a WSL2 Ubuntu-24.04 distribution, mirrors the current
-# Windows user into it with passwordless sudo and bash as the login shell, and
-# then runs THIS repo's ./start.sh inside it over the /mnt/<drive> mount - so
-# the sources stay on Windows and only the Linux environment lives in WSL.
+# Lima VM named 'trudev', this provisions a WSL2 distribution of the same name
+# from the Ubuntu-24.04 image, mirrors the current Windows user into it with
+# passwordless sudo and bash as the login shell, and then runs THIS repo's
+# ./start.sh inside it over the /mnt/<drive> mount - so the sources stay on
+# Windows and only the Linux environment lives in WSL.
 #
 # start.sh then takes over on its native-Linux path (uname -s = Linux): it
 # installs the Trustable .deb (k3s), ollama, kubefwd, gh, the host-rewrite proxy,
@@ -19,7 +20,8 @@
 #   .\start.ps1 -s / -Stop      terminate the distro (keeps it; re-run to restart)
 #   .\start.ps1 -k / -Destroy   unregister the distro - DELETES its filesystem
 #   .\start.ps1 -User bob       mirror a different user name (default: $env:USERNAME)
-#   .\start.ps1 -Distro trudev  use a different WSL distribution name
+#   .\start.ps1 -Distro name    use a different WSL instance name (default: trudev)
+#   .\start.ps1 -BaseDistro X   install from a different image (default: Ubuntu-24.04)
 #
 # NOTE: this file is deliberately pure ASCII. Windows PowerShell 5.1 reads a
 # BOM-less .ps1 as ANSI, so any non-ASCII character here would be mangled.
@@ -31,8 +33,15 @@
 # with -Verbose. All four bind by exact alias match, which PowerShell resolves
 # ahead of any prefix match - so -n is -NoRun (not the -NoStart prefix) and -s
 # is -Stop.
+#
+# $Distro is the INSTANCE name and $BaseDistro the IMAGE it is installed from -
+# the same split start.sh makes on macOS, where the Lima instance is called
+# 'trudev' (VM_NAME) whatever the base image is. Naming the instance after the
+# Store distribution would mean adopting - and, on -k, unregistering - a
+# general-purpose Ubuntu the user created themselves.
 param(
-    [string]$Distro = 'Ubuntu-24.04',
+    [string]$Distro = 'trudev',
+    [string]$BaseDistro = 'Ubuntu-24.04',
     [string]$User = '',
     [Alias('v')][switch]$VSCode,
     [Alias('n')][switch]$NoRun,
@@ -50,8 +59,11 @@ $VM_SWAP = '8GB'
 # What start.sh's native path shells out to and the base image may not have.
 # zstd and unzip are needed to unpack what the flow downloads (the Trustable
 # .deb payload and the zipped release archives); iptables is what the package's
-# postinst installs its firewall dropin with.
-$BASE_PACKAGES = 'sudo curl ca-certificates git iproute2 iptables zstd unzip'
+# postinst installs its firewall dropin with. gh is here as belt and braces: the
+# bootstrap runs as root before start.sh is invoked at all, so the distro has
+# the CLI whatever start.sh's own internal ordering does - it needs it for the
+# git credential helper and for cloning the private submodules.
+$BASE_PACKAGES = 'sudo curl ca-certificates git iproute2 iptables zstd unzip gh'
 
 function Write-Ok   { param([string]$m) Write-Host "OK  $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "!!  $m" -ForegroundColor Yellow }
@@ -81,6 +93,39 @@ function Test-DistroExists {
     param([string]$Name)
     $found = Get-WslDistros | Where-Object { $_ -eq $Name }
     return [bool]$found
+}
+
+function Test-WslInstallSupportsName {
+    # Does this wsl.exe accept `--install ... --name <name>`?
+    #
+    # Matched on the help TEXT and never on the exit code: `wsl --help` prints
+    # the full, correct help and still exits non-zero (255), so an exit-code
+    # test would reject a wsl.exe that is perfectly capable. `wsl --install
+    # --help` is not a valid command line at all on current builds (2.9.4
+    # answers Wsl/E_INVALIDARG), which is why the install options are read out
+    # of `wsl --help` instead - it lists them in the --install section.
+    #
+    # Scoped to that section rather than grepping the whole text: `--name` also
+    # appears under `--mount`, which has carried it far longer, so a bare match
+    # would pass on a wsl.exe that cannot name a distribution at install time.
+    # Read raw, NOT through Invoke-WslText: the section is delimited by
+    # indentation (top-level commands are less indented than their options) and
+    # Invoke-WslText trims it away.
+    $lines = @(& wsl.exe --help) | ForEach-Object { ($_ -replace "`0", '').TrimEnd() }
+    $sectionIndent = -1
+    foreach ($line in $lines) {
+        if ($line -notmatch '^(\s*)--(\S+)') { continue }
+        $indent = $Matches[1].Length
+        $flag = $Matches[2]
+        if ($sectionIndent -lt 0) {
+            if ($flag -eq 'install') { $sectionIndent = $indent }
+            continue
+        }
+        # Back out to the command level: the --install section has ended.
+        if ($indent -le $sectionIndent) { break }
+        if ($flag -eq 'name') { return $true }
+    }
+    return $false
 }
 
 function Restore-Console {
@@ -157,6 +202,31 @@ if ($VSCode) {
     }
 }
 
+# --- preflight: `wsl --install --name` -----------------------------------------
+# Installing under our own instance name is what keeps this distro separate from
+# whatever else is registered on the machine, and it only works if wsl.exe can be
+# told a name at install time; older builds cannot. Checked here, before anything
+# is provisioned, and only when the distro has to be created: a reused '$Distro'
+# never calls --install, and an old wsl.exe must not block a run that would not
+# have needed the flag. It sits after -Stop/-Destroy, which exit above - tearing
+# a distro down never installs one.
+$DistroExists = Test-DistroExists $Distro
+if (-not $DistroExists) {
+    if (-not (Test-WslInstallSupportsName)) {
+        Fail "this WSL is too old: 'wsl --install --name' is not supported. Run ""wsl --update"" in an Administrator terminal, then re-run this script."
+    }
+    Write-Ok "wsl --install supports --name"
+}
+
+# A distro left behind by an earlier start.ps1, which installed under the base
+# image's own name. Reported only - this script must never unregister a
+# distribution the user did not name.
+if ($Distro -eq 'trudev' -and (Test-DistroExists 'Ubuntu-24.04')) {
+    Write-Warn "'Ubuntu-24.04' is registered. Earlier versions of start.ps1 used that name for the"
+    Write-Warn "Trustable dev distro. If it is ours and no longer wanted, remove it with:"
+    Write-Warn "    .\start.ps1 -k -Distro Ubuntu-24.04"
+}
+
 # --- the repository this script sits in, which is what gets mounted ----------
 $RepoWin = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($RepoWin)) { $RepoWin = (Get-Location).Path }
@@ -210,15 +280,17 @@ localhostForwarding=true
 
 # --- create the distribution -------------------------------------------------
 & wsl.exe --set-default-version 2 | Out-Null
-if (Test-DistroExists $Distro) {
+if ($DistroExists) {
     Write-Ok "WSL distribution '$Distro' already exists"
 } else {
-    Write-Step "Installing WSL distribution '$Distro' (this downloads the Ubuntu image)"
+    Write-Step "Installing WSL distribution '$Distro' from '$BaseDistro' (this downloads the Ubuntu image)"
     # --no-launch keeps the interactive first-run account wizard out of the way:
     # the account is created below, with the name and sudo rights we want.
-    & wsl.exe --install --distribution $Distro --no-launch
+    # --name registers the instance under OUR name, so nothing here can adopt or
+    # later destroy a '$BaseDistro' the user installed for themselves.
+    & wsl.exe --install --distribution $BaseDistro --name $Distro --no-launch
     if ($LASTEXITCODE -ne 0) {
-        Fail "wsl --install --distribution $Distro failed. Check the available names with: wsl --list --online"
+        Fail "wsl --install --distribution $BaseDistro --name $Distro failed. Check the available images with: wsl --list --online"
     }
     if (-not (Test-DistroExists $Distro)) {
         Fail "'$Distro' did not register. Check: wsl --list --verbose"
