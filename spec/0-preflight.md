@@ -49,6 +49,24 @@ shell by the terminal (see [12-terminal.md](12-terminal.md)).
 
 - Run migration: if the workspace `trustable.json` does not yet have an `apps` section, scan `<WorkspaceDir>/workspace/*/` for existing app directories, retrieve each app's password via `ops util kubeget whiskuser/<name> .spec.password`, build `apps` entries, strip fields that match the base config, and save the updated workspace `trustable.json`.
 
+# workbench is ephemeral
+
+The workbench is scratch space, not durable state. In the distribution image the
+entrypoint ([image/start.sh](../image/start.sh)) removes whatever is at
+`$WORKBENCH_DIR` — including a symlink left by an older image, which is why it
+must be deleted rather than followed — and recreates it as an **empty real
+directory** on every container start. It MUST NOT be a link into the persistent
+`/home/trustable/workspace` volume: uncommitted work is meant to be lost on
+restart, and committing is the user's responsibility.
+
+The startup invariant the rest of the server relies on is therefore: after a
+restart, `$WORKBENCH_DIR` exists, is a real directory, and is empty. The
+workbench restore described in [4-launch.md](4-launch.md) then clones each
+durable bare repo back from `<WorkspaceDir>/workspace/<name>`; that path is
+unaffected and stays on the volume. Any leftover
+`/home/trustable/workspace/workbench` from an older image is ignored — never
+migrated, read, or deleted.
+
 # cleanup
 
 - if there is a file pgid in WorkspaceDir, read it and terminate the process group and remove the file

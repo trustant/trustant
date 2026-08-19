@@ -15,17 +15,16 @@ if [ -n "$USERID" ] && [ "$USERID" != "769" ]
 then /usr/sbin/usermod -u $USERID trustable
 fi
 
-mkdir -p "$HOME/workspace/workbench"
-if [ -L "$HOME/workbench" ]; then
-  :
-elif [ -d "$HOME/workbench" ]; then
-  if find "$HOME/workbench" -mindepth 1 -maxdepth 1 | read -r _
-  then
-    cp -a "$HOME/workbench"/. "$HOME/workspace/workbench"/
-  fi
-  rm -rf "$HOME/workbench"
-fi
-ln -sfn "$HOME/workspace/workbench" "$HOME/workbench"
+# The workbench is ephemeral scratch space and MUST NOT survive a pod restart:
+# committing is the user's responsibility. Guarantee a clean, empty, real
+# directory on every start. Deleting a leftover symlink matters — an older image
+# pointed $HOME/workbench at the persistent volume, and that redirection would
+# otherwise outlive this change. Anything already at
+# $HOME/workspace/workbench is deliberately left alone; only the durable bare
+# repos under $HOME/workspace/workspace/<name> are read, by the server's
+# workbench restore at startup.
+rm -rf "$HOME/workbench"
+mkdir -p "$HOME/workbench"
 
 echo "Changing permissions to workspace, file count:"
 chown -Rvf trustable:trustable "$HOME" | wc -l

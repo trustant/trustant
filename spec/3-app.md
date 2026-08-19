@@ -157,9 +157,16 @@ After a successful save, refresh the git status indicator.
 
 Clicking on the button back will:
 - First, invoke `GET /api/git/status/<name>` to check for uncommitted changes
-- If the status is not clean, show a warning modal:
-  "You have unsaved changes. If you go back, changes will be lost."
+- If the status is not clean, show a warning modal headed "Uncommitted Changes":
+  "You have uncommitted changes. The workbench is temporary: if the application
+  is restarted, uncommitted work is permanently lost. Committing is the only way
+  to keep it."
   with buttons "Go back anyway" and "Cancel"
+
+  Going back is not itself destructive — it only stops the subprocesses. The
+  loss happens on restart, because the workbench does not survive one (see
+  [4-launch.md](4-launch.md)). The modal warns about that risk, not about the
+  navigation.
 - If the user clicks "Cancel", do nothing (stay on page)
 - If the user clicks "Go back anyway" or the status was clean:
   - invoke the DELETE /api/launch to stop running subprocess
