@@ -7,7 +7,7 @@ Invoke the version api at the end of the page and if it expired show a page with
 # Application
 
 This page shows the current application
-reading it the cookie LEFT, RIGHT, URLDIR, NAME and DEVICE
+reading it the cookie LEFT, RIGHT, NAME and DEVICE
 
 It shows a full page, with a top bar with 10% high.
 
@@ -20,8 +20,6 @@ In the bar, aligned to the left:
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
 - the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
 - the **"Tutorial" pulldown** (book icon, chevron-down icon), immediately after the sidebar open/close toggle and before Terminal — it starts the guided tutorials described in [16-tutorial.md](16-tutorial.md)
-- the **"Sessions" pulldown** (history icon and persistent-session count) —
-  see "Sessions Pulldown" below
 
 Aligned to the right:
 
@@ -47,25 +45,6 @@ The button shows a gear icon, the label "Config", and a chevron-down icon. Click
 3. **AGENTS.md** (brain icon) — opens the AGENTS.md editor described in "AGENTS.md".
 
 The pulldown closes after an item is selected, when the user clicks outside, or when the Escape key is pressed.
-
-# Sessions Pulldown
-
-The **Sessions** pulldown fetches `GET /api/opencode/sessions/<name>` on page
-load, whenever it opens, and every 10 seconds. It lists up to 20 persistent root
-OpenCode sessions for the current canonical workbench, newest first, with title
-and update time. The active session is visibly marked.
-
-The first menu action is **New session**. It sends
-`POST /api/opencode/sessions/<name>`, stores the returned ID in the `SESSIONID`
-cookie, and opens that session in the left iframe. While the request is in
-progress the action is disabled; a creation error remains visible in the menu.
-
-Selecting a session updates the `SESSIONID` cookie and reloads only the left
-iframe at `<LEFT>/<B64DIR>/session/<session-id>`. It must not launch a new
-OpenCode process, replace the application workbench, or modify the right Vite
-iframe. An empty history and a fetch error have distinct, readable states.
-
-See [opencode-session-history-flow.svg](opencode-session-history-flow.svg).
 
 # Utils Pulldown
 
@@ -106,7 +85,7 @@ In the body there are two iframes, 50% width and 90% height (full page except fo
 
 On the left side of the top bar, immediately before the Terminal button, is an icon-only button
 (`#sidebarToggleBtn`, panel glyph: a rectangle with a vertical divider line)
-that hides and shows the chat (opencode) iframe so the preview can take the full
+that hides and shows the chat (TruACP) iframe so the preview can take the full
 workbench width.
 
 - **Hide** — the current `#leftFrame` width is remembered, then `#leftFrame` and
@@ -136,17 +115,12 @@ existing ids, cookies, launch URLs, git/status polling, route/query controls,
 credits/top-up behavior, and utility actions. Restyling should make the toolbar
 more professional and compact without changing the command model.
 
-Get the URLDIR from the cookie then show the iframe. URLDIR must be the raw or
-URL-encoded absolute application directory. For compatibility, if URLDIR is a
-base64-url-safe path or is missing while B64DIR is present, decode it first.
-Before opening opencode, always regenerate B64DIR from the raw absolute path:
+TruACP owns its own working directory and ACP sessions, so the left iframe
+always loads the runtime root — no directory or session segment is appended.
 
 They will show:
-- to the left: `<LEFT>/<B64DIR>/session/<SESSIONID>` when `SESSIONID` is
-  available, otherwise `<LEFT>/<B64DIR>/session`
+- to the left: `<LEFT>/`
 - to the right: `<RIGHT><ROUTE>#<ROUTE>` where `<ROUTE>` is the value of the ROUTE cookie (defaults to "/")
-
-Write in console.log the values of the cookies B64DIR and URLDIR
 
 # Git Status
 
@@ -188,7 +162,6 @@ Clicking on the button back will:
   with buttons "Go back anyway" and "Cancel"
 - If the user clicks "Cancel", do nothing (stay on page)
 - If the user clicks "Go back anyway" or the status was clean:
-  - remove the cookie B64DIR
   - invoke the DELETE /api/launch to stop running subprocess
   - navigate to applist.html
 
@@ -501,7 +474,7 @@ Two environment variables drive all ai-proxy URLs. They are read at process star
 | `AIP_BASE_URL` | JSON API base. `/api/credits`, `/api/topup`, and `/api/status` all forward directly under this URL. | `https://api.nuvolaris.io/api/v2/` |
 | `AIP_REGISTER_URL` | Registration UI base. The splash page loads it in an iframe; the top-up form lives at `<this>/top-up`. Exposed to the frontend as `register_url` on `GET /api/configuration`. | `https://api.nuvolaris.io/_register` |
 
-The Trustable provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by opencode and any model client — but it is **not** what the credit/top-up/status endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
+The Trustable provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by TruACP/Pi and any model client — but it is **not** what the credit/top-up/status endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
 
 URL summary:
 

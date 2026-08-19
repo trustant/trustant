@@ -98,38 +98,13 @@ The web application requires you always access the application with a full fqdn 
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
 - if <host> is 'trustable', serve the folder `web`
-- if <host> is 'opencode', proxy pass to the pod-local OpenCode server at
-  `127.0.0.1:4096`. In Kubernetes/browser deployments the `opencode.<domain>` ingress must
-  route to the Trustable app port 8910, not directly to service port 4096, so
-  this middleware can scope OpenCode requests before proxying. Before proxying,
-  normalize
-  OpenCode document routes that lost their explicit session id:
-  - `/` redirects to the latest root session for the app named by the current
-    workbench marker, when one exists.
-  - `/<B64DIR>/session` redirects to `/<B64DIR>/session/<SESSIONID>` using the
-    latest root session for the decoded directory, when one exists.
-  - any OpenCode document route whose decoded `<B64DIR>` does not match the
-    current workbench marker redirects to the latest current-app session. This
-    handles stale browser tabs that still point at a previously edited app.
-  This keeps OpenCode from falling back to stale global project state after the
-  user exits a session view.
-  The current-app directory used for session lookup and stale-route comparison
-  must be the canonical real path of `<workbenchdir>/<app>` after resolving
-  symlinks. In the pod `/home/trustable/workbench` can point at
-  `/home/trustable/workspace/workbench`; OpenCode stores sessions under the
-  resolved path, so looking up the symlink path returns no sessions and reopens
-  the project picker instead of the persisted session.
-- The OpenCode iframe is scoped to the app launched by Trustable. Before
-  proxying any `opencode.<domain>` request with a `directory` query parameter,
-  rewrite it to the current app directory from `<workbenchdir>/current` when it
-  points at another app or when it points at the same app through a symlink.
-  The value sent to OpenCode must be the canonical path because OpenCode stores
-  sessions under the resolved worktree path. This prevents OpenCode's internal
-  project switcher from opening another Trustable app as a plain folder without
-  the required `ops ide login`, generated env, deploy, app-local
-  `opencode.json`, and MCP configuration. App switching must happen through
-  Trustable `/api/launch/<app>`.
-- For the same reason, `GET /project` through `opencode.<domain>` returns only
-  the current app's OpenCode project, even if OpenCode's persistent DB contains
-  older projects from previous launches.
+- if <host> is 'opencode', proxy pass to the pod-local TruACP runtime at
+  `127.0.0.1:4096`. The hostname keeps its historical `opencode` label so
+  existing ingress, WAF rules and bookmarks stay valid; the runtime behind it is
+  TruACP/Pi. In Kubernetes/browser deployments the `opencode.<domain>` ingress
+  must route to the Trustable app port 8910, not directly to service port 4096.
+  TruACP serves its own UI and owns its working directory and ACP session state
+  internally, so the middleware performs no directory, session or project-route
+  rewriting: requests are proxied through unchanged. App switching happens
+  through Trustable `/api/launch/<app>`.
 - if <host> is 'vite',  proxy pass to port 5173

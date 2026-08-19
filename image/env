@@ -1,10 +1,8 @@
 HOME=/home/trustable
-PATH=/home/trustable/.local/bin:/home/trustable/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+PATH=/home/trustable/.local/bin:/usr/local/bin:/usr/bin:/bin
 OPS_REPO=https://github.com/nuvolaris/bestia
 OPS_BRANCH=bestia
 OLLAMA_ENDPOINT=http://localhost:11434
-OPENAI_BASE_URL=http://localhost:11434/v1
-OPENAI_API_KEY=dummy
 WORKSPACE_DIR=/home/trustable/workspace
 WORKBENCH_DIR=/home/trustable/workbench
 AIP_REGISTER_URL=https://api.nuvolaris.io/_register
