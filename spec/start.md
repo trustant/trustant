@@ -268,6 +268,11 @@ at the login step.
 The check sits after the `-s`/`-k` branches, which exit earlier: stopping or
 destroying a VM must never require a token.
 
+On a **native Linux host** the preflight and the `gh` install come *before* this
+gate and before the git credential helper — see "Ordering on a native host"
+below. On macOS they do not: `gh` comes from brew there, and the VM the in-VM
+`gh` install targets does not exist yet at this point.
+
 ## Re-running when the VM already exists
 
 `./start.sh` is idempotent — an existing VM is not an error:
@@ -313,6 +318,33 @@ Then initialize the runtime source submodules, exactly as the macOS path does �
 this step is host-agnostic.
 
 `limactl` is NOT required, and neither is `code`.
+
+## Ordering on a native host
+
+On this path the host *is* the target, so `gh` has to exist before the git
+credential helper is wired and before the token gate, not after. The order is:
+
+1. `.env` seeding — host-agnostic, first on both hosts.
+2. **preflight** (the checks above).
+3. **`gh` via apt.**
+4. the git credential helper, which needs `gh` — `gh auth login --with-token`
+   authenticates the CLI but installs no helper, so plain `git` still cannot
+   read github.com without it.
+5. the GitHub token gate.
+6. the rest of the native flow, starting with the submodule initialization —
+   which clones a **private** submodule over https and fails with
+   `could not read Username for 'https://github.com'` when 3 and 4 have not run.
+
+Preflight moves ahead of the `gh` install because that install goes through the
+privileged runner, and `sudo -n` is exactly what preflight verifies. Preflight
+is pure checks, so hoisting it costs nothing and an unsupported host now fails
+before being asked for a token.
+
+These two steps run **once**, here, and not again inside the native finish path.
+Both are idempotent, so a duplicate call would be harmless, but a linear
+provisioning script should call them where the ordering is visible.
+
+The macOS path is unaffected by all of this.
 
 ## Cluster
 
@@ -441,11 +473,21 @@ Windows-aware, and none of them may be taught to be.
 
 ## What it provisions
 
-- A WSL2 distribution, `Ubuntu-24.04` by default (`-Distro` to override),
-  installed with `wsl --install --distribution <name> --no-launch`. `--no-launch`
-  skips the interactive first-run account wizard: the account is created below
-  with the name and rights we want. A WSL1 distribution is converted to WSL2 —
-  WSL1 has no kernel and cannot run k3s.
+- A WSL2 distribution named `trudev`, installed from the `Ubuntu-24.04` image
+  with
+
+      wsl --install --distribution Ubuntu-24.04 --name trudev --no-launch
+
+  The **instance** name (`-Distro` to override) and the **image** it is
+  installed from (`-BaseDistro` to override) are two separate identities. The
+  dedicated instance name mirrors Lima's `VM_NAME` on macOS and exists for the
+  same reason: the dev environment can never be confused with anything else on
+  the machine, this script can never adopt — and overwrite the `/etc/wsl.conf`
+  of — a general-purpose Ubuntu the user installed themselves, and `-k` can
+  never unregister a distribution the user created. `--no-launch` skips the
+  interactive first-run account wizard: the account is created below with the
+  name and rights we want. A WSL1 distribution is converted to WSL2 — WSL1 has
+  no kernel and cannot run k3s.
 - `%USERPROFILE%\.wslconfig` with the sizing `start.sh` gives the Lima VM
   (`memory=8GB`, `processors=4`, `swap=8GB`). This file is global to every
   distribution on the machine, so it is written only when absent; an existing
@@ -466,9 +508,15 @@ Windows-aware, and none of them may be taught to be.
     npm into the distribution; a leaking Windows `PATH` would make `node` and
     `go` resolve to Windows `.exe` files inside Linux builds.
 - The base packages the native path shells out to and the WSL image may lack:
-  `sudo curl ca-certificates git iproute2 iptables zstd unzip`. `iptables` is
+  `sudo curl ca-certificates git iproute2 iptables zstd unzip gh`. `iptables` is
   what the package's postinst builds its `:80/:443/:6443` firewall dropin with;
-  `zstd` and `unzip` unpack what the flow downloads.
+  `zstd` and `unzip` unpack what the flow downloads. `gh` is belt and braces:
+  the bootstrap runs as root before `start.sh` is invoked at all, so the
+  distribution has the CLI whatever `start.sh`'s internal ordering does — it
+  needs it for the git credential helper and for the private submodule clones.
+  If the Ubuntu archive ever stops carrying `gh`, `ensure_gh_apt` is what gets
+  fixed, not this list; `setup.sh` still owns the pinned-version convergence
+  from the release tarball afterwards.
 
 ## The mount
 
@@ -552,6 +600,29 @@ extension.
 
 ## Verification before handing over to start.sh
 
+Before anything is provisioned, after the `wsl --version` gate and after the
+`-Stop`/`-Destroy` branches:
+
+- **`wsl --install --name` must be supported.** The dedicated instance name only
+  exists if `wsl.exe` can be told a name at install time, and older builds
+  cannot. `wsl --install --help` is captured and matched for `--name` on the
+  **help text, never on the exit code** — on current builds both `wsl --help`
+  and `wsl --install --help` print correct help and still exit non-zero. On
+  absence the script fails with the actionable remedy, in the shape of the WSL
+  gate above it: *this WSL is too old: `wsl --install --name` is not supported.
+  Run "wsl --update" in an Administrator terminal, then re-run this script.* The
+  check is **skipped when the distribution already exists** — a reused `trudev`
+  never calls `--install`, and an old `wsl.exe` must not block a run that would
+  not have needed the flag. It sits after `-Stop`/`-Destroy` for the same reason
+  the `-v` preflight does: tearing a distribution down never installs one.
+- **A distribution left behind by the old default is reported, never touched.**
+  If `Ubuntu-24.04` is registered and `-Distro` is still the `trudev` default,
+  the script warns that earlier versions of `start.ps1` used that name for the
+  Trustable dev distro and prints `.\start.ps1 -k -Distro Ubuntu-24.04` as the
+  way to remove it. There is no detection heuristic, no migration and no
+  automatic deletion: the script must never unregister a distribution the user
+  did not name.
+
 After writing `/etc/wsl.conf` the distribution is restarted (`wsl --terminate`,
 or `wsl --shutdown` when `.wslconfig` was just created) and then, in order:
 systemd is waited for (`/run/systemd/system`, up to 60s), `sudo -n true` is
@@ -578,7 +649,10 @@ the middle of a run.
   `./start.sh -k`. It removes the distribution and its Linux filesystem with it,
   so it requires typing the distribution name to confirm. The repository is on
   Windows and is untouched.
-- `-User`, `-Distro` — override the mirrored user name and the distribution name.
+- `-User` — override the mirrored user name.
+- `-Distro` — override the **instance** name (default `trudev`).
+- `-BaseDistro` — override the **image** the instance is installed from
+  (default `Ubuntu-24.04`).
 
 Every flag carries `start.sh`'s short form as an alias — `-v`, `-n`, `-s`, `-k`
 — so the same muscle memory works on both hosts. They bind by exact alias match,

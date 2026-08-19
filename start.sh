@@ -783,7 +783,10 @@ finish() {
 # boot, no virtiofs mount, no mirrored guest user, no ssh key or ~/.ssh/config,
 # no VS Code Remote-SSH.
 finish_native() {
-  preflight_native
+  # preflight_native and ensure_gh_apt already ran at the top level, before the
+  # credential helper and the token gate — see the block near the end of this
+  # file. They are idempotent, but a linear provisioning script should call them
+  # once, where the ordering is visible.
   ensure_source_submodules
 
   # Install the cluster only when it is absent; otherwise just confirm it runs.
@@ -802,7 +805,6 @@ finish_native() {
 
   ensure_ollama
   ensure_kubefwd
-  ensure_gh_apt
   ensure_jq
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
@@ -1286,6 +1288,18 @@ fi
 # First steps of a real start on either host. Placed after the -s/-k branches,
 # which exit above and must not need a .env or a token to stop or destroy a VM.
 ensure_env_file
+# On a native Linux host (the path WSL takes) the host IS the target, so `gh`
+# has to exist before the credential helper is wired and before the token gate:
+# setup_git_credential_helper needs the CLI, and ensure_source_submodules then
+# clones a PRIVATE submodule over https. preflight_native comes first because
+# ensure_gh_apt installs through run_privileged, which is the `sudo -n` that
+# preflight is what verifies — it is pure checks, so an unsupported host now
+# fails before being asked for a token. On macOS neither applies: gh comes from
+# brew and the VM ensure_gh_apt would target does not exist yet.
+if $NATIVE_LINUX; then
+  preflight_native
+  ensure_gh_apt
+fi
 # WHY: `gh auth login --with-token` authenticates the gh CLI but does NOT install
 # a git credential helper, so plain `git` still has no way to read github.com.
 # ensure_source_submodules runs on the HOST and clones private submodules
