@@ -15,6 +15,7 @@
         <h1 class="text-4xl font-light text-[color:var(--nu-ink)] mt-6">Trustable Cloud</h1>
         <h2 id="versionText" class="text-xl font-medium text-[color:var(--nu-muted)] mt-3"></h2>
         <p id="expireText" class="text-sm text-[color:var(--nu-muted)] mt-2"></p>
+        <p id="initText" class="text-sm text-[color:var(--nu-muted)] mt-4 hidden"></p>
     </div>
 
     <!-- Provider Choice Modal -->
@@ -711,8 +712,41 @@
             document.getElementById('configDone').classList.remove('hidden');
         }
 
-        // Boot: version check, then either provider choice or configuration.
+        // The container entrypoint chowns the mounted workspace in the
+        // background so supervisord can start immediately. While that runs the
+        // workspace is only partially owned, so gate the whole boot on it and
+        // show the running file count rather than letting the user reach a
+        // half-initialized app with no explanation.
+        //
+        // A missing lock means "not initializing" — the normal steady state,
+        // and also development, where image/start.sh never runs.
+        async function waitForInit() {
+            const el = document.getElementById('initText');
+            for (;;) {
+                let data;
+                try {
+                    const resp = await fetch('/api/initstatus');
+                    data = await resp.json();
+                } catch (e) {
+                    // Never block on a backend hiccup: a failed poll must not
+                    // lock the user out of the UI.
+                    console.error('Failed to check init status:', e);
+                    break;
+                }
+                if (!data || !data.initializing) break;
+                el.textContent = 'Initializing: ' + (data.count || 0) + ' files processed in workspace';
+                el.classList.remove('hidden');
+                await new Promise(r => setTimeout(r, 500));
+            }
+            el.classList.add('hidden');
+            el.textContent = '';
+        }
+
+        // Boot: wait for workspace init, then version check, then either
+        // provider choice or configuration.
         (async function() {
+            await waitForInit();
+
             try {
                 const resp = await fetch('/api/version');
                 const data = await resp.json();
