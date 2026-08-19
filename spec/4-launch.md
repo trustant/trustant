@@ -60,10 +60,26 @@ present in one base environment.
 ## clone to workbench
 
 `<workbenchdir>` is exposed as the stable path used by Trustable and the agent,
-normally `/home/trustable/workbench`. In the pod it must survive image rebuilds
-and restarts by pointing into the persistent workspace volume
-(`/home/trustable/workspace/workbench`). This keeps the agent's persistent recent
-project paths valid.
+normally `/home/trustable/workbench`. It is **ephemeral scratch space** and MUST
+NOT survive a pod restart: it MUST NOT point into the persistent workspace
+volume (`/home/trustable/workspace/workbench`), and the container entrypoint
+guarantees an empty real directory on every start (see
+[0-preflight.md](0-preflight.md)).
+
+Uncommitted workbench changes are therefore **lost on restart**. Committing is
+the user's responsibility; the Back button warns about this when the tree is
+dirty (see [3-app.md](3-app.md)). The durable state is the bare repos under
+`<workspacedir>/workspace/<name>`, which live on the persistent volume and are
+unaffected.
+
+`node_modules/` does not survive either, so the first launch of an app after a
+restart re-runs `npm install` and is correspondingly slower. `.agents/skills/`
+is likewise regenerated (see [7-skills.md](7-skills.md)); the "non-empty
+`.agents` skips setup" rule simply never fires on a fresh workbench.
+
+The agent's recent-project paths keep working because the restore below
+recreates `<workbenchdir>/<name>` under the same stable path before any launch,
+and truacp is always started with an explicit `--dir`.
 
 At server startup, after stale process cleanup, scan
 `<workspacedir>/workspace/*` for valid local git repos. For each app whose
@@ -72,7 +88,7 @@ back into the workbench and regenerate `.env` files. Do not run `ops ide login`,
 `ops ide deploy`, or start Vite/truacp during this restore; the full per-app
 runtime setup still happens only when `/api/launch/<name>` is called.
 
-If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step.
+If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step. After a restart it never does, so this restore — not persistence — is how work reappears.
 
 After a fresh workspace→workbench clone, seed the variables the cloned repo
 declares in `.env.dist` but that this installation has no value for
@@ -862,9 +878,10 @@ other command-line switches cannot be injected through the browser request.
 ## start process group
 
 Let <directory> be the canonical absolute path of `<workbenchdir>/<app>` after
-resolving symlinks. This matters in the pod because `/home/trustable/workbench`
-can point at the persistent `/home/trustable/workspace/workbench`. truacp is
-launched with `--dir <directory>`, so the agent's cwd is this resolved path.
+resolving symlinks. Resolving is defensive only: in the pod
+`/home/trustable/workbench` is a real directory, never a link into the
+persistent volume. truacp is launched with `--dir <directory>`, so the agent's
+cwd is this resolved path.
 
 Execute truacp changing to this directory as
 
