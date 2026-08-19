@@ -86,6 +86,7 @@ func main() {
 
 	// API routes
 	http.HandleFunc("/api/version", handleVersion)
+	http.HandleFunc("/api/initstatus", handleInitStatus)
 	http.HandleFunc("/api/status", handleStatus)
 	http.HandleFunc("/api/repo", handleRepo)
 	http.HandleFunc("/api/starters", handleStarters)

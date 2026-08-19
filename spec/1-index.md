@@ -21,6 +21,39 @@ compact modal/card geometry, and restrained professional SaaS controls. Provider
 selection behavior and iframe recovery flows must remain unchanged during visual
 migration.
 
+## Workspace initialization gate
+
+The container entrypoint chowns the mounted workspace in the background so the
+server can start immediately (see
+[0-preflight.md](0-preflight.md#startup-ownership-of-the-workspace)). While that
+runs, the workspace is only partially owned, so the splash gates the **whole**
+boot on it: reaching the UI mid-chown would otherwise give the user a
+half-initialized workspace with no explanation.
+
+Before the version check, poll `GET /api/initstatus` roughly every 500ms for as
+long as `initializing` is true, and show under the logo:
+
+```
+Initializing: <n> files processed in workspace
+```
+
+updating `<n>` on each poll so the count is visibly moving. The logo and product
+name stay visible throughout — this is a message added to the splash, not a
+replacement for it.
+
+When `initializing` becomes false, clear the message and continue into the
+existing boot sequence unchanged (version check → provider choice /
+configuration). This is a gate placed **in front of** that sequence; the rest of
+the boot logic is not restructured.
+
+Two cases must not block the user:
+
+- **No lock** (`initializing: false` immediately) — the normal steady state, and
+  also development, where the entrypoint never runs. The splash proceeds with no
+  wait and no message.
+- **Fetch error** — log it and proceed into the boot sequence. A backend hiccup
+  must never lock the user out of the UI.
+
 # Provider choice
 
 After the version check, fetch the merged config via `GET /api/configuration`, then fetch `GET /api/status` (the backend's pass-through of the ai-proxy `/api/v2/status` response — see [status_check.md](status_check.md)). The response carries a per-provider `modelsVersion` integer plus the canonical `models`, `default`, and `small` for each provider.

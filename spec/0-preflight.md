@@ -67,6 +67,61 @@ unaffected and stays on the volume. Any leftover
 `/home/trustable/workspace/workbench` from an older image is ignored — never
 migrated, read, or deleted.
 
+# startup ownership of the workspace
+
+`$HOME/workspace` is the only mounted `hostPath` volume
+([olaris-bestia/trustable/sts.yaml](../olaris-bestia/trustable/sts.yaml)), so it
+is the only tree whose ownership can actually be wrong on a container start.
+The entrypoint ([image/start.sh](../image/start.sh)) therefore chowns **that
+path only**. It MUST NOT recursively chown bare `$HOME`: everything else in the
+container is image content already owned correctly by the `Dockerfile`'s
+`COPY --chown` and its `USER`/`WORKDIR` setup, so a full-`$HOME` walk covers
+`~/.local`, `~/.ops`, `~/.cache` and baked-in `node_modules` for no benefit.
+
+The chown runs **in the background** so `supervisord` starts immediately rather
+than after the walk. Progress is reported through a lock file at
+`$HOME/workspace/.trustable/init.lock`, under the existing `.trustable/`
+convention for server-side state, whose content is the running count of files
+processed. The count is rewritten periodically rather than per file, so the
+counter itself never becomes the bottleneck on a large volume.
+
+Three properties are required of the lock:
+
+1. **Created before backgrounding.** The lock must exist before the chown is
+   put in the background, otherwise the splash can poll, find no lock, and
+   wrongly conclude initialization has already finished.
+2. **Readable by the server.** The entrypoint runs as `root` while the Go
+   server reads the lock as `trustable`, so the lock file and its directory are
+   given `trustable` ownership and read permission **at creation time** — not
+   left for the background chown to reach. A lock that exists but cannot be
+   read is indistinguishable from a stale one and would hang the splash.
+3. **Always removed.** The lock is removed explicitly **at the end of the init
+   loop**, once the final count has been written and the chown has genuinely
+   finished. A `trap ... EXIT` inside the backgrounded subshell is the
+   failure-path guarantee on top of that: an aborted or failing chown must
+   never strand the lock and leave the splash waiting forever.
+
+`start_script_test.go` guards all of the above against regression, since each is
+a one-line change in a shell script and invisible at runtime.
+
+## GET /api/initstatus
+
+The browser cannot read the filesystem, so the server reports the lock. The
+endpoint is **not gated by license or expiry** — it must answer before anything
+else works — and returns:
+
+```json
+{ "initializing": true, "count": 12480 }
+```
+
+- Lock absent → `{"initializing": false}`. This is the normal steady state and
+  **also the development case**: `start.sh` never runs there and no lock is
+  ever created, so the splash must not wait on a development machine.
+- Lock present but unreadable or holding garbage → `count: 0` but still
+  `initializing: true`. A malformed counter must not abort the wait.
+
+The splash gate that consumes this is specced in [1-index.md](1-index.md).
+
 # cleanup
 
 - if there is a file pgid in WorkspaceDir, read it and terminate the process group and remove the file

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -492,4 +493,44 @@ func handleSSHKey(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write(data)
+}
+
+// initLockPath is the file image/start.sh maintains while its background chown
+// of $HOME/workspace runs. Its content is the running count of files processed.
+// It lives under the workspace .trustable/ directory, the existing convention
+// for server-side state.
+func initLockPath() string {
+	return filepath.Join(WorkspaceDir, ".trustable", "init.lock")
+}
+
+// handleInitStatus reports whether the startup chown is still running, via
+// GET /api/initstatus. The splash screen polls this before anything else, so
+// it is deliberately not gated by license or expiry — it must answer before
+// the rest of the app works.
+//
+// Absent lock means "not initializing". That is both the normal steady state
+// and the development case, where image/start.sh never runs and no lock is
+// ever created: the splash must not hang on a dev machine.
+func handleInitStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	data, err := os.ReadFile(initLockPath())
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]any{"initializing": false})
+		return
+	}
+
+	// A malformed or unreadable counter must not abort the wait: the chown is
+	// still running, we just do not know how far along it is.
+	count, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || count < 0 {
+		count = 0
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{"initializing": true, "count": count})
 }

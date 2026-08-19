@@ -26,8 +26,46 @@ fi
 rm -rf "$HOME/workbench"
 mkdir -p "$HOME/workbench"
 
-echo "Changing permissions to workspace, file count:"
-chown -Rvf trustable:trustable "$HOME" | wc -l
+# Only $HOME/workspace is a mounted hostPath volume whose ownership can
+# actually be wrong (olaris-bestia/trustable/sts.yaml). Everything else in the
+# container is image content, already owned correctly by the Dockerfile's
+# COPY --chown and its USER/WORKDIR setup, so chowning bare $HOME walked
+# ~/.local, ~/.ops, ~/.cache and baked-in node_modules for nothing.
+#
+# Run it in the background so supervisord starts immediately, and report
+# progress through a lock file the splash screen polls via /api/initstatus.
+INIT_LOCK="$HOME/workspace/.trustable/init.lock"
+mkdir -p "$(dirname "$INIT_LOCK")"
+echo 0 > "$INIT_LOCK"
+# We are root here but the server reads this as trustable. Make the lock
+# readable at creation time rather than leaving it to the background chown to
+# reach: an existing-but-unreadable lock is indistinguishable from a stale one
+# and would hang the splash.
+chown trustable:trustable "$(dirname "$INIT_LOCK")" "$INIT_LOCK"
+chmod 755 "$(dirname "$INIT_LOCK")"
+chmod 644 "$INIT_LOCK"
+
+echo "Changing permissions to workspace in background, lock: $INIT_LOCK"
+(
+  # The trap is the failure-path guarantee: an aborted or failing chown must
+  # never strand the lock and leave the splash waiting forever.
+  trap 'rm -f "$INIT_LOCK"' EXIT
+  chown -Rvf trustable:trustable "$HOME/workspace" | {
+    n=0
+    while IFS= read -r _; do
+      n=$((n + 1))
+      # Throttled: one write per file would hammer the volume with thousands
+      # of tiny writes and become the bottleneck itself.
+      if [ $((n % 500)) -eq 0 ]; then echo "$n" > "$INIT_LOCK"; fi
+    done
+    # Written inside the pipeline's subshell, which is the only scope where n
+    # is visible; otherwise the last partial batch is lost.
+    echo "$n" > "$INIT_LOCK"
+  }
+  # Normal-path removal at the end of the init loop; the trap above only
+  # covers the error and signal paths.
+  rm -f "$INIT_LOCK"
+) &
 echo "Showing ops -info:"
 sudo -u trustable bash -c "source ~/.bashrc && ~/.local/bin/ops -info"
 
