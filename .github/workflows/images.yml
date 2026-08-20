@@ -1,15 +1,10 @@
-# a github workflow triggered by tags in format XXXX.XXXX.XXXX with X a digit
-# the workflow should checkout the sources build the binaries
-# and copy the configuration in folder image
+# Builds and pushes the Trustable image on a tag push.
 #
-# env GOOS=linux GOARCH=amd64 go build -o image/trustable-amd64
-# env GOOS=linux GOARCH=arm64 go build -o image/trustable-arm64
-# cp -v trustable.json image/trustable.json
-#
-# then build and push in the ghcr.io registry an image for linux/adm64 and linux/arm64
-# named ghcr.io/<user>/<repo>:<tag> in ghcr.io with buildx
-#
-# use the GITHUB_TOKEN provided for authentication
+# Compilation lives in ./build.sh and ./hotfix.sh, not here, so CI and a
+# developer machine produce the image exactly the same way. This workflow only
+# decides which of the two to call: a tag ending in -<n> is a hotfix (a thin
+# layer on the image recorded in olaris-bestia/opsroot.json), anything else is a
+# full image build.
 
 name: Build and Push Images
 
@@ -45,6 +40,13 @@ jobs:
 
       - name: Checkout sources
         uses: actions/checkout@v7
+        with:
+          # opsroot.json lives in the olaris-bestia submodule; the hotfix path
+          # reads its base image from there. That repo is private, and checkout
+          # clones submodules before the git-config step below runs, so the
+          # token has to be supplied here.
+          submodules: true
+          token: ${{ secrets.TRUSTABLE_AI_REPO_ACCESS_TOKEN }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -70,16 +72,27 @@ jobs:
             url."https://x-access-token:${{ secrets.TRUSTABLE_AI_REPO_ACCESS_TOKEN }}@github.com/".insteadOf \
             "https://github.com/"
 
-      - name: Build binaries
+      # The tag filter above matches both `..._2118` and `..._2118-1`, and
+      # GHA globs have no [0-9] classes, so the two build kinds are separated
+      # here rather than in `on:`.
+      - name: Classify tag
+        id: tag
         run: |
-          mkdir -p image/bin
           TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="$(cat version.txt)"
-          EXPIRY="$(cat expiry.txt)"
-          echo -e "Version: ${VERSION}\nBuild: $TAG\nExpiry: $(cat expiry.txt)\n" >_build.txt
-          env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
-          env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
-          cp -v trustable.json image/trustable.json
-          cp -v opencode.md image/opencode.md
-          bash image/image.sh $TAG
+          echo "tag=$TAG" >>"$GITHUB_OUTPUT"
+          if [[ "$TAG" =~ -[0-9]+$ ]]; then
+            echo "hotfix=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "hotfix=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      # Compilation lives in the build scripts, not here, so CI and a developer
+      # machine produce the image the same way.
+      - name: Build hotfix image
+        if: steps.tag.outputs.hotfix == 'true'
+        run: bash ./hotfix.sh --buildx
+
+      - name: Build full image
+        if: steps.tag.outputs.hotfix == 'false'
+        run: bash ./build.sh --buildx
 

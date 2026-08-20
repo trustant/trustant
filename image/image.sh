@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build and push Docker images for trustable-app
-# Usage: ./image.sh [tag]
+# Usage: ./image.sh [tag] [--push]
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -27,6 +27,13 @@ trap cleanup EXIT
 
 # Determine the tag
 TAG="${1:-}"
+# WHY an explicit flag rather than sniffing GITHUB_ACTIONS: the caller decides
+# whether this is a registry push. build.sh --buildx passes --push; a local
+# build.sh --build does not.
+PUSH=false
+if [ "${2:-}" = "--push" ]; then
+    PUSH=true
+fi
 if [ -z "$TAG" ]; then
     # Delete all existing tags and generate a new one
     git tag -l | xargs -r git tag -d
@@ -37,7 +44,7 @@ fi
 
 # Detect architecture(s) to build
 detect_platforms() {
-    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    if $PUSH; then
         echo "linux/amd64,linux/arm64"
         return
     fi
@@ -173,7 +180,7 @@ echo "Using trustable-react-mcp source hash: $REACT_HASH"
 # base stages a no-op, so the split bought nothing that cache does not, and the
 # separator is no longer interpreted.
 echo "Building image ${IMAGE}:${TAG}..."
-if [ -n "${GITHUB_ACTIONS:-}" ]; then
+if $PUSH; then
     "${RUNTIME_CMD[@]}" $BUILDX_PREFIX build \
         --platform "$PLATFORMS" \
         --tag "${IMAGE}:${TAG}" \

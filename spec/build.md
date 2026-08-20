@@ -1,17 +1,37 @@
 # Build Scripts
 
-`build.sh` is the single entrypoint for building the Trustable image, on both
-the macOS Trustable VM and the Linux k3s server. There is no separate server
-script and no build mode to select: the host is detected from the presence of
+`build.sh` is the entrypoint for building the full Trustable image, on both the
+macOS Trustable VM and the Linux k3s server. There is no separate server script:
+the host is detected from the presence of
 `~/Library/Application Support/Trustable/id_ed25519` and `current.ip`.
+`hotfix.sh` is the fast path for changes that do not need the expensive image
+stages rebuilt — see [Hotfix builds](#hotfix-builds).
 
-Every build, on every host:
+Both scripts take the same modes. **A bare invocation prints help and builds
+nothing**, so neither can start a 20-minute build or a cluster rollout by
+accident:
+
+| Mode | `build.sh` | `hotfix.sh` |
+|---|---|---|
+| *(no args)* | help, plus the current tag and a `git push --tags` hint | same, keyed on the `-<n>` tag shape |
+| `--build [--no-deploy]` | full image, ship, `ops bestia trustable redeploy` | thin layer, ship, StatefulSet patch + rollout |
+| `--buildx` | both arches, multiarch build, push to the registry (CI) | same, thin layer |
+| `--tag` | tag + `opsroot.json` + commit; builds nothing | tag only; builds nothing |
+
+`--no-deploy` is an optional **second** argument to `--build`: build the image
+and stop, shipping nothing and deploying nothing. It is rejected with a usage
+error on `--tag` (which builds nothing) and `--buildx` (which never deploys)
+rather than silently ignored. `TRUSTABLE_BUILD_SKIP_DEPLOY=1` remains honoured
+for compatibility but is no longer the documented form.
+
+`build.sh --build`, on every host:
 
 1. computes the tag, **deletes every existing git tag**, forces the new one, and
    writes `_build.txt`
 2. **writes the image tag into `olaris-bestia/opsroot.json`** via `jq`, then
    commits, so the deployment plugin always records the image just built
-3. builds the Go binary for linux/amd64 and linux/arm64
+3. builds the Go binary for the **host architecture** (a single-arch local image
+   never uses the other binary; `--buildx` is where both are built)
 4. builds the container image through `image/image.sh`
 5. makes the image reachable by the cluster
 6. deploys with `ops bestia trustable redeploy`
@@ -28,8 +48,18 @@ Deployment is always `ops bestia trustable redeploy`, which is `undeploy` +
 `deploy`; `deploy` reads the image from `opsroot.json`. The StatefulSet is
 never patched directly with `kubectl set image`.
 
-`TRUSTABLE_BUILD_SKIP_DEPLOY=1` stops after the image build, leaving the tag,
-`_build.txt` and the `opsroot.json` update in place.
+`--no-deploy` stops after the image build, leaving the tag, `_build.txt` and the
+`opsroot.json` update in place.
+
+`build.sh --buildx` is the CI path. It takes the tag from `GITHUB_REF`, and
+**never tags, commits or writes `opsroot.json`**: CI runs on a detached checkout
+of an already-pushed tag, so creating a tag there is meaningless and a commit
+would be orphaned. It writes `_build.txt`, compiles both arches, stages
+`trustable.json` and calls `image/image.sh "$TAG" --push`.
+
+`image/image.sh` decides between a local single-arch build and a multiarch
+registry push from that explicit `--push` argument, not by sniffing
+`GITHUB_ACTIONS`: the caller knows which it wants.
 
 Note that updating `opsroot.json` only records the tag locally. Pushing the
 `olaris-bestia` submodule is what actually ships a version, and that requires
@@ -204,8 +234,10 @@ Build environment:
   `ghcr.io/trustable-ai/trustable-app`.
 - `TRUSTABLE_BUILD_TAG`: explicit image tag. If omitted, the tag is
   `<key>_<version>_<yy.jjj.HHMM>`.
-- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: build the image but do not make it reachable
-  by the cluster or redeploy.
+- `TRUSTABLE_HOTFIX_TAG`: explicit hotfix tag for `hotfix.sh --buildx`,
+  overriding `GITHUB_REF`.
+- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: legacy equivalent of `--no-deploy`, still
+  honoured but no longer the documented form.
 - `TRUSTABLE_MAC_SUPPORT_DIR`: location of the macOS Trustable VM credentials,
   default `~/Library/Application Support/Trustable`. Its presence is what
   selects the VM shipping path.
@@ -222,6 +254,144 @@ Publishing environment:
 Every build updates `olaris-bestia/opsroot.json`, so the deployment plugin and
 the running cluster always agree on which image was built. Recording the tag is
 local; publishing it is a separate, authorization-gated push of the submodule.
+
+## Hotfix builds
+
+`hotfix.sh` layers four files onto the image already recorded in
+`olaris-bestia/opsroot.json` via `FROM <that image>`:
+
+| Source (context `image/`) | Destination | Owner |
+|---|---|---|
+| `bin/trustable-$TARGETARCH` | `/usr/local/bin/trustable` | root |
+| `start.sh` | `/usr/local/bin/start.sh` | root |
+| `env` | `/home/trustable/.env` | `trustable:trustable` |
+| `trustable.json` | `/home/trustable/trustable.json` | `trustable:trustable` |
+
+That set covers a Go change, a container entrypoint fix, a flag flip in `.env`
+(`ENABLE_LICENSE`, `ENABLE_REGOLO`) and a base-config change — none of which
+need the MCP/TruACP stages rebuilt. Everything `image/image.sh` does before its
+first `docker build` line (submodule init, `npm install`/`build` for
+trustable-acp, `npm ci`/`test`/`build`/`pack` for the nested pi-acp fork, three
+staged MCP context dirs, ~20 minutes) is skipped.
+
+The ownership split mirrors `image/Dockerfile` and is not cosmetic: root-owned
+files in `/home/trustable` break the running app, which writes there.
+Destinations are absolute because `WORKDIR` is set after the COPYs.
+`image/trustable.json` is gitignored and generated, so the build stages it with
+`cp trustable.json image/trustable.json` first; `image/env` and `image/start.sh`
+are tracked. The generated Dockerfile must use the **dot** name
+`image/Dockerfile.hotfix` — `.gitignore` ignores `image/Dockerfile.*` but not the
+dash form, so a crashed run would otherwise leave an untracked file that fails
+the next clean-tree check. It is removed on every exit path by a trap.
+
+`ARG TARGETARCH` is redeclared in the generated file because ARGs are
+stage-scoped; BuildKit populates it per platform, which is what selects
+`trustable-amd64` vs `trustable-arm64` from a single context. `ENTRYPOINT
+["tini", "--"]` is inherited from the base image and must not be redeclared.
+
+### Hotfix tags
+
+A hotfix tag is `<base>-<n>`, where `<base>` is the tag from `opsroot.json` with
+any existing `-<n>` **stripped**, so hotfixes chain off the original base rather
+than nesting into `...2118-1-1`.
+
+The suffix is `-<n>` and not `+<n>` because the OCI tag grammar is
+`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`: a `+` would produce an unpullable
+`ghcr.io/...:tag+1`.
+
+The base tag is read as `${ref##*:}`, **not** `awk -F: '{print $2}'`, which
+returns the port for a registry like `localhost:5000/img:tag`.
+
+`<n>` is counted from the **remote**:
+
+```bash
+git ls-remote --tags origin "refs/tags/${BASE}*" \
+  | sed 's|.*refs/tags/||' | grep -v '\^{}' | sort -u | wc -l
+```
+
+Local counting cannot work: `build.sh` deletes every local tag on each build, so
+a local count is always 1 and every hotfix would collide on `-1`. Because the
+count is remote-derived and `--tag` does not push, running it twice yields the
+same tag.
+
+`--tag` requires a clean working tree: a hotfix tag must describe a committed
+tree.
+
+### Rollout, and why it is not `redeploy`
+
+`hotfix.sh` **never writes `opsroot.json` and never commits.** opsroot therefore
+keeps pointing at the base, which is what lets the next hotfix chain off it —
+and it is also why the rollout cannot go through the deployment plugin:
+`ops bestia trustable redeploy` resolves the image from `opsroot.json` and would
+roll out the *base*, not the hotfix. Making redeploy work would mean dirtying the
+`olaris-bestia` submodule on every hotfix.
+
+So `--build` patches the StatefulSet directly:
+
+```bash
+kubectl -n nuvolaris set image statefulset/trustable trustable="$IMAGE:$TAG"
+kubectl -n nuvolaris rollout status statefulset/trustable --timeout=600s
+```
+
+This is a **scoped exception** to the rule above that the StatefulSet is never
+patched directly with `kubectl set image`. That rule governs the release path and
+stays true there.
+
+**The patch is not durable.** The next `ops bestia trustable redeploy`, or any
+`deploy` from the plugin, reverts the StatefulSet to the opsroot image. A hotfix
+is a live patch, not a release; shipping one for real is still `build.sh --build`
+plus an authorized `olaris-bestia` push. `hotfix.sh` says so in its own output.
+
+Shipping the image reuses `build.sh`'s host split, with one difference: there is
+**no** `undeploy` and **no** `ctr images prune --all`. `build.sh` prunes to
+reclaim disk before a full image lands, but pruning would evict the very base
+image the hotfix layers on. If k3s is unreachable the script reports the built
+image and exits 0 — building without a cluster is a supported outcome.
+
+`_build.txt` is written **before** compiling, carrying the full `-<n>` tag on its
+`Build:` line. `main.go` embeds that file at compile time, so writing it
+afterwards would bake the *base* build string into a hotfix binary and leave no
+way to tell from `/api/version` whether the hotfix is actually running.
+
+### Publishing a hotfix
+
+`publish.sh` reports whether it is watching a hotfix or a full image, and on a
+hotfix tag it does **not touch `olaris-bestia` at all** — not the `cd`, not the
+commit, not the push. `hotfix.sh` never writes `opsroot.json`, so a
+`git commit -a` there could only sweep up unrelated dirty files in that submodule
+under a message naming the hotfix tag, and the push is exactly the `olaris*` push
+that requires explicit authorization.
+
+Note that `publish.sh` pushes with `--tags`, i.e. every local tag. The
+single-tag invariant above is what keeps that to one CI build, and it is why the
+scripts can recommend `git push --tags` in their help output.
+
+## CI
+
+`.github/workflows/images.yml` compiles nothing. It classifies the pushed tag and
+calls one of the two scripts:
+
+```yaml
+- name: Build hotfix image
+  if: steps.tag.outputs.hotfix == 'true'
+  run: bash ./hotfix.sh --buildx
+
+- name: Build full image
+  if: steps.tag.outputs.hotfix == 'false'
+  run: bash ./build.sh --buildx
+```
+
+The classification happens in a step, not in `on:`, because the
+`push: tags: ['*_*_*']` filter matches both `..._2118` and `..._2118-1` and GHA
+globs have no `[0-9]` character classes.
+
+The checkout must set `submodules: true` **and** pass
+`TRUSTABLE_AI_REPO_ACCESS_TOKEN`: `opsroot.json` lives in the private
+`olaris-bestia` submodule, and checkout clones submodules before the later
+git-config step runs. Without it the hotfix path cannot resolve its base image.
+
+Compilation lives in the scripts rather than the workflow so CI and a developer
+machine produce the image the same way.
 
 ## Upstream Pi image payload (#71)
 

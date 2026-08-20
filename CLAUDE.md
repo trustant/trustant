@@ -46,7 +46,8 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
 ./screenshot.sh  # Run INSIDE the VM: interactive recorder — click the ● at the top right of the launched app to capture, then ENTER here to collect; SPACE refreshes, DEL removes the last frame, q quits; stages (never commits) <app>/screenshot.png (APNG, 1s/frame) so it ships with your own push, and copies it to ./screenshot.png to preview in the editor
-./build.sh       # Build + deploy: ships to the Mac VM when present, else local k3s
+./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
+./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustable.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push olaris-bestia only with explicit user authorization
 go test ./...    # Unit tests (currently only configure_test.go)
 go test -run TestGenerateProjectAssetsForTruACP  # Single test
@@ -54,7 +55,9 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 `air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
 
-`build.sh` produces a single image and **always** writes the image tag into `olaris-bestia/opsroot.json` via `jq`, on every host. Deployment is always `ops bestia trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `olaris-bestia` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+`build.sh --build` produces a single image and **always** writes the image tag into `olaris-bestia/opsroot.json` via `jq`, on every host. Deployment is always `ops bestia trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `olaris-bestia` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+
+[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustable.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `olaris-bestia` for a hotfix tag. See [spec/build.md](spec/build.md).
 
 ## Required environment
 
@@ -81,7 +84,7 @@ Both flags are read by `envFlag` (unset/empty/`0`/`false`/`no`/`off` = off) and 
 
 Everything is `package main`. Each `*.go` file owns a feature surface that maps 1:1 with a spec doc under [spec/](spec/):
 
-`go.mod` is no longer dependency-free: the terminal adds `github.com/creack/pty` and `github.com/coder/websocket`. Both are pure Go, so `build.sh` keeps cross-compiling `linux/amd64` and `linux/arm64` with `CGO_ENABLED=0`.
+`go.mod` is no longer dependency-free: the terminal adds `github.com/creack/pty` and `github.com/coder/websocket`. Both are pure Go, so `build.sh --buildx` keeps cross-compiling `linux/amd64` and `linux/arm64` with `CGO_ENABLED=0` (`--build` compiles the host arch only).
 
 | File | Spec | Responsibility |
 |---|---|---|
