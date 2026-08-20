@@ -622,6 +622,28 @@ explicit save.
 
 The `current` field in the workspace `trustable.json` stores the name of the currently launched app. It is set when an app is launched (`writeCurrentApp`) and cleared when the launch is stopped (`removeCurrentFile`). The `workbench/current` file is also maintained for backward compatibility.
 
+## OpenServerless CLI card
+
+`configure.html` shows a read-only **OpenServerless CLI** card with the full
+`ops -info` output, probed once at startup and delivered as the `opsinfo` array
+on `/api/version` (see [0-preflight.md](0-preflight.md)). The page already
+fetches that endpoint for the `license` flag, so no extra request is made.
+
+It renders as a **key/value table**, not a `<pre>` blob:
+
+- One row per parsed pair, key on the left in muted monospace, value on the
+  right. Both columns `break-all` so long paths and URLs wrap instead of forcing
+  horizontal scroll.
+- Keys and values are `escapeHtml`'d — they are filesystem paths and URLs coming
+  from the environment, and one key legitimately contains an `&`.
+- A row with an empty value (e.g. `OPS_BRANCH`) still renders, showing an em
+  dash.
+- The card is **hidden entirely** when `opsinfo` is absent or empty, which is
+  what a missing `ops` or a failed probe produces.
+
+This is where the ops **version** is visible — `OPS_VERSION` is simply one of
+the rows. The app-list footer carries only the 6-character task hash.
+
 ## Password storage
 
 Passwords are stored in `apps.<name>.password` in the workspace `trustable.json` (not in separate `.password` files). They are set when creating an app via `POST /api/repo` and read during .env generation. During migration, passwords are recovered via `ops util kubeget whiskuser/<name> .spec.password` (never from `.password` files).

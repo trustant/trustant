@@ -51,6 +51,84 @@ var (
 	gitBranch  = currentGitBranch
 )
 
+// opsInfoEntry is one `<key>: <value>` row of `ops -info`. The Configure page
+// renders these as a table, so the key is display text, not an identifier —
+// the first row's key is literally "OPS & OPS_CMD".
+type opsInfoEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// ops CLI metadata, probed once at startup by probeOpsInfo. Both are empty when
+// ops is missing or the probe failed, which the UI treats as "omit".
+var (
+	// opsInfo is an ordered slice, deliberately not a map: Go randomizes map
+	// iteration, which would shuffle the Configure table between reloads.
+	opsInfo  []opsInfoEntry
+	opsTasks string // OPS_OLARIS, truncated to opsTasksShortLen
+)
+
+// opsTasksShortLen is how much of the OPS_OLARIS commit hash the footer shows.
+// Six characters is enough to identify which tasks are in use at a glance.
+const opsTasksShortLen = 6
+
+// parseOpsInfo turns `ops -info` output into ordered key/value pairs.
+//
+// Every line is `KEY: VALUE`, but three properties of the real output shape the
+// parsing: the first key contains spaces and an ampersand ("OPS & OPS_CMD"), so
+// keys are not identifiers; values contain their own colons (OPS_REPO is a
+// URL), so only the FIRST ": " may be split on; and OPS_BRANCH is routinely
+// empty, so a blank value keeps its row rather than being dropped.
+func parseOpsInfo(output string) []opsInfoEntry {
+	var entries []opsInfoEntry
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		key, value, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		entries = append(entries, opsInfoEntry{Key: key, Value: strings.TrimSpace(value)})
+	}
+	return entries
+}
+
+// opsInfoValue returns the value for key, or "" when absent.
+func opsInfoValue(entries []opsInfoEntry, key string) string {
+	for _, entry := range entries {
+		if entry.Key == key {
+			return entry.Value
+		}
+	}
+	return ""
+}
+
+// probeOpsInfo runs `ops -info` once at startup and caches the result.
+//
+// It shells out, so it must never run per request. Failure is non-fatal: ops
+// may simply be absent, and the server has no business refusing to start over
+// a diagnostic panel. The values stay empty and the UI omits them.
+func probeOpsInfo() {
+	output, err := exec.Command("ops", "-info").Output()
+	if err != nil {
+		log.Printf("Warning: ops -info failed, CLI details unavailable: %v", err)
+		return
+	}
+	opsInfo = parseOpsInfo(string(output))
+	olaris := opsInfoValue(opsInfo, "OPS_OLARIS")
+	if len(olaris) > opsTasksShortLen {
+		olaris = olaris[:opsTasksShortLen]
+	}
+	opsTasks = olaris
+	log.Printf("Ops: %s, Tasks: %s", opsInfoValue(opsInfo, "OPS_VERSION"), opsTasks)
+}
+
 func currentGitBranch() string {
 	output, err := exec.Command("git", "branch", "--show-current").Output()
 	if err != nil {
@@ -117,6 +195,9 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	// The two feature flags ride along here because every page already fetches
 	// /api/version on boot. See spec/0-preflight.md.
+	// "tasks" is the short OPS_OLARIS hash for the footer; "opsinfo" carries the
+	// full parsed `ops -info` table for the Configure page. The ops version is
+	// not a separate field — it is one of the opsinfo rows.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"version": fmt.Sprintf("Trustable %s", appVersion),
 		"build":   appBuild,
@@ -125,6 +206,8 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 		"expire":  expiryDate.Format("2006/01/02"),
 		"license": EnableLicense,
 		"regolo":  EnableRegolo,
+		"tasks":   opsTasks,
+		"opsinfo": opsInfo,
 	})
 }
 

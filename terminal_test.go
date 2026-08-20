@@ -293,3 +293,52 @@ func parseReportedPID(t *testing.T, output string) int {
 	}
 	return pid
 }
+
+// The app list opens a terminal with no app name, which must land in
+// $WORKBENCH_DIR itself — most apps there have no checkout yet.
+func TestGlobalTerminalRunsInWorkbenchRoot(t *testing.T) {
+	requirePTYSpawn(t)
+
+	server := newTerminalTestServer(t, "goodapp")
+	conn, ctx := dialTerminal(t, server, "")
+
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("pwd\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// The temp root is what newTerminalTestServer set WorkbenchDir to. macOS
+	// resolves /var through a symlink, so compare on the base name.
+	want := filepath.Base(WorkbenchDir)
+	output, found := readUntil(ctx, conn, want, 15*time.Second)
+	if !found {
+		t.Fatalf("global shell did not start in the workbench root %q; output: %q", WorkbenchDir, output)
+	}
+}
+
+// A missing WORKBENCH_DIR is a real error and must still 404 rather than
+// silently dropping the shell somewhere else.
+func TestGlobalTerminalMissingWorkbenchDirReturns404(t *testing.T) {
+	server := newTerminalTestServer(t, "goodapp")
+
+	previous := WorkbenchDir
+	WorkbenchDir = filepath.Join(previous, "does-not-exist")
+	t.Cleanup(func() { WorkbenchDir = previous })
+
+	response, err := http.Get(server.URL + "/api/terminal/")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusNotFound {
+		t.Errorf("missing workbench dir: got status %d, want %d", response.StatusCode, http.StatusNotFound)
+	}
+}
+
+// The global session key must not be reachable as an application name, or a
+// crafted request could evict the app-list shell (or vice versa).
+func TestGlobalTerminalSessionKeyIsUnreachable(t *testing.T) {
+	if namePattern.MatchString(globalTerminalSessionKey) {
+		t.Fatalf("%q matches namePattern and could collide with an app name", globalTerminalSessionKey)
+	}
+}

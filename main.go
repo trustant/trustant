@@ -84,6 +84,10 @@ func main() {
 	// Parse version info
 	parseVersion(buildTxt)
 
+	// Probe the ops CLI once. It shells out, so it must not run per request;
+	// /api/version serves the cached result. Non-fatal if ops is absent.
+	probeOpsInfo()
+
 	// API routes
 	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/initstatus", handleInitStatus)
