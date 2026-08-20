@@ -68,14 +68,43 @@ ssh.sh connects as trustable@<ip> with the Lima identity, but the package create
 the 'trustable' user without any authorized_keys. Append the Lima pubkey(s) to
 /home/trustable/.ssh/authorized_keys during install.
 
+### ssh.sh has three access modes
+
+`ssh.sh` is the single user-facing entry point into the VM, and it takes a mode
+flag because there are three distinct places to land: your own development
+files, the `trustable` user's installation, and the container running inside it.
+
+- `-d` — **development access**. Logs in as the mirrored guest user (`$USER`)
+  and `cd`s to `$PWD`, so the shell opens on your development files at the same
+  path as on the host.
+- `-p` — **production access**. Logs in as `trustable`, the user that owns the
+  Trustable folder and the deployed installation. No `cd`; you land in that
+  user's home.
+- `-i` — **image access**. Logs in as `trustable` and immediately hops one level
+  further in, into the running container:
+  `sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- bash`.
+  This is the shell for inspecting the deployed image itself — the
+  `supervisord`-managed processes, `/usr/local/bin/trustable`, the packaged
+  toolchain — as opposed to the VM hosting it.
+- `-h` — prints the usage above.
+
+**Called with no arguments at all, `ssh.sh` prints the help and exits** rather
+than opening a shell — the modes are not interchangeable, so which one you want
+is always stated. `./ssh.sh -d` is the interactive development shell.
+
+Extra arguments after the flag are run as a command instead of opening an
+interactive shell — under `-i` they run inside the container. The flag is
+optional and dev is the fallback mode, so the existing flagless command
+invocations (`./ssh.sh ./setup.sh`, `./ssh.sh ./run.sh`, `./ssh.sh
+./screenshot.sh`) keep their previous meaning.
+
 ### start.sh must never call ./ssh.sh
 
-`ssh.sh` is the **user-facing** wrapper: it takes no command and always ends in
-`exec bash`, an interactive shell. `start.sh` once probed reachability with
-`./ssh.sh true` — the argument was ignored, so the probe opened a shell and
-blocked the rest of the run. `./start.sh -v` therefore never reached the step
-that opens VS Code, and the user was dropped into a VM shell instead, with no
-error to explain it.
+`ssh.sh` is the **user-facing** wrapper: with no command it always ends in an
+interactive shell. `start.sh` once probed reachability with `./ssh.sh true` — the
+argument was ignored, so the probe opened a shell and blocked the rest of the
+run. `./start.sh -v` therefore never reached the step that opens VS Code, and the
+user was dropped into a VM shell instead, with no error to explain it.
 
 Reachability is probed by `probe_ssh` calling `ssh` directly with the identity in
 the support dir, under `BatchMode=yes` so a missing or unauthorized key fails

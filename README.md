@@ -222,7 +222,7 @@ inside the VM to re-verify the toolchain).
 ./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/TruACP+Pi + MCP)
 ./build.sh       # Build + deploy: ships to the Mac VM when present, else local k3s
 ./publish.sh     # Push the latest git tag and watch CI; pushes olaris-bestia only with explicit authorization
-./ssh.sh         # SSH into the running Trustable VM
+./ssh.sh         # SSH into the running Trustable VM; no args prints help, -d development (your files), -p production (trustable user), -i inside the container
 go test ./...    # Unit tests
 go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
 ```
