@@ -25,6 +25,13 @@ fi
 # workbench restore at startup.
 rm -rf "$HOME/workbench"
 mkdir -p "$HOME/workbench"
+# We are root here, so the directory just created is root-owned, while the
+# server runs as trustable and clones into it on launch. The background chown
+# below deliberately covers only $HOME/workspace (the hostPath volume), so it
+# never reaches this path. Non-recursive is sufficient — the rm -rf above
+# guarantees the directory is empty — and it runs synchronously because the
+# server may clone into it as soon as supervisord starts.
+chown trustable:trustable "$HOME/workbench"
 
 # Only $HOME/workspace is a mounted hostPath volume whose ownership can
 # actually be wrong (olaris-bestia/trustable/sts.yaml). Everything else in the

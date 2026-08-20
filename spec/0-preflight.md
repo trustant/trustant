@@ -39,6 +39,39 @@ Both flags are reported to the frontend by `/api/version` as the booleans
 `license` and `regolo` — every page already fetches that endpoint on boot. See
 [14-license.md](14-license.md) and [1-index.md](1-index.md).
 
+## ops CLI probe
+
+At startup, once, the server runs `ops -info` and caches the result
+(`probeOpsInfo` in `repo.go`). It shells out, so it MUST NOT run per request —
+`/api/version` serves the cached value. Failure is **non-fatal**: `ops` may
+simply be absent, and the server has no business refusing to start over a
+diagnostic panel. The values stay empty and the UI omits them.
+
+The output is a list of `<key>: <value>` lines, parsed into **ordered** pairs.
+Three properties of the real output dictate the parsing rule:
+
+- The first key is literally `OPS & OPS_CMD` — it contains spaces and an
+  ampersand, so keys are display text, **not** identifiers, and must not be
+  validated as such.
+- Values contain their own colons (`OPS_REPO` is a URL), so only the **first**
+  `:` may be split on.
+- `OPS_BRANCH` is routinely empty; a blank value **keeps its row** rather than
+  being dropped.
+
+Order is preserved with a slice, deliberately **not** a map: Go randomizes map
+iteration, which would shuffle the Configure table between reloads. Lines with
+no separator at all are skipped.
+
+`/api/version` then carries two more fields:
+
+| Field | Content |
+|---|---|
+| `tasks` | `OPS_OLARIS` truncated to **6 characters** — enough to identify the tasks in use at a glance. Shown in the app-list footer as `Task: <hash>`. |
+| `opsinfo` | The full parsed table, as a JSON array of `{"key", "value"}` objects. Rendered by the Configure page; see [2a-config.md](2a-config.md). |
+
+The ops **version** is not a separate field — it is the `OPS_VERSION` row of
+`opsinfo`. The footer deliberately carries only the short task hash.
+
 `OPENAI_BASE_URL` and `OPENAI_API_KEY` are deliberately **not** mirrored into
 internal variables. The provider base URL is read from `cfg.BaseURL` in the
 layered `trustable.json`, and the real key is resolved by Pi through `auth.json`
@@ -59,8 +92,19 @@ directory** on every container start. It MUST NOT be a link into the persistent
 `/home/trustable/workspace` volume: uncommitted work is meant to be lost on
 restart, and committing is the user's responsibility.
 
+The entrypoint runs as **root**, so the directory it recreates is root-owned
+while the server runs as `trustable`. It must therefore `chown
+trustable:trustable "$HOME/workbench"` immediately after the `mkdir`, or the
+launch clone writes into a directory it does not own. The chown is
+**non-recursive** — the preceding `rm -rf` guarantees the directory is empty —
+and **synchronous**, unlike the workspace chown below: it is a single inode, and
+the server may clone into it as soon as `supervisord` starts. The background
+workspace chown does not cover this path, by design; it walks
+`$HOME/workspace` only.
+
 The startup invariant the rest of the server relies on is therefore: after a
-restart, `$WORKBENCH_DIR` exists, is a real directory, and is empty. The
+restart, `$WORKBENCH_DIR` exists, is a real directory, is empty, and is **owned
+by `trustable`**. The
 workbench restore described in [4-launch.md](4-launch.md) then clones each
 durable bare repo back from `<WorkspaceDir>/workspace/<name>`; that path is
 unaffected and stays on the volume. Any leftover

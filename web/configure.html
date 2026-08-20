@@ -256,6 +256,17 @@
             <div id="githubAccountPanel" class="mt-4"></div>
         </div>
 
+        <!-- Full `ops -info`, parsed server-side into key/value rows. Hidden when
+             ops is missing or the probe failed. The app list footer carries only
+             the short task hash; this is where the full detail lives. -->
+        <div id="opsInfoCard" class="nu-card p-5 mb-4 hidden">
+            <h2 class="text-lg font-medium mb-1">OpenServerless CLI</h2>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+                Output of <span class="nu-mono">ops -info</span>, probed at startup.
+            </p>
+            <div id="opsInfoTable" class="text-sm"></div>
+        </div>
+
         <!-- Actions -->
         <div class="flex flex-col gap-3">
             <div class="flex gap-3">
@@ -400,6 +411,20 @@
         // Set from /api/version on boot. With ENABLE_LICENSE off the server
         // does not gate anything, so the whole card stays hidden.
         let licenseEnabled = false;
+
+        // Renders the parsed `ops -info` rows as a key/value table. Values are
+        // filesystem paths and URLs from the environment, so both columns are
+        // escaped; long ones wrap rather than forcing horizontal scroll.
+        function renderOpsInfo(entries) {
+            const card = document.getElementById('opsInfoCard');
+            if (!Array.isArray(entries) || entries.length === 0) return;
+            document.getElementById('opsInfoTable').innerHTML = entries.map(entry => `
+                <div class="grid grid-cols-1 sm:grid-cols-[minmax(140px,auto)_1fr] gap-1 sm:gap-3 py-1.5 border-b border-[color:var(--nu-rule)] last:border-b-0">
+                    <div class="nu-mono text-xs uppercase text-[color:var(--nu-muted)] break-all">${escapeHtml(entry.key || '')}</div>
+                    <div class="nu-mono text-xs break-all">${entry.value ? escapeHtml(entry.value) : '\u2014'}</div>
+                </div>`).join('');
+            card.classList.remove('hidden');
+        }
 
         async function loadLicenseStatus() {
             if (!licenseEnabled) return;
@@ -1357,6 +1382,7 @@
                     return;
                 }
                 licenseEnabled = !!data.license;
+                renderOpsInfo(data.opsinfo);
             } catch (e) {
                 console.error('Failed to check version:', e);
             }

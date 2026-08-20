@@ -28,6 +28,27 @@ Immediately **after the title** (below the version line, above the Applications 
 
 Show also in smaller font at the end of the page "Expiration date: <date>"
 
+The footer line built from the version API reads:
+
+```
+Build: <build> — Expires: <date> — Task: <6-char hash>
+```
+
+`Task` is the `tasks` field — the `OPS_OLARIS` commit shortened to six
+characters, which identifies the ops tasks in use at a glance. The ops
+**version** deliberately does not appear here; the full `ops -info` table lives
+on the Configure page (see [2a-config.md](2a-config.md)). Each of the three
+segments is conditional on its value being present, and the ` — ` separators
+adapt when any is missing.
+
+## Terminal
+
+The top bar carries a **Terminal** button, before Configure. It opens a modal
+with a real shell running in `$WORKBENCH_DIR` itself — **not** in any one app's
+checkout, because an app has no workbench until it is launched, so a per-app
+terminal here would be unavailable for most cards. It connects to
+`/api/terminal/` with no app name. See [12-terminal.md](12-terminal.md).
+
 It will list the applications, using the backend api. The page includes compact
 summary metrics for total applications, production-configured applications,
 development-only applications, and repositories. The list supports client-side

@@ -8,8 +8,11 @@
     <script src="trustable-auth.js"></script>
     <script src="js/envtable.js"></script>
     <script src="js/github-account.js"></script>
+    <script src="js/xterm.min.js"></script>
+    <script src="js/xterm-addon-fit.min.js"></script>
     <!-- Resumes any tutorial that crosses over from app.html. -->
     <script src="js/tutorial.js" defer></script>
+    <link rel="stylesheet" href="js/xterm.css">
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -29,6 +32,11 @@
                 <button type="button" data-trustable-logout onclick="TrustableAuth.logout()"
                     class="hidden nu-btn nu-btn-secondary">
                     Logout
+                </button>
+                <button id="terminalBtn" onclick="showTerminalModal()"
+                    class="nu-btn nu-btn-secondary flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/></svg>
+                    Terminal
                 </button>
                 <a href="configure.html"
                     class="nu-btn nu-btn-secondary">
@@ -108,6 +116,7 @@
         <p class="text-sm text-slate-500 text-center mt-2">
             <span id="buildText"></span>
             <span id="expireText"></span>
+            <span id="taskText"></span>
         </p>
     </div>
 
@@ -654,6 +663,19 @@
                 <button onclick="saveLicense()" class="nu-btn nu-btn-primary">Save license</button>
                 <button onclick="hideLicenseModal()" class="nu-btn nu-btn-secondary">Close</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Terminal Modal — a shell in $WORKBENCH_DIR itself, not in one app's
+         checkout: an app has no workbench until it is launched, so a per-app
+         terminal would be unavailable for most cards here. -->
+    <div id="terminalModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
+        <div class="nu-modal p-4 w-full max-w-4xl mx-4 flex flex-col" style="height: 60vh; min-height: 320px;">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-lg font-medium">Terminal</h3>
+                <button onclick="hideTerminalModal()" class="nu-btn nu-btn-secondary">Close</button>
+            </div>
+            <div id="terminalHost" class="flex-1 min-h-0 bg-black"></div>
         </div>
     </div>
 
@@ -2674,9 +2696,119 @@
             window.location.href = `appconfig.html?app=${encodeURIComponent(name)}`;
         }
 
+        // Global terminal — xterm.js over the /api/terminal/ WebSocket with no app
+        // name, so the shell runs in $WORKBENCH_DIR itself. See spec/12-terminal.md.
+        // Closing the modal closes the socket, which terminates the shell — the
+        // same contract as the app.html pane.
+        (function() {
+            const modal = document.getElementById('terminalModal');
+            const host = document.getElementById('terminalHost');
+            const button = document.getElementById('terminalBtn');
+
+            let term = null;
+            let fit = null;
+            let socket = null;
+
+            function sendResize() {
+                if (!fit || !term || !socket || socket.readyState !== WebSocket.OPEN) return;
+                try { fit.fit(); } catch (e) { return; }
+                socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+
+            function openTerminal() {
+                if (!term) {
+                    term = new Terminal({
+                        cursorBlink: true,
+                        fontSize: 13,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        theme: { background: '#000000' }
+                    });
+                    fit = new FitAddon.FitAddon();
+                    term.loadAddon(fit);
+                    term.open(host);
+                }
+
+                const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                // No app name: the server picks $WORKBENCH_DIR. The client never
+                // sends a path.
+                socket = new WebSocket(protocol + '//' + location.host + '/api/terminal/');
+                socket.binaryType = 'arraybuffer';
+
+                socket.onopen = () => {
+                    sendResize();
+                    term.focus();
+                };
+                socket.onmessage = (event) => {
+                    if (typeof event.data === 'string') {
+                        term.write(event.data);
+                    } else {
+                        term.write(new Uint8Array(event.data));
+                    }
+                };
+                socket.onclose = () => {
+                    if (term) term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
+                };
+
+                if (!term._trustableWired) {
+                    term.onData((data) => {
+                        if (socket && socket.readyState === WebSocket.OPEN) {
+                            socket.send(new TextEncoder().encode(data));
+                        }
+                    });
+                    term._trustableWired = true;
+                }
+            }
+
+            function closeTerminal() {
+                if (socket) {
+                    socket.onclose = null;
+                    socket.close();
+                    socket = null;
+                }
+                if (term) term.clear();
+            }
+
+            window.terminalModalOpen = function() {
+                return !modal.classList.contains('hidden');
+            };
+
+            window.showTerminalModal = function() {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                button.classList.add('nu-btn-primary');
+                button.classList.remove('nu-btn-secondary');
+                openTerminal();
+                setTimeout(sendResize, 50);
+            };
+
+            window.hideTerminalModal = function() {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                button.classList.remove('nu-btn-primary');
+                button.classList.add('nu-btn-secondary');
+                closeTerminal();
+            };
+
+            // Backdrop click closes; a click inside the panel must not.
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) hideTerminalModal();
+            });
+
+            window.addEventListener('resize', () => {
+                if (window.terminalModalOpen()) sendResize();
+            });
+
+            // Leaving the page should not leave a shell attached to a dead socket.
+            window.addEventListener('beforeunload', closeTerminal);
+        })();
+
         // Close modals on escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                if (window.terminalModalOpen && window.terminalModalOpen()) {
+                    hideTerminalModal();
+                    return;
+                }
                 hideAddModal();
                 if (typeof hideSSHKeyModal === 'function') hideSSHKeyModal();
                 hideDeleteModal();
@@ -2902,6 +3034,12 @@
                 if (data.expire) {
                     var sep = data.build ? ' \u2014 ' : '';
                     document.getElementById('expireText').textContent = sep + 'Expires: ' + data.expire;
+                }
+                // Only the short task hash goes here — it identifies the tasks in
+                // use at a glance. The full ops -info lives on the Configure page.
+                if (data.tasks) {
+                    var taskSep = (data.build || data.expire) ? ' \u2014 ' : '';
+                    document.getElementById('taskText').textContent = taskSep + 'Task: ' + data.tasks;
                 }
             } catch (e) {
                 console.error('Failed to check version:', e);

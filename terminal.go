@@ -40,6 +40,11 @@ const (
 	terminalWriteTimeout = 10 * time.Second
 	// terminalReadLimit caps a control frame; PTY input is small by nature.
 	terminalReadLimit = 32 * 1024
+	// globalTerminalSessionKey is the session key for the app-list terminal,
+	// whose shell runs in $WORKBENCH_DIR rather than one app's checkout. The
+	// spaces make it unreachable by namePattern, so it cannot collide with an
+	// application name.
+	globalTerminalSessionKey = "<global workbench>"
 )
 
 // terminalControl is the JSON control frame sent by the client to resize the PTY.
@@ -98,19 +103,30 @@ func terminalSameOrigin(r *http.Request) bool {
 	return sameRequestOrigin(r)
 }
 
-// handleTerminal handles GET /api/terminal/<name>.
+// handleTerminal handles GET /api/terminal/<name>, and GET /api/terminal/ with
+// no name for the global workbench shell.
 func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
 		return
 	}
 
+	// An empty name is the global terminal: a shell in $WORKBENCH_DIR itself,
+	// opened from the app list where most apps have no checkout yet. Named
+	// requests keep the per-app behaviour unchanged.
 	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/terminal/"), "/")
-	if name == "" || !namePattern.MatchString(name) {
-		http.Error(w, "Invalid app name", http.StatusBadRequest)
-		return
+	sessionKey := name
+	workbenchPath := WorkbenchDir
+	if name == "" {
+		// namePattern requires a leading letter and at least six characters, so
+		// no application can ever claim this key.
+		sessionKey = globalTerminalSessionKey
+	} else {
+		if !namePattern.MatchString(name) {
+			http.Error(w, "Invalid app name", http.StatusBadRequest)
+			return
+		}
+		workbenchPath = filepath.Join(WorkbenchDir, name)
 	}
-
-	workbenchPath := filepath.Join(WorkbenchDir, name)
 	if _, err := os.Stat(workbenchPath); os.IsNotExist(err) {
 		http.Error(w, "Workbench not found", http.StatusNotFound)
 		return
@@ -128,13 +144,13 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		// Accept has already written a response.
-		log.Printf("terminal: upgrade failed for %s: %v", name, err)
+		log.Printf("terminal: upgrade failed for %s: %v", sessionKey, err)
 		return
 	}
 	conn.SetReadLimit(terminalReadLimit)
 
-	if err := runTerminalSession(r.Context(), conn, name, workbenchPath); err != nil {
-		log.Printf("terminal: session for %s ended: %v", name, err)
+	if err := runTerminalSession(r.Context(), conn, sessionKey, workbenchPath); err != nil {
+		log.Printf("terminal: session for %s ended: %v", sessionKey, err)
 	}
 }
 

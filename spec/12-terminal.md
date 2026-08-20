@@ -2,7 +2,12 @@ This file describes the terminal feature.
 Put the backend code in `terminal.go`.
 
 The terminal is a **real shell** attached to a PTY, reachable from a toolbar
-button in the workbench. It runs in the current app's workbench directory.
+button. It comes in two shapes, served by the same handler:
+
+- **Per app** — from the workbench toolbar, running in that app's checkout.
+- **Global** — from the app-list toolbar, running in `$WORKBENCH_DIR` itself.
+  The app list needs this shape because an app has **no workbench until it is
+  launched**, so a per-app terminal there would be unavailable for most cards.
 
 # API
 
@@ -44,6 +49,26 @@ Then:
 - **One terminal per app.** A second connection for the same `<name>` cancels
   the first rather than silently multiplying shells.
 
+## GET /api/terminal/ (WebSocket, no name)
+
+The **global terminal**. Identical in every respect except the directory and the
+name check:
+
+- The name is empty, so `namePattern` is not applied — there is nothing to
+  validate.
+- `cmd.Dir = $WORKBENCH_DIR` itself. The existence check still runs against that
+  path: a missing `WORKBENCH_DIR` is a real error and must 404 rather than
+  dropping the shell somewhere else.
+- The session key is the reserved string `<global workbench>`. `namePattern`
+  requires a leading letter and 6-20 alphanumerics, so the spaces and angle
+  brackets make it **unreachable as an application name** — a crafted request
+  cannot evict the app-list shell, nor an app terminal be evicted by it. The
+  one-terminal-per-key rule then applies to the global shell exactly as it does
+  per app.
+- Every gate below applies unchanged. This is not an escalation: the shell
+  already ran as the server user with the same scrubbed environment, and the
+  working directory stays **server-chosen**.
+
 # Security
 
 This endpoint is a remote shell — the most sensitive surface in the app. It is
@@ -70,7 +95,9 @@ assumed to protect this route.
 
 # Frontend
 
-`web/app.html`, wired in the same inline script as the rest of the page.
+## `web/app.html` — the per-app pane
+
+Wired in the same inline script as the rest of the page.
 
 - A **Terminal** button in the top bar's left group, immediately before the
   Config button, using the existing `nu-btn` primitives. It toggles the pane and
@@ -88,6 +115,24 @@ assumed to protect this route.
   sends the resize control frame so `$COLUMNS`/`$LINES` track the pane.
 - Socket close writes a `[session ended]` line rather than leaving a dead black
   box.
+
+## `web/applist.html` — the global modal
+
+The app list has no split layout to shrink, so the global terminal is a
+**modal** rather than a resizable pane:
+
+- A **Terminal** button in the top bar, before Configure, using the same
+  `nu-btn` primitives and terminal icon as `app.html`. It goes
+  `nu-btn-primary` while the modal is open.
+- The modal uses the page's existing `nu-modal` / `nu-modal-scrim` primitives at
+  `max-w-4xl` and `60vh`, with the xterm host on a black background.
+- Connect / data / resize / `[session ended]` behaviour is identical to the pane,
+  against `/api/terminal/` with **no name** — the client never sends a path.
+- Escape, the Close button and a backdrop click all close the modal **and the
+  socket**; closing terminates the shell, the same contract as the pane. The
+  Escape handler returns early so closing the terminal does not also dismiss the
+  page's other modals.
+- The same vendored xterm assets are loaded; no new dependency.
 
 # Vendoring
 
