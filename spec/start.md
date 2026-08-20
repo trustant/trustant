@@ -31,16 +31,23 @@ than duplicated per host.
 
 Pick the deb for the HOST arch and cache it under dist/:
 
-- arm (Apple Silicon): curl -JLO landing2.nuvolaris.org/api/my/v1/download/linux-arm  -> trustable_<version>_arm64.deb
-- intel:               curl -JLO landing2.nuvolaris.org/api/my/v1/download/linux-amd  -> trustable_<version>_amd64.deb
+- arm (Apple Silicon): curl -JLO landing.nuvolaris.org/api/my/v1/download/linux-arm  -> trustable_<version>_arm64.deb
+- intel:               curl -JLO landing.nuvolaris.org/api/my/v1/download/linux-amd  -> trustable_<version>_amd64.deb
 
 Cache as dist/trustable_<version>_<arch>.deb. If it already exists, skip the
-~3.6GB download. Download to a .part file and move into place so an interrupted
+~4GB download. Download to a .part file and move into place so an interrupted
 download never leaves a truncated cache entry.
 
-The release identity must stay aligned across the repository: `version.txt`
-contains the tagged form (`v0.4.0`) used by builds, while `TRUSTABLE_VERSION` in
-`start.sh` contains the numeric form (`0.4.0`) used to download the VM package.
+The release identity has a single source: `version.txt` contains the tagged form
+(`v0.4.0`) used by builds, and `start.sh` derives `TRUSTABLE_VERSION` from it by
+stripping the leading `v` (`0.4.0`) to name the cached deb. It must not hold a
+second, hand-maintained copy. If `version.txt` is missing or empty, warn and fall
+back to `unknown` rather than caching to a nameless `trustable__<arch>.deb`.
+
+The download endpoint takes no version selector — it serves the current release —
+so `version.txt` governs the cache filename, not which package is fetched. Keep
+`--retry` on the download: a cold OpenWhisk action can answer the first request
+with HTTP 400 (`Response is not valid 'message/http'`) before serving normally.
 
 ## Boot the VM, then install (NOT via cloud-init provision)
 
@@ -621,7 +628,7 @@ fi`) because a native host has no VM to shell into. `-v`/`-n` handed to
 `code` must be on the **Windows** PATH for `-v`, with the WSL extension
 (`ms-vscode-remote.remote-wsl`) installed. This is checked **before any
 provisioning** — after the `-Stop`/`-Destroy` branches, which must never require
-an editor — so a run that downloads a ~3.6GB package cannot end by discovering
+an editor — so a run that downloads a ~4GB package cannot end by discovering
 the editor is missing. A `code --remote` that fails afterwards aborts naming the
 extension.
 

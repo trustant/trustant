@@ -37,7 +37,7 @@
 # Teardown:    stops and deletes the VM. macOS only.
 #   ./start.sh -k
 #
-# The ~3.6GB package is downloaded+cached on the HOST (under dist/) before the
+# The ~4GB package is downloaded+cached on the HOST (under dist/) before the
 # VM boots, then copied in and installed over `limactl shell`. Installing this
 # way — rather than as a Lima `provision` script — avoids limactl start's ~10min
 # readiness timeout, and caching on the host makes re-runs skip the download.
@@ -71,8 +71,17 @@ else
   SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
 fi
 LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
-DOWNLOAD_BASE="https://landing2.nuvolaris.org/api/my/v1/download"
-TRUSTABLE_VERSION="0.4.0"
+DOWNLOAD_BASE="https://landing.nuvolaris.org/api/my/v1/download"
+# The release identity lives in version.txt (tagged form, e.g. v0.4.0) and is the
+# single source shared with build.sh/hotfix.sh/run.sh. The deb filename uses the
+# numeric form, so strip the leading "v". The endpoint takes no version selector
+# — it serves the current release — so this only names the dist/ cache entry.
+TRUSTABLE_VERSION="$(head -n1 version.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"
+if [[ -z "$TRUSTABLE_VERSION" ]]; then
+  TRUSTABLE_VERSION="unknown"
+  warn "version.txt not found or empty — caching the package as trustable_${TRUSTABLE_VERSION}_<arch>.deb"
+fi
 DIST_DIR="dist"                              # host-side cache for the .deb
 
 # CPU-only ollama is installed as a host process in the VM (localhost:11434); the
@@ -865,7 +874,7 @@ ensure_deb() {
   if [[ -s "$DEB_FILE" ]]; then
     ok "Using cached package: $DEB_FILE"
   else
-    echo "--- Downloading Trustable package (~3.6GB) -> $DEB_FILE ---"
+    echo "--- Downloading Trustable package (~4GB) -> $DEB_FILE ---"
     # Download to a temp file then move into place, so an interrupted download
     # never leaves a truncated cache entry.
     TMP_DEB="${DEB_FILE}.part"

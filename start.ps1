@@ -192,7 +192,7 @@ if ($Destroy) {
 
 # --- -v preflight: `code` on the WINDOWS PATH --------------------------------
 # Checked here, before anything is provisioned, for the same reason start.sh
-# checks it before touching the VM: a run that downloads a ~3.6GB package must
+# checks it before touching the VM: a run that downloads a ~4GB package must
 # not end by discovering the editor is missing. It sits after -Stop/-Destroy,
 # which exit above - tearing a distro down never needs VS Code.
 if ($VSCode) {
@@ -508,7 +508,7 @@ if ($NoStart) {
 # `bash ./start.sh` rather than `./start.sh`: the exec bit on a Windows-hosted
 # file depends on the automount options, and this does not care.
 Write-Step "Running ./start.sh in '$Distro' as '$User'"
-Write-Warn 'start.sh downloads a ~3.6GB package and installs k3s inside the distribution'
+Write-Warn 'start.sh downloads a ~4GB package and installs k3s inside the distribution'
 & wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./start.sh
 $startExit = $LASTEXITCODE
 if ($startExit -ne 0) {
