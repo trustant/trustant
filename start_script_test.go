@@ -106,3 +106,55 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 		t.Fatal("image/start.sh must remove the init lock at the end of the init loop, not only via the trap")
 	}
 }
+
+// The host-side provisioning script (root start.sh, not the image entrypoint
+// guarded above) downloads a ~4GB .deb. Two invariants there are easy to
+// regress and expensive to notice, because the failure is a silently wrong or
+// mislabeled 4GB cache entry rather than an error:
+//
+//  1. The host. landing2.nuvolaris.org still answers, but serves an older
+//     release than landing.nuvolaris.org — reverting the URL would cache a
+//     stale package under the current version's filename.
+//  2. The version. version.txt is the single release identity (shared with
+//     build.sh/hotfix.sh/run.sh) and holds the tagged form "v0.4.0"; the deb
+//     filename needs the numeric "0.4.0". A hardcoded copy in start.sh drifts
+//     silently whenever the tag moves.
+func TestStartScriptDownloadsCurrentReleaseFromLandingHost(t *testing.T) {
+	content, err := os.ReadFile("start.sh")
+	if err != nil {
+		t.Fatalf("read start.sh: %s", err)
+	}
+	script := string(content)
+
+	if !strings.Contains(script, `DOWNLOAD_BASE="https://landing.nuvolaris.org/api/my/v1/download"`) {
+		t.Error("start.sh must download the package from landing.nuvolaris.org")
+	}
+	// Substring-safe: every landing2 occurrence is a real regression, and
+	// "landing.nuvolaris.org" does not contain "landing2".
+	if strings.Contains(script, "landing2") {
+		t.Error("start.sh must not use landing2.nuvolaris.org — it serves an older release")
+	}
+
+	if !strings.Contains(script, `TRUSTABLE_VERSION="$(head -n1 version.txt`) {
+		t.Error("start.sh must derive TRUSTABLE_VERSION from version.txt, not hardcode it")
+	}
+	if !strings.Contains(script, `TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"`) {
+		t.Error("start.sh must strip the leading v from version.txt (v0.4.0 -> 0.4.0)")
+	}
+	// The fallback keeps a worktree without version.txt provisioning instead of
+	// caching to a nameless trustable__<arch>.deb, but it must be loud.
+	if !strings.Contains(script, `warn "version.txt not found or empty`) {
+		t.Error("start.sh must warn when version.txt is missing or empty")
+	}
+
+	// The download endpoint is an OpenWhisk action: a cold start can answer the
+	// first request with HTTP 400 before serving normally, so --retry is what
+	// makes provisioning reliable, and .part staging is what stops an
+	// interrupted transfer from poisoning the cache.
+	if !strings.Contains(script, "curl -fL --retry 3") {
+		t.Error("start.sh must keep --retry on the download (cold-start 400s)")
+	}
+	if !strings.Contains(script, `TMP_DEB="${DEB_FILE}.part"`) {
+		t.Error("start.sh must stage the download through a .part file")
+	}
+}
