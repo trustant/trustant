@@ -190,7 +190,10 @@ DNS and never start `kubefwd`.
 does not exist. Before starting Air it writes local development build metadata;
 the macOS wrapper records the real host worktree branch, while direct Linux/WSL
 runs use `TRUSTABLE_BUILD_BRANCH` when supplied and otherwise report the
-`development` fallback. Release metadata remains owned by the build scripts.
+`development` fallback. It skips that regeneration only when HEAD is exactly on
+a tag whose name already appears in `_build.txt`, so a run from the tagged
+commit keeps -- and reports -- the release metadata it was built with (see
+[run.md](run.md)). Release metadata remains owned by the build scripts.
 
 ## Build tags
 

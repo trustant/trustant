@@ -32,6 +32,31 @@ write_dev_build_metadata() {
         "$version" "$build" "$branch" "$stream" "$expiry" > _build.txt
 }
 
+# Keep release metadata when the checkout is exactly the commit that produced
+# it: that is how a local run proves the running app matches the tagged build.
+# Any other state (untagged HEAD, a different tag, missing _build.txt)
+# regenerates.
+build_metadata_matches_head_tag() {
+    local tag="$1"
+    # WHY: an untagged HEAD yields an empty tag, and `grep ""` matches any
+    # non-empty file -- without this guard a normal dev checkout would keep
+    # stale release metadata forever.
+    [[ -n "$tag" ]] || return 1
+    [[ -s _build.txt ]] || return 1
+    # -F: a tag like v0.4.0 is a literal, not a regex.
+    grep -qF "$tag" _build.txt
+}
+
+ensure_build_metadata() {
+    local tag
+    tag="$(git describe --exact-match --tags HEAD 2>/dev/null || true)"
+    if build_metadata_matches_head_tag "$tag"; then
+        echo "Keeping _build.txt (matches HEAD tag $tag)"
+        return 0
+    fi
+    write_dev_build_metadata
+}
+
 # On macOS everything lives in the trudev VM, not on the host. Do the whole
 # lifecycle from here so the user only ever runs ./run.sh:
 #   1. ./start.sh  — provision/boot the VM AND run setup.sh (idempotent)
@@ -41,7 +66,7 @@ write_dev_build_metadata() {
 #   3. on ^C (or when the loop exits), stop the VM with ./start.sh -s, keeping it
 #      for a fast restart next time
 if [[ "$(uname)" == "Darwin" ]]; then
-    write_dev_build_metadata
+    ensure_build_metadata
     command -v limactl >/dev/null 2>&1 || { echo "limactl not found (brew install lima)" >&2; exit 1; }
     ./start.sh || { echo "start.sh failed" >&2; exit 1; }
     # Ignore ^C on the host: the interrupt reaches the in-VM run.sh (same process
@@ -54,9 +79,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
     exit 0
 fi
 
-# Always replace release or verification metadata before starting Air. A reused
-# worktree may carry an ignored _build.txt from an earlier image build.
-write_dev_build_metadata
+# Replace release or verification metadata before starting Air unless HEAD is
+# exactly the tag that metadata was built from. A reused worktree may otherwise
+# carry an ignored _build.txt from an earlier, unrelated image build.
+ensure_build_metadata
 
 source ./.env
 
