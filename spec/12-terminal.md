@@ -211,6 +211,43 @@ The shell is user-visible, so the environment is scrubbed before it is handed
 over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTABLE_AUTH_*` secrets, and
 GitHub tokens are removed. `TERM=xterm-256color` and `PWD` are set.
 
+## Working directory, and the image's `.bashrc`
+
+Two mechanisms place the shell:
+
+- **`cmd.Dir`**, set by the server, is authoritative. It is
+  `$WORKBENCH_DIR/<name>` for a per-app terminal and `$WORKBENCH_DIR` itself for
+  the global one, and `terminalEnvironment` exports a matching `PWD`.
+- **`.bashrc`** in the image (`image/Dockerfile`) then `cd`s into the currently
+  launched app's checkout, read from `$WORKBENCH_DIR/current` — the file
+  `launch.go`'s `writeCurrentApp` rewrites on every launch. This is what the
+  **global** terminal needs, since its `cmd.Dir` is the workbench root; for a
+  per-app terminal it resolves to the directory the shell is already in.
+
+The `.bashrc` block is deliberately silent when it cannot place the shell: no
+launched app (the normal state on a fresh pod), an empty `current`, or a
+`current` naming an app whose checkout has since been removed. In each case the
+shell simply stays in `cmd.Dir`. It also trims the file, which `writeCurrentApp`
+writes untrimmed, and guards the target directory before `cd`-ing.
+
+This block regressed once, and the failure is worth recording because nothing
+else in the build would catch it. The original was a single line that guarded on
+the absolute `$HOME/workbench/current` but read the **relative**
+`workbench/current`. Relative to `PWD`, which the server sets to `cmd.Dir` — so
+a per-app terminal looked for `$WORKBENCH_DIR/<name>/workbench/current` and every
+terminal opened with a `cat: workbench/current: No such file or directory`
+banner. It then used `export PWD=`, which assigns a variable the shell itself
+maintains and overwrites on the next `cd` rather than changing directory, so the
+prompt advertised a directory the shell was not in. Both routes were affected.
+It is shell embedded in a Dockerfile, so nothing compiles it and no test ran it;
+`dockerfile_test.go` now asserts on its content the way `setup_test.go` and
+`screenshot_script_test.go` guard their scripts.
+
+Note that a change here ships only with a **full `./build.sh --build`**.
+`hotfix.sh` layers the binary plus `image/start.sh`, `image/env` and
+`trustable.json` onto the existing image and never re-runs the Dockerfile stage
+that writes `.bashrc`.
+
 The publishing-auth gap tracked as #91 is **not** addressed here and must not be
 assumed to protect this route.
 
