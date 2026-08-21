@@ -1106,6 +1106,11 @@
         // lost whenever the user pressed the page's own Save Configuration,
         // which navigates away on success.
         let predefinedEnvVars = [];
+        // Nothing may be saved before the palette has loaded. The table starts
+        // holding a placeholder row with no inputs, so a save that read it would
+        // post an empty set — and POST /api/predefined-env replaces the WHOLE
+        // set, erasing predefined_env in trustable.json.
+        let predefinedEnvLoaded = false;
 
         function renderPredefinedEnv() {
             const tbody = document.getElementById('predefinedEnvTableBody');
@@ -1277,6 +1282,10 @@
                 if (!resp.ok) throw new Error(await resp.text());
                 const data = await resp.json();
                 predefinedEnvVars = Array.isArray(data.vars) ? data.vars : [];
+                // Only a successful load licenses a save. On the failure path
+                // below predefinedEnvVars is [], and saving that would erase the
+                // very palette we could not read.
+                predefinedEnvLoaded = true;
             } catch (e) {
                 predefinedEnvVars = [];
                 setPredefinedEnvStatus('Could not load predefined variables: ' + e.message, 'error');
@@ -1315,9 +1324,21 @@
         // the DOM, for a removal whose row is already gone from the table.
         async function persistPredefinedEnv(options) {
             const opts = options || {};
+            // Never write on behalf of a palette the user has not seen loaded.
+            if (!predefinedEnvLoaded) return;
             // The table, not the model, is the source of truth by default, so a
             // save can never miss an edit the user can see on screen.
-            if (!opts.fromModel) predefinedEnvVars = collectPredefinedEnvRows();
+            if (!opts.fromModel) {
+                const rows = collectPredefinedEnvRows();
+                // An empty read is not evidence the user cleared the palette:
+                // renderPredefinedEnv() draws a placeholder row with no inputs
+                // whenever the table is empty, and the same shape appears if the
+                // table has not been rendered yet. Clearing is only ever
+                // expressed through Remove, which saves fromModel. Posting []
+                // here would replace the whole set and erase trustable.json.
+                if (rows.length === 0) return;
+                predefinedEnvVars = rows;
+            }
             setPredefinedEnvStatus('Saving…', 'info');
             try {
                 const resp = await fetch('/api/predefined-env', {

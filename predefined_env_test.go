@@ -423,7 +423,7 @@ func TestConfigurePagePersistsPaletteWithoutASaveButton(t *testing.T) {
 	for name, needle := range map[string]string{
 		"routes every mutation through one save path": "async function persistPredefinedEnv(",
 		"reads the rows out of the DOM at save time":  "function collectPredefinedEnvRows()",
-		"uses that read to build the payload":         "predefinedEnvVars = collectPredefinedEnvRows();",
+		"uses that read to build the payload":         "predefinedEnvVars = rows;",
 		"marks the name inputs":                       `data-predefined-env="name"`,
 		"marks the value inputs":                      `data-predefined-env="value"`,
 		"posts to the palette endpoint":               "'/api/predefined-env'",
@@ -498,6 +498,65 @@ func TestConfigurePageSavesImportedVariablesImmediately(t *testing.T) {
 	}
 	if strings.Contains(code, "press Save Variables to store them") {
 		t.Error("the import still tells the user to press a button that is gone")
+	}
+}
+
+// Opening the Configure page must never erase the palette.
+//
+// POST /api/predefined-env replaces the WHOLE set, so any save that posts an
+// empty list clears predefined_env in trustable.json. Two paths could reach it:
+// a flush firing before GET /api/predefined-env has resolved, and a DOM read of
+// a table showing the "No predefined variables yet." placeholder, which has no
+// input rows. Both look exactly like "the user cleared the palette" on the wire.
+func TestConfigurePageCannotSaveAnUnloadedPalette(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+
+	if !strings.Contains(code, "let predefinedEnvLoaded = false;") {
+		t.Error("the palette no longer tracks whether it has loaded, so a save can race the load")
+	}
+
+	persist := code[strings.Index(code, "async function persistPredefinedEnv("):]
+	persist = persist[:strings.Index(persist, "setPredefinedEnvStatus('Saving…', 'info');")]
+
+	if !strings.Contains(persist, "if (!predefinedEnvLoaded) return;") {
+		t.Errorf("a save is no longer gated on the palette having loaded:\n%s", persist)
+	}
+	// An empty DOM read must abort rather than post an empty set.
+	if !strings.Contains(persist, "if (rows.length === 0) return;") {
+		t.Errorf("an empty table read can now post an empty set and wipe the palette:\n%s", persist)
+	}
+
+	// The flag must be set only after a successful GET. On the failure path
+	// predefinedEnvVars is [], and licensing a save there would erase the very
+	// palette that could not be read.
+	load := code[strings.Index(code, "async function loadPredefinedEnv()"):]
+	load = load[:strings.Index(load, "// The table, not the model")]
+	set := strings.Index(load, "predefinedEnvLoaded = true;")
+	if set < 0 {
+		t.Fatalf("loadPredefinedEnv never marks the palette loaded:\n%s", load)
+	}
+	if set > strings.Index(load, "} catch (e) {") {
+		t.Error("the palette is marked loaded outside the success path, so a failed GET licenses a wipe")
+	}
+}
+
+// Removing the last variable is the one legitimate way to post an empty set, and
+// it must keep working: it goes through fromModel, bypassing the empty-read
+// guard above. Without this the palette could be filled but never emptied.
+func TestConfigurePageCanStillClearTheLastVariable(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+	body := code[strings.Index(code, "function removePredefinedEnvRow(index)"):]
+	body = body[:strings.Index(body, "// Same rules as parseEnvFile")]
+	if !strings.Contains(body, "fromModel: true") {
+		t.Errorf("Remove no longer saves fromModel, so clearing the last variable is swallowed:\n%s", body)
 	}
 }
 

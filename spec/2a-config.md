@@ -548,6 +548,30 @@ Two details are deliberate and must survive any rewrite:
 result is a "saved 0" response that stores nothing. The row persists on its first
 edit instead, through the debounced path.
 
+#### An empty set is only ever written deliberately
+
+`POST /api/predefined-env` **replaces the whole set**, so any save that posts an
+empty list erases `predefined_env` in `trustable.json`. On an auto-saving card
+that is a live hazard, because an empty table and an unloaded table look
+identical on the wire. Two guards make an accidental empty write impossible:
+
+- **Nothing is saved before the palette has loaded.** `predefinedEnvLoaded` is
+  set only inside the success branch of `loadPredefinedEnv()`, and
+  `persistPredefinedEnv()` returns immediately while it is false. A flush firing
+  before `GET /api/predefined-env` resolves would otherwise read a table that is
+  still showing the "No predefined variables yet." placeholder — a row with **no
+  inputs** — and post `[]`. Setting the flag on the *failure* path too would be
+  just as wrong: `predefinedEnvVars` is `[]` there, so a save would erase the very
+  palette that could not be read.
+- **An empty DOM read aborts the save.** `collectPredefinedEnvRows()` returning
+  nothing is not evidence the user cleared the palette; it is what the
+  placeholder row looks like.
+
+**Clearing is only ever expressed through Remove**, which saves `fromModel` and
+so bypasses the empty-read guard. Removing the last variable therefore still
+empties the palette, deliberately — the guards block only empties the user did
+not ask for.
+
 #### The table is the source of truth at save time
 
 `persistPredefinedEnv()` reads the name/value pairs **out of the DOM** before
@@ -558,7 +582,8 @@ the rows also bind with `oninput` so the array tracks typing. `change` fires on
 The one exception is a save whose row is already gone from the table — a
 **Remove**, or an **import** whose merge the model already holds verbatim. Those
 pass the model explicitly instead of re-reading a table that no longer describes
-what should be stored.
+what should be stored. `fromModel` is also what lets **Remove** legitimately post
+an empty set, per the guards above.
 
 Because a dropped row and a deliberate clear are indistinguishable in the
 response, a **count of 0 is never reported as success**. It renders as a neutral
