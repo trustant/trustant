@@ -181,15 +181,19 @@
             </div>
         </div>
 
-        <!-- Predefined environment variables. Saved by their own button against
-             /api/predefined-env: POST /api/configuration runs a model probe and
-             navigates away on success, which editing a variable must not do. -->
+        <!-- Predefined environment variables. Saved to /api/predefined-env the
+             moment they are edited, with no Save button: POST /api/configuration
+             runs a model probe and navigates away on success, so an unsaved
+             palette left sitting in the page was silently lost. -->
         <div class="nu-card p-5 mb-4">
             <h2 class="text-lg font-medium mb-1">Predefined Environment Variables</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
                 These values are offered when an imported or newly created application asks for
                 variables that have no value. Nothing is applied automatically — you confirm them
                 in the application's own environment editor.
+            </p>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+                Changes here are saved as you make them.
             </p>
             <table class="nu-table text-sm w-full">
                 <thead>
@@ -204,8 +208,8 @@
             <div class="flex flex-wrap items-center gap-2 mt-4">
                 <button type="button" onclick="addPredefinedEnvRow()"
                     class="nu-btn nu-btn-secondary">Add Variable</button>
-                <!-- The file is parsed in the browser and merged into the table
-                     only; nothing is stored until Save Variables. -->
+                <!-- The file is parsed in the browser, merged into the table and
+                     stored straight away, like every other edit on this card. -->
                 <button type="button" onclick="document.getElementById('predefinedEnvFile').click()"
                     class="nu-btn nu-btn-secondary">Import from file</button>
                 <!-- No accept filter: env files come as .env, .env.local,
@@ -214,8 +218,6 @@
                      Anything textual is parsed; binary input is rejected below. -->
                 <input type="file" id="predefinedEnvFile" class="hidden"
                     onchange="importPredefinedEnvFile(this)">
-                <button type="button" id="predefinedEnvSaveBtn" onclick="savePredefinedEnv()"
-                    class="nu-btn nu-btn-primary">Save Variables</button>
                 <span id="predefinedEnvStatus" class="text-sm"></span>
             </div>
         </div>
@@ -1098,7 +1100,17 @@
         // Deliberately not an EnvTable: that component is bound to one app's
         // dev/prod pair and posts to /api/appconfig/<name>, which is both the
         // wrong shape and the wrong endpoint here.
+        //
+        // There is no Save button: every mutation persists through
+        // persistPredefinedEnv(). A palette that needed a separate click was
+        // lost whenever the user pressed the page's own Save Configuration,
+        // which navigates away on success.
         let predefinedEnvVars = [];
+        // Nothing may be saved before the palette has loaded. The table starts
+        // holding a placeholder row with no inputs, so a save that read it would
+        // post an empty set — and POST /api/predefined-env replaces the WHOLE
+        // set, erasing predefined_env in trustable.json.
+        let predefinedEnvLoaded = false;
 
         function renderPredefinedEnv() {
             const tbody = document.getElementById('predefinedEnvTableBody');
@@ -1114,12 +1126,14 @@
                             placeholder="VARIABLE_NAME"
                             data-predefined-env="name" data-index="${i}"
                             oninput="updatePredefinedEnv(${i}, 'name', this.value)"
+                            onblur="flushPredefinedEnv()"
                             class="nu-input nu-code w-full px-2 py-1 text-sm">
                     </td>
                     <td class="pr-2 py-1">
                         <input type="text" value="${escapeAttr(v.value)}"
                             data-predefined-env="value" data-index="${i}"
                             oninput="updatePredefinedEnv(${i}, 'value', this.value)"
+                            onblur="flushPredefinedEnv()"
                             class="nu-input nu-code w-full px-2 py-1 text-sm">
                     </td>
                     <td class="text-right py-1">
@@ -1129,20 +1143,48 @@
                 </tr>`).join('');
         }
 
+        // Typing fires oninput per keystroke, so the edit path is debounced.
+        // Every other mutation persists straight away.
+        const PREDEFINED_ENV_DEBOUNCE_MS = 600;
+        let predefinedEnvDebounce = null;
+
         function updatePredefinedEnv(index, field, value) {
             predefinedEnvVars[index][field] = value;
-            setPredefinedEnvStatus('', '');
+            setPredefinedEnvStatus('Saving…', 'info');
+            if (predefinedEnvDebounce) clearTimeout(predefinedEnvDebounce);
+            predefinedEnvDebounce = setTimeout(() => {
+                predefinedEnvDebounce = null;
+                // Never re-render on this path: renderPredefinedEnv() rebuilds
+                // the whole tbody and would steal focus mid-keystroke.
+                persistPredefinedEnv({ rerender: false });
+            }, PREDEFINED_ENV_DEBOUNCE_MS);
         }
 
+        // Run a pending debounced save now. Bound to each row input's blur and
+        // to page-hide, so the last keystrokes cannot escape unsaved.
+        function flushPredefinedEnv() {
+            if (!predefinedEnvDebounce) return;
+            clearTimeout(predefinedEnvDebounce);
+            predefinedEnvDebounce = null;
+            persistPredefinedEnv({ rerender: false });
+        }
+
+        // A fresh row has a blank name, and the server drops blank-name rows, so
+        // saving here would POST a no-op. It persists on the first edit.
         function addPredefinedEnvRow() {
             predefinedEnvVars.push({ name: '', value: '' });
             renderPredefinedEnv();
         }
 
         function removePredefinedEnvRow(index) {
+            // A queued edit would re-add the row it is holding in the DOM.
+            if (predefinedEnvDebounce) {
+                clearTimeout(predefinedEnvDebounce);
+                predefinedEnvDebounce = null;
+            }
             predefinedEnvVars.splice(index, 1);
             renderPredefinedEnv();
-            setPredefinedEnvStatus('', '');
+            persistPredefinedEnv({ rerender: false, fromModel: true });
         }
 
         // Same rules as parseEnvFile in configure.go: trim the line, skip empty
@@ -1218,9 +1260,11 @@
 
             predefinedEnvVars = merged;
             renderPredefinedEnv();
-            setPredefinedEnvStatus(
-                `Imported ${parsed.length} variable${parsed.length === 1 ? '' : 's'}`
-                + ' — press Save Variables to store them.', 'info');
+            // Stored straight away, like every other edit on this card. Read the
+            // model, not the DOM: renderPredefinedEnv() has just rebuilt it from
+            // exactly this array, and going through the table would only add a
+            // way for the merge to be lost.
+            await persistPredefinedEnv({ rerender: true, fromModel: true });
         }
 
         function setPredefinedEnvStatus(message, kind) {
@@ -1232,12 +1276,29 @@
                 : kind === 'ok' ? 'text-green-700' : 'text-[color:var(--nu-muted)]');
         }
 
+        // Mirror the palette into the boot-time `config` snapshot that
+        // buildConfig() echoes. Named rows only, matching what the server keeps.
+        function syncPredefinedEnvIntoConfig() {
+            if (typeof config !== 'object' || config === null) return;
+            const map = {};
+            for (const v of predefinedEnvVars) {
+                const name = (v.name || '').trim();
+                if (name) map[name] = v.value || '';
+            }
+            config.predefined_env = map;
+        }
+
         async function loadPredefinedEnv() {
             try {
                 const resp = await fetch('/api/predefined-env');
                 if (!resp.ok) throw new Error(await resp.text());
                 const data = await resp.json();
                 predefinedEnvVars = Array.isArray(data.vars) ? data.vars : [];
+                // Only a successful load licenses a save. On the failure path
+                // below predefinedEnvVars is [], and saving that would erase the
+                // very palette we could not read.
+                predefinedEnvLoaded = true;
+                syncPredefinedEnvIntoConfig();
             } catch (e) {
                 predefinedEnvVars = [];
                 setPredefinedEnvStatus('Could not load predefined variables: ' + e.message, 'error');
@@ -1247,10 +1308,9 @@
 
         // The table, not the model, is the source of truth at save time. The row
         // inputs bind with `oninput`, but relying on any event to have fired is
-        // what made "Save Variables" silently store nothing: clicking the button
-        // reads the array in the same turn as the blur it causes, and a row still
-        // holding its initial blank name is dropped by the server as "not filled
-        // in yet". Reading the DOM here cannot lose an edit the user can see.
+        // what once made saving silently store nothing: a row still holding its
+        // initial blank name is dropped by the server as "not filled in yet".
+        // Reading the DOM here cannot lose an edit the user can see.
         function collectPredefinedEnvRows() {
             const tbody = document.getElementById('predefinedEnvTableBody');
             const names = tbody.querySelectorAll('input[data-predefined-env="name"]');
@@ -1267,12 +1327,31 @@
             return rows;
         }
 
-        async function savePredefinedEnv() {
-            const btn = document.getElementById('predefinedEnvSaveBtn');
-            // Keep the model in step with what is about to be sent, so a failed
-            // save leaves the user's edits in place rather than reverting them.
-            predefinedEnvVars = collectPredefinedEnvRows();
-            btn.disabled = true;
+        // The single persistence path for the card. Every mutation ends here;
+        // there is no Save button to press and nothing is left pending.
+        //
+        // `rerender` reloads the server's canonical set (sorted, blank rows
+        // dropped) into the table afterwards. It must stay false on the edit
+        // path: re-rendering rebuilds the tbody and would steal focus from the
+        // field being typed into. `fromModel` sends predefinedEnvVars instead of
+        // the DOM, for a removal whose row is already gone from the table.
+        async function persistPredefinedEnv(options) {
+            const opts = options || {};
+            // Never write on behalf of a palette the user has not seen loaded.
+            if (!predefinedEnvLoaded) return;
+            // The table, not the model, is the source of truth by default, so a
+            // save can never miss an edit the user can see on screen.
+            if (!opts.fromModel) {
+                const rows = collectPredefinedEnvRows();
+                // An empty read is not evidence the user cleared the palette:
+                // renderPredefinedEnv() draws a placeholder row with no inputs
+                // whenever the table is empty, and the same shape appears if the
+                // table has not been rendered yet. Clearing is only ever
+                // expressed through Remove, which saves fromModel. Posting []
+                // here would replace the whole set and erase trustable.json.
+                if (rows.length === 0) return;
+                predefinedEnvVars = rows;
+            }
             setPredefinedEnvStatus('Saving…', 'info');
             try {
                 const resp = await fetch('/api/predefined-env', {
@@ -1285,25 +1364,34 @@
                     return;
                 }
                 const data = await resp.json();
-                // Reload so the server's canonical set (sorted, blank rows
-                // dropped) is what the user sees afterwards.
-                await loadPredefinedEnv();
+                // buildConfig() echoes config.predefined_env on Save & Configure,
+                // which is a full-document write. `config` is snapshotted at boot
+                // and nothing else here updates it, so without this a palette
+                // edited after load is echoed back as its stale boot-time value
+                // and overwritten. An explicit {} is not nil, so the server-side
+                // preserve in handlePostConfiguration cannot catch it either.
+                syncPredefinedEnvIntoConfig();
+                if (opts.rerender) await loadPredefinedEnv();
                 // A zero-count save is a real outcome (clearing the palette) but
                 // it is also what a silently-dropped row looks like, so never
                 // dress it as success — green "Saved 0 variables" is exactly how
-                // this bug hid.
+                // this bug hid. A half-typed name is legitimately blank, though,
+                // so say so plainly rather than as an error.
                 if (data.count === 0) {
-                    setPredefinedEnvStatus(
-                        'Nothing saved: no variables with a name. The palette is now empty.', 'error');
+                    setPredefinedEnvStatus('Nothing to save: no variables with a name.', 'info');
                     return;
                 }
                 setPredefinedEnvStatus(`Saved ${data.count} variable${data.count === 1 ? '' : 's'}.`, 'ok');
             } catch (e) {
                 setPredefinedEnvStatus('Error saving: ' + e.message, 'error');
-            } finally {
-                btn.disabled = false;
             }
         }
+
+        // A debounced edit still in flight when the page goes away would be lost,
+        // which is the whole bug this card had. pagehide covers the cases
+        // beforeunload misses (bfcache, mobile tab switches).
+        window.addEventListener('beforeunload', flushPredefinedEnv);
+        window.addEventListener('pagehide', flushPredefinedEnv);
 
         async function saveAndConfigure() {
             const err = validatePiDefault() || validateOllamaHost() || validateNotebookConfiguration();

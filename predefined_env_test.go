@@ -148,6 +148,62 @@ func TestPostConfigurationPreservesPredefinedEnv(t *testing.T) {
 	}
 }
 
+// An explicit empty predefined_env must not clear the palette either.
+//
+// This is the gap the test above missed: it only covers an OMITTED field. The
+// Configure page snapshots the config at boot and buildConfig() echoes that
+// snapshot, so a palette edited after load is sent back as the `{}` it was at
+// boot. `{}` is not nil, so a nil-only guard let it through and the whole
+// palette was overwritten on Save & Configure. This endpoint does not manage
+// predefined_env at all — clearing happens on the card, via /api/predefined-env.
+func TestPostConfigurationIgnoresAnExplicitEmptyPredefinedEnv(t *testing.T) {
+	withPredefinedEnvWorkspace(t, `{
+  "provider": "ollama",
+  "predefined_env": {"STRIPE_KEY": "sk_live_1"}
+}`)
+
+	body := `{"provider":"ollama","base_url":"http://localhost:11434/v1","api_key":"dummy","predefined_env":{}}`
+	recorder := httptest.NewRecorder()
+	handlePostConfiguration(recorder, httptest.NewRequest(http.MethodPost, "/api/configuration", strings.NewReader(body)))
+
+	stored := readPredefinedEnvFromDisk(t)
+	if stored["STRIPE_KEY"] != "sk_live_1" {
+		t.Fatalf("an explicit empty predefined_env erased the palette: %#v", stored)
+	}
+}
+
+// The Configure page must keep its boot-time config snapshot in step with the
+// palette, or buildConfig()'s echo re-sends a stale empty map on every
+// Save & Configure. The server guard above is the backstop; this is the cause.
+func TestConfigurePageSyncsPaletteIntoTheConfigSnapshot(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+
+	if !strings.Contains(code, "function syncPredefinedEnvIntoConfig()") {
+		t.Fatal("the palette no longer mirrors into the config snapshot buildConfig() echoes")
+	}
+	// It has to run after a save, or an edit made after boot is never reflected.
+	persist := code[strings.Index(code, "async function persistPredefinedEnv("):]
+	persist = persist[:strings.Index(persist, "// A debounced edit still in flight")]
+	if !strings.Contains(persist, "syncPredefinedEnvIntoConfig();") {
+		t.Errorf("a palette save no longer updates the config snapshot:\n%s", persist)
+	}
+	// ...and after a load, so a reopened page starts in step.
+	load := code[strings.Index(code, "async function loadPredefinedEnv()"):]
+	load = load[:strings.Index(load, "// The table, not the model")]
+	if !strings.Contains(load, "syncPredefinedEnvIntoConfig();") {
+		t.Errorf("loading the palette no longer updates the config snapshot:\n%s", load)
+	}
+	// buildConfig() must still echo the field: dropping it entirely would make
+	// the full-document write erase the palette a different way.
+	if !strings.Contains(code, "predefined_env: config.predefined_env || {}") {
+		t.Error("buildConfig() no longer echoes predefined_env")
+	}
+}
+
 // Predefined values are offered, never applied. If they leaked into the merged
 // config's app maps or the generated .env, a value would reach an application
 // without the user ever seeing it in the editor.
@@ -399,21 +455,34 @@ func TestConfigurePageImportsEnvFilesConsistently(t *testing.T) {
 	}
 }
 
-// Save Variables must not depend on a blur having fired. Binding the rows with
-// `onchange` alone meant clicking the button read the model in the same turn as
-// the blur it caused, so a freshly-added row was still blank and the server
-// dropped it as unnamed — a green "Saved 0 variables" that stored nothing.
-func TestConfigurePageSavesRowsWithoutRelyingOnBlur(t *testing.T) {
+// The palette has no Save button: every mutation persists on its own. A palette
+// that needed a separate click was silently lost whenever the user pressed the
+// page's own Save Configuration, which navigates away on success.
+func TestConfigurePagePersistsPaletteWithoutASaveButton(t *testing.T) {
 	source, err := os.ReadFile("web/configure.html")
 	if err != nil {
 		t.Fatalf("read configure.html: %s", err)
 	}
 	code := string(source)
+
+	// The button and its handler must be gone, not merely hidden.
 	for name, needle := range map[string]string{
-		"reads the rows out of the DOM at save time": "function collectPredefinedEnvRows()",
-		"uses that read to build the payload":        "predefinedEnvVars = collectPredefinedEnvRows();",
-		"marks the name inputs":                      `data-predefined-env="name"`,
-		"marks the value inputs":                     `data-predefined-env="value"`,
+		"the Save Variables button":  "predefinedEnvSaveBtn",
+		"the Save Variables label":   ">Save Variables<",
+		"the old explicit save path": "function savePredefinedEnv(",
+	} {
+		if strings.Contains(code, needle) {
+			t.Errorf("%s is back (found %q): the palette must save on edit", name, needle)
+		}
+	}
+
+	for name, needle := range map[string]string{
+		"routes every mutation through one save path": "async function persistPredefinedEnv(",
+		"reads the rows out of the DOM at save time":  "function collectPredefinedEnvRows()",
+		"uses that read to build the payload":         "predefinedEnvVars = rows;",
+		"marks the name inputs":                       `data-predefined-env="name"`,
+		"marks the value inputs":                      `data-predefined-env="value"`,
+		"posts to the palette endpoint":               "'/api/predefined-env'",
 	} {
 		if !strings.Contains(code, needle) {
 			t.Errorf("the palette save no longer %s (missing %q)", name, needle)
@@ -422,18 +491,128 @@ func TestConfigurePageSavesRowsWithoutRelyingOnBlur(t *testing.T) {
 
 	// The row inputs must track typing, not only blur.
 	rows := code[strings.Index(code, "function renderPredefinedEnv()"):]
-	rows = rows[:strings.Index(rows, "function updatePredefinedEnv")]
+	rows = rows[:strings.Index(rows, "// Typing fires oninput per keystroke")]
 	if strings.Contains(rows, "onchange=\"updatePredefinedEnv") {
 		t.Error("the palette rows went back to onchange, which only commits on blur")
 	}
 	if strings.Count(rows, "oninput=\"updatePredefinedEnv") != 2 {
 		t.Errorf("expected both palette row inputs to bind with oninput:\n%s", rows)
 	}
+	// ...and blur must flush a pending debounce, or the last keystrokes of an
+	// edit the user then navigates away from never reach the server.
+	if strings.Count(rows, "onblur=\"flushPredefinedEnv()") != 2 {
+		t.Errorf("expected both palette row inputs to flush on blur:\n%s", rows)
+	}
+
+	// Typing must be debounced rather than posting once per keystroke.
+	if !strings.Contains(code, "PREDEFINED_ENV_DEBOUNCE_MS") {
+		t.Error("the edit path no longer debounces, so every keystroke posts")
+	}
+	// A debounced edit still in flight when the page goes away is exactly the
+	// loss this issue was about.
+	for _, ev := range []string{"beforeunload", "pagehide"} {
+		if !strings.Contains(code, "addEventListener('"+ev+"', flushPredefinedEnv)") {
+			t.Errorf("a pending palette edit is no longer flushed on %s", ev)
+		}
+	}
 
 	// A zero-count save is exactly what the dropped-row bug looked like, so it
 	// must never be reported as success.
 	if !strings.Contains(code, "if (data.count === 0)") {
 		t.Error("a zero-count save is no longer called out separately from a real save")
+	}
+}
+
+// Adding a row must NOT post: a fresh row has a blank name, the server drops
+// blank-name rows, and the resulting "Saved 0 variables" is indistinguishable
+// from the silently-dropped-row bug. It persists on the first edit instead.
+func TestConfigurePageDoesNotSaveAnEmptyNewRow(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+	body := code[strings.Index(code, "function addPredefinedEnvRow()"):]
+	body = body[:strings.Index(body, "function removePredefinedEnvRow")]
+	if strings.Contains(body, "persistPredefinedEnv") {
+		t.Errorf("adding a blank row now posts a no-op save:\n%s", body)
+	}
+}
+
+// Importing a file must store the merge, not park it in the table behind a
+// button that no longer exists.
+func TestConfigurePageSavesImportedVariablesImmediately(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+	body := code[strings.Index(code, "async function importPredefinedEnvFile("):]
+	body = body[:strings.Index(body, "function setPredefinedEnvStatus")]
+	if !strings.Contains(body, "persistPredefinedEnv") {
+		t.Errorf("an imported env file is no longer saved on import:\n%s", body)
+	}
+	if strings.Contains(code, "press Save Variables to store them") {
+		t.Error("the import still tells the user to press a button that is gone")
+	}
+}
+
+// Opening the Configure page must never erase the palette.
+//
+// POST /api/predefined-env replaces the WHOLE set, so any save that posts an
+// empty list clears predefined_env in trustable.json. Two paths could reach it:
+// a flush firing before GET /api/predefined-env has resolved, and a DOM read of
+// a table showing the "No predefined variables yet." placeholder, which has no
+// input rows. Both look exactly like "the user cleared the palette" on the wire.
+func TestConfigurePageCannotSaveAnUnloadedPalette(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+
+	if !strings.Contains(code, "let predefinedEnvLoaded = false;") {
+		t.Error("the palette no longer tracks whether it has loaded, so a save can race the load")
+	}
+
+	persist := code[strings.Index(code, "async function persistPredefinedEnv("):]
+	persist = persist[:strings.Index(persist, "setPredefinedEnvStatus('Saving…', 'info');")]
+
+	if !strings.Contains(persist, "if (!predefinedEnvLoaded) return;") {
+		t.Errorf("a save is no longer gated on the palette having loaded:\n%s", persist)
+	}
+	// An empty DOM read must abort rather than post an empty set.
+	if !strings.Contains(persist, "if (rows.length === 0) return;") {
+		t.Errorf("an empty table read can now post an empty set and wipe the palette:\n%s", persist)
+	}
+
+	// The flag must be set only after a successful GET. On the failure path
+	// predefinedEnvVars is [], and licensing a save there would erase the very
+	// palette that could not be read.
+	load := code[strings.Index(code, "async function loadPredefinedEnv()"):]
+	load = load[:strings.Index(load, "// The table, not the model")]
+	set := strings.Index(load, "predefinedEnvLoaded = true;")
+	if set < 0 {
+		t.Fatalf("loadPredefinedEnv never marks the palette loaded:\n%s", load)
+	}
+	if set > strings.Index(load, "} catch (e) {") {
+		t.Error("the palette is marked loaded outside the success path, so a failed GET licenses a wipe")
+	}
+}
+
+// Removing the last variable is the one legitimate way to post an empty set, and
+// it must keep working: it goes through fromModel, bypassing the empty-read
+// guard above. Without this the palette could be filled but never emptied.
+func TestConfigurePageCanStillClearTheLastVariable(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+	body := code[strings.Index(code, "function removePredefinedEnvRow(index)"):]
+	body = body[:strings.Index(body, "// Same rules as parseEnvFile")]
+	if !strings.Contains(body, "fromModel: true") {
+		t.Errorf("Remove no longer saves fromModel, so clearing the last variable is swallowed:\n%s", body)
 	}
 }
 
