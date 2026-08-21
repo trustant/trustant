@@ -438,14 +438,33 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	// The metadata used to be written only when _build.txt was missing or
 	// empty (`[[ -s _build.txt ]] || write_dev_build_metadata`). A reused
 	// worktree carries an ignored _build.txt from an earlier image build, so
-	// that left Air running with stale release metadata; run.sh now always
-	// overwrites it. Guard the unconditional call so the skip cannot come back.
+	// that left Air running with stale release metadata. Size alone is still
+	// not a valid reason to skip; the only sanctioned skip is an exact HEAD
+	// tag match, below.
 	if strings.Contains(run, `[[ -s _build.txt ]] || write_dev_build_metadata`) {
-		t.Fatal("run.sh must overwrite _build.txt unconditionally, not skip it when one already exists")
+		t.Fatal("run.sh must not skip _build.txt regeneration merely because one already exists")
 	}
+	// Regeneration now runs through ensure_build_metadata, which keeps release
+	// metadata when HEAD is exactly the tag it was built from.
 	body := run[strings.Index(run, "write_dev_build_metadata() {"):]
-	if !strings.Contains(body, "\nwrite_dev_build_metadata\n") {
-		t.Fatal("run.sh must call write_dev_build_metadata unconditionally before starting Air")
+	if !strings.Contains(body, "\nensure_build_metadata\n") {
+		t.Fatal("run.sh must call ensure_build_metadata before starting Air")
+	}
+	for _, required := range []string{
+		`git describe --exact-match --tags HEAD`,
+		// An untagged HEAD yields an empty tag, and `grep ""` matches any
+		// non-empty file. Without this guard every untagged dev checkout would
+		// keep whatever stale release metadata the worktree carried.
+		`[[ -n "$tag" ]] || return 1`,
+		// Missing/empty _build.txt must still regenerate.
+		`[[ -s _build.txt ]] || return 1`,
+		// -F: a tag like v0.4.0 is a literal; as a regex the dots would match
+		// unrelated builds.
+		`grep -qF "$tag" _build.txt`,
+	} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("run.sh is missing HEAD-tag build metadata guard fragment %q", required)
+		}
 	}
 }
 

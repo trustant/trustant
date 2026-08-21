@@ -8,9 +8,18 @@ below. That host is initialized by the native path of `./start.sh` (see
 [start.md](start.md)), which supplies the same kubeconfig, `kubefwd`, and
 toolchain the VM path provides.
 
-Before Air starts, every development invocation must regenerate `_build.txt`
-from `version.txt` and `expiry.txt`; it must never reuse metadata left by an
-earlier release or verification build. Branch/stream identity resolves in this
+Before Air starts, a development invocation regenerates `_build.txt` from
+`version.txt` and `expiry.txt`, with exactly one exception: when `git describe
+--exact-match --tags HEAD` names a tag and that tag already appears in
+`_build.txt`, the existing metadata is kept. The checkout is then the very
+commit that produced the release build, so its metadata is the truthful
+metadata, and keeping it is what lets a local run be checked against the build
+it came from. In every other state -- an untagged HEAD, a tag that does not
+match the file, or a missing/empty `_build.txt` -- the metadata is regenerated,
+so a reused worktree never runs Air against stale metadata left by an earlier
+release or verification build. An empty tag must never be treated as a match:
+`grep ""` succeeds against any non-empty file, which would keep stale metadata
+on every untagged checkout. Branch/stream identity resolves in this
 order: `TRUSTABLE_BUILD_BRANCH` / `TRUSTABLE_BUILD_STREAM` overrides, the
 current Git branch when available, the suffix of a mounted worktree named
 `trustable-app-<identity>`, then `development`. This makes the mounted
