@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -66,6 +67,12 @@ type terminalControl struct {
 // setpgidDeniedOnce keeps the Setpgid-denied downgrade to a single log line;
 // the restriction is environmental and would otherwise repeat on every open.
 var setpgidDeniedOnce sync.Once
+
+// resolvedShellOnce keeps the resolved-shell line to one entry. The shell is a
+// fixed property of the environment, not a per-session event, but it is logged
+// because a terminal opening the wrong shell is otherwise only diagnosable by
+// rebuilding.
+var resolvedShellOnce sync.Once
 
 // terminalSession is one live shell. The pointer identity is the session key,
 // so a late-finishing predecessor cannot evict its replacement.
@@ -406,12 +413,105 @@ func startTerminalShell(workbenchPath string) (*exec.Cmd, *os.File, error) {
 	return cmd, ptmx, nil
 }
 
-// terminalShell picks the user's shell, falling back to /bin/sh.
+// terminalShell picks the shell the user has configured, falling back to
+// /bin/sh.
+//
+// $SHELL alone is not enough. It is exported by a *login* shell, and the server
+// is normally started by an init script rather than a login, so in the deployed
+// image $SHELL is empty while /etc/passwd records the real shell. Falling
+// straight through to /bin/sh there gives the user dash on Debian — no history,
+// no completion, a bare $ prompt — even though bash is both installed and
+// configured. So passwd is consulted as well, and is the authoritative record
+// of what the user configured.
+//
+// Resolution order, first usable candidate wins:
+//
+//  1. $SHELL — the user's explicit choice for this process.
+//  2. The passwd entry for the current uid.
+//  3. /bin/sh — the last resort, assumed to exist.
 func terminalShell() string {
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
-		return shell
+	shell, source := resolveTerminalShell()
+	resolvedShellOnce.Do(func() {
+		log.Printf("terminal: using shell %s (from %s)", shell, source)
+	})
+	return shell
+}
+
+// resolveTerminalShell runs the resolution order and reports which step
+// supplied the answer, so the choice can be logged and asserted in tests.
+func resolveTerminalShell() (shell, source string) {
+	if shell, ok := usableShell(os.Getenv("SHELL")); ok {
+		return shell, "$SHELL"
 	}
-	return "/bin/sh"
+	if shell, ok := usableShell(passwdShell(passwdPath, os.Getuid())); ok {
+		return shell, "passwd"
+	}
+	return "/bin/sh", "fallback"
+}
+
+// passwdPath is the account database terminalShell reads. It is a variable so
+// tests can point it at a fixture instead of the host's real one.
+var passwdPath = "/etc/passwd"
+
+// loginShells are refusals to grant a shell rather than shells. A passwd entry
+// of nologin or false means "this account may not log in"; exec'ing one opens a
+// terminal that prints a message or exits immediately, which is worse than the
+// /bin/sh fallback. They are skipped so resolution continues.
+//
+// Matched on the base name, since the path varies (/sbin/nologin,
+// /usr/sbin/nologin).
+var nonInteractiveShells = map[string]bool{
+	"nologin": true,
+	"false":   true,
+	"true":    true,
+	"sync":    true,
+}
+
+// usableShell reports whether a candidate can actually be exec'd as a shell,
+// returning it cleaned. It requires an absolute path to an existing regular
+// executable file, so a stale $SHELL or a passwd entry naming a removed
+// interpreter falls through to the next candidate instead of failing the
+// terminal at spawn time.
+func usableShell(candidate string) (string, bool) {
+	shell := strings.TrimSpace(candidate)
+	if shell == "" || !filepath.IsAbs(shell) {
+		return "", false
+	}
+	if nonInteractiveShells[filepath.Base(shell)] {
+		return "", false
+	}
+	info, err := os.Stat(shell)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return "", false
+	}
+	return shell, true
+}
+
+// passwdShell returns the shell field of the passwd entry for uid, or "" if
+// there is none.
+//
+// /etc/passwd is parsed directly rather than going through os/user, which has
+// no shell accessor at all and whose cgo-backed resolver would break the
+// CGO_ENABLED=0 cross-compile in build.sh --buildx. The format is seven
+// colon-separated fields, the last being the shell; malformed and comment lines
+// are skipped rather than treated as errors, matching how getpwuid behaves.
+func passwdShell(path string, uid int) string {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	want := strconv.Itoa(uid)
+	for _, line := range strings.Split(string(contents), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ":")
+		if len(fields) < 7 || fields[2] != want {
+			continue
+		}
+		return strings.TrimSpace(fields[6])
+	}
+	return ""
 }
 
 // terminalEnvironment builds the shell environment. The shell is user-visible,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -450,5 +451,96 @@ func TestGlobalTerminalMissingWorkbenchDirReturns404(t *testing.T) {
 func TestGlobalTerminalSessionKeyIsUnreachable(t *testing.T) {
 	if namePattern.MatchString(globalTerminalSessionKey) {
 		t.Fatalf("%q matches namePattern and could collide with an app name", globalTerminalSessionKey)
+	}
+}
+
+// TestTerminalShellResolution covers the resolution order that replaced the
+// bare $SHELL lookup. The motivating case is the deployed image, where $SHELL
+// is empty because the server is started by an init script rather than a login
+// shell, while /etc/passwd records the real shell — the old code fell through
+// to /bin/sh (dash on Debian) and ignored it.
+func TestTerminalShellResolution(t *testing.T) {
+	// A real executable to point candidates at, so usableShell's stat succeeds.
+	dir := t.TempDir()
+	fakeShell := filepath.Join(dir, "myshell")
+	if err := os.WriteFile(fakeShell, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake shell: %v", err)
+	}
+	notExecutable := filepath.Join(dir, "notexec")
+	if err := os.WriteFile(notExecutable, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatalf("write non-executable: %v", err)
+	}
+
+	uid := os.Getuid()
+	writePasswd := func(t *testing.T, shell string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "passwd")
+		body := "# comment line\n" +
+			"root:x:0:0:root:/root:/bin/bash\n" +
+			"malformed:line\n" +
+			fmt.Sprintf("tester:x:%d:1000:Tester:/home/tester:%s\n", uid, shell)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write passwd: %v", err)
+		}
+		return path
+	}
+
+	cases := []struct {
+		name       string
+		shellEnv   string
+		passwd     string
+		wantShell  string
+		wantSource string
+	}{
+		// $SHELL wins when it is usable.
+		{"shell env wins", fakeShell, "/bin/bash", fakeShell, "$SHELL"},
+		// The reported case: no $SHELL, so passwd supplies the answer.
+		{"falls back to passwd", "", fakeShell, fakeShell, "passwd"},
+		// A nologin/false passwd entry is a refusal to grant a shell, not a
+		// shell — skip it rather than opening a terminal that exits at once.
+		{"skips nologin", "", "/usr/sbin/nologin", "/bin/sh", "fallback"},
+		{"skips false", "", "/bin/false", "/bin/sh", "fallback"},
+		// A stale $SHELL must not defeat a good passwd entry.
+		{"stale shell env falls through", "/nonexistent/shell", fakeShell, fakeShell, "passwd"},
+		// Relative paths and non-executables are not usable.
+		{"relative path rejected", "myshell", fakeShell, fakeShell, "passwd"},
+		{"non-executable rejected", notExecutable, fakeShell, fakeShell, "passwd"},
+		// Nothing usable anywhere.
+		{"final fallback", "", "/nonexistent/shell", "/bin/sh", "fallback"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SHELL", tc.shellEnv)
+
+			original := passwdPath
+			passwdPath = writePasswd(t, tc.passwd)
+			t.Cleanup(func() { passwdPath = original })
+
+			shell, source := resolveTerminalShell()
+			if shell != tc.wantShell || source != tc.wantSource {
+				t.Errorf("resolveTerminalShell() = (%q, %q), want (%q, %q)",
+					shell, source, tc.wantShell, tc.wantSource)
+			}
+		})
+	}
+}
+
+// TestPasswdShellMissingFile keeps an unreadable account database from being an
+// error: resolution must simply continue to the fallback.
+func TestPasswdShellMissingFile(t *testing.T) {
+	if got := passwdShell(filepath.Join(t.TempDir(), "absent"), 0); got != "" {
+		t.Errorf("missing passwd: got %q, want %q", got, "")
+	}
+}
+
+// TestPasswdShellNoMatchingUID covers a uid absent from the database.
+func TestPasswdShellNoMatchingUID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "passwd")
+	if err := os.WriteFile(path, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644); err != nil {
+		t.Fatalf("write passwd: %v", err)
+	}
+	if got := passwdShell(path, 4242); got != "" {
+		t.Errorf("absent uid: got %q, want %q", got, "")
 	}
 }

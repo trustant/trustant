@@ -27,7 +27,7 @@ Preamble, matching every other handler:
 Then:
 
 - `exec.Command(shell, "-i")` with `cmd.Dir = $WORKBENCH_DIR/<name>`, started
-  with `pty.Start`. The shell is `$SHELL`, falling back to `/bin/sh`.
+  with `pty.Start`. See **Shell selection** below for how `shell` is chosen.
 - **The working directory is server-chosen.** The client never sends a path, so
   the browser cannot turn shell access into arbitrary-directory access.
 - The process gets its own process group (`Setpgid`), so teardown can reap
@@ -152,6 +152,61 @@ protected by three independent gates:
    non-browser client (tests, curl) and is allowed; browsers always send it
    cross-origin.
 
+## Shell selection
+
+The terminal opens the shell the user has **configured**, resolved in order,
+first usable candidate winning:
+
+1. **`$SHELL`** — the user's explicit choice for this process.
+2. **The passwd entry** for the current uid — field 7 of `/etc/passwd`.
+3. **`/bin/sh`** — the last resort, assumed to exist.
+
+`$SHELL` alone is not enough, and relying on it was a bug. `$SHELL` is exported
+by a *login* shell, but the server is normally started by an init script rather
+than a login, so in the deployed image it is empty while `/etc/passwd` records
+the real shell:
+
+```
+$ kubectl exec -n nuvolaris trustable-0 -c trustable -- sh -c 'echo "SHELL=$SHELL"; getent passwd "$(id -u)"'
+SHELL=
+root:x:0:0:root:/root:/bin/bash
+```
+
+Falling straight through to `/bin/sh` there gives the user **dash** on Debian —
+no history, no completion, a bare `$` prompt — even though bash is both
+installed and configured. passwd is the authoritative record of what the user
+configured, so it is consulted before the fallback.
+
+`/etc/passwd` is parsed directly rather than through `os/user`, which has no
+shell accessor and whose cgo-backed resolver would break the `CGO_ENABLED=0`
+cross-compile in `build.sh --buildx`. Malformed and comment lines are skipped
+rather than treated as errors, matching `getpwuid`. The path is a variable so
+tests can use a fixture instead of the host's real database.
+
+Every candidate is validated before use (`usableShell`): it must be an absolute
+path to an existing, executable, non-directory file. A stale `$SHELL` or a
+passwd entry naming a removed interpreter therefore falls through to the next
+candidate instead of failing the terminal at spawn time.
+
+**`nologin`, `false`, `true` and `sync` are skipped, not honoured.** A passwd
+entry naming one of these is a refusal to grant a shell rather than a shell;
+exec'ing it would open a terminal that prints a message or exits immediately,
+which is worse than the `/bin/sh` fallback. Matching is on the base name, since
+the path varies (`/sbin/nologin`, `/usr/sbin/nologin`). Note this means the
+terminal deliberately does not honour that particular OS-level setting — it is
+not an access-control gate, and it is not one here either: the three gates above
+are what authorize the terminal.
+
+The resolved shell is logged **once** per process (`resolvedShellOnce`), since
+it is a fixed property of the environment rather than a per-session event, and a
+terminal opening the wrong shell is otherwise only diagnosable by rebuilding.
+
+The shell is started **interactive (`-i`) but not login (`-l`)**, deliberately.
+`-i` reads `~/.bashrc` (and `~/.zshrc` for zsh), which is what a user expects of
+a terminal pane; adding `-l` would also source the profile files but changes
+PATH handling and tends to surprise. Recorded here so the choice is deliberate
+rather than accidental.
+
 The shell is user-visible, so the environment is scrubbed before it is handed
 over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTABLE_AUTH_*` secrets, and
 GitHub tokens are removed. `TERM=xterm-256color` and `PWD` are set.
@@ -243,6 +298,12 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
   strips at most one label and never widens to a TLD
 - a spawned shell reports `[ -t 0 ]` → yes (assert the TTY directly; this is the
   regression that motivated the PTY)
+- shell resolution: `$SHELL` wins when usable; an empty `$SHELL` falls back to
+  the passwd entry (the reported bug); a stale, relative or non-executable
+  `$SHELL` falls through rather than being used; a `nologin`/`false` passwd
+  entry is skipped; nothing usable → `/bin/sh`
+- `passwdShell` on a missing file or an absent uid returns "" rather than
+  erroring, so resolution continues
 - a resize control frame reaches `pty.Setsize` (assert via `stty size`)
 - closing the socket reaps the process group — no orphan after close
 - the shell leads its own process group in both modes (the property that makes
