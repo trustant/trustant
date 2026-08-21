@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,6 +48,11 @@ const (
 	// spaces make it unreachable by namePattern, so it cannot collide with an
 	// application name.
 	globalTerminalSessionKey = "<global workbench>"
+	// proxyCanonicalDomain is always accepted as an Origin domain. A proxy
+	// always fronts the deployed image and rewrites every inbound hostname to
+	// <label>.miniops.me so the ingress rules match, so the browser's Origin and
+	// the forwarded Host can never agree there.
+	proxyCanonicalDomain = "miniops.me"
 )
 
 // terminalControl is the JSON control frame sent by the client to resize the PTY.
@@ -94,17 +100,26 @@ func releaseTerminalSession(name string, session *terminalSession) {
 }
 
 // terminalSameOrigin reports whether the upgrade request came from a hostname
-// under the configured apihost domain. A WebSocket handshake carries Origin but
-// is not subject to CORS, so this is the only thing standing between a hostile
-// page and the user's shell.
+// this server is legitimately reachable at. A WebSocket handshake carries Origin
+// but is not subject to CORS, so this is the only thing standing between a
+// hostile page and the user's shell.
 //
-// It deliberately does NOT compare against r.Host. The Bestia proxy exists to
-// canonicalize every inbound hostname into <label>.miniops.me so the ingress
-// rules match (olaris-bestia/proxy/default-nginx.yml), so behind it r.Host is
-// the rewritten name while the browser's Origin still carries the one the user
-// typed — the two can never agree, and comparing them rejected every upgrade in
-// the deployed image. Pinning to the apihost domain accepts both without
-// trusting a client-settable header such as X-Forwarded-Host.
+// Two domains are accepted, because the terminal must work in both deployment
+// shapes:
+//
+//  1. The domain the request arrived on (r.Host) — the direct case, e.g. a
+//     browser on trustable.<ip>.nip.io:8910 reaching the server with no proxy in
+//     between, where Origin and Host agree.
+//  2. miniops.me, unconditionally — the proxied case. A proxy always sits in
+//     front of the deployed image, internal or external, and canonicalizes every
+//     inbound hostname into <label>.miniops.me so the ingress rules match
+//     (olaris-bestia/proxy/default-nginx.yml). Behind it r.Host is that
+//     rewritten name while the browser's Origin still carries the hostname the
+//     user typed, so the two never agree.
+//
+// Matching r.Host alone is what broke the terminal in the image; matching
+// miniops.me alone is what broke it in local development, where the server is
+// reached on an nip.io name. Both are needed.
 func terminalSameOrigin(r *http.Request) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
@@ -120,33 +135,46 @@ func terminalSameOrigin(r *http.Request) bool {
 	if host == "" {
 		return false
 	}
-	domain := strings.ToLower(apihostDomain())
-	if domain == "" {
-		return false
+
+	// The host the request arrived on, minus any port. Behind the proxy this is
+	// already the canonicalized name; direct, it is the one the user typed.
+	requestHost := strings.ToLower(strings.TrimSpace(r.Host))
+	if stripped, _, splitErr := net.SplitHostPort(requestHost); splitErr == nil {
+		requestHost = stripped
 	}
-	// Exact match covers the bare apihost; the dot-prefixed suffix covers
-	// trustable.<domain>. The leading dot is what stops miniops.me.evil.com,
-	// and requiring a non-empty label before it stops a bare ".miniops.me".
-	return host == domain || (strings.HasSuffix(host, "."+domain) && len(host) > len(domain)+1)
+
+	return originSharesDomain(host, requestHost) ||
+		originSharesDomain(host, proxyCanonicalDomain)
 }
 
-// apihostDomain returns the bare hostname of the configured apihost — e.g.
-// "miniops.me" for "http://miniops.me", or "192.168.64.9.nip.io" in local
-// development, where the apihost is an nip.io name rather than miniops.me.
-// Resolving it rather than hardcoding is what lets one rule cover both.
-func apihostDomain() string {
-	apihost := strings.TrimSpace(developmentAPIHost())
-	if apihost == "" {
-		return "miniops.me"
+// originSharesDomain reports whether an Origin hostname belongs to the same
+// domain as an accepted host.
+//
+// It matches the host itself, a label beneath it, and a sibling label under its
+// parent — the last because the request may arrive on trustable.<domain> while a
+// legitimate Origin is that same trustable.<domain>, or arrive on <domain> bare.
+// The leading dot on every suffix test is what rejects miniops.me.evil.com, and
+// requiring a non-empty label before it rejects a bare ".miniops.me".
+func originSharesDomain(host, accepted string) bool {
+	if host == "" || accepted == "" {
+		return false
 	}
-	if !strings.Contains(apihost, "://") {
-		apihost = "http://" + apihost
+	under := func(domain string) bool {
+		if host == domain {
+			return true
+		}
+		return strings.HasSuffix(host, "."+domain) && len(host) > len(domain)+1
 	}
-	parsed, err := url.Parse(apihost)
-	if err != nil || parsed.Hostname() == "" {
-		return "miniops.me"
+	if under(accepted) {
+		return true
 	}
-	return parsed.Hostname()
+	// Climb at most one label, and never to something that is not itself a
+	// dotted domain — otherwise an accepted host of trustable.miniops.me would
+	// widen to all of ".me".
+	if _, parent, found := strings.Cut(accepted, "."); found && strings.Contains(parent, ".") {
+		return under(parent)
+	}
+	return false
 }
 
 // handleTerminal handles GET /api/terminal/<name>, and GET /api/terminal/ with

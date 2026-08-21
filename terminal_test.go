@@ -149,45 +149,59 @@ func TestTerminalRejectsCrossOriginUpgrade(t *testing.T) {
 	}
 }
 
-// TestTerminalSameOriginPinsToApihostDomain covers the rule that replaced the
-// r.Host comparison: behind the Bestia proxy r.Host is a canonicalized name and
-// never matches the Origin the browser sent, so the origin is checked against
-// the configured apihost domain instead.
-func TestTerminalSameOriginPinsToApihostDomain(t *testing.T) {
+// TestTerminalSameOriginAcceptsBothDeploymentShapes covers the two shapes the
+// terminal must work in. The check no longer keys off the configured apihost:
+// it accepts the domain the request actually arrived on (the direct case) and
+// miniops.me unconditionally (the proxied case, where the proxy has rewritten
+// Host and the two can never agree).
+func TestTerminalSameOriginAcceptsBothDeploymentShapes(t *testing.T) {
 	cases := []struct {
-		apihost string
+		name    string
+		reqHost string
 		origin  string
 		want    bool
 	}{
-		// The shape the deployed image actually serves.
-		{"http://miniops.me", "http://trustable.miniops.me", true},
-		{"http://miniops.me", "http://miniops.me", true},
-		{"http://miniops.me", "http://vite.miniops.me", true},
-		// A port on the origin must not defeat the match.
-		{"http://miniops.me", "http://trustable.miniops.me:8910", true},
-		// Local development, where the apihost is an nip.io name. Hardcoding
-		// miniops.me would break exactly this case.
-		{"http://192.168.64.9.nip.io", "http://trustable.192.168.64.9.nip.io:8910", true},
-		{"http://192.168.64.9.nip.io", "http://trustable.miniops.me", false},
+		// Direct access on an nip.io name: Origin and Host agree. Pinning to
+		// miniops.me alone is what broke exactly this case.
+		{"direct nip.io", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.192.168.252.47.nip.io:8910", true},
+		// Sibling labels under the same domain the request arrived on.
+		{"direct sibling", "trustable.192.168.252.47.nip.io:8910",
+			"http://vite.192.168.252.47.nip.io:8910", true},
+		{"direct bare domain", "trustable.192.168.252.47.nip.io:8910",
+			"http://192.168.252.47.nip.io", true},
+		// Proxied: the proxy canonicalizes Host to <label>.miniops.me while the
+		// browser's Origin still carries the hostname the user typed.
+		{"proxied canonical host", "trustable.miniops.me",
+			"http://trustable.miniops.me", true},
+		{"proxied bare miniops", "trustable.miniops.me", "http://miniops.me", true},
+		{"proxied vite label", "trustable.miniops.me", "http://vite.miniops.me", true},
+		// miniops.me is accepted whatever the request arrived on, because the
+		// proxy always fronts the deployed image.
+		{"miniops origin on nip.io host", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.miniops.me", true},
 		// Suffix-match traps: neither may be accepted.
-		{"http://miniops.me", "http://miniops.me.evil.com", false},
-		{"http://miniops.me", "http://notminiops.me", false},
-		// A bare dot-prefixed name has no label before the domain.
-		{"http://miniops.me", "http://.miniops.me", false},
-		{"http://miniops.me", "http://evil.example.com", false},
-		{"http://miniops.me", "not a url", false},
+		{"suffix trap", "trustable.miniops.me", "http://miniops.me.evil.com", false},
+		{"prefix trap", "trustable.miniops.me", "http://notminiops.me", false},
+		{"empty label", "trustable.miniops.me", "http://.miniops.me", false},
+		// A foreign domain is rejected even though it shares the ".me" TLD with
+		// the accepted host — the climb strips at most one label.
+		{"same tld", "trustable.miniops.me", "http://evil.me", false},
+		{"unrelated domain", "trustable.miniops.me", "http://evil.example.com", false},
+		{"unrelated nip.io", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.10.0.0.1.nip.io", false},
+		{"not a url", "trustable.miniops.me", "not a url", false},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.origin+" via "+tc.apihost, func(t *testing.T) {
-			t.Setenv("OPS_APIHOST", tc.apihost)
-
-			request := httptest.NewRequest(http.MethodGet, "http://trustable.miniops.me/api/terminal/", nil)
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/terminal/", nil)
+			request.Host = tc.reqHost
 			request.Header.Set("Origin", tc.origin)
 
 			if got := terminalSameOrigin(request); got != tc.want {
-				t.Errorf("terminalSameOrigin(Origin=%q, apihost=%q) = %v, want %v",
-					tc.origin, tc.apihost, got, tc.want)
+				t.Errorf("terminalSameOrigin(Origin=%q, Host=%q) = %v, want %v",
+					tc.origin, tc.reqHost, got, tc.want)
 			}
 		})
 	}
@@ -197,8 +211,6 @@ func TestTerminalSameOriginPinsToApihostDomain(t *testing.T) {
 // curl) working: a browser always sends Origin on a cross-origin upgrade, which
 // is the case the check guards.
 func TestTerminalSameOriginAllowsMissingOrigin(t *testing.T) {
-	t.Setenv("OPS_APIHOST", "http://miniops.me")
-
 	request := httptest.NewRequest(http.MethodGet, "http://trustable.miniops.me/api/terminal/", nil)
 	if !terminalSameOrigin(request) {
 		t.Error("an upgrade with no Origin header must be accepted")
@@ -209,8 +221,6 @@ func TestTerminalSameOriginAllowsMissingOrigin(t *testing.T) {
 // the Bestia proxy forwards a rewritten Host, so an upgrade whose Origin is the
 // hostname the user typed must still be accepted.
 func TestTerminalAcceptsProxyRewrittenHost(t *testing.T) {
-	t.Setenv("OPS_APIHOST", "http://miniops.me")
-
 	// What the proxy forwards: Host canonicalized to the bare apihost, while
 	// the browser's Origin still carries the subdomain it was loaded from.
 	request := httptest.NewRequest(http.MethodGet, "http://miniops.me/api/terminal/", nil)
