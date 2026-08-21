@@ -1,7 +1,7 @@
 [submodule "olaris"]
 	path = olaris
 	url = https://github.com/nuvolaris/bestia
-	branch = bestia
+	branch = 0.1.0
 [submodule "skills"]
 	path = skills
 	url = https://github.com/trustable-ai/skills
