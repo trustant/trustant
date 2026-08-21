@@ -20,7 +20,8 @@ Preamble, matching every other handler:
 1. `expiredGuard`
 2. `namePattern.MatchString(name)` — otherwise 400 `Invalid app name`
 3. `$WORKBENCH_DIR/<name>` must exist — otherwise 404 `Workbench not found`
-4. origin check — otherwise 403 `Forbidden origin`
+4. origin check — `Origin` must fall under the configured apihost domain,
+   otherwise 403 `Forbidden origin`
 
 Then:
 
@@ -81,10 +82,36 @@ protected by three independent gates:
    `TRUSTABLE_AUTH_MODE` is enabled.
 3. **Origin check** — a WebSocket upgrade is a `GET`, so it does not reach the
    CSRF branch of `effectfulAuthRequest`, and WebSockets are not subject to
-   CORS. `terminalSameOrigin` re-checks `Origin` against the request host so a
-   third-party page cannot open a shell in a browser that holds a valid
-   session. A request with no `Origin` header at all is a non-browser client
-   (tests, curl) and is allowed; browsers always send it cross-origin.
+   CORS. `terminalSameOrigin` re-checks `Origin` so a third-party page cannot
+   open a shell in a browser that holds a valid session. A request with no
+   `Origin` header at all is a non-browser client (tests, curl) and is allowed;
+   browsers always send it cross-origin.
+
+   The `Origin` is checked against the **configured apihost domain**, not
+   against `r.Host`. Comparing against `r.Host` is what broke the terminal in
+   the deployed image: the Bestia proxy exists to canonicalize every inbound
+   hostname into `<label>.miniops.me` so the ingress rules match
+   (`olaris-bestia/proxy/default-nginx.yml`), so behind it `r.Host` is the
+   rewritten name while the browser's `Origin` still carries the hostname the
+   user typed — the two can never agree, and every upgrade was rejected with
+   403. Preserving `Host` at the proxy is not an option, since translating the
+   hostname is the proxy's entire purpose, and trusting `X-Forwarded-Host` is
+   not either: that header is client-settable, and a request reaching
+   `trustable-svc:8910` directly could forge it on a remote-shell endpoint.
+
+   The domain comes from `developmentAPIHost()`, never a hardcoded
+   `miniops.me` — locally the apihost is an `<ip>.nip.io` name, so hardcoding
+   would fix the image and break local development. Accepted origins are the
+   bare domain and any `<label>.<domain>`; the match requires a non-empty label
+   before a literal leading dot, which is what rejects `miniops.me.evil.com`,
+   `notminiops.me` and `.miniops.me`.
+
+   The gate is therefore **per-domain, not per-host**: any page on
+   `*.<apihost>` — `vite.<apihost>` included, which serves the user's own app
+   code — can open a terminal socket in a browser holding a valid session,
+   where before only `trustable.<apihost>` could. Accepted deliberately: that
+   app is code the user is writing in this same shell, and the endpoint stays
+   behind `hostnameMiddleware` and session auth.
 
 The shell is user-visible, so the environment is scrubbed before it is handed
 over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTABLE_AUTH_*` secrets, and
@@ -162,6 +189,13 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
 
 - invalid name → 400; missing workbench → 404
 - rejects a cross-origin upgrade → 403
+- accepts `trustable.<apihost>` and the bare `<apihost>`, and accepts an
+  upgrade whose `Host` was rewritten by the proxy while `Origin` kept the
+  hostname the user typed (the reported bug)
+- accepts the local `<label>.<ip>.nip.io` shape, so the rule is not tied to
+  `miniops.me`
+- rejects the suffix-match traps `miniops.me.evil.com`, `notminiops.me` and
+  `.miniops.me`
 - a spawned shell reports `[ -t 0 ]` → yes (assert the TTY directly; this is the
   regression that motivated the PTY)
 - a resize control frame reaches `pty.Setsize` (assert via `stty size`)

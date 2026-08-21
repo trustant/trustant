@@ -149,6 +149,79 @@ func TestTerminalRejectsCrossOriginUpgrade(t *testing.T) {
 	}
 }
 
+// TestTerminalSameOriginPinsToApihostDomain covers the rule that replaced the
+// r.Host comparison: behind the Bestia proxy r.Host is a canonicalized name and
+// never matches the Origin the browser sent, so the origin is checked against
+// the configured apihost domain instead.
+func TestTerminalSameOriginPinsToApihostDomain(t *testing.T) {
+	cases := []struct {
+		apihost string
+		origin  string
+		want    bool
+	}{
+		// The shape the deployed image actually serves.
+		{"http://miniops.me", "http://trustable.miniops.me", true},
+		{"http://miniops.me", "http://miniops.me", true},
+		{"http://miniops.me", "http://vite.miniops.me", true},
+		// A port on the origin must not defeat the match.
+		{"http://miniops.me", "http://trustable.miniops.me:8910", true},
+		// Local development, where the apihost is an nip.io name. Hardcoding
+		// miniops.me would break exactly this case.
+		{"http://192.168.64.9.nip.io", "http://trustable.192.168.64.9.nip.io:8910", true},
+		{"http://192.168.64.9.nip.io", "http://trustable.miniops.me", false},
+		// Suffix-match traps: neither may be accepted.
+		{"http://miniops.me", "http://miniops.me.evil.com", false},
+		{"http://miniops.me", "http://notminiops.me", false},
+		// A bare dot-prefixed name has no label before the domain.
+		{"http://miniops.me", "http://.miniops.me", false},
+		{"http://miniops.me", "http://evil.example.com", false},
+		{"http://miniops.me", "not a url", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.origin+" via "+tc.apihost, func(t *testing.T) {
+			t.Setenv("OPS_APIHOST", tc.apihost)
+
+			request := httptest.NewRequest(http.MethodGet, "http://trustable.miniops.me/api/terminal/", nil)
+			request.Header.Set("Origin", tc.origin)
+
+			if got := terminalSameOrigin(request); got != tc.want {
+				t.Errorf("terminalSameOrigin(Origin=%q, apihost=%q) = %v, want %v",
+					tc.origin, tc.apihost, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTerminalSameOriginAllowsMissingOrigin keeps non-browser clients (tests,
+// curl) working: a browser always sends Origin on a cross-origin upgrade, which
+// is the case the check guards.
+func TestTerminalSameOriginAllowsMissingOrigin(t *testing.T) {
+	t.Setenv("OPS_APIHOST", "http://miniops.me")
+
+	request := httptest.NewRequest(http.MethodGet, "http://trustable.miniops.me/api/terminal/", nil)
+	if !terminalSameOrigin(request) {
+		t.Error("an upgrade with no Origin header must be accepted")
+	}
+}
+
+// TestTerminalAcceptsProxyRewrittenHost is the regression for the reported bug:
+// the Bestia proxy forwards a rewritten Host, so an upgrade whose Origin is the
+// hostname the user typed must still be accepted.
+func TestTerminalAcceptsProxyRewrittenHost(t *testing.T) {
+	t.Setenv("OPS_APIHOST", "http://miniops.me")
+
+	// What the proxy forwards: Host canonicalized to the bare apihost, while
+	// the browser's Origin still carries the subdomain it was loaded from.
+	request := httptest.NewRequest(http.MethodGet, "http://miniops.me/api/terminal/", nil)
+	request.Host = "miniops.me"
+	request.Header.Set("Origin", "http://trustable.miniops.me")
+
+	if !terminalSameOrigin(request) {
+		t.Error("a proxy-rewritten Host must not cause the upgrade to be rejected")
+	}
+}
+
 // TestTerminalShellHasTTY asserts the regression that motivated moving the
 // terminal to a PTY: with pipes, [ -t 0 ] is false and interactive programs
 // refuse to run.

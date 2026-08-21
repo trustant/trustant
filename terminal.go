@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,8 +31,9 @@ import (
 //     valid signed session is required whenever auth is enabled.
 //  3. terminalSameOrigin — a WebSocket upgrade is a GET and therefore skips the
 //     CSRF branch in effectfulAuthRequest, and WebSockets are not subject to
-//     CORS. The origin is re-checked here so a third-party page cannot open a
-//     shell against a browser that holds a valid session.
+//     CORS. The Origin is re-checked here, against the configured apihost
+//     domain, so a third-party page cannot open a shell against a browser that
+//     holds a valid session.
 const (
 	// terminalShutdownGrace is how long the shell's process group has to exit
 	// after SIGTERM before it is SIGKILLed.
@@ -91,16 +93,60 @@ func releaseTerminalSession(name string, session *terminalSession) {
 	}
 }
 
-// terminalSameOrigin reports whether the upgrade request came from this origin.
-// A WebSocket handshake carries Origin but is not subject to CORS, so this is
-// the only thing standing between a hostile page and the user's shell.
+// terminalSameOrigin reports whether the upgrade request came from a hostname
+// under the configured apihost domain. A WebSocket handshake carries Origin but
+// is not subject to CORS, so this is the only thing standing between a hostile
+// page and the user's shell.
+//
+// It deliberately does NOT compare against r.Host. The Bestia proxy exists to
+// canonicalize every inbound hostname into <label>.miniops.me so the ingress
+// rules match (olaris-bestia/proxy/default-nginx.yml), so behind it r.Host is
+// the rewritten name while the browser's Origin still carries the one the user
+// typed — the two can never agree, and comparing them rejected every upgrade in
+// the deployed image. Pinning to the apihost domain accepts both without
+// trusting a client-settable header such as X-Forwarded-Host.
 func terminalSameOrigin(r *http.Request) bool {
-	if strings.TrimSpace(r.Header.Get("Origin")) == "" {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
 		// No Origin at all is a non-browser client (tests, curl). Browsers
 		// always send it on a cross-origin upgrade, which is the case we guard.
 		return true
 	}
-	return sameRequestOrigin(r)
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" {
+		return false
+	}
+	domain := strings.ToLower(apihostDomain())
+	if domain == "" {
+		return false
+	}
+	// Exact match covers the bare apihost; the dot-prefixed suffix covers
+	// trustable.<domain>. The leading dot is what stops miniops.me.evil.com,
+	// and requiring a non-empty label before it stops a bare ".miniops.me".
+	return host == domain || (strings.HasSuffix(host, "."+domain) && len(host) > len(domain)+1)
+}
+
+// apihostDomain returns the bare hostname of the configured apihost — e.g.
+// "miniops.me" for "http://miniops.me", or "192.168.64.9.nip.io" in local
+// development, where the apihost is an nip.io name rather than miniops.me.
+// Resolving it rather than hardcoding is what lets one rule cover both.
+func apihostDomain() string {
+	apihost := strings.TrimSpace(developmentAPIHost())
+	if apihost == "" {
+		return "miniops.me"
+	}
+	if !strings.Contains(apihost, "://") {
+		apihost = "http://" + apihost
+	}
+	parsed, err := url.Parse(apihost)
+	if err != nil || parsed.Hostname() == "" {
+		return "miniops.me"
+	}
+	return parsed.Hostname()
 }
 
 // handleTerminal handles GET /api/terminal/<name>, and GET /api/terminal/ with
@@ -138,8 +184,8 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// The origin is verified above against the request's own host, which is
-		// stricter than the library's host list.
+		// The origin is verified above against the configured apihost domain,
+		// which is stricter than the library's host list.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
