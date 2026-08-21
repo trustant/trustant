@@ -218,6 +218,46 @@ if [[ -z "$FORWARD_PROBE_SERVICE" ]]; then
     echo "no nuvolaris service is available for kubefwd readiness (trustable-svc is intentionally excluded)" >&2
     exit 1
 fi
+# WHY: kubefwd holds loopback addresses and /etc/hosts entries. A forwarder left
+# by a previous run (closed shell, dropped VM session, a run that died before its
+# trap was armed) makes the one spawned below exit within milliseconds, and its
+# sudo supervisor is then gone before it can record the child PID -- the
+# "kubefwd supervisor exited before recording its child PID" abort. Step 1's lsof
+# sweep cannot catch this: kubefwd excludes trustable-svc precisely so it never
+# binds 8910/5173/4096.
+#
+# SIGINT, not SIGKILL: kubefwd restores /etc/hosts on INT. Killing it outright
+# leaves stale entries that break name resolution for every later run.
+reap_stale_kubefwd() {
+    local pids pid
+    mapfile -t pids < <(pgrep -x kubefwd 2>/dev/null || true)
+    [[ "${#pids[@]}" -gt 0 ]] || return 0
+    echo "Terminating ${#pids[@]} leftover kubefwd process(es) from a previous run..."
+    for pid in "${pids[@]}"; do
+        sudo -n kill -INT "$pid" 2>/dev/null || true
+    done
+    for pid in "${pids[@]}"; do
+        for _ in $(seq 1 50); do
+            sudo -n kill -0 "$pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        if sudo -n kill -0 "$pid" 2>/dev/null; then
+            sudo -n kill -TERM "$pid" 2>/dev/null || true
+        fi
+    done
+    # Bounded final drain so the spawn below cannot race a forwarder that is
+    # still exiting and has not yet released its sockets.
+    for _ in $(seq 1 50); do
+        pgrep -x kubefwd >/dev/null 2>&1 || return 0
+        sleep 0.1
+    done
+    # Non-fatal: let the readiness path below produce the real diagnostic with
+    # its log tail rather than inventing a second way to refuse to start.
+    echo "warning: a kubefwd process is still running; startup may fail" >&2
+}
+
+reap_stale_kubefwd
+
 KUBEFWD_RUNTIME_DIR="$(mktemp -d -t trustable-kubefwd.XXXXXX)"
 KUBEFWD_LOG="$KUBEFWD_RUNTIME_DIR/kubefwd.log"
 KUBEFWD_PID_FILE="$KUBEFWD_RUNTIME_DIR/kubefwd.pid"

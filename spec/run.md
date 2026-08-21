@@ -57,7 +57,18 @@ is the single entrypoint and owns the whole lifecycle:
 namespace present). Do NOT call ./start.sh — it is macOS-only and provisions the
 VM from the host.
 
-2c. start exactly one `kubefwd` for namespace `nuvolaris`, using
+2c. before starting the forwarder, terminate any pre-existing `kubefwd` with
+`SIGINT` and wait for it to exit. A forwarder left behind by an earlier run
+still holds the loopback addresses and `/etc/hosts` entries the new one needs,
+so the new process exits immediately and its `sudo` supervisor is gone before it
+can record a child PID. Step 1's port sweep cannot cover this, because the
+forwarder deliberately avoids 8910/5173/4096. The signal must be `SIGINT`, never
+`SIGKILL`: `kubefwd` restores `/etc/hosts` on `SIGINT`, and killing it outright
+leaves stale entries that break name resolution for every later run. If a
+forwarder somehow survives, warn and continue -- the readiness check below is
+what reports the real failure.
+
+Then start exactly one `kubefwd` for namespace `nuvolaris`, using
 `~/.ops/tmp/kubeconfig` and field selector
 `metadata.name!=trustable-svc`. Excluding `trustable-svc` prevents the forwarder
 from stealing Trustable's local ports 8910, 4096, and 5173. Wait for bounded

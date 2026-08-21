@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -532,6 +533,62 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("run.sh is missing kubefwd lifecycle fragment %q", required)
+		}
+	}
+
+	// A forwarder left by an earlier run holds the loopback addresses and
+	// /etc/hosts entries the new one needs, so the spawn below dies before its
+	// supervisor can record a child PID. Step 1's lsof sweep cannot catch it:
+	// kubefwd excludes trustable-svc precisely so it never binds 8910/5173/4096.
+	for _, required := range []string{
+		`reap_stale_kubefwd`,
+		`pgrep -x kubefwd`,
+		`sudo -n kill -INT "$pid"`,
+	} {
+		if !strings.Contains(run, required) {
+			t.Fatalf("run.sh is missing stale-kubefwd reaping fragment %q", required)
+		}
+	}
+	// The reaper is worthless after the fact -- it must run before the spawn.
+	if call := strings.Index(run, "\nreap_stale_kubefwd\n"); call < 0 {
+		t.Fatal("run.sh must call reap_stale_kubefwd, not merely define it")
+	} else if spawn := strings.Index(run, "kubefwd svc"); call > spawn {
+		t.Fatal("run.sh must reap leftover kubefwd processes before starting its own")
+	}
+	// SIGKILL skips kubefwd's /etc/hosts restoration, leaving stale entries that
+	// break name resolution for every later run.
+	reaper := run[strings.Index(run, "reap_stale_kubefwd() {"):]
+	reaper = reaper[:strings.Index(reaper, "\n}\n")]
+	for _, forbidden := range []string{"kill -9", "SIGKILL", "-KILL"} {
+		if strings.Contains(reaper, forbidden) {
+			t.Fatalf("reap_stale_kubefwd must not use %s; SIGINT is what lets kubefwd restore /etc/hosts", forbidden)
+		}
+	}
+}
+
+// A script documented as ./<name> is unusable from a fresh clone unless the
+// executable bit is recorded in the index. run.sh and screenshot.sh both
+// shipped as 100644 while being 755 on the author's disk, so the defect was
+// invisible locally and broke only for everyone else. Listed explicitly rather
+// than derived from a shebang scan: several *.sh files carry a shebang but are
+// sourced or never invoked directly, and those must stay non-executable.
+func TestDocumentedEntrypointsAreExecutableInGit(t *testing.T) {
+	for _, name := range []string{
+		"run.sh", "screenshot.sh", "start.sh", "setup.sh",
+		"build.sh", "hotfix.sh", "publish.sh", "ssh.sh",
+	} {
+		out, err := exec.Command("git", "ls-files", "-s", "--", name).Output()
+		if err != nil {
+			t.Skipf("git ls-files unavailable: %s", err)
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) == 0 {
+			t.Errorf("%s is not tracked", name)
+			continue
+		}
+		if fields[0] != "100755" {
+			t.Errorf("%s is documented as ./%s but is mode %s in git; run: git update-index --chmod=+x %s",
+				name, name, fields[0], name)
 		}
 	}
 }
