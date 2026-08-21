@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,8 +33,9 @@ import (
 //     valid signed session is required whenever auth is enabled.
 //  3. terminalSameOrigin — a WebSocket upgrade is a GET and therefore skips the
 //     CSRF branch in effectfulAuthRequest, and WebSockets are not subject to
-//     CORS. The origin is re-checked here so a third-party page cannot open a
-//     shell against a browser that holds a valid session.
+//     CORS. The Origin is re-checked here, against the configured apihost
+//     domain, so a third-party page cannot open a shell against a browser that
+//     holds a valid session.
 const (
 	// terminalShutdownGrace is how long the shell's process group has to exit
 	// after SIGTERM before it is SIGKILLed.
@@ -45,6 +49,12 @@ const (
 	// spaces make it unreachable by namePattern, so it cannot collide with an
 	// application name.
 	globalTerminalSessionKey = "<global workbench>"
+	// proxyCanonicalDomain is the hostname the proxy rewrites every inbound
+	// request to. Seeing it in r.Host is how a request is known to have arrived
+	// through the proxy: nginx is what sets it (proxy_set_header Host
+	// $appname.miniops.me, olaris-bestia/proxy/default-nginx.yml), so a client
+	// connecting directly cannot produce it.
+	proxyCanonicalDomain = "miniops.me"
 )
 
 // terminalControl is the JSON control frame sent by the client to resize the PTY.
@@ -57,6 +67,12 @@ type terminalControl struct {
 // setpgidDeniedOnce keeps the Setpgid-denied downgrade to a single log line;
 // the restriction is environmental and would otherwise repeat on every open.
 var setpgidDeniedOnce sync.Once
+
+// resolvedShellOnce keeps the resolved-shell line to one entry. The shell is a
+// fixed property of the environment, not a per-session event, but it is logged
+// because a terminal opening the wrong shell is otherwise only diagnosable by
+// rebuilding.
+var resolvedShellOnce sync.Once
 
 // terminalSession is one live shell. The pointer identity is the session key,
 // so a late-finishing predecessor cannot evict its replacement.
@@ -91,16 +107,111 @@ func releaseTerminalSession(name string, session *terminalSession) {
 	}
 }
 
-// terminalSameOrigin reports whether the upgrade request came from this origin.
-// A WebSocket handshake carries Origin but is not subject to CORS, so this is
-// the only thing standing between a hostile page and the user's shell.
+// terminalSameOrigin reports whether the upgrade request came from a hostname
+// this server is legitimately reachable at. A WebSocket handshake carries Origin
+// but is not subject to CORS, so this is the only thing standing between a
+// hostile page and the user's shell.
+//
+// There are three request shapes, and the check must accept the first two:
+//
+//  1. Direct — a browser on trustable.<ip>.nip.io:8910 reaches the server with
+//     no proxy in between, so Origin and Host agree and are compared directly.
+//  2. Proxied — port 80 is the cluster LoadBalancer, so every request there goes
+//     through nginx, which rewrites Host to <label>.miniops.me while leaving
+//     Origin alone (it cannot rewrite Origin: the browser computes it from the
+//     address bar). Host and Origin therefore never agree, and the hostname the
+//     user typed survives only inside Origin — the header being validated. So
+//     on a proxied request only the Origin's first label is checked, against
+//     the same routing labels the hostname router accepts.
+//  3. Hostile — anything else, rejected.
+//
+// Each half was tried alone and each broke a case: comparing Host only rejected
+// every upgrade behind the proxy, and pinning to miniops.me only rejected local
+// development on an nip.io name.
+//
+// The proxied branch deliberately does not check the Origin's domain, only its
+// label — see spec/12-terminal.md for the widening this accepts and for the
+// X-Forwarded-Host tightening that would close it.
 func terminalSameOrigin(r *http.Request) bool {
-	if strings.TrimSpace(r.Header.Get("Origin")) == "" {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
 		// No Origin at all is a non-browser client (tests, curl). Browsers
 		// always send it on a cross-origin upgrade, which is the case we guard.
 		return true
 	}
-	return sameRequestOrigin(r)
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" {
+		return false
+	}
+
+	// The host the request arrived on, minus any port. Behind the proxy this is
+	// already the canonicalized name; direct, it is the one the user typed.
+	requestHost := strings.ToLower(strings.TrimSpace(r.Host))
+	if stripped, _, splitErr := net.SplitHostPort(requestHost); splitErr == nil {
+		requestHost = stripped
+	}
+
+	// The direct case: Origin and Host agree, so compare them.
+	if originSharesDomain(host, requestHost) {
+		return true
+	}
+	// The proxied case: Host has been rewritten to the canonical domain, so it
+	// no longer carries the name the user typed. Accept the Origin on its
+	// routing label alone.
+	if originSharesDomain(requestHost, proxyCanonicalDomain) {
+		return isRoutingLabelHost(host)
+	}
+	return false
+}
+
+// originSharesDomain reports whether an Origin hostname belongs to the same
+// domain as an accepted host.
+//
+// It matches the host itself, a label beneath it, and a sibling label under its
+// parent — the last because the request may arrive on trustable.<domain> while a
+// legitimate Origin is that same trustable.<domain>, or arrive on <domain> bare.
+// The leading dot on every suffix test is what rejects miniops.me.evil.com, and
+// requiring a non-empty label before it rejects a bare ".miniops.me".
+func originSharesDomain(host, accepted string) bool {
+	if host == "" || accepted == "" {
+		return false
+	}
+	under := func(domain string) bool {
+		if host == domain {
+			return true
+		}
+		return strings.HasSuffix(host, "."+domain) && len(host) > len(domain)+1
+	}
+	if under(accepted) {
+		return true
+	}
+	// Climb at most one label, and never to something that is not itself a
+	// dotted domain — otherwise an accepted host of trustable.miniops.me would
+	// widen to all of ".me".
+	if _, parent, found := strings.Cut(accepted, "."); found && strings.Contains(parent, ".") {
+		return under(parent)
+	}
+	return false
+}
+
+// isRoutingLabelHost reports whether an Origin hostname is a routing label over
+// some domain — trustable.<domain>, vite.<domain>, opencode.<domain>.
+//
+// This is the proxied-request test. The domain is deliberately not constrained:
+// nginx has already discarded the one the user typed, so there is nothing left
+// to compare it against. The label must still be one hostnameMiddleware would
+// route, and there must be a real domain under it, which is what rejects a bare
+// "trustable" or a trailing-dot name.
+func isRoutingLabelHost(host string) bool {
+	label, domain, found := strings.Cut(host, ".")
+	if !found || !strings.Contains(domain, ".") {
+		return false
+	}
+	return routingLabels[label]
 }
 
 // handleTerminal handles GET /api/terminal/<name>, and GET /api/terminal/ with
@@ -138,8 +249,8 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// The origin is verified above against the request's own host, which is
-		// stricter than the library's host list.
+		// The origin is verified above against the configured apihost domain,
+		// which is stricter than the library's host list.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
@@ -302,12 +413,105 @@ func startTerminalShell(workbenchPath string) (*exec.Cmd, *os.File, error) {
 	return cmd, ptmx, nil
 }
 
-// terminalShell picks the user's shell, falling back to /bin/sh.
+// terminalShell picks the shell the user has configured, falling back to
+// /bin/sh.
+//
+// $SHELL alone is not enough. It is exported by a *login* shell, and the server
+// is normally started by an init script rather than a login, so in the deployed
+// image $SHELL is empty while /etc/passwd records the real shell. Falling
+// straight through to /bin/sh there gives the user dash on Debian — no history,
+// no completion, a bare $ prompt — even though bash is both installed and
+// configured. So passwd is consulted as well, and is the authoritative record
+// of what the user configured.
+//
+// Resolution order, first usable candidate wins:
+//
+//  1. $SHELL — the user's explicit choice for this process.
+//  2. The passwd entry for the current uid.
+//  3. /bin/sh — the last resort, assumed to exist.
 func terminalShell() string {
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
-		return shell
+	shell, source := resolveTerminalShell()
+	resolvedShellOnce.Do(func() {
+		log.Printf("terminal: using shell %s (from %s)", shell, source)
+	})
+	return shell
+}
+
+// resolveTerminalShell runs the resolution order and reports which step
+// supplied the answer, so the choice can be logged and asserted in tests.
+func resolveTerminalShell() (shell, source string) {
+	if shell, ok := usableShell(os.Getenv("SHELL")); ok {
+		return shell, "$SHELL"
 	}
-	return "/bin/sh"
+	if shell, ok := usableShell(passwdShell(passwdPath, os.Getuid())); ok {
+		return shell, "passwd"
+	}
+	return "/bin/sh", "fallback"
+}
+
+// passwdPath is the account database terminalShell reads. It is a variable so
+// tests can point it at a fixture instead of the host's real one.
+var passwdPath = "/etc/passwd"
+
+// loginShells are refusals to grant a shell rather than shells. A passwd entry
+// of nologin or false means "this account may not log in"; exec'ing one opens a
+// terminal that prints a message or exits immediately, which is worse than the
+// /bin/sh fallback. They are skipped so resolution continues.
+//
+// Matched on the base name, since the path varies (/sbin/nologin,
+// /usr/sbin/nologin).
+var nonInteractiveShells = map[string]bool{
+	"nologin": true,
+	"false":   true,
+	"true":    true,
+	"sync":    true,
+}
+
+// usableShell reports whether a candidate can actually be exec'd as a shell,
+// returning it cleaned. It requires an absolute path to an existing regular
+// executable file, so a stale $SHELL or a passwd entry naming a removed
+// interpreter falls through to the next candidate instead of failing the
+// terminal at spawn time.
+func usableShell(candidate string) (string, bool) {
+	shell := strings.TrimSpace(candidate)
+	if shell == "" || !filepath.IsAbs(shell) {
+		return "", false
+	}
+	if nonInteractiveShells[filepath.Base(shell)] {
+		return "", false
+	}
+	info, err := os.Stat(shell)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		return "", false
+	}
+	return shell, true
+}
+
+// passwdShell returns the shell field of the passwd entry for uid, or "" if
+// there is none.
+//
+// /etc/passwd is parsed directly rather than going through os/user, which has
+// no shell accessor at all and whose cgo-backed resolver would break the
+// CGO_ENABLED=0 cross-compile in build.sh --buildx. The format is seven
+// colon-separated fields, the last being the shell; malformed and comment lines
+// are skipped rather than treated as errors, matching how getpwuid behaves.
+func passwdShell(path string, uid int) string {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	want := strconv.Itoa(uid)
+	for _, line := range strings.Split(string(contents), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, ":")
+		if len(fields) < 7 || fields[2] != want {
+			continue
+		}
+		return strings.TrimSpace(fields[6])
+	}
+	return ""
 }
 
 // terminalEnvironment builds the shell environment. The shell is user-visible,

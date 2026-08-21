@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -146,6 +147,116 @@ func TestTerminalRejectsCrossOriginUpgrade(t *testing.T) {
 
 	if response.StatusCode != http.StatusForbidden {
 		t.Errorf("cross-origin upgrade: got status %d, want %d", response.StatusCode, http.StatusForbidden)
+	}
+}
+
+// TestTerminalSameOriginAcceptsBothDeploymentShapes covers the two shapes the
+// terminal must work in. The check no longer keys off the configured apihost:
+// it accepts the domain the request actually arrived on (the direct case) and
+// miniops.me unconditionally (the proxied case, where the proxy has rewritten
+// Host and the two can never agree).
+func TestTerminalSameOriginAcceptsBothDeploymentShapes(t *testing.T) {
+	cases := []struct {
+		name    string
+		reqHost string
+		origin  string
+		want    bool
+	}{
+		// Direct access on an nip.io name: Origin and Host agree. Pinning to
+		// miniops.me alone is what broke exactly this case.
+		{"direct nip.io", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.192.168.252.47.nip.io:8910", true},
+		// Sibling labels under the same domain the request arrived on.
+		{"direct sibling", "trustable.192.168.252.47.nip.io:8910",
+			"http://vite.192.168.252.47.nip.io:8910", true},
+		{"direct bare domain", "trustable.192.168.252.47.nip.io:8910",
+			"http://192.168.252.47.nip.io", true},
+		// Proxied: the proxy canonicalizes Host to <label>.miniops.me while the
+		// browser's Origin still carries the hostname the user typed.
+		{"proxied canonical host", "trustable.miniops.me",
+			"http://trustable.miniops.me", true},
+		{"proxied bare miniops", "trustable.miniops.me", "http://miniops.me", true},
+		{"proxied vite label", "trustable.miniops.me", "http://vite.miniops.me", true},
+		// miniops.me is NOT accepted on a direct connection. The old rule
+		// accepted it unconditionally, which let a page on *.miniops.me open a
+		// shell against a local nip.io server; the proxied branch is now
+		// reached only when Host shows the request actually came through the
+		// proxy, so that widening is gone.
+		{"miniops origin on nip.io host", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.miniops.me", false},
+		// Suffix-match traps: neither may be accepted.
+		{"suffix trap", "trustable.miniops.me", "http://miniops.me.evil.com", false},
+		{"prefix trap", "trustable.miniops.me", "http://notminiops.me", false},
+		{"empty label", "trustable.miniops.me", "http://.miniops.me", false},
+		// A foreign domain is rejected even though it shares the ".me" TLD with
+		// the accepted host — the climb strips at most one label.
+		{"same tld", "trustable.miniops.me", "http://evil.me", false},
+		{"unrelated domain", "trustable.miniops.me", "http://evil.example.com", false},
+		{"unrelated nip.io", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.10.0.0.1.nip.io", false},
+		{"not a url", "trustable.miniops.me", "not a url", false},
+
+		// --- Proxied nip.io (the reported bug) -------------------------------
+		// Port 80 is the cluster LoadBalancer, so nginx rewrote Host to the
+		// canonical domain while Origin kept the nip.io name the user typed.
+		// The domain can no longer be compared; the routing label is all that
+		// is left to check.
+		{"proxied nip.io", "trustable.miniops.me",
+			"http://trustable.192.168.252.47.nip.io", true},
+		{"proxied nip.io sibling label", "trustable.miniops.me",
+			"http://vite.192.168.252.47.nip.io", true},
+		{"proxied nip.io opencode label", "trustable.miniops.me",
+			"http://opencode.192.168.252.47.nip.io", true},
+		// A label the router would not accept is rejected even when proxied.
+		{"proxied bad label", "trustable.miniops.me",
+			"http://evil.192.168.252.47.nip.io", false},
+		// A label needs a real domain under it.
+		{"proxied bare label", "trustable.miniops.me", "http://trustable", false},
+		{"proxied trailing dot", "trustable.miniops.me", "http://trustable.", false},
+
+		// The proxied relaxation must not leak into the direct case: arriving
+		// on an nip.io Host, a foreign domain is still rejected however
+		// plausible its label.
+		{"direct rejects foreign label host", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.evil.com", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/terminal/", nil)
+			request.Host = tc.reqHost
+			request.Header.Set("Origin", tc.origin)
+
+			if got := terminalSameOrigin(request); got != tc.want {
+				t.Errorf("terminalSameOrigin(Origin=%q, Host=%q) = %v, want %v",
+					tc.origin, tc.reqHost, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTerminalSameOriginAllowsMissingOrigin keeps non-browser clients (tests,
+// curl) working: a browser always sends Origin on a cross-origin upgrade, which
+// is the case the check guards.
+func TestTerminalSameOriginAllowsMissingOrigin(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://trustable.miniops.me/api/terminal/", nil)
+	if !terminalSameOrigin(request) {
+		t.Error("an upgrade with no Origin header must be accepted")
+	}
+}
+
+// TestTerminalAcceptsProxyRewrittenHost is the regression for the reported bug:
+// the Bestia proxy forwards a rewritten Host, so an upgrade whose Origin is the
+// hostname the user typed must still be accepted.
+func TestTerminalAcceptsProxyRewrittenHost(t *testing.T) {
+	// What the proxy forwards: Host canonicalized to the bare apihost, while
+	// the browser's Origin still carries the subdomain it was loaded from.
+	request := httptest.NewRequest(http.MethodGet, "http://miniops.me/api/terminal/", nil)
+	request.Host = "miniops.me"
+	request.Header.Set("Origin", "http://trustable.miniops.me")
+
+	if !terminalSameOrigin(request) {
+		t.Error("a proxy-rewritten Host must not cause the upgrade to be rejected")
 	}
 }
 
@@ -340,5 +451,96 @@ func TestGlobalTerminalMissingWorkbenchDirReturns404(t *testing.T) {
 func TestGlobalTerminalSessionKeyIsUnreachable(t *testing.T) {
 	if namePattern.MatchString(globalTerminalSessionKey) {
 		t.Fatalf("%q matches namePattern and could collide with an app name", globalTerminalSessionKey)
+	}
+}
+
+// TestTerminalShellResolution covers the resolution order that replaced the
+// bare $SHELL lookup. The motivating case is the deployed image, where $SHELL
+// is empty because the server is started by an init script rather than a login
+// shell, while /etc/passwd records the real shell — the old code fell through
+// to /bin/sh (dash on Debian) and ignored it.
+func TestTerminalShellResolution(t *testing.T) {
+	// A real executable to point candidates at, so usableShell's stat succeeds.
+	dir := t.TempDir()
+	fakeShell := filepath.Join(dir, "myshell")
+	if err := os.WriteFile(fakeShell, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake shell: %v", err)
+	}
+	notExecutable := filepath.Join(dir, "notexec")
+	if err := os.WriteFile(notExecutable, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatalf("write non-executable: %v", err)
+	}
+
+	uid := os.Getuid()
+	writePasswd := func(t *testing.T, shell string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "passwd")
+		body := "# comment line\n" +
+			"root:x:0:0:root:/root:/bin/bash\n" +
+			"malformed:line\n" +
+			fmt.Sprintf("tester:x:%d:1000:Tester:/home/tester:%s\n", uid, shell)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write passwd: %v", err)
+		}
+		return path
+	}
+
+	cases := []struct {
+		name       string
+		shellEnv   string
+		passwd     string
+		wantShell  string
+		wantSource string
+	}{
+		// $SHELL wins when it is usable.
+		{"shell env wins", fakeShell, "/bin/bash", fakeShell, "$SHELL"},
+		// The reported case: no $SHELL, so passwd supplies the answer.
+		{"falls back to passwd", "", fakeShell, fakeShell, "passwd"},
+		// A nologin/false passwd entry is a refusal to grant a shell, not a
+		// shell — skip it rather than opening a terminal that exits at once.
+		{"skips nologin", "", "/usr/sbin/nologin", "/bin/sh", "fallback"},
+		{"skips false", "", "/bin/false", "/bin/sh", "fallback"},
+		// A stale $SHELL must not defeat a good passwd entry.
+		{"stale shell env falls through", "/nonexistent/shell", fakeShell, fakeShell, "passwd"},
+		// Relative paths and non-executables are not usable.
+		{"relative path rejected", "myshell", fakeShell, fakeShell, "passwd"},
+		{"non-executable rejected", notExecutable, fakeShell, fakeShell, "passwd"},
+		// Nothing usable anywhere.
+		{"final fallback", "", "/nonexistent/shell", "/bin/sh", "fallback"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SHELL", tc.shellEnv)
+
+			original := passwdPath
+			passwdPath = writePasswd(t, tc.passwd)
+			t.Cleanup(func() { passwdPath = original })
+
+			shell, source := resolveTerminalShell()
+			if shell != tc.wantShell || source != tc.wantSource {
+				t.Errorf("resolveTerminalShell() = (%q, %q), want (%q, %q)",
+					shell, source, tc.wantShell, tc.wantSource)
+			}
+		})
+	}
+}
+
+// TestPasswdShellMissingFile keeps an unreadable account database from being an
+// error: resolution must simply continue to the fallback.
+func TestPasswdShellMissingFile(t *testing.T) {
+	if got := passwdShell(filepath.Join(t.TempDir(), "absent"), 0); got != "" {
+		t.Errorf("missing passwd: got %q, want %q", got, "")
+	}
+}
+
+// TestPasswdShellNoMatchingUID covers a uid absent from the database.
+func TestPasswdShellNoMatchingUID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "passwd")
+	if err := os.WriteFile(path, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644); err != nil {
+		t.Fatalf("write passwd: %v", err)
+	}
+	if got := passwdShell(path, 4242); got != "" {
+		t.Errorf("absent uid: got %q, want %q", got, "")
 	}
 }

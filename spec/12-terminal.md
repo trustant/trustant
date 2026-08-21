@@ -20,12 +20,14 @@ Preamble, matching every other handler:
 1. `expiredGuard`
 2. `namePattern.MatchString(name)` — otherwise 400 `Invalid app name`
 3. `$WORKBENCH_DIR/<name>` must exist — otherwise 404 `Workbench not found`
-4. origin check — otherwise 403 `Forbidden origin`
+4. origin check — `Origin` must fall under the domain the request arrived on
+   (direct), or carry a valid routing label when the request came through the
+   proxy, otherwise 403 `Forbidden origin`
 
 Then:
 
 - `exec.Command(shell, "-i")` with `cmd.Dir = $WORKBENCH_DIR/<name>`, started
-  with `pty.Start`. The shell is `$SHELL`, falling back to `/bin/sh`.
+  with `pty.Start`. See **Shell selection** below for how `shell` is chosen.
 - **The working directory is server-chosen.** The client never sends a path, so
   the browser cannot turn shell access into arbitrary-directory access.
 - The process gets its own process group (`Setpgid`), so teardown can reap
@@ -81,14 +83,170 @@ protected by three independent gates:
    `TRUSTABLE_AUTH_MODE` is enabled.
 3. **Origin check** — a WebSocket upgrade is a `GET`, so it does not reach the
    CSRF branch of `effectfulAuthRequest`, and WebSockets are not subject to
-   CORS. `terminalSameOrigin` re-checks `Origin` against the request host so a
-   third-party page cannot open a shell in a browser that holds a valid
-   session. A request with no `Origin` header at all is a non-browser client
-   (tests, curl) and is allowed; browsers always send it cross-origin.
+   CORS. `terminalSameOrigin` re-checks `Origin` so a third-party page cannot
+   open a shell in a browser that holds a valid session. A request with no
+   `Origin` header at all is a non-browser client (tests, curl) and is allowed;
+   browsers always send it cross-origin.
+
+   There are three request shapes, and the check accepts the first two:
+
+   1. **Direct** — a browser on `trustable.<ip>.nip.io:8910` reaches the server
+      with no proxy in between, so `Origin` and `Host` agree and are compared
+      directly by `originSharesDomain`. That helper accepts the host itself and
+      any label beneath it, then climbs **at most one label** and repeats, so a
+      request arriving on `trustable.<domain>` also accepts a sibling
+      `vite.<domain>` or the bare `<domain>`. The climb is refused when the
+      remainder is not itself dotted, so `trustable.miniops.me` widens to
+      `miniops.me` but never to `.me`. Every suffix test requires a non-empty
+      label before a literal leading dot, rejecting `miniops.me.evil.com`,
+      `notminiops.me` and `.miniops.me`.
+
+   2. **Proxied** — port 80 is the cluster LoadBalancer, so every request there
+      goes through nginx, which rewrites `Host` to `<label>.miniops.me` so the
+      ingress rules match (`olaris-bestia/proxy/default-nginx.yml`). It leaves
+      `Origin` alone, and **cannot** do otherwise: the browser computes `Origin`
+      from the address bar, and the terminal socket is built from
+      `location.host` (`web/app.html`, `web/applist.html`). `Host` and `Origin`
+      therefore never agree, and the hostname the user typed survives *only*
+      inside `Origin` — the header being validated.
+
+      So on a proxied request only the Origin's **first label** is checked, by
+      `isRoutingLabelHost`, against the same routing labels
+      `hostnameMiddleware` accepts (`routingLabels` in `middleware.go` — shared,
+      so the router and this check cannot drift). A label still needs a real
+      dotted domain under it, which rejects a bare `trustable` or a
+      trailing-dot name.
+
+      A request is known to be proxied by `r.Host` being under `miniops.me`.
+      nginx is what sets that, so a client connecting directly cannot produce
+      it.
+
+   3. **Hostile** — anything else, rejected.
+
+   Each half was tried alone and each broke a case: comparing `r.Host` only
+   rejected every upgrade behind the proxy, and pinning to `miniops.me` only
+   rejected local development on an `nip.io` name. Preserving `Host` at the
+   proxy is not an option, since translating the hostname is the proxy's entire
+   purpose.
+
+   **Trade-off.** On a proxied request the Origin's *domain* is not checked,
+   only its label — nginx has already discarded the domain the user typed, so
+   there is nothing left to compare it against. A page on any domain that can
+   reach the proxy could therefore open a terminal socket in a browser holding a
+   valid session. This is the same class of trust the earlier unconditional
+   `miniops.me` acceptance granted, and it is now at least confined to requests
+   that genuinely arrived through the proxy: a direct connection no longer
+   accepts a `miniops.me` Origin at all.
+
+   **The recorded tightening**, if this is later judged too loose: have nginx
+   send `proxy_set_header X-Forwarded-Host $host` and trust it *only* when
+   `r.Host` is `*.miniops.me`. That restores the one fact the rewrite destroys
+   and makes the domain checkable again. It is not required for correctness —
+   the label rule above is sufficient — and it was not taken because it needs a
+   ConfigMap change deployed in `olaris-bestia`. Note the header is
+   client-settable, which is why the `r.Host` condition is load-bearing: a
+   request reaching `trustable-svc:8910` directly could otherwise forge it on a
+   remote-shell endpoint.
+
+   Independent of all this, a request with no `Origin` header at all is a
+   non-browser client (tests, curl) and is allowed; browsers always send it
+   cross-origin.
+
+## Shell selection
+
+The terminal opens the shell the user has **configured**, resolved in order,
+first usable candidate winning:
+
+1. **`$SHELL`** — the user's explicit choice for this process.
+2. **The passwd entry** for the current uid — field 7 of `/etc/passwd`.
+3. **`/bin/sh`** — the last resort, assumed to exist.
+
+`$SHELL` alone is not enough, and relying on it was a bug. `$SHELL` is exported
+by a *login* shell, but the server is normally started by an init script rather
+than a login, so in the deployed image it is empty while `/etc/passwd` records
+the real shell:
+
+```
+$ kubectl exec -n nuvolaris trustable-0 -c trustable -- sh -c 'echo "SHELL=$SHELL"; getent passwd "$(id -u)"'
+SHELL=
+root:x:0:0:root:/root:/bin/bash
+```
+
+Falling straight through to `/bin/sh` there gives the user **dash** on Debian —
+no history, no completion, a bare `$` prompt — even though bash is both
+installed and configured. passwd is the authoritative record of what the user
+configured, so it is consulted before the fallback.
+
+`/etc/passwd` is parsed directly rather than through `os/user`, which has no
+shell accessor and whose cgo-backed resolver would break the `CGO_ENABLED=0`
+cross-compile in `build.sh --buildx`. Malformed and comment lines are skipped
+rather than treated as errors, matching `getpwuid`. The path is a variable so
+tests can use a fixture instead of the host's real database.
+
+Every candidate is validated before use (`usableShell`): it must be an absolute
+path to an existing, executable, non-directory file. A stale `$SHELL` or a
+passwd entry naming a removed interpreter therefore falls through to the next
+candidate instead of failing the terminal at spawn time.
+
+**`nologin`, `false`, `true` and `sync` are skipped, not honoured.** A passwd
+entry naming one of these is a refusal to grant a shell rather than a shell;
+exec'ing it would open a terminal that prints a message or exits immediately,
+which is worse than the `/bin/sh` fallback. Matching is on the base name, since
+the path varies (`/sbin/nologin`, `/usr/sbin/nologin`). Note this means the
+terminal deliberately does not honour that particular OS-level setting — it is
+not an access-control gate, and it is not one here either: the three gates above
+are what authorize the terminal.
+
+The resolved shell is logged **once** per process (`resolvedShellOnce`), since
+it is a fixed property of the environment rather than a per-session event, and a
+terminal opening the wrong shell is otherwise only diagnosable by rebuilding.
+
+The shell is started **interactive (`-i`) but not login (`-l`)**, deliberately.
+`-i` reads `~/.bashrc` (and `~/.zshrc` for zsh), which is what a user expects of
+a terminal pane; adding `-l` would also source the profile files but changes
+PATH handling and tends to surprise. Recorded here so the choice is deliberate
+rather than accidental.
 
 The shell is user-visible, so the environment is scrubbed before it is handed
 over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTABLE_AUTH_*` secrets, and
 GitHub tokens are removed. `TERM=xterm-256color` and `PWD` are set.
+
+## Working directory, and the image's `.bashrc`
+
+Two mechanisms place the shell:
+
+- **`cmd.Dir`**, set by the server, is authoritative. It is
+  `$WORKBENCH_DIR/<name>` for a per-app terminal and `$WORKBENCH_DIR` itself for
+  the global one, and `terminalEnvironment` exports a matching `PWD`.
+- **`.bashrc`** in the image (`image/Dockerfile`) then `cd`s into the currently
+  launched app's checkout, read from `$WORKBENCH_DIR/current` — the file
+  `launch.go`'s `writeCurrentApp` rewrites on every launch. This is what the
+  **global** terminal needs, since its `cmd.Dir` is the workbench root; for a
+  per-app terminal it resolves to the directory the shell is already in.
+
+The `.bashrc` block is deliberately silent when it cannot place the shell: no
+launched app (the normal state on a fresh pod), an empty `current`, or a
+`current` naming an app whose checkout has since been removed. In each case the
+shell simply stays in `cmd.Dir`. It also trims the file, which `writeCurrentApp`
+writes untrimmed, and guards the target directory before `cd`-ing.
+
+This block regressed once, and the failure is worth recording because nothing
+else in the build would catch it. The original was a single line that guarded on
+the absolute `$HOME/workbench/current` but read the **relative**
+`workbench/current`. Relative to `PWD`, which the server sets to `cmd.Dir` — so
+a per-app terminal looked for `$WORKBENCH_DIR/<name>/workbench/current` and every
+terminal opened with a `cat: workbench/current: No such file or directory`
+banner. It then used `export PWD=`, which assigns a variable the shell itself
+maintains and overwrites on the next `cd` rather than changing directory, so the
+prompt advertised a directory the shell was not in. Both routes were affected.
+It is shell embedded in a Dockerfile, so nothing compiles it and no test ran it;
+`dockerfile_test.go` now asserts on its content the way `setup_test.go` and
+`screenshot_script_test.go` guard their scripts.
+
+Note that a change here ships only with a **full `./build.sh --build`**.
+`hotfix.sh` layers the binary plus `image/start.sh`, `image/env` and
+`trustable.json` onto the existing image and never re-runs the Dockerfile stage
+that writes `.bashrc`.
 
 The publishing-auth gap tracked as #91 is **not** addressed here and must not be
 assumed to protect this route.
@@ -162,8 +320,27 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
 
 - invalid name → 400; missing workbench → 404
 - rejects a cross-origin upgrade → 403
+- covers both deployment shapes: direct access on `trustable.<ip>.nip.io:8910`
+  where `Origin` and `Host` agree, and the proxied case where `Host` was
+  rewritten to `<label>.miniops.me` while `Origin` kept the hostname the user
+  typed (the reported bug)
+- accepts sibling labels and the bare domain under the host the request
+  arrived on (`vite.<domain>`, `<domain>`)
+- proxied: accepts `trustable.`/`vite.`/`opencode.` over any domain, rejects an
+  unroutable label (`evil.<ip>.nip.io`), a bare label and a trailing-dot name
+- the proxied relaxation does not leak into the direct case: on an `nip.io`
+  Host, `trustable.evil.com` and `trustable.miniops.me` are both rejected
+- rejects the suffix-match traps `miniops.me.evil.com`, `notminiops.me` and
+  `.miniops.me`, an unrelated `<ip>.nip.io`, and `evil.me` — proving the climb
+  strips at most one label and never widens to a TLD
 - a spawned shell reports `[ -t 0 ]` → yes (assert the TTY directly; this is the
   regression that motivated the PTY)
+- shell resolution: `$SHELL` wins when usable; an empty `$SHELL` falls back to
+  the passwd entry (the reported bug); a stale, relative or non-executable
+  `$SHELL` falls through rather than being used; a `nologin`/`false` passwd
+  entry is skipped; nothing usable → `/bin/sh`
+- `passwdShell` on a missing file or an absent uid returns "" rather than
+  erroring, so resolution continues
 - a resize control frame reaches `pty.Setsize` (assert via `stty size`)
 - closing the socket reaps the process group — no orphan after close
 - the shell leads its own process group in both modes (the property that makes

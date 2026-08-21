@@ -182,9 +182,35 @@ RUN \
     rm -rf /tmp/truacp
 
 # workspace
+#
+# Drop an interactive terminal into the currently-launched app's checkout.
+# launch.go's writeCurrentApp rewrites $WORKBENCH_DIR/current on every launch, so
+# that file -- not the shell's starting directory -- is the source of truth for
+# which app is live. screenshot.sh reads it the same way.
+#
+# Written as a heredoc rather than an echo of one long line: the previous
+# single-line form hid three faults at once (a relative `cat` path that only
+# resolved when the shell started in $HOME, an `export PWD` that sets a variable
+# the next cd overwrites instead of changing directory, and an error on a fresh
+# pod where no app has been launched yet).
+#
+# .bashrc, not .profile: the terminal spawns `$SHELL -i` (see spec/12-terminal.md),
+# which reads .bashrc and never sources the profile files.
 RUN \
     mkdir -p /home/trustable/workspace ;\
-    echo 'test -e $HOME/workbench/current && export PWD="$HOME/workbench/$(cat workbench/current)"' >>$HOME/.bashrc
+    cat >>$HOME/.bashrc <<'BASHRC'
+
+# Start in the launched app's checkout, if there is one. Silent otherwise: no
+# current app is the normal state on a fresh pod, and `current` can still name an
+# app whose checkout has since been removed.
+if [ -r "$HOME/workbench/current" ]; then
+    __trustable_app="$(tr -d '[:space:]' <"$HOME/workbench/current" 2>/dev/null || true)"
+    if [ -n "$__trustable_app" ] && [ -d "$HOME/workbench/$__trustable_app" ]; then
+        cd "$HOME/workbench/$__trustable_app" || true
+    fi
+    unset __trustable_app
+fi
+BASHRC
 
 ########################################################## stage3-app
 # start

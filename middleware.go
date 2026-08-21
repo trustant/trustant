@@ -15,6 +15,17 @@ import (
 // ipPattern matches IPv4 addresses
 var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 
+// routingLabels are the hostname prefixes hostnameMiddleware routes to a fixed
+// backend, as opposed to a user application name. terminalSameOrigin checks a
+// proxied Origin against this set, so the two must not drift: a label added to
+// the switch below without being added here would be routable but unable to
+// open a terminal.
+var routingLabels = map[string]bool{
+	"trustable": true,
+	"opencode":  true,
+	"vite":      true,
+}
+
 // reverse proxy instances for the coding assistant (TruACP) and Vite.
 var truacpProxy = newSilentProxy("127.0.0.1:4096")
 var viteProxy = newSilentProxy("127.0.0.1:5173")
