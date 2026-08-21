@@ -487,6 +487,113 @@ GUEST
   fi
 }
 
+# Read an `ARG <VAR>=<VALUE>` default out of image/Dockerfile. Same reader
+# setup.sh uses (its step 0), on purpose: the Dockerfile is the single source of
+# BestIA source identity, so start.sh must never carry its own copy of these
+# values. A missing ARG is fatal — exporting an empty OPS_REPO would send an
+# interactive `ops` at the wrong fork silently.
+read_dockerfile_arg() {
+  local var="$1" val
+  [[ -f "$MOUNT_DIR/image/Dockerfile" ]] || fail "image/Dockerfile not found"
+  val=$(grep -m1 "^ARG ${var}=" "$MOUNT_DIR/image/Dockerfile" | cut -d'=' -f2- | tr -d ' ')
+  [[ -n "$val" ]] || fail "ARG $var not found in image/Dockerfile"
+  printf '%s' "$val"
+}
+
+# Export OPS_BRANCH/OPS_REPO from the shell rc files of both accounts that get a
+# shell here: the mirrored dev user and the package's 'trustable' user. The image
+# already bakes both into /etc/environment, and setup.sh reads the same ARGs to
+# install ops and to hard-fail on a mismatch — but neither reaches a user shell,
+# so an interactive `ops` ran without the pinned fork.
+#
+# WHY both ~/.profile and ~/.bashrc — the same split setup.sh documents at its
+# image-PATH step. Ubuntu's stock ~/.bashrc returns early for non-interactive
+# shells (`case $- in *i*) ;; *) return;;` at the top), so a block appended there
+# is dead code under `bash -lc` and under `ssh <host> <cmd>` — which is exactly
+# how ssh.sh invokes ops. ~/.profile is what login shells read regardless of
+# interactivity, so it is the file that actually carries these values; ~/.bashrc
+# covers interactive non-login shells, which never source ~/.profile.
+#
+# A managed block, rewritten whole on every run, rather than the append-if-absent
+# guard add_to_path uses: that one matches on the line it already wrote, so it
+# would pin the first-ever version forever and leave the rc files quietly
+# contradicting the Dockerfile after a bump — the drift this is meant to prevent.
+ensure_ops_env() {
+  local OPS_BRANCH OPS_REPO
+  OPS_BRANCH="$(read_dockerfile_arg OPS_BRANCH)"
+  OPS_REPO="$(read_dockerfile_arg OPS_REPO)"
+
+  local where=" in the VM"
+  if $NATIVE_LINUX; then where=""; fi
+  echo "--- Exporting OPS_BRANCH/OPS_REPO in .profile/.bashrc${where} ---"
+
+  # HOST_USER is the mirrored account on macOS; on a native host it is just this
+  # user. 'trustable' is handled by the same loop, so neither account is special.
+  run_privileged HOST_USER="$HOST_USER" OPS_BRANCH="$OPS_BRANCH" OPS_REPO="$OPS_REPO" <<'GUEST'
+BEGIN="# >>> trustable ops env >>>"
+END="# <<< trustable ops env <<<"
+seen=""
+
+for u in "$HOST_USER" trustable; do
+  # Skip an account that does not exist: 'trustable' is created by the package,
+  # and on a native host HOST_USER may already BE trustable.
+  id "$u" >/dev/null 2>&1 || continue
+  case " $seen " in *" $u "*) continue ;; esac
+  seen="$seen $u"
+
+  # Resolve the real home from passwd — never assume /home/$u. Lima hands the
+  # mirrored user a suffixed home (e.g. /home/msciab.guest) to avoid colliding
+  # with the virtiofs mount, so the assumed path would write a .bashrc that no
+  # login shell ever reads.
+  home="$(getent passwd "$u" | cut -d: -f6)"
+  [ -n "$home" ] && [ -d "$home" ] || { echo "skipping $u: no home directory"; continue; }
+  group="$(id -gn "$u")"
+
+  for rc in "$home/.profile" "$home/.bashrc"; do
+    [ -f "$rc" ] || install -o "$u" -g "$group" -m 0644 /dev/null "$rc"
+
+    # Drop any previous managed block, then append the current one.
+    awk -v b="$BEGIN" -v e="$END" '
+      $0==b {skip=1} !skip {print} $0==e {skip=0}' "$rc" > "$rc.tmp"
+    {
+      cat "$rc.tmp"
+      echo "$BEGIN"
+      echo "# Written by start.sh from image/Dockerfile ARGs. Edits are overwritten."
+      printf 'export OPS_BRANCH=%s\n' "$OPS_BRANCH"
+      printf 'export OPS_REPO=%s\n' "$OPS_REPO"
+      echo "$END"
+    } > "$rc"
+    rm -f "$rc.tmp"
+    chown "$u:$group" "$rc"
+    echo "$rc: OPS_BRANCH=$OPS_BRANCH OPS_REPO=$OPS_REPO"
+  done
+done
+GUEST
+  ok "OPS_BRANCH=$OPS_BRANCH OPS_REPO=$OPS_REPO exported in .profile/.bashrc"
+}
+
+# Install the BestIA proxy catch-all. Must run AFTER setup.sh: the plugin target
+# waits on /readyz itself but cannot install `ops` or write the kubeconfig it
+# needs (setup.sh step 8). Idempotent on the plugin side — the package-install
+# menu flow already re-runs it on every install/upgrade.
+#
+# Fatal on failure: without the catch-all the app is unreachable through the
+# reverse proxy, and a warning here would only defer that confusion to the user.
+ensure_bestia_proxy() {
+  local where=" in the VM"
+  if $NATIVE_LINUX; then where=""; fi
+  echo "--- Installing the BestIA proxy catch-all${where} ---"
+  if $NATIVE_LINUX; then
+    ops bestia proxy install || fail "ops bestia proxy install failed"
+  else
+    # Same invocation style as the setup.sh call: as the mirrored user, in the
+    # mounted repo dir, so it picks up ~/.ops/tmp/kubeconfig.
+    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ops bestia proxy install \
+      || fail "ops bestia proxy install failed in the VM"
+  fi
+  ok "BestIA proxy catch-all installed"
+}
+
 # A ready k3s API and a present nuvolaris namespace do not mean OpenWhisk serves
 # requests yet — the controller comes up minutes later. Block here until the
 # apihost is actually usable, in two stages, so the failure says which one lost:
@@ -754,6 +861,9 @@ finish() {
   ensure_kubefwd
   ensure_gh_apt
   ensure_jq
+  # After refresh_support_files (which runs ensure_guest_user) and the package
+  # install, so both accounts this writes to exist.
+  ensure_ops_env
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 
@@ -768,6 +878,7 @@ finish() {
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./setup.sh \
     || fail "setup.sh failed in the VM"
   ok "setup.sh completed"
+  ensure_bestia_proxy
   ensure_gh
   login_github_from_token
 
@@ -815,6 +926,8 @@ finish_native() {
   ensure_ollama
   ensure_kubefwd
   ensure_jq
+  # After the package install above, so the 'trustable' account exists.
+  ensure_ops_env
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 
@@ -827,6 +940,7 @@ finish_native() {
   echo "--- Running setup.sh as $(id -un) ---"
   ./setup.sh || fail "setup.sh failed"
   ok "setup.sh completed"
+  ensure_bestia_proxy
   ensure_gh
   login_github_from_token
 

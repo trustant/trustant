@@ -227,6 +227,62 @@ OpenWhisk wait below, which parses `/api/info`, so it must be in place before
 that check runs rather than being discovered missing by it. Idempotent: skip when
 `jq` already resolves.
 
+## BestIA source identity in the shell (OPS_BRANCH / OPS_REPO)
+
+`image/Dockerfile` is the single source of BestIA source identity: `ARG
+OPS_BRANCH` and `ARG OPS_REPO` at the top of it are what the image bakes into
+`/etc/environment`, and what `setup.sh` reads (its step 0) both to install `ops`
+and to hard-fail when the installed `ops` reports a different fork.
+
+Neither of those reaches a *user shell*, so an interactive or ssh-invoked `ops`
+ran without the pinned fork. During provisioning, on every finish path,
+`start.sh` therefore exports both variables for the two accounts that get a
+shell on this machine: the mirrored dev user and the package's `trustable` user.
+
+`start.sh` **reads the values from `image/Dockerfile` and never hardcodes them**,
+so the Dockerfile stays the only place a version is declared and the exports can
+never contradict `setup.sh`'s mismatch check. A missing `ARG` aborts the run — an
+empty `OPS_REPO` would silently point `ops` at the wrong fork.
+
+Write to **both `~/.profile` and `~/.bashrc`**, the same split `setup.sh` makes
+for the image PATH ordering and for the same reason: Ubuntu's stock `~/.bashrc`
+returns early for non-interactive shells, so a block appended only there is dead
+code under `bash -lc` and under `ssh <host> <cmd>` — which is exactly how
+`ssh.sh` invokes commands. `~/.profile` is what login shells read regardless of
+interactivity; `~/.bashrc` covers interactive non-login shells, which never
+source `~/.profile`.
+
+The exports live in a **delimited managed block** (`# >>> trustable ops env >>>`
+… `# <<< trustable ops env <<<`) that is rewritten whole on every run, like the
+`~/.ssh/config` block. An append-if-absent guard would match the line it had
+already written and so pin the first-ever version forever, leaving the rc files
+quietly contradicting the Dockerfile after a bump — the exact drift this
+prevents. Re-running must not duplicate the block, and bumping the `ARG` must
+change the exported value.
+
+Resolve each account's home from `getent passwd`, never `/home/<user>`: Lima
+gives the mirrored user a suffixed home (e.g. `/home/msciab.guest`) to avoid
+colliding with the virtiofs mount, so an assumed path writes a file no shell
+reads. Create an rc file that does not exist, `chown` it back to its owner, and
+skip an account that is absent — `trustable` is created by the package, and on a
+native host the dev user may already *be* `trustable`.
+
+This runs after the package install, so both accounts exist.
+
+## BestIA proxy catch-all
+
+After `setup.sh` completes, on every finish path, `start.sh` runs `ops bestia
+proxy install`. The plugin target waits on `/readyz` itself but cannot install
+`ops` or write the kubeconfig it needs, so it must come after `setup.sh` (step 8
+writes `~/.ops/tmp/kubeconfig`) and after the OpenWhisk wait — not before.
+
+It runs as the mirrored user in the mounted repo dir, the same way `setup.sh` is
+invoked, so it picks up that kubeconfig. Failure is **fatal**: without the
+catch-all the app is unreachable through the reverse proxy, and warning-only
+would defer that failure to the user. The target is idempotent on the plugin
+side — the package-install menu flow already re-runs it on every install and
+upgrade — so no extra guard is needed here.
+
 ## Waiting for OpenWhisk
 
 A ready k3s API and a present `nuvolaris` namespace do not mean OpenWhisk serves
