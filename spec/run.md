@@ -96,6 +96,8 @@ host-reachable address, resolved in this order: the `current.ip` written by
 `start.sh` under `${XDG_CONFIG_HOME:-$HOME/.config}/trustable/` (on a native
 Linux host this is the LAN address, so the printed URL also works from another
 machine), then the lima0 address inside the VM, then 127.0.0.1;
+alongside it, print the deployment URL http://<ip>/ (the same <ip>, on the
+cluster ingress port 80) so it can be clicked to reach the deployment;
 Trustable handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
 
 5. wait until you press ^c and terminate everything

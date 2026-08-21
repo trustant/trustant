@@ -343,6 +343,8 @@ IP="$(cat "$SUPPORT_IP_FILE" 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$IP" ]] || IP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
 [[ -n "$IP" ]] || IP="127.0.0.1"
 URL="http://trustable.${IP}.nip.io:8910/"
+# the deployment (ingress on :80) reachable at the bare host address
+DEPLOY_URL="http://${IP}/"
 
 # Wait until air has built and the server is actually listening on :8910, then
 # print the URL LAST so it is not buried under air's build output.
@@ -351,11 +353,11 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 echo ""
-echo "  ┌──────────────────────────────────────────────────────────────┐"
-echo "  │  Trustable is running — open this URL in your browser:         │"
-echo "  │                                                                │"
-printf '  │    %-58s│\n' "$URL"
-echo "  └──────────────────────────────────────────────────────────────┘"
+echo "  Trustable is running — open this URL in your browser:"
+echo "    $URL"
+echo ""
+echo "  Deployment:"
+echo "    $DEPLOY_URL"
 echo ""
 
 # wait until ^c
