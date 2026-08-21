@@ -21,7 +21,8 @@ Preamble, matching every other handler:
 2. `namePattern.MatchString(name)` — otherwise 400 `Invalid app name`
 3. `$WORKBENCH_DIR/<name>` must exist — otherwise 404 `Workbench not found`
 4. origin check — `Origin` must fall under the domain the request arrived on
-   or under `miniops.me`, otherwise 403 `Forbidden origin`
+   (direct), or carry a valid routing label when the request came through the
+   proxy, otherwise 403 `Forbidden origin`
 
 Then:
 
@@ -87,45 +88,69 @@ protected by three independent gates:
    `Origin` header at all is a non-browser client (tests, curl) and is allowed;
    browsers always send it cross-origin.
 
-   The `Origin` is accepted if it falls under **either** of two domains,
-   because the terminal must work in both deployment shapes:
+   There are three request shapes, and the check accepts the first two:
 
-   1. **The domain the request arrived on** (`r.Host`, port stripped) — the
-      direct case. A browser on `trustable.<ip>.nip.io:8910` reaches the server
-      with no proxy in between, so `Origin` and `Host` agree.
-   2. **`miniops.me`, unconditionally** — the proxied case. A proxy always
-      fronts the deployed image and canonicalizes every inbound hostname into
-      `<label>.miniops.me` so the ingress rules match
-      (`olaris-bestia/proxy/default-nginx.yml`). Behind it `r.Host` is that
-      rewritten name while the browser's `Origin` still carries the hostname the
-      user typed, so the two never agree.
+   1. **Direct** — a browser on `trustable.<ip>.nip.io:8910` reaches the server
+      with no proxy in between, so `Origin` and `Host` agree and are compared
+      directly by `originSharesDomain`. That helper accepts the host itself and
+      any label beneath it, then climbs **at most one label** and repeats, so a
+      request arriving on `trustable.<domain>` also accepts a sibling
+      `vite.<domain>` or the bare `<domain>`. The climb is refused when the
+      remainder is not itself dotted, so `trustable.miniops.me` widens to
+      `miniops.me` but never to `.me`. Every suffix test requires a non-empty
+      label before a literal leading dot, rejecting `miniops.me.evil.com`,
+      `notminiops.me` and `.miniops.me`.
 
-   Each alone was tried and each broke one case: matching `r.Host` only
-   rejected every upgrade in the deployed image, and pinning to `miniops.me`
-   only rejected local development, where the server is reached on an `nip.io`
-   name. Preserving `Host` at the proxy is not an option, since translating the
-   hostname is the proxy's entire purpose, and trusting `X-Forwarded-Host` is
-   not either: that header is client-settable, and a request reaching
-   `trustable-svc:8910` directly could forge it on a remote-shell endpoint.
+   2. **Proxied** — port 80 is the cluster LoadBalancer, so every request there
+      goes through nginx, which rewrites `Host` to `<label>.miniops.me` so the
+      ingress rules match (`olaris-bestia/proxy/default-nginx.yml`). It leaves
+      `Origin` alone, and **cannot** do otherwise: the browser computes `Origin`
+      from the address bar, and the terminal socket is built from
+      `location.host` (`web/app.html`, `web/applist.html`). `Host` and `Origin`
+      therefore never agree, and the hostname the user typed survives *only*
+      inside `Origin` — the header being validated.
 
-   `originSharesDomain` decides membership. It accepts the accepted host
-   itself and any `<label>.<host>` beneath it, then climbs **at most one
-   label** and repeats — the climb is what lets a request arriving on
-   `trustable.<domain>` accept a sibling `vite.<domain>` or the bare
-   `<domain>`. The climb is refused when the remainder is not itself dotted, so
-   `trustable.miniops.me` widens to `miniops.me` but never to `.me`. Every
-   suffix test requires a non-empty label before a literal leading dot, which
-   is what rejects `miniops.me.evil.com`, `notminiops.me` and `.miniops.me`.
+      So on a proxied request only the Origin's **first label** is checked, by
+      `isRoutingLabelHost`, against the same routing labels
+      `hostnameMiddleware` accepts (`routingLabels` in `middleware.go` — shared,
+      so the router and this check cannot drift). A label still needs a real
+      dotted domain under it, which rejects a bare `trustable` or a
+      trailing-dot name.
 
-   The gate is therefore **per-domain, not per-host**: any page on
-   `*.<domain>` — `vite.<domain>` included, which serves the user's own app
-   code — can open a terminal socket in a browser holding a valid session,
-   where before only `trustable.<domain>` could. Accepted deliberately: that
-   app is code the user is writing in this same shell, and the endpoint stays
-   behind `hostnameMiddleware` and session auth. Unconditionally accepting
-   `miniops.me` widens this once more, to a page on `*.miniops.me` reaching a
-   local nip.io server; that is the price of the proxied case working without
-   a trustable forwarded-host header.
+      A request is known to be proxied by `r.Host` being under `miniops.me`.
+      nginx is what sets that, so a client connecting directly cannot produce
+      it.
+
+   3. **Hostile** — anything else, rejected.
+
+   Each half was tried alone and each broke a case: comparing `r.Host` only
+   rejected every upgrade behind the proxy, and pinning to `miniops.me` only
+   rejected local development on an `nip.io` name. Preserving `Host` at the
+   proxy is not an option, since translating the hostname is the proxy's entire
+   purpose.
+
+   **Trade-off.** On a proxied request the Origin's *domain* is not checked,
+   only its label — nginx has already discarded the domain the user typed, so
+   there is nothing left to compare it against. A page on any domain that can
+   reach the proxy could therefore open a terminal socket in a browser holding a
+   valid session. This is the same class of trust the earlier unconditional
+   `miniops.me` acceptance granted, and it is now at least confined to requests
+   that genuinely arrived through the proxy: a direct connection no longer
+   accepts a `miniops.me` Origin at all.
+
+   **The recorded tightening**, if this is later judged too loose: have nginx
+   send `proxy_set_header X-Forwarded-Host $host` and trust it *only* when
+   `r.Host` is `*.miniops.me`. That restores the one fact the rewrite destroys
+   and makes the domain checkable again. It is not required for correctness —
+   the label rule above is sufficient — and it was not taken because it needs a
+   ConfigMap change deployed in `olaris-bestia`. Note the header is
+   client-settable, which is why the `r.Host` condition is load-bearing: a
+   request reaching `trustable-svc:8910` directly could otherwise forge it on a
+   remote-shell endpoint.
+
+   Independent of all this, a request with no `Origin` header at all is a
+   non-browser client (tests, curl) and is allowed; browsers always send it
+   cross-origin.
 
 The shell is user-visible, so the environment is scrubbed before it is handed
 over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTABLE_AUTH_*` secrets, and
@@ -209,6 +234,10 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
   typed (the reported bug)
 - accepts sibling labels and the bare domain under the host the request
   arrived on (`vite.<domain>`, `<domain>`)
+- proxied: accepts `trustable.`/`vite.`/`opencode.` over any domain, rejects an
+  unroutable label (`evil.<ip>.nip.io`), a bare label and a trailing-dot name
+- the proxied relaxation does not leak into the direct case: on an `nip.io`
+  Host, `trustable.evil.com` and `trustable.miniops.me` are both rejected
 - rejects the suffix-match traps `miniops.me.evil.com`, `notminiops.me` and
   `.miniops.me`, an unrelated `<ip>.nip.io`, and `evil.me` — proving the climb
   strips at most one label and never widens to a TLD

@@ -48,10 +48,11 @@ const (
 	// spaces make it unreachable by namePattern, so it cannot collide with an
 	// application name.
 	globalTerminalSessionKey = "<global workbench>"
-	// proxyCanonicalDomain is always accepted as an Origin domain. A proxy
-	// always fronts the deployed image and rewrites every inbound hostname to
-	// <label>.miniops.me so the ingress rules match, so the browser's Origin and
-	// the forwarded Host can never agree there.
+	// proxyCanonicalDomain is the hostname the proxy rewrites every inbound
+	// request to. Seeing it in r.Host is how a request is known to have arrived
+	// through the proxy: nginx is what sets it (proxy_set_header Host
+	// $appname.miniops.me, olaris-bestia/proxy/default-nginx.yml), so a client
+	// connecting directly cannot produce it.
 	proxyCanonicalDomain = "miniops.me"
 )
 
@@ -104,22 +105,26 @@ func releaseTerminalSession(name string, session *terminalSession) {
 // but is not subject to CORS, so this is the only thing standing between a
 // hostile page and the user's shell.
 //
-// Two domains are accepted, because the terminal must work in both deployment
-// shapes:
+// There are three request shapes, and the check must accept the first two:
 //
-//  1. The domain the request arrived on (r.Host) — the direct case, e.g. a
-//     browser on trustable.<ip>.nip.io:8910 reaching the server with no proxy in
-//     between, where Origin and Host agree.
-//  2. miniops.me, unconditionally — the proxied case. A proxy always sits in
-//     front of the deployed image, internal or external, and canonicalizes every
-//     inbound hostname into <label>.miniops.me so the ingress rules match
-//     (olaris-bestia/proxy/default-nginx.yml). Behind it r.Host is that
-//     rewritten name while the browser's Origin still carries the hostname the
-//     user typed, so the two never agree.
+//  1. Direct — a browser on trustable.<ip>.nip.io:8910 reaches the server with
+//     no proxy in between, so Origin and Host agree and are compared directly.
+//  2. Proxied — port 80 is the cluster LoadBalancer, so every request there goes
+//     through nginx, which rewrites Host to <label>.miniops.me while leaving
+//     Origin alone (it cannot rewrite Origin: the browser computes it from the
+//     address bar). Host and Origin therefore never agree, and the hostname the
+//     user typed survives only inside Origin — the header being validated. So
+//     on a proxied request only the Origin's first label is checked, against
+//     the same routing labels the hostname router accepts.
+//  3. Hostile — anything else, rejected.
 //
-// Matching r.Host alone is what broke the terminal in the image; matching
-// miniops.me alone is what broke it in local development, where the server is
-// reached on an nip.io name. Both are needed.
+// Each half was tried alone and each broke a case: comparing Host only rejected
+// every upgrade behind the proxy, and pinning to miniops.me only rejected local
+// development on an nip.io name.
+//
+// The proxied branch deliberately does not check the Origin's domain, only its
+// label — see spec/12-terminal.md for the widening this accepts and for the
+// X-Forwarded-Host tightening that would close it.
 func terminalSameOrigin(r *http.Request) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
@@ -143,8 +148,17 @@ func terminalSameOrigin(r *http.Request) bool {
 		requestHost = stripped
 	}
 
-	return originSharesDomain(host, requestHost) ||
-		originSharesDomain(host, proxyCanonicalDomain)
+	// The direct case: Origin and Host agree, so compare them.
+	if originSharesDomain(host, requestHost) {
+		return true
+	}
+	// The proxied case: Host has been rewritten to the canonical domain, so it
+	// no longer carries the name the user typed. Accept the Origin on its
+	// routing label alone.
+	if originSharesDomain(requestHost, proxyCanonicalDomain) {
+		return isRoutingLabelHost(host)
+	}
+	return false
 }
 
 // originSharesDomain reports whether an Origin hostname belongs to the same
@@ -175,6 +189,22 @@ func originSharesDomain(host, accepted string) bool {
 		return under(parent)
 	}
 	return false
+}
+
+// isRoutingLabelHost reports whether an Origin hostname is a routing label over
+// some domain — trustable.<domain>, vite.<domain>, opencode.<domain>.
+//
+// This is the proxied-request test. The domain is deliberately not constrained:
+// nginx has already discarded the one the user typed, so there is nothing left
+// to compare it against. The label must still be one hostnameMiddleware would
+// route, and there must be a real domain under it, which is what rejects a bare
+// "trustable" or a trailing-dot name.
+func isRoutingLabelHost(host string) bool {
+	label, domain, found := strings.Cut(host, ".")
+	if !found || !strings.Contains(domain, ".") {
+		return false
+	}
+	return routingLabels[label]
 }
 
 // handleTerminal handles GET /api/terminal/<name>, and GET /api/terminal/ with

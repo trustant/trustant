@@ -176,10 +176,13 @@ func TestTerminalSameOriginAcceptsBothDeploymentShapes(t *testing.T) {
 			"http://trustable.miniops.me", true},
 		{"proxied bare miniops", "trustable.miniops.me", "http://miniops.me", true},
 		{"proxied vite label", "trustable.miniops.me", "http://vite.miniops.me", true},
-		// miniops.me is accepted whatever the request arrived on, because the
-		// proxy always fronts the deployed image.
+		// miniops.me is NOT accepted on a direct connection. The old rule
+		// accepted it unconditionally, which let a page on *.miniops.me open a
+		// shell against a local nip.io server; the proxied branch is now
+		// reached only when Host shows the request actually came through the
+		// proxy, so that widening is gone.
 		{"miniops origin on nip.io host", "trustable.192.168.252.47.nip.io:8910",
-			"http://trustable.miniops.me", true},
+			"http://trustable.miniops.me", false},
 		// Suffix-match traps: neither may be accepted.
 		{"suffix trap", "trustable.miniops.me", "http://miniops.me.evil.com", false},
 		{"prefix trap", "trustable.miniops.me", "http://notminiops.me", false},
@@ -191,6 +194,30 @@ func TestTerminalSameOriginAcceptsBothDeploymentShapes(t *testing.T) {
 		{"unrelated nip.io", "trustable.192.168.252.47.nip.io:8910",
 			"http://trustable.10.0.0.1.nip.io", false},
 		{"not a url", "trustable.miniops.me", "not a url", false},
+
+		// --- Proxied nip.io (the reported bug) -------------------------------
+		// Port 80 is the cluster LoadBalancer, so nginx rewrote Host to the
+		// canonical domain while Origin kept the nip.io name the user typed.
+		// The domain can no longer be compared; the routing label is all that
+		// is left to check.
+		{"proxied nip.io", "trustable.miniops.me",
+			"http://trustable.192.168.252.47.nip.io", true},
+		{"proxied nip.io sibling label", "trustable.miniops.me",
+			"http://vite.192.168.252.47.nip.io", true},
+		{"proxied nip.io opencode label", "trustable.miniops.me",
+			"http://opencode.192.168.252.47.nip.io", true},
+		// A label the router would not accept is rejected even when proxied.
+		{"proxied bad label", "trustable.miniops.me",
+			"http://evil.192.168.252.47.nip.io", false},
+		// A label needs a real domain under it.
+		{"proxied bare label", "trustable.miniops.me", "http://trustable", false},
+		{"proxied trailing dot", "trustable.miniops.me", "http://trustable.", false},
+
+		// The proxied relaxation must not leak into the direct case: arriving
+		// on an nip.io Host, a foreign domain is still rejected however
+		// plausible its label.
+		{"direct rejects foreign label host", "trustable.192.168.252.47.nip.io:8910",
+			"http://trustable.evil.com", false},
 	}
 
 	for _, tc := range cases {
