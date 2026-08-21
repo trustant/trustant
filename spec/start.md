@@ -269,19 +269,23 @@ native host the dev user may already *be* `trustable`.
 
 This runs after the package install, so both accounts exist.
 
-## BestIA proxy catch-all
+## Host-rewrite proxy catch-all
 
-After `setup.sh` completes, on every finish path, `start.sh` runs `ops bestia
-proxy install`. The plugin target waits on `/readyz` itself but cannot install
-`ops` or write the kubeconfig it needs, so it must come after `setup.sh` (step 8
-writes `~/.ops/tmp/kubeconfig`) and after the OpenWhisk wait — not before.
+After `setup.sh` completes, on every finish path, `start.sh` runs the repository's
+own [`./proxy.sh`](17-proxy.md) -- **not** `ops bestia proxy install`. The
+configuration then lives in this repo, where it is reviewable and versioned with
+the code it fronts, instead of inside the plugin.
+
+It still runs after `setup.sh` (step 8 writes `~/.ops/tmp/kubeconfig`) and after
+the OpenWhisk wait, not before: the surrounding steps depend on the toolchain
+and kubeconfig `setup.sh` provides.
 
 It runs as the mirrored user in the mounted repo dir, the same way `setup.sh` is
-invoked, so it picks up that kubeconfig. Failure is **fatal**: without the
-catch-all the app is unreachable through the reverse proxy, and warning-only
-would defer that failure to the user. The target is idempotent on the plugin
-side — the package-install menu flow already re-runs it on every install and
-upgrade — so no extra guard is needed here.
+invoked, so the script executed is the worktree's own copy. Failure is
+**fatal**: without the catch-all the app is unreachable through the reverse
+proxy, and warning-only would defer that failure to the user. `proxy.sh`
+regenerates its site file in full on every run, so it is idempotent and needs no
+extra guard here.
 
 ## Waiting for OpenWhisk
 

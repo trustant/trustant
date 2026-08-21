@@ -343,8 +343,8 @@ IP="$(cat "$SUPPORT_IP_FILE" 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$IP" ]] || IP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
 [[ -n "$IP" ]] || IP="127.0.0.1"
 URL="http://trustable.${IP}.nip.io:8910/"
-# the deployment: same hostname on the cluster ingress port 80
-DEPLOY_URL="http://trustable.${IP}.nip.io/"
+# the deployment: same hostname on the cluster ingress port 8911
+DEPLOY_URL="http://trustable.${IP}.nip.io:8911/"
 
 # Wait until air has built and the server is actually listening on :8910, then
 # print the URL LAST so it is not buried under air's build output.

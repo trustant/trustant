@@ -572,26 +572,30 @@ GUEST
   ok "OPS_BRANCH=$OPS_BRANCH OPS_REPO=$OPS_REPO exported in .profile/.bashrc"
 }
 
-# Install the BestIA proxy catch-all. Must run AFTER setup.sh: the plugin target
-# waits on /readyz itself but cannot install `ops` or write the kubeconfig it
-# needs (setup.sh step 8). Idempotent on the plugin side — the package-install
-# menu flow already re-runs it on every install/upgrade.
+# Install the host-rewrite proxy catch-all with ./proxy.sh (see
+# spec/17-proxy.md) rather than `ops bestia proxy install`, so the configuration
+# lives in this repo and is reviewable here. It installs nginx with apt-get and
+# serves :8911, rewriting Host to <label>.miniops.me for the upstream.
+#
+# Must still run AFTER setup.sh, which supplies the toolchain and kubeconfig the
+# surrounding steps depend on. Idempotent — the site file is regenerated in full
+# on every run.
 #
 # Fatal on failure: without the catch-all the app is unreachable through the
 # reverse proxy, and a warning here would only defer that confusion to the user.
 ensure_bestia_proxy() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
-  echo "--- Installing the BestIA proxy catch-all${where} ---"
+  echo "--- Installing the host-rewrite proxy catch-all${where} ---"
   if $NATIVE_LINUX; then
-    ops bestia proxy install || fail "ops bestia proxy install failed"
+    ./proxy.sh || fail "proxy.sh failed"
   else
     # Same invocation style as the setup.sh call: as the mirrored user, in the
-    # mounted repo dir, so it picks up ~/.ops/tmp/kubeconfig.
-    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ops bestia proxy install \
-      || fail "ops bestia proxy install failed in the VM"
+    # mounted repo dir, so the script is the worktree's own copy.
+    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./proxy.sh \
+      || fail "proxy.sh failed in the VM"
   fi
-  ok "BestIA proxy catch-all installed"
+  ok "host-rewrite proxy catch-all installed"
 }
 
 # A ready k3s API and a present nuvolaris namespace do not mean OpenWhisk serves
