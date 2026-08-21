@@ -511,22 +511,60 @@ because that handler runs a model connectivity probe on every call and the
 Configure page navigates to the app list when it succeeds. Editing an
 environment variable must do neither.
 
+#### There is no Save button: the palette saves on edit
+
+**Every mutation of the card persists on its own**, through a single
+`persistPredefinedEnv()` path that POSTs to `/api/predefined-env`. There is no
+Save Variables button, and nothing is ever left sitting in the page waiting to be
+stored.
+
+This is not a convenience. The card had a separate Save button, and a palette the
+user had edited but not saved was **silently discarded** whenever they pressed the
+page's own **Save & Configure** — which navigates to the app list on success. The
+two buttons sat in the same form, and only one of them was obviously "the" save.
+
+The mutations bind as follows:
+
+| Mutation | When it persists |
+|---|---|
+| Editing a name or value | **Debounced ~600 ms**, so typing does not post per keystroke |
+| **Remove** | Immediately |
+| **Import from file** | Immediately, after the merge |
+| **Add Variable** | **Not immediately** — see below |
+
+Two details are deliberate and must survive any rewrite:
+
+- **The edit path must not re-render.** `renderPredefinedEnv()` rebuilds the whole
+  `<tbody>`, which would steal focus from the field being typed into. The
+  debounced save refreshes the model and the status line only. Add, remove and
+  import re-render as before, because none of them happen mid-keystroke.
+- **A pending debounce is flushed** on each row input's `blur` and on both
+  `beforeunload` and `pagehide`. Without this the last keystrokes of an edit the
+  user immediately navigates away from never reach the server — which is the same
+  loss the Save button caused, just through a narrower window.
+
+**Add Variable is the one mutation that does not save.** It pushes a blank
+`{name:'', value:''}`, the blank-name rule above drops it server-side, and the
+result is a "saved 0" response that stores nothing. The row persists on its first
+edit instead, through the debounced path.
+
 #### The table is the source of truth at save time
 
-**Save Variables** reads the name/value pairs **out of the DOM** immediately
-before building the payload, rather than trusting the in-memory row array to be
-current. The rows also bind with `oninput` so the array tracks typing.
+`persistPredefinedEnv()` reads the name/value pairs **out of the DOM** before
+building the payload, rather than trusting the in-memory row array to be current;
+the rows also bind with `oninput` so the array tracks typing. `change` fires on
+**blur** only, so binding with `onchange` alone loses the row the user just typed.
 
-Both halves are required, and the DOM read is the one that matters. `change`
-fires on **blur**, so binding the rows with `onchange` alone loses the row the
-user just typed: clicking the button blurs the input in the same turn that the
-click handler reads the array. For a row added with **Add Variable** — pushed as
-a blank `{name:'', value:''}` — the name is still empty, the blank-name rule
-above drops it server-side, and the save reports success having stored nothing.
+The one exception is a save whose row is already gone from the table — a
+**Remove**, or an **import** whose merge the model already holds verbatim. Those
+pass the model explicitly instead of re-reading a table that no longer describes
+what should be stored.
 
 Because a dropped row and a deliberate clear are indistinguishable in the
-response, a **count of 0 is reported as an error**, not as a success. Only a
-non-zero count renders as "Saved N variables."
+response, a **count of 0 is never reported as success**. It renders as a neutral
+"Nothing to save: no variables with a name." — a half-typed name is a legitimate
+transient state on an auto-saving card, not an error. Only a non-zero count
+renders as "Saved N variables."
 
 ### Preservation
 
@@ -570,9 +608,9 @@ trim both sides. There is no `export ` stripping and no quote unwrapping.
   must not exceed 256 rows. A violation names the offending key and merges
   **nothing**: a partial import would leave the table in a state the user did
   not choose.
-- Nothing is persisted. The status line says so, and the user reviews the table
-  and presses the existing **Save Variables**, which POSTs to
-  `/api/predefined-env` as usual.
+- The merge is **persisted immediately**, like every other edit on this card, and
+  the table is then reloaded from the server's canonical set. There is no button
+  to press and no intermediate unsaved state.
 
 ### Automatic import of `.env.default`
 
@@ -873,9 +911,10 @@ The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, `apps`
 
 The Configure page also owns a **Predefined Environment Variables** card, sitting
 between Template Repository and Git User. It edits `predefined_env` through
-`GET`/`POST /api/predefined-env` with its **own** Save button and inline status:
-it does not go through **Save & Configure**, does not run a model probe, and does
-not navigate away. See "Predefined environment variables" above.
+`GET`/`POST /api/predefined-env`, **saving on every edit** with no Save button of
+its own and reporting through an inline status line: it does not go through
+**Save & Configure**, does not run a model probe, and does not navigate away.
+See "Predefined environment variables" above.
 
 Read the configuration with `GET /api/configuration`. **Save & Configure** calls
 `POST /api/configuration`, which persists, runs testmodel, and writes Pi's
