@@ -1276,6 +1276,18 @@
                 : kind === 'ok' ? 'text-green-700' : 'text-[color:var(--nu-muted)]');
         }
 
+        // Mirror the palette into the boot-time `config` snapshot that
+        // buildConfig() echoes. Named rows only, matching what the server keeps.
+        function syncPredefinedEnvIntoConfig() {
+            if (typeof config !== 'object' || config === null) return;
+            const map = {};
+            for (const v of predefinedEnvVars) {
+                const name = (v.name || '').trim();
+                if (name) map[name] = v.value || '';
+            }
+            config.predefined_env = map;
+        }
+
         async function loadPredefinedEnv() {
             try {
                 const resp = await fetch('/api/predefined-env');
@@ -1286,6 +1298,7 @@
                 // below predefinedEnvVars is [], and saving that would erase the
                 // very palette we could not read.
                 predefinedEnvLoaded = true;
+                syncPredefinedEnvIntoConfig();
             } catch (e) {
                 predefinedEnvVars = [];
                 setPredefinedEnvStatus('Could not load predefined variables: ' + e.message, 'error');
@@ -1351,6 +1364,13 @@
                     return;
                 }
                 const data = await resp.json();
+                // buildConfig() echoes config.predefined_env on Save & Configure,
+                // which is a full-document write. `config` is snapshotted at boot
+                // and nothing else here updates it, so without this a palette
+                // edited after load is echoed back as its stale boot-time value
+                // and overwritten. An explicit {} is not nil, so the server-side
+                // preserve in handlePostConfiguration cannot catch it either.
+                syncPredefinedEnvIntoConfig();
                 if (opts.rerender) await loadPredefinedEnv();
                 // A zero-count save is a real outcome (clearing the palette) but
                 // it is also what a silently-dropped row looks like, so never

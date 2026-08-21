@@ -148,6 +148,62 @@ func TestPostConfigurationPreservesPredefinedEnv(t *testing.T) {
 	}
 }
 
+// An explicit empty predefined_env must not clear the palette either.
+//
+// This is the gap the test above missed: it only covers an OMITTED field. The
+// Configure page snapshots the config at boot and buildConfig() echoes that
+// snapshot, so a palette edited after load is sent back as the `{}` it was at
+// boot. `{}` is not nil, so a nil-only guard let it through and the whole
+// palette was overwritten on Save & Configure. This endpoint does not manage
+// predefined_env at all — clearing happens on the card, via /api/predefined-env.
+func TestPostConfigurationIgnoresAnExplicitEmptyPredefinedEnv(t *testing.T) {
+	withPredefinedEnvWorkspace(t, `{
+  "provider": "ollama",
+  "predefined_env": {"STRIPE_KEY": "sk_live_1"}
+}`)
+
+	body := `{"provider":"ollama","base_url":"http://localhost:11434/v1","api_key":"dummy","predefined_env":{}}`
+	recorder := httptest.NewRecorder()
+	handlePostConfiguration(recorder, httptest.NewRequest(http.MethodPost, "/api/configuration", strings.NewReader(body)))
+
+	stored := readPredefinedEnvFromDisk(t)
+	if stored["STRIPE_KEY"] != "sk_live_1" {
+		t.Fatalf("an explicit empty predefined_env erased the palette: %#v", stored)
+	}
+}
+
+// The Configure page must keep its boot-time config snapshot in step with the
+// palette, or buildConfig()'s echo re-sends a stale empty map on every
+// Save & Configure. The server guard above is the backstop; this is the cause.
+func TestConfigurePageSyncsPaletteIntoTheConfigSnapshot(t *testing.T) {
+	source, err := os.ReadFile("web/configure.html")
+	if err != nil {
+		t.Fatalf("read configure.html: %s", err)
+	}
+	code := string(source)
+
+	if !strings.Contains(code, "function syncPredefinedEnvIntoConfig()") {
+		t.Fatal("the palette no longer mirrors into the config snapshot buildConfig() echoes")
+	}
+	// It has to run after a save, or an edit made after boot is never reflected.
+	persist := code[strings.Index(code, "async function persistPredefinedEnv("):]
+	persist = persist[:strings.Index(persist, "// A debounced edit still in flight")]
+	if !strings.Contains(persist, "syncPredefinedEnvIntoConfig();") {
+		t.Errorf("a palette save no longer updates the config snapshot:\n%s", persist)
+	}
+	// ...and after a load, so a reopened page starts in step.
+	load := code[strings.Index(code, "async function loadPredefinedEnv()"):]
+	load = load[:strings.Index(load, "// The table, not the model")]
+	if !strings.Contains(load, "syncPredefinedEnvIntoConfig();") {
+		t.Errorf("loading the palette no longer updates the config snapshot:\n%s", load)
+	}
+	// buildConfig() must still echo the field: dropping it entirely would make
+	// the full-document write erase the palette a different way.
+	if !strings.Contains(code, "predefined_env: config.predefined_env || {}") {
+		t.Error("buildConfig() no longer echoes predefined_env")
+	}
+}
+
 // Predefined values are offered, never applied. If they leaked into the merged
 // config's app maps or the generated .env, a value would reach an application
 // without the user ever seeing it in the editor.

@@ -2560,7 +2560,16 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		// predefined_env would erase it. The Configure page echoes the field
 		// back, but a stale tab or any other client need not; preserving it here
 		// is what stops saving a provider from wiping the user's variables.
-		if len(wsCfg.PredefinedEnv) > 0 && cfg.PredefinedEnv == nil {
+		//
+		// An EMPTY map is treated the same as an absent one. The page snapshots
+		// the config at boot and echoes that snapshot, so a palette edited after
+		// load comes back as the stale `{}` it was at boot — which is not nil and
+		// used to sail straight through this guard and overwrite the palette.
+		// This endpoint does not manage predefined_env at all (the card uses
+		// /api/predefined-env), and several other pages POST here without
+		// touching it, so no caller has a legitimate reason to clear it this way.
+		// Clearing happens by removing the rows on the card.
+		if len(wsCfg.PredefinedEnv) > 0 && len(cfg.PredefinedEnv) == 0 {
 			cfg.PredefinedEnv = wsCfg.PredefinedEnv
 		}
 	}

@@ -598,12 +598,24 @@ erased. `predefined_env` is therefore preserved on **both** sides, and both are
 required:
 
 - `handlePostConfiguration` re-attaches it from the existing workspace config
-  when the payload omits it, alongside `apps`, `current` and `notebook`;
+  when the payload omits it **or sends an empty map**, alongside `apps`,
+  `current` and `notebook`;
 - the Configure page's `buildConfig()` echoes it back, as it already does for
-  `apps`, because that POST is a full-document write.
+  `apps`, because that POST is a full-document write;
+- and the page keeps `config.predefined_env` **in step with every palette write**
+  via `syncPredefinedEnvIntoConfig()`, called after each save and after each load.
 
-Without either half, saving a provider from the Configure page silently wipes
-the user's predefined variables.
+Without all three, saving a provider from the Configure page silently wipes the
+user's predefined variables.
+
+The third is the one that is easy to miss. `config` is snapshotted at boot and
+nothing else on the page updates it, so a palette edited *after* load was echoed
+back as the value it had at boot — usually `{}`. An empty map is **not** `nil`,
+so a guard testing only for `nil` let it through and the full-document write
+overwrote the palette. `POST /api/configuration` does not manage
+`predefined_env` at all (the card uses `/api/predefined-env`), and other pages
+POST here without touching it, so **no caller may clear it this way**: clearing
+is expressed by removing the rows on the card.
 
 ### Importing from a file
 
