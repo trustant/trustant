@@ -9,7 +9,9 @@
 #
 # start.sh then takes over on its native-Linux path (uname -s = Linux): it
 # installs the Trustable .deb (k3s), ollama, kubefwd, gh, the host-rewrite proxy,
-# writes the support files and runs ./setup.sh. Nothing in start.sh is
+# writes the support files and runs ./setup.sh. The .deb and the ollama build are
+# cached under dist\ on the Windows side of the mount, so destroying the distro
+# and re-running re-downloads neither. Nothing in start.sh is
 # Windows-aware; this script only has to hand it an Ubuntu that satisfies its
 # preflight (Ubuntu/Debian, amd64/arm64, passwordless sudo, systemd).
 #
@@ -508,7 +510,11 @@ if ($NoStart) {
 # `bash ./start.sh` rather than `./start.sh`: the exec bit on a Windows-hosted
 # file depends on the automount options, and this does not care.
 Write-Step "Running ./start.sh in '$Distro' as '$User'"
-Write-Warn 'start.sh downloads a ~4GB package and installs k3s inside the distribution'
+# Both payloads are cached under dist/ on the Windows side of the mount, so this
+# cost is paid once: a later -k / re-run reinstalls from those files. Say so, or
+# the warning reads as a per-run price and invites destroying the cache.
+Write-Warn 'start.sh downloads a ~4GB package plus a ~1.5GB ollama build and installs k3s inside the distribution'
+Write-Warn 'both are cached in dist\ on this drive - later runs reuse them and do not re-download'
 & wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./start.sh
 $startExit = $LASTEXITCODE
 if ($startExit -ne 0) {

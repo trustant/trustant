@@ -208,6 +208,30 @@ CPU-only; that's fine because the app mostly uses cloud models. Idempotent: skip
 the install when ollama is already present at the pinned version. Runs on every
 start (in the finish path), so an existing VM gets ollama too.
 
+Cache the ~1.5GB release tarball on the HOST under `dist/`, next to the `.deb`
+and for the same reason: `dist/` outlives the VM, so `./start.sh -k` followed by
+a fresh start reinstalls from disk instead of re-downloading. Upstream's
+`install.sh` always re-downloads and takes no local artifact, so the cached path
+does the work itself — fetch
+`https://github.com/ollama/ollama/releases/download/v<version>/ollama-linux-<arch>.tar.zst`
+to `dist/ollama-<version>-linux-<arch>.tar.zst` via a `.part` temp file (so an
+interrupted download leaves no truncated entry behind), then extract it into
+`/usr/local` (`bin/ollama` + `lib/ollama/*`, clearing any stale `lib/ollama`
+first) and write the `ollama` user and systemd unit that upstream would have
+created. The guest reads the cache entry straight off the mount — same path in
+the VM as on the host — so nothing is copied in. An existing cache entry is
+reused as-is; the download runs only when the file is absent.
+
+`OLLAMA_VERSION` is a plain variable near the top of `start.sh`, defaulting to
+the image's `ARG OLLAMA_VERSION=` and overridable from the environment. It names
+the cache entry, so changing it downloads that version once and leaves the
+previous file in `dist/`. Anything that goes wrong with the cache — empty
+version, unsupported arch, failed download — falls back to the upstream
+installer, so the install never depends on the cache working. One consequence of
+installing from the tarball: the upstream installer's GPU handling is skipped,
+so on a native Linux host with a GPU the fallback path is what would set up
+CUDA/ROCm drivers. In the VM this changes nothing — it is CPU-only either way.
+
 ## Pinned kubefwd in the VM
 
 Install `kubefwd` 1.25.16 as `/usr/local/bin/kubefwd` on every finish path, so
@@ -522,9 +546,10 @@ Run the same helpers the macOS finish path runs, against this host:
 - the host-rewrite reverse proxy on `:8080`, so
   `http://<label>.<ip>.nip.io:8080` reaches `<label>.miniops.me`. This is what
   makes the app reachable from another machine on the network;
-- ollama on `localhost:11434`, pinned to the image's `OLLAMA_VERSION`. Unlike
-  the VM, a native host is not restricted to CPU — the upstream installer
-  detects CUDA/ROCm by itself, which needs no special handling here;
+- ollama on `localhost:11434`, pinned to the image's `OLLAMA_VERSION`, from the
+  same `dist/` cache (see above). Unlike the VM, a native host is not restricted
+  to CPU, but the cached tarball path installs no GPU drivers — only the
+  upstream-installer fallback detects CUDA/ROCm;
 - the pinned `kubefwd` 1.25.16 with its SHA-256 verification;
 - the `gh` and `jq` apt packages.
 

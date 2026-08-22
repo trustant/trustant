@@ -43,6 +43,10 @@
 # readiness timeout, and caching on the host makes re-runs skip the download.
 # On Linux the same cached .deb is installed straight into this machine.
 #
+# The ~1.5GB ollama release tarball is cached in dist/ the same way and for the
+# same reason: dist/ outlives the VM, so `./start.sh -k && ./start.sh` reinstalls
+# both from disk instead of re-downloading ~5.5GB.
+#
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -82,12 +86,16 @@ if [[ -z "$TRUSTABLE_VERSION" ]]; then
   TRUSTABLE_VERSION="unknown"
   warn "version.txt not found or empty — caching the package as trustable_${TRUSTABLE_VERSION}_<arch>.deb"
 fi
-DIST_DIR="dist"                              # host-side cache for the .deb
+DIST_DIR="dist"                              # host-side cache (.deb + ollama tarball)
 
 # CPU-only ollama is installed as a host process in the VM (localhost:11434); the
-# app mostly uses cloud models. Pin to the same version as the image (ARG line in
-# image/Dockerfile) so the VM matches the container.
-OLLAMA_VERSION="$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
+# app mostly uses cloud models. Defaults to the image's version (the ARG line in
+# image/Dockerfile) so the VM matches the container — set OLLAMA_VERSION here or
+# in the environment to override it. The ~1.5GB release tarball is cached on the
+# HOST under dist/ (like the .deb), so destroying and recreating the VM installs
+# from disk instead of downloading again; changing the version below just names a
+# different cache entry and downloads that one once.
+OLLAMA_VERSION="${OLLAMA_VERSION:-$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')}"
 GH_VERSION="$(grep -m1 '^ARG GH_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
 
 # Keep the release identity and both supported archive digests in source so a
@@ -339,28 +347,120 @@ GUEST
   ok "reverse proxy listening on :8080"
 }
 
+# Resolve + cache the ollama release tarball for the guest arch into dist/,
+# downloading it only when the cache entry is absent. Sets the global
+# OLLAMA_TARBALL (empty when there is nothing usable, which leaves ensure_ollama
+# on its upstream-installer path).
+#
+# WHY this is cached at all: upstream's install.sh always re-downloads ~1.5GB and
+# offers no local-artifact option, so `./start.sh -k && ./start.sh` used to pay
+# for the whole thing again. dist/ lives on the host — outside the VM's lifetime
+# — so a recreated VM reuses it, exactly as it does for the ~4GB .deb.
+ensure_ollama_tarball() {
+  OLLAMA_TARBALL=""
+  [[ -n "${OLLAMA_VERSION:-}" ]] || {
+    warn "OLLAMA_VERSION is empty — not caching the ollama tarball"
+    return 0
+  }
+
+  local ARCH URL TMP
+  # The guest runs the host arch (vz on macOS, this machine on Linux/WSL).
+  case "$(uname -m)" in
+    arm64|aarch64) ARCH=arm64 ;;
+    x86_64|amd64)  ARCH=amd64 ;;
+    *) warn "unsupported ollama architecture: $(uname -m) — falling back to the upstream installer"; return 0 ;;
+  esac
+
+  OLLAMA_TARBALL="${DIST_DIR}/ollama-${OLLAMA_VERSION}-linux-${ARCH}.tar.zst"
+  mkdir -p "$DIST_DIR"
+
+  if [[ -s "$OLLAMA_TARBALL" ]]; then
+    ok "Using cached ollama tarball: $OLLAMA_TARBALL"
+    return 0
+  fi
+
+  URL="https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-linux-${ARCH}.tar.zst"
+  echo "--- Downloading ollama ${OLLAMA_VERSION} (~1.5GB) -> $OLLAMA_TARBALL ---"
+  # Download to a temp file then move into place, so an interrupted download
+  # never leaves a truncated cache entry that later runs would trust.
+  TMP="${OLLAMA_TARBALL}.part"
+  if ! curl -fL --retry 3 -o "$TMP" "$URL"; then
+    rm -f "$TMP"
+    warn "ollama download failed — falling back to the upstream installer"
+    OLLAMA_TARBALL=""
+    return 0
+  fi
+  mv "$TMP" "$OLLAMA_TARBALL"
+  ok "Downloaded $OLLAMA_TARBALL"
+}
+
 # Install ollama as a host process, pinned to OLLAMA_VERSION, and enable its
 # service so it serves on localhost:11434 (the app's OLLAMA_ENDPOINT).
 # In the VM this is necessarily CPU-only — Apple's vz gives the Linux guest no
-# GPU passthrough — which is fine since the app mostly uses cloud models. On a
-# native Linux host the upstream installer detects CUDA/ROCm by itself.
+# GPU passthrough — which is fine since the app mostly uses cloud models.
 # Idempotent: skips the install when ollama is already present at the pinned version.
+#
+# Installs from the host-cached tarball (ensure_ollama_tarball) when there is
+# one, so a rebuilt VM never re-downloads. The extraction and the systemd unit
+# below reproduce what upstream's install.sh does for this case; when no cache
+# entry is available it falls back to that installer unchanged.
 ensure_ollama() {
   if $NATIVE_LINUX; then
     echo "--- Ensuring ollama on this host (localhost:11434) ---"
   else
     echo "--- Ensuring CPU ollama in the VM (localhost:11434) ---"
   fi
-  run_privileged OLLAMA_VERSION="${OLLAMA_VERSION:-}" <<'GUEST'
+
+  ensure_ollama_tarball
+
+  # The guest sees the worktree at the same path it has on the host, so the
+  # cache entry needs no copy — pass its path straight through.
+  run_privileged \
+    OLLAMA_VERSION="${OLLAMA_VERSION:-}" \
+    OLLAMA_TARBALL="${OLLAMA_TARBALL:+$MOUNT_DIR/$OLLAMA_TARBALL}" \
+    <<'GUEST'
 have="$(command -v ollama >/dev/null 2>&1 && ollama --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 if [ -n "$have" ] && { [ -z "$OLLAMA_VERSION" ] || [ "$have" = "$OLLAMA_VERSION" ]; }; then
   echo "ollama already installed (${have})"
+elif [ -n "$OLLAMA_TARBALL" ] && [ -s "$OLLAMA_TARBALL" ]; then
+  echo "installing ollama ${OLLAMA_VERSION} from the host cache"
+  command -v zstd >/dev/null 2>&1 || {
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq && apt-get install -y -qq zstd
+  }
+  # Same layout upstream installs: bin/ollama + lib/ollama/* under /usr/local,
+  # with the stale lib/ollama removed first so an upgrade cannot mix versions.
+  rm -rf /usr/local/lib/ollama
+  install -o0 -g0 -m755 -d /usr/local/bin /usr/local/lib/ollama
+  zstd -d -c "$OLLAMA_TARBALL" | tar -xf - -C /usr/local
+  [ -x /usr/local/bin/ollama ] || { echo "ollama tarball did not contain bin/ollama" >&2; exit 1; }
+
+  # The service account and unit upstream's install.sh would have created.
+  id ollama >/dev/null 2>&1 || useradd -r -s /bin/false -U -m -d /usr/share/ollama ollama
+  cat >/etc/systemd/system/ollama.service <<'UNIT'
+[Unit]
+Description=Ollama Service
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=3
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+[Install]
+WantedBy=default.target
+UNIT
+  systemctl daemon-reload
 else
+  echo "no cached ollama tarball — using the upstream installer"
   curl -fsSL https://ollama.com/install.sh >/tmp/ollama-install.sh
   env OLLAMA_VERSION="$OLLAMA_VERSION" bash /tmp/ollama-install.sh
   rm -f /tmp/ollama-install.sh
 fi
-# The installer registers a systemd service; make sure it is up on 127.0.0.1:11434.
+# Make sure the service is up on 127.0.0.1:11434, however it was installed.
 systemctl enable --now ollama 2>/dev/null || true
 GUEST
   if $NATIVE_LINUX; then
@@ -587,12 +687,15 @@ ensure_bestia_proxy() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
   echo "--- Installing the host-rewrite proxy catch-all${where} ---"
+  # `bash ./proxy.sh` rather than `./proxy.sh`: on WSL the exec bit of a
+  # Windows-hosted file depends on the automount options, so a checkout can
+  # present the script as non-executable however git records its mode.
   if $NATIVE_LINUX; then
-    ./proxy.sh || fail "proxy.sh failed"
+    bash ./proxy.sh || fail "proxy.sh failed"
   else
     # Same invocation style as the setup.sh call: as the mirrored user, in the
     # mounted repo dir, so the script is the worktree's own copy.
-    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./proxy.sh \
+    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./proxy.sh \
       || fail "proxy.sh failed in the VM"
   fi
   ok "host-rewrite proxy catch-all installed"
@@ -879,7 +982,7 @@ finish() {
   # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir
   # (Lima mounts it at the same path). Idempotent — re-runs just verify.
   echo "--- Running setup.sh in the VM as $HOST_USER ---"
-  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./setup.sh \
+  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./setup.sh \
     || fail "setup.sh failed in the VM"
   ok "setup.sh completed"
   ensure_bestia_proxy
@@ -942,7 +1045,7 @@ finish_native() {
   # Provision the toolchain (ops/go/air/uv/node/pi + MCP servers). Same script
   # the VM path runs, just invoked directly. Idempotent — re-runs just verify.
   echo "--- Running setup.sh as $(id -un) ---"
-  ./setup.sh || fail "setup.sh failed"
+  bash ./setup.sh || fail "setup.sh failed"
   ok "setup.sh completed"
   ensure_bestia_proxy
   ensure_gh
@@ -1396,7 +1499,7 @@ open_vscode() {
 # and `air`, so Ctrl-C here is how you stop the dev server.
 run_in_vm() {
   echo "--- Running ./run.sh in the VM as $HOST_USER (Ctrl-C to stop) ---"
-  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" ./run.sh
+  limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./run.sh
 }
 
 # --- teardown: ./start.sh -k -----------------------------------------------
