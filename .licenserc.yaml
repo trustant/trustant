@@ -61,6 +61,7 @@ header:
     # Upstream Apache-2.0 submodules — never relicense third-party code.
     - 'olaris'
     - 'mcp'
+    - 'skills'
 
     # VCS / tooling metadata
     - '.licenserc.yaml'
