@@ -119,6 +119,14 @@ a non-interactive Lima/WSL shell did not inherit its environment.
 add the Go install bin dir to the PATH (GOBIN if set, else `go env GOPATH`/bin),
 then install air (go install github.com/air-verse/air@latest)
 
+then install license-eye, the Apache skywalking-eyes license-header tool, at a
+pinned version (go install
+github.com/apache/skywalking-eyes/cmd/license-eye@v0.8.0). It enforces the AGPL
+headers declared in `.licenserc.yaml`: `license-eye header check` reports files
+missing a header, `license-eye header fix` adds one. The version is pinned
+rather than `@latest` because the header recognition pattern changes between
+releases, which would rewrite files that already carry a valid header.
+
 5. if npm is not on the path, install Node 24 via NodeSource (matching the
 Dockerfile; node may already be present from the VM package):
 

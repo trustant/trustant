@@ -1,0 +1,152 @@
+# Configuration for skywalking-eyes (license-eye).
+#
+#   license-eye header check   # report files missing the AGPL header
+#   license-eye header fix     # add the header to every file that lacks one
+#
+# Scope: this repository only. license-eye discovers files via `git ls-files`,
+# which does not descend into submodules, so each Trustable-owned submodule
+# (skills, olaris-bestia, olaris-truinst, trustable-acp) carries its own
+# identical .licenserc.yaml and must be checked from inside it. The `olaris`
+# (nuvolaris/bestia) and `mcp` (apache/openserverless-mcp) submodules are
+# upstream Apache-2.0 projects with their own LICENSE/NOTICE and are excluded
+# entirely -- never relicense third-party code.
+header:
+  license:
+    spdx-id: AGPL-3.0-or-later
+    copyright-owner: Nuvolaris Inc
+    copyright-year: '2025-2026'
+    content: |
+      Copyright [year] [owner]
+
+      This program is free software: you can redistribute it and/or modify
+      it under the terms of the GNU Affero General Public License as published
+      by the Free Software Foundation, either version 3 of the License, or
+      (at your option) any later version.
+
+      This program is distributed in the hope that it will be useful,
+      but WITHOUT ANY WARRANTY; without even the implied warranty of
+      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+      GNU Affero General Public License for more details.
+
+      You should have received a copy of the GNU Affero General Public License
+      along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+    # Recognise an existing AGPL header so already-headered files are not
+    # rewritten with a duplicate block. Kept specific: a bare "GNU Affero
+    # General Public License" also appears in this config and in LICENSE.
+    pattern: |
+      GNU Affero General Public License as published
+
+  # Explicit globs: a bare '.' makes license-eye treat the whole tree as one
+  # ignored entry, so every source extension is listed instead.
+  paths:
+    - '**/*.go'
+    - '**/*.sh'
+    - '**/*.ps1'
+    - '**/*.py'
+    - '**/*.ts'
+    - '**/*.tsx'
+    - '**/*.js'
+    - '**/*.mjs'
+    - '**/*.mts'
+    - '**/*.css'
+    - '**/*.html'
+    - '**/*.yml'
+    - '**/*.yaml'
+    - '**/*.toml'
+    - '**/*.tmpl'
+    - '**/*.conf'
+
+  paths-ignore:
+    # Upstream Apache-2.0 submodules — never relicense third-party code.
+    - 'olaris'
+    - 'mcp'
+
+    # VCS / tooling metadata
+    - '.licenserc.yaml'
+    - '.git'
+    - '.github'
+    - '.gitignore'
+    - '.gitattributes'
+    - '.gitmodules'
+    - '.vscode'
+    - '.claude'
+    - '.idea'
+    - '**/.gitignore'
+    - '**/.gitattributes'
+    - '**/.npmrc'
+    - '**/.prettierrc'
+    - '**/.prettierignore'
+    - '**/.python-version'
+
+    # Licenses and legal texts must stay verbatim
+    - 'LICENSE'
+    - 'NOTICE'
+    - 'DISCLAIMER'
+    - '**/LICENSE'
+    - '**/LICENSE.*'
+    - '**/NOTICE'
+    - '**/DISCLAIMER'
+    - '**/*.lic'
+    - 'master_key_pub'
+
+    # Dependencies and build output
+    - '**/node_modules'
+    - '**/vendor'
+    - 'dist'
+    - '**/dist'
+    - '**/dist-bin'
+    - '**/dist-web'
+    - 'tmp'
+    - '**/*.lock'
+    - 'go.sum'
+    - '**/package-lock.json'
+    - '**/*.min.js'
+    - '**/*.min.css'
+    - 'web/tailwind.js'
+
+    # Generated / data files with no comment syntax
+    - '_build.txt'
+    - 'version.txt'
+    - 'expiry.txt'
+    - '**/*.json'
+    - '**/*.txt'
+    - '**/*.svg'
+    - '**/*.png'
+    - '**/*.jpg'
+    - '**/*.jpeg'
+    - '**/*.ico'
+    - '**/*.gif'
+    - '**/*.webp'
+    - '**/*.woff'
+    - '**/*.woff2'
+    - '**/*.ttf'
+    - '**/*.pdf'
+    - '**/*.integrity'
+    - '**/*.version'
+    - '**/pi-acp'
+
+    # Environment files (parsed as plain KEY=VALUE by the loader)
+    - '.env*'
+    - '**/.env*'
+    - 'image/env'
+    - 'envcrypt.env'
+
+    # Documentation and specs — prose, not source
+    - '**/*.md'
+    - '**/*.MD'
+
+  comment: on-failure
+
+  # license-eye may edit generated Go files it does not recognise as such.
+  language:
+    Go:
+      extensions:
+        - '.go'
+      comment_style_id: DoubleSlash
+
+# `license-eye dep resolve` — dependency license compatibility.
+dependency:
+  files:
+    - go.mod
+    - package.json

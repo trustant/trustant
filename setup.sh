@@ -1,4 +1,19 @@
 #!/bin/bash
+# Copyright 2025-2026 Nuvolaris Inc
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 #
 # setup.sh — recreate the image/Dockerfile environment INSIDE the trudev VM.
 #
@@ -213,6 +228,20 @@ if ! command -v air &>/dev/null; then
 fi
 command -v air &>/dev/null || fail "air installation failed"
 ok "air is available"
+
+# license-eye (Apache skywalking-eyes) enforces the AGPL headers described by
+# .licenserc.yaml: `license-eye header check` reports files missing the header,
+# `header fix` adds it. WHY pinned: @latest silently changes the header
+# recognition pattern, which would rewrite already-headered files.
+LICENSE_EYE_VERSION="v0.8.0"
+echo "--- Checking license-eye ---"
+if ! command -v license-eye &>/dev/null; then
+  warn "license-eye not found, installing..."
+  go install "github.com/apache/skywalking-eyes/cmd/license-eye@${LICENSE_EYE_VERSION}" \
+    || fail "go install license-eye failed"
+fi
+command -v license-eye &>/dev/null || fail "license-eye installation failed"
+ok "license-eye is available"
 
 # --- 5. Install Node 24 via NodeSource if npm is missing (may be from the .deb) ---
 echo "--- Checking npm ---"
