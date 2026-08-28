@@ -62,13 +62,9 @@ Create a user with passwordless sudo rights and execute:
 git clone https://github.com/trustable-ai/trustable-app
 cd trustable-app
 ./start.sh
-./run.sh
 ```
 
-Two commands here, not one: `./start.sh` only prepares the machine, and `./run.sh` is
-what starts the dev loop and prints the URL. `-v`, `-s` and `-k` do not apply — there is
-no vm to open, stop or destroy. To use vscode open the folder in the VM with VSCode SSH
-access.
+
 
 ## Update sources
 
