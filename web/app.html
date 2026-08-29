@@ -387,13 +387,9 @@
                     </thead>
                     <tbody id="envTableBody"></tbody>
                 </table>
-                <div class="mt-4">
-                    <button onclick="envTable.add()" class="nu-btn nu-btn-secondary">Add Variable</button>
-                </div>
             </div>
             <div id="envError" class="hidden p-4 text-left text-red-700 text-sm nu-code nu-output mx-4 mb-4 max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
             <div class="flex gap-3 p-4 border-t border-[color:var(--nu-rule)]">
-                <button onclick="saveEnvVars()" class="nu-btn nu-btn-primary flex-1">Save</button>
                 <button onclick="hideEnvModal()" class="nu-btn nu-btn-secondary flex-1">Close</button>
             </div>
         </div>
@@ -1309,14 +1305,17 @@
         // Env functions
         //
         // The table logic lives in js/envtable.js, shared with appconfig.html and
-        // applist.html. This is the ordinary per-app editor; the blocked-launch
-        // flow belongs to applist.html, which owns the launch.
+        // applist.html. This modal is a READ-ONLY view of what the launched app
+        // received: editing belongs to the app list's Env action, because the
+        // values can come from the workspace-wide shared pool and a second
+        // editor here would be a second place to get them wrong.
         // No `const envTable` here: register() puts the instance on window, which
         // is the binding the table's inline handlers resolve to.
         EnvTable.register('envTable', new EnvTable({
             appName: appName,
             tbodyId: 'envTableBody',
             columns: 4,
+            readOnly: true,
             onChange: () => updateEnvMissingBanner()
         }));
 
@@ -1341,7 +1340,7 @@
             const missing = envTable.highlightMissing ? envTable.missingNames() : [];
 
             if (missing.length > 0) {
-                banner.textContent = `${missing.length} required variable${missing.length === 1 ? ' has' : 's have'} no value. Fill them in to launch this app.`;
+                banner.textContent = `${missing.length} required variable${missing.length === 1 ? ' has' : 's have'} no value. Fill them in from the app list's Env action.`;
                 banner.classList.remove('hidden');
             } else {
                 banner.classList.add('hidden');
@@ -1360,19 +1359,6 @@
                 document.getElementById('envContent').classList.remove('hidden');
             } catch (error) {
                 document.getElementById('envLoading').classList.add('hidden');
-                document.getElementById('envError').textContent = error.message;
-                document.getElementById('envError').classList.remove('hidden');
-            }
-        }
-
-        async function saveEnvVars() {
-            document.getElementById('envError').classList.add('hidden');
-            try {
-                await envTable.save();
-                // Re-render so rows that were just filled in lose their flag, and
-                // rows still empty keep it.
-                envTable.render();
-            } catch (error) {
                 document.getElementById('envError').textContent = error.message;
                 document.getElementById('envError').classList.remove('hidden');
             }

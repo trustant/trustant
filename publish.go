@@ -351,6 +351,27 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Shared variables another app produces must already have a value for THIS
+	// host before anything touches the cluster. Unlike the development gate this
+	// blocks: a launch with a missing value costs a broken dev server, a publish
+	// with one deploys an app pointed at nothing. Two ways out, both offered by
+	// the frontend — publish the producing app to this host, or type the value
+	// in by hand for it.
+	// The MERGED config: the production pool can come from either layer, and the
+	// gate must not block on a value the base layer already supplies.
+	mergedCfg, err := loadTrustableConfig()
+	if err != nil {
+		mergedCfg = wsCfg
+	}
+	if missing := missingProductionShared(req.Name, prod["OPS_APIHOST"], mergedCfg); len(missing) > 0 {
+		log.Printf("Publish of %s blocked, unresolved shared values on %s: %+v", req.Name, prod["OPS_APIHOST"], missing)
+		writePublishJSON(w, http.StatusOK, map[string]interface{}{
+			"needs_config":   true,
+			"missing_shared": missing,
+		})
+		return
+	}
+
 	// The target apihost must be covered by the license before anything
 	// touches the cluster. Local apihosts are always allowed.
 	if !requireLicensedHost(w, prod["OPS_APIHOST"]) {
@@ -409,6 +430,7 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	// Run ops ide login --mode=production
 	reportProgress(w, 5, "Connecting to OpenServerless...")
 	log.Printf("Running ops ide login --mode=production for %s...", req.Name)
+	removeOpsConfig()
 	loginCmd := exec.Command("ops", "ide", "login", "--mode=production")
 	loginCmd.Dir = workbenchPath
 	if err := runStreamingCommand(w, &output, loginCmd); err != nil {
@@ -419,6 +441,20 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// The production login just wrote this cluster's service bindings. Resolve
+	// THIS app's own .env.shared against them and store the values under this
+	// host, so an app that consumes them can be published next. Only this app is
+	// resolved: a production login is a real operation against a real cluster,
+	// and sweeping every producer would log into clusters the user never asked
+	// to touch. Non-fatal — the deploy of this app does not depend on it.
+	func() {
+		unlock := lockRuntimeLifecycle("resolve production shared " + req.Name)
+		defer unlock()
+		if _, err := resolveProductionShared(req.Name, prod["OPS_APIHOST"]); err != nil {
+			log.Printf("Warning: failed to resolve production shared values for %s: %s", req.Name, err)
+		}
+	}()
 
 	// Run ops ide deploy
 	reportProgress(w, 6, "Deploying application...")

@@ -593,6 +593,18 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Warning: failed to save password to config: %s", err)
 	}
 
+	// A newly installed app may itself declare shared variables. Resolve them now
+	// so they are in the pool before the missing-variable check below, and so
+	// another app can consume them without waiting for this one to be launched.
+	// A no-op when the app has no workbench yet, which is the common case.
+	func() {
+		unlock := lockRuntimeLifecycle("import shared variables " + req.Name)
+		defer unlock()
+		if _, err := refreshSharedForApp(req.Name); err != nil {
+			log.Printf("Warning: failed to resolve shared variables for %s: %s", req.Name, err)
+		}
+	}()
+
 	// A cloned repo declares its required variables in .env.dist. Seed the ones we
 	// cannot populate as empty entries and report them, so the UI can open the env
 	// editor immediately rather than letting the user discover them at launch.

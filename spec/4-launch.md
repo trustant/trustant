@@ -95,6 +95,20 @@ declares in `.env.dist` but that this installation has no value for
 (`seedMissingEnvKeys`, see [2a-config.md](2a-config.md)) — before generating the
 `.env` files, so the seeded keys are part of the same generation pass.
 
+## refresh shared variables
+
+After the workbench exists and `.gitignore` is in place, but **before** the
+missing-variable check below, refresh the shared pool (`refreshSharedPool`, see
+[18-shared.md](18-shared.md)). It logs in as each app that declares a
+`.env.shared`, resolves its pointers into `predefined_env`, and logs back in as
+the launching app.
+
+Order matters: a variable the refresh is about to satisfy must not block the
+launch. Service credentials are regenerated on every `ops ide login`, so
+resolving here — rather than only when the Share picker saves — is what stops a
+consumer being handed a stale secret. Failure is non-fatal: the previous pool
+values stand, and step 3's own login supersedes anything the refresh left behind.
+
 ## check required environment variables
 
 After the workbench exists and the `.env` files have been regenerated, but
@@ -141,10 +155,10 @@ missing variable simply continues.
 Cancelling the editor abandons the launch. Nothing was started on the cluster,
 so there is nothing to undo.
 
-### Use predefined values
+### Use shared values
 
-When the workspace has predefined environment variables (`predefined_env`, see
-[2a-config.md](2a-config.md)), the editor shows a **Use predefined values**
+When the workspace has shared variables (`predefined_env`, see
+[2a-config.md](2a-config.md)), the editor shows a **Use shared values**
 button beside **Add Variable**. It is hidden when the palette is empty.
 
 Pressing it fills Development values in the table, and is deliberately
@@ -156,7 +170,7 @@ conservative because the user did not choose these values for this app:
   template supplied is never replaced — the button is safe to press twice;
 - readonly rows (the fixed `OPS_*` keys) are skipped.
 
-It reports what it did inline ("Filled N variables from predefined values.
+It reports what it did inline ("Filled N variables from shared values.
 Review and press Save.", or "No empty variables matched your predefined
 values."), and **saves nothing**. The user reviews the filled table and presses
 the existing Save, which is the only way a predefined value reaches an
@@ -236,8 +250,14 @@ sync before logging in:
 
 ## login
 
-Change to `<workbenchdir>/<app>` folder
-and execute `ops ide login`
+Change to `<workbenchdir>/<app>` folder, **delete `~/.ops/config.json`**
+(`removeOpsConfig`) and execute `ops ide login`.
+
+The delete is not optional. `ops ide login` merges into that single global file
+rather than replacing it, so service blocks from a previous login for a
+different app survive and are indistinguishable from this app's own — a wrong
+service binding for MCP generation, `appServiceRuntimeEnv` and shared-variable
+resolution alike. A missing file is success. See [18-shared.md](18-shared.md).
 
 If it terminates with 0 continue otherwise return error
 

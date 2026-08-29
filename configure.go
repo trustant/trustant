@@ -141,7 +141,21 @@ type trustableConfig struct {
 	// input to generateAppEnvFiles or missingAppEnvKeys — a predefined value that
 	// silently satisfied a required key would reach the app without the user ever
 	// seeing it. See spec/2a-config.md.
+	// PredefinedEnv is the workspace-wide pool the Configure page calls "Shared
+	// Variables". It holds two kinds of entry: values the user typed by hand,
+	// and values resolved from apps' .env.shared declarations (see shared.go).
+	//
+	// It is applied to an application ONLY for a variable the app already
+	// declares and left empty — never as a source of new variables. An app that
+	// does not name a pool variable never sees it. See spec/2a-config.md.
 	PredefinedEnv map[string]string `json:"predefined_env,omitempty"`
+
+	// PredefinedEnvProduction is the same pool for production, keyed by
+	// apihost. Service credentials on api.nuvolaris.io have nothing to do with
+	// those on openserverless.dev — same variable name, different cluster,
+	// different secret — so one flat map would hand an app the wrong cluster's
+	// credentials. Keys are normalized by sharedHostKey.
+	PredefinedEnvProduction map[string]map[string]string `json:"predefined_env_production,omitempty"`
 
 	// RegisterURL is populated at GET-time from the AIP_REGISTER_URL env var
 	// (mandatory at startup). It points at the proxy's registration UI; the
@@ -352,6 +366,28 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 			merged[k] = v
 		}
 		result.PredefinedEnv = merged
+	}
+
+	// Host-by-host, then key-by-key within a host: two installations' bases
+	// could each know a different cluster, and neither should erase the other.
+	if len(override.PredefinedEnvProduction) > 0 {
+		merged := make(map[string]map[string]string)
+		for host, vars := range base.PredefinedEnvProduction {
+			hostVars := make(map[string]string, len(vars))
+			for k, v := range vars {
+				hostVars[k] = v
+			}
+			merged[host] = hostVars
+		}
+		for host, vars := range override.PredefinedEnvProduction {
+			if merged[host] == nil {
+				merged[host] = make(map[string]string, len(vars))
+			}
+			for k, v := range vars {
+				merged[host][k] = v
+			}
+		}
+		result.PredefinedEnvProduction = merged
 	}
 
 	return &result
@@ -2587,6 +2623,12 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		if len(wsCfg.PredefinedEnv) > 0 && len(cfg.PredefinedEnv) == 0 {
 			cfg.PredefinedEnv = wsCfg.PredefinedEnv
 		}
+		// Same guard for the per-host production pool. No page posts it here at
+		// all — it is written only by a publish — so an omitted or empty map
+		// always means "unchanged", never "clear".
+		if len(wsCfg.PredefinedEnvProduction) > 0 && len(cfg.PredefinedEnvProduction) == 0 {
+			cfg.PredefinedEnvProduction = wsCfg.PredefinedEnvProduction
+		}
 	}
 
 	if err := normalizeNotebookConfig(&cfg); err != nil {
@@ -2856,6 +2898,12 @@ func missingAppEnvKeys(appName string) ([]string, error) {
 		if appCfg != nil && strings.TrimSpace(appCfg.Development[name]) != "" {
 			continue
 		}
+		// A name the shared pool can fill is about to be supplied by
+		// generateAppEnvFiles, so it is not missing. The launch path refreshes
+		// the pool before this check runs.
+		if strings.TrimSpace(cfg.PredefinedEnv[name]) != "" {
+			continue
+		}
 		missing = append(missing, name)
 	}
 	return missing, nil
@@ -2907,8 +2955,21 @@ func seedMissingEnvKeys(appName string) ([]string, error) {
 	return seeded, nil
 }
 
-// generateAppEnvFiles writes .env and .env.production for an app in its workbench directory
+// generateAppEnvFiles writes .env and .env.production for an app in its
+// workbench directory, filling any declared-but-empty variable from the shared
+// pool (see shared.go).
 func generateAppEnvFiles(appName string) error {
+	return generateAppEnvFilesWith(appName, true)
+}
+
+// generateAppEnvFilesNoShared is the same without the pool fill. opsLoginForApp
+// calls this: the login it is preparing is what resolves the pool in the first
+// place, so filling from it there would be circular.
+func generateAppEnvFilesNoShared(appName string) error {
+	return generateAppEnvFilesWith(appName, false)
+}
+
+func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		return err
@@ -2950,14 +3011,34 @@ func generateAppEnvFiles(appName string) error {
 		if isServiceRuntimeEnvKey(k) {
 			continue
 		}
+		// Empty-only: a value the user typed always wins, and the pool is never
+		// a source of variables the app does not already declare.
+		if useSharedPool && strings.TrimSpace(v) == "" {
+			if shared, ok := cfg.PredefinedEnv[k]; ok && strings.TrimSpace(shared) != "" {
+				v = shared
+			}
+		}
 		devVars[k] = v
 	}
 
 	// Build production env
 	prodVars := make(map[string]string)
+	// Production values come from the pool of the app's OWN target host: the
+	// same name on another cluster is a different secret.
+	prodPool := map[string]string{}
+	if useSharedPool {
+		if host := sharedHostKey(appCfg.Production["OPS_APIHOST"]); host != "" {
+			prodPool = cfg.PredefinedEnvProduction[host]
+		}
+	}
 	for k, v := range appCfg.Production {
 		if isServiceRuntimeEnvKey(k) {
 			continue
+		}
+		if strings.TrimSpace(v) == "" {
+			if shared, ok := prodPool[k]; ok && strings.TrimSpace(shared) != "" {
+				v = shared
+			}
 		}
 		prodVars[k] = v
 	}
@@ -3184,6 +3265,10 @@ const maxPredefinedEnvVars = 256
 type PredefinedEnvVar struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	// App names the producing app when the value comes from a .env.shared
+	// declaration rather than being typed by hand. Read-only in the UI, and
+	// protected from POST: it is derived state.
+	App string `json:"app,omitempty"`
 }
 
 func handlePredefinedEnv(w http.ResponseWriter, r *http.Request) {
@@ -3215,10 +3300,42 @@ func handleGetPredefinedEnv(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(names)
 	vars := make([]PredefinedEnvVar, 0, len(names))
 	for _, name := range names {
-		vars = append(vars, PredefinedEnvVar{Name: name, Value: cfg.PredefinedEnv[name]})
+		v := PredefinedEnvVar{Name: name, Value: cfg.PredefinedEnv[name]}
+		// The frontend needs to know which rows it may not edit: an app-produced
+		// value is derived from that app's .env.shared and is replaced on the
+		// next refresh, so editing it here would silently do nothing.
+		if app, ok := sharedProducerOf(name, cfg.Apps); ok {
+			v.App = app
+		}
+		vars = append(vars, v)
 	}
+
+	// The per-host production pool, so the Configure card can offer a host
+	// selector rather than showing one name several times with no way to tell
+	// which cluster each value belongs to.
+	production := make(map[string][]PredefinedEnvVar)
+	for host, pool := range cfg.PredefinedEnvProduction {
+		hostNames := make([]string, 0, len(pool))
+		for name := range pool {
+			hostNames = append(hostNames, name)
+		}
+		sort.Strings(hostNames)
+		hostVars := make([]PredefinedEnvVar, 0, len(hostNames))
+		for _, name := range hostNames {
+			v := PredefinedEnvVar{Name: name, Value: pool[name]}
+			if app, ok := sharedProducerOf(name, cfg.Apps); ok {
+				v.App = app
+			}
+			hostVars = append(hostVars, v)
+		}
+		production[host] = hostVars
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"vars": vars})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"vars":       vars,
+		"production": production,
+	})
 }
 
 // handlePostPredefinedEnv replaces the whole set. It touches only
@@ -3265,6 +3382,23 @@ func handlePostPredefinedEnv(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// App-produced values are derived from a .env.shared and are refreshed on
+	// every launch. The page renders them read-only, but it posts the whole set,
+	// so carry them over verbatim rather than letting a stale tab drop or
+	// rewrite one — the edit would be silently undone by the next refresh
+	// anyway, and dropping one would break a consumer until then.
+	cfg, err := loadTrustableConfig()
+	if err != nil {
+		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for name, value := range wsCfg.PredefinedEnv {
+		if _, ok := sharedProducerOf(name, cfg.Apps); ok {
+			predefined[name] = value
+		}
+	}
+
 	if len(predefined) == 0 {
 		wsCfg.PredefinedEnv = nil
 	} else {

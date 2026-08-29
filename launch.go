@@ -1266,6 +1266,13 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// later commit picks up and that revert's `git clean -fd` deletes.
 	ensureWorkbenchGitignore(workbenchPath)
 
+	// Refresh the shared pool before the gate below: a variable that a producing
+	// app's .env.shared can satisfy must not block the launch. Service
+	// credentials are regenerated on every ops ide login, so resolving here —
+	// rather than only when the picker saves — is what stops a consumer being
+	// handed a stale secret. Logs back in as this app afterwards. Non-fatal.
+	refreshSharedPool(app)
+
 	// Gate: a variable the repo declares in .env.dist but that has no development
 	// value cannot be supplied later — the app would deploy and fail at runtime.
 	// Abort before ops ide login so nothing is touched on the cluster, and hand
@@ -1362,6 +1369,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	reportLaunchProgress(w, 3, "Connecting to OpenServerless...")
 	// Run ops ide login (always, even when reusing workbench)
 	log.Printf("Running ops ide login for %s...", app)
+	// ops ide login merges into the single global ~/.ops/config.json, so a
+	// previous app's service blocks would survive and be indistinguishable from
+	// this app's — a wrong service binding, not noise. See shared.go.
+	removeOpsConfig()
 	loginCmd := exec.Command("ops", "ide", "login")
 	loginCmd.Dir = workbenchPath
 	if output, err := loginCmd.CombinedOutput(); err != nil {

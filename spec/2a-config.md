@@ -461,35 +461,66 @@ reported as missing. Rows with an empty **name** are still discarded, and the
 fixed `OPS_*` keys are never stored as empty development entries because the
 server regenerates them.
 
-## Predefined environment variables
+## Shared variables (`predefined_env`)
 
-`predefined_env` is a workspace-level map of name→value pairs the user maintains
-on the Configure page. It exists so that values shared across applications — an
-API key, a shared endpoint — do not have to be retyped for every imported or
-newly created app.
+`predefined_env` is a workspace-level map of name→value pairs shown on the
+Configure page as **Shared Variables**. It exists so that values used across
+applications — an API key, a shared endpoint, a service credential published by
+another app — do not have to be retyped for every imported or newly created app.
 
-It is a **palette, not a source**. Nothing merges it into an application:
+The **config key is still `predefined_env`** and the endpoint is still
+`/api/predefined-env`. Only the user-facing label changed; renaming the wire
+format would break every existing installation's `trustable.json`.
 
-- `missingAppEnvKeys` does not consult it. A predefined value never satisfies a
-  `.env.dist` key, so the variable still appears in the missing-variables
-  editor. Were it otherwise, a value would reach an app without the user ever
-  seeing it.
-- `seedMissingEnvKeys` still seeds an **empty** string, not the predefined value.
-- `generateAppEnvFiles` does not read it.
+It holds two kinds of entry:
 
-The only path from the palette into an application is the **Use predefined
-values** button in the missing-variables editor (see
-[4-launch.md](4-launch.md)), followed by the user pressing Save. This keeps
-the rule stated under "Per-app .env generation": variables are not added to an
-app's config without the user asking for them.
+- values the user typed on the Configure page;
+- values resolved from applications' `.env.shared` declarations, named
+  `<APP>__<NAME>` (see [18-shared.md](18-shared.md)). These are shown read-only
+  and are refreshed on every launch; the user edits them with that application's
+  **Share** button.
+
+### It is applied only to a variable the app already declares
+
+The pool is an input to `.env` generation, but a **narrow** one:
+
+- `generateAppEnvFiles` fills a variable whose value is **empty** and whose name
+  the app **already declares**, in `apps.<name>.development` for `.env` and in
+  the production pool for `.env.production`. A value the user typed always wins.
+- The pool is **never a source of new variables**. An app that does not name a
+  pool variable never sees it, so an app's `.env` stays what its own config
+  declares.
+- `missingAppEnvKeys` consults the pool for the same reason: a declared name the
+  pool can satisfy is about to be filled, so it is not missing and must not block
+  the launch. The launch path refreshes the pool *before* this check.
+- `seedMissingEnvKeys` still seeds an **empty** string. The empty value is
+  exactly what marks a variable as pool-supplied, and it is what makes the row
+  visible in the env editor.
+
+The **Add from shared** button in the env editor is how a user adds a pool name
+an app does not yet declare. An app-produced name is added with an empty value
+on purpose; a hand-typed palette entry carries its value, because nothing else
+will ever supply it.
+
+### The production pool is keyed by apihost
+
+`predefined_env_production` is a map of apihost → name → value. Service
+credentials on `api.nuvolaris.io` have nothing to do with those on
+`openserverless.dev` — same name, different cluster, different secret — so one
+flat map would hand an app the wrong cluster's credentials. Keys are normalized
+by `sharedHostKey`. It is written only by a publish; see
+[6-publish.md](6-publish.md).
 
 Layering follows `models` / `model_versions` — key-by-key, workspace over base —
-rather than the whole-map replacement used for `apps`.
+rather than the whole-map replacement used for `apps`. The production pool
+merges host-by-host and then key-by-key within a host.
 
 ### GET /api/predefined-env
 
-Returns `{"vars": [{"name": "...", "value": "..."}]}` from the **merged** config,
-sorted by name so the table renders in a stable order.
+Returns `{"vars": [...], "production": {"<host>": [...]}}` from the **merged**
+config, sorted by name so the table renders in a stable order. Each entry is
+`{"name", "value"}` plus `"app"` when the value is app-produced — that is how the
+page knows which rows it may not edit.
 
 ### POST /api/predefined-env
 
@@ -559,7 +590,7 @@ identical on the wire. Two guards make an accidental empty write impossible:
   set only inside the success branch of `loadPredefinedEnv()`, and
   `persistPredefinedEnv()` returns immediately while it is false. A flush firing
   before `GET /api/predefined-env` resolves would otherwise read a table that is
-  still showing the "No predefined variables yet." placeholder — a row with **no
+  still showing the "No shared variables yet." placeholder — a row with **no
   inputs** — and post `[]`. Setting the flag on the *failure* path too would be
   just as wrong: `predefinedEnvVars` is `[]` there, so a save would erase the very
   palette that could not be read.
@@ -685,13 +716,20 @@ no-op, startup prints `✓ Predefined environment variables up to date` whether
 the file was imported or was never there. An empty palette in a pod is expected
 and is not evidence of a failed import.
 
-### Neither path applies anything
+### Neither path applies anything on its own
 
-Both routes above populate the palette and go no further. The palette remains
-**not a source**: `missingAppEnvKeys`, `seedMissingEnvKeys` and
-`generateAppEnvFiles` are unchanged, and the only way a value reaches an
-application is still the **Use predefined values** button followed by an
-explicit save.
+Both routes above populate the pool and go no further. A value reaches an
+application only through the narrow rule above — a name the app already declares
+and left empty — or when the user adds it explicitly with **Add from shared** or
+**Use shared values** and saves.
+
+### App-produced entries are protected from POST
+
+`handlePostPredefinedEnv` replaces the whole set, but carries every app-produced
+key over verbatim from the stored config. The page renders those rows read-only,
+yet it posts the whole table; a stale tab must not be able to drop or rewrite a
+value that is derived from an application's `.env.shared`. Dropping one would
+break a consumer until the next refresh.
 
 ## Current app tracking
 
@@ -946,12 +984,15 @@ concurrently; normal `modelsVersion` checks resume on the next app-list load.
 
 The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, `apps`, and `predefined_env` fields when saving — this POST is a full-document write, so a field left out is erased. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
-The Configure page also owns a **Predefined Environment Variables** card, sitting
-between Template Repository and Git User. It edits `predefined_env` through
-`GET`/`POST /api/predefined-env`, **saving on every edit** with no Save button of
-its own and reporting through an inline status line: it does not go through
-**Save & Configure**, does not run a model probe, and does not navigate away.
-See "Predefined environment variables" above.
+The Configure page also owns a **Shared Variables** card (`id="sharedVariables"`,
+linked from the app list header), sitting between Template Repository and Git
+User. It edits `predefined_env` through `GET`/`POST /api/predefined-env`,
+**saving on every edit** with no Save button of its own and reporting through an
+inline status line: it does not go through **Save & Configure**, does not run a
+model probe, and does not navigate away. An environment selector switches
+between Development and each production host; the production view is read-only,
+because those values are written by a publish and this endpoint does not save
+them. See "Shared variables" above.
 
 Read the configuration with `GET /api/configuration`. **Save & Configure** calls
 `POST /api/configuration`, which persists, runs testmodel, and writes Pi's

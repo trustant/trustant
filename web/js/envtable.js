@@ -106,6 +106,10 @@
         // Only flag empty rows once the caller knows the app actually declares
         // them as required, so an ordinary blank row is not painted as an error.
         this.highlightMissing = Boolean(options.highlightMissing);
+        // A table-level read-only view: every cell renders as text and every
+        // mutator is inert. Used by the workbench Env modal, which shows what a
+        // launched app received — editing lives in the app list's Env action.
+        this.readOnly = Boolean(options.readOnly);
         this.vars = [];
         this.savedSnapshot = '[]';
         this.localEnvKeys = [];
@@ -146,20 +150,22 @@
             const flag = this.highlightMissing && isMissing(v);
             const devClass = flag ? 'nu-input w-full px-2 py-1 text-xs border-red-500' : 'nu-input w-full px-2 py-1 text-xs';
 
-            const nameField = (v.readonly || v.fixed)
+            const nameField = (this.readOnly || v.readonly || v.fixed)
                 ? `<span class="nu-code text-xs">${escapeHtml(v.name)}</span>`
                 : `<input type="text" value="${escapeHtml(v.name)}" onchange="${id}.update(${i}, 'name', this.value)"
                     class="nu-input nu-code w-full px-2 py-1 text-xs">`;
 
-            const devField = v.readonly
+            const devField = (this.readOnly || v.readonly)
                 ? `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.dev_value)}</span>`
                 : `<input type="text" value="${escapeHtml(v.dev_value)}" onchange="${id}.update(${i}, 'dev_value', this.value)"
                     class="${devClass}">`;
 
-            const prodField = `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="${id}.update(${i}, 'prod_value', this.value)"
-                class="nu-input w-full px-2 py-1 text-xs">`;
+            const prodField = this.readOnly
+                ? `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.prod_value)}</span>`
+                : `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="${id}.update(${i}, 'prod_value', this.value)"
+                    class="nu-input w-full px-2 py-1 text-xs">`;
 
-            const removeBtn = (v.readonly || v.fixed)
+            const removeBtn = (this.readOnly || v.readonly || v.fixed)
                 ? ''
                 : `<button onclick="${id}.remove(${i})" class="nu-btn nu-btn-danger nu-btn-compact">Remove</button>`;
 
@@ -198,6 +204,7 @@
     };
 
     EnvTable.prototype.add = function () {
+        if (this.readOnly) return;
         this.vars.push({ name: '', dev_value: '', prod_value: '', readonly: false, fixed: false });
         this.render();
         const inputs = this.tbody.querySelectorAll('input[type="text"]');
@@ -207,6 +214,7 @@
     };
 
     EnvTable.prototype.importEnvText = function (text, target) {
+        if (this.readOnly) return null;
         const entries = parseEnvText(text);
         if (entries.length === 0) return null;
 
@@ -258,7 +266,7 @@
     // Nothing is saved here: the caller re-renders and the user still presses
     // Save, which is the only path by which a predefined value reaches an app.
     EnvTable.prototype.applyPredefined = function (predefined) {
-        if (!predefined) return { filled: 0, names: [] };
+        if (this.readOnly || !predefined) return { filled: 0, names: [] };
         const names = [];
         this.vars.forEach((v) => {
             if (v.readonly) return;
@@ -276,9 +284,69 @@
         return { filled: names.length, names: names };
     };
 
+    // Adds variables chosen from the Shared Variables pool. Unlike
+    // applyPredefined, which only fills rows the app already declares, this is
+    // the user picking specific names, so it ALSO adds a row for a name the app
+    // does not yet declare — that is the whole point of the button.
+    //
+    // Shared values are never copied in: an app-produced name is added with an
+    // EMPTY value, and leaving it empty is exactly what marks it as
+    // pool-supplied, so generateAppEnvFiles fills it at launch with whatever the
+    // producing app's credentials are by then. A hand-typed palette entry does
+    // carry its value, because nothing else will ever supply it.
+    //
+    // Never overwrites a non-empty value and never touches a readonly row,
+    // matching applyPredefined. Nothing is saved here.
+    EnvTable.prototype.addFromShared = function (entries, target) {
+        if (this.readOnly || !Array.isArray(entries) || entries.length === 0) {
+            return { added: 0, filled: 0, names: [] };
+        }
+        const scope = target === 'production' ? 'production' : 'development';
+        const names = [];
+        let added = 0;
+        let filled = 0;
+
+        entries.forEach((entry) => {
+            const name = (entry && entry.name || '').trim();
+            if (!name) return;
+            // An app-produced value is supplied at launch from the pool; only a
+            // hand-typed palette entry brings its value with it.
+            const value = entry.app ? '' : (entry.value || '');
+            const existing = this.vars.find((item) => item.name === name);
+            if (existing) {
+                if (scope === 'development' && existing.readonly) return;
+                const field = scope === 'production' ? 'prod_value' : 'dev_value';
+                if ((existing[field] || '').trim() !== '') return;
+                if (value === '') return;
+                existing[field] = value;
+                filled++;
+                names.push(name);
+                return;
+            }
+            this.vars.push({
+                name,
+                dev_value: scope === 'development' ? value : '',
+                prod_value: scope === 'production' ? value : '',
+                readonly: false,
+                fixed: false
+            });
+            added++;
+            names.push(name);
+        });
+
+        if (names.length > 0) {
+            this.render();
+            this.onChange();
+        }
+        return { added, filled, names };
+    };
+
     // Posts the whole vars array. Empty values are preserved server-side, which
     // is what keeps an unfilled required variable visible after a partial save.
     EnvTable.prototype.save = async function () {
+        // A read-only table has nothing to save, and posting its rows would
+        // rewrite the app's config from a view that was never editable.
+        if (this.readOnly) return this.missingNames();
         const resp = await fetch(`/api/appconfig/${encodeURIComponent(this.appName)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

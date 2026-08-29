@@ -198,20 +198,33 @@
             </div>
         </div>
 
-        <!-- Predefined environment variables. Saved to /api/predefined-env the
-             moment they are edited, with no Save button: POST /api/configuration
-             runs a model probe and navigates away on success, so an unsaved
-             palette left sitting in the page was silently lost. -->
-        <div class="nu-card p-5 mb-4">
-            <h2 class="text-lg font-medium mb-1">Predefined Environment Variables</h2>
+        <!-- Shared Variables. Saved to /api/predefined-env the moment they are
+             edited, with no Save button: POST /api/configuration runs a model
+             probe and navigates away on success, so an unsaved palette left
+             sitting in the page was silently lost.
+
+             The config key is still `predefined_env` and the endpoint still
+             /api/predefined-env: this is a label change, not a data format
+             change. What did change is the meaning — a value here is now applied
+             to an application for a variable it declares and left empty. -->
+        <div class="nu-card p-5 mb-4" id="sharedVariables">
+            <h2 class="text-lg font-medium mb-1">Shared Variables</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
-                These values are offered when an imported or newly created application asks for
-                variables that have no value. Nothing is applied automatically — you confirm them
-                in the application's own environment editor.
+                A workspace-wide set of values applications may use. A value here fills in a
+                variable an application already declares and left empty — it is never a source
+                of variables an application does not ask for.
             </p>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
-                Changes here are saved as you make them.
+                Rows marked with an application name come from that application's
+                <span class="nu-code">.env.shared</span>: they are resolved again on every launch,
+                so they are shown read-only and edited with the application's Share button.
+                Changes to the others are saved as you make them.
             </p>
+            <div class="flex items-center gap-2 mb-3">
+                <label class="text-sm text-[color:var(--nu-muted)]">Environment</label>
+                <select id="predefinedEnvScope" onchange="setPredefinedEnvScope(this.value)"
+                    class="nu-input px-2 py-1 text-sm"></select>
+            </div>
             <table class="nu-table text-sm w-full">
                 <thead>
                     <tr>
@@ -1129,35 +1142,100 @@
         // set, erasing predefined_env in trustable.json.
         let predefinedEnvLoaded = false;
 
+        // Which pool the table is showing: '' for development, or a production
+        // apihost. A flat list would show the same name several times with no way
+        // to tell which cluster each value belongs to.
+        let predefinedEnvScope = '';
+        let predefinedEnvProduction = {};
+        // Masked by default: these are real secrets on screen.
+        let predefinedEnvRevealed = {};
+
+        function setPredefinedEnvScope(scope) {
+            predefinedEnvScope = scope || '';
+            predefinedEnvRevealed = {};
+            renderPredefinedEnv();
+        }
+
+        function currentPredefinedEnvRows() {
+            if (!predefinedEnvScope) return predefinedEnvVars;
+            return predefinedEnvProduction[predefinedEnvScope] || [];
+        }
+
+        function togglePredefinedEnvReveal(name) {
+            predefinedEnvRevealed[name] = !predefinedEnvRevealed[name];
+            renderPredefinedEnv();
+        }
+
+        function maskPredefinedEnvValue(value) {
+            const text = value == null ? '' : String(value);
+            if (text === '') return '';
+            if (text.length <= 4) return '••••';
+            return '••••' + text.slice(-4);
+        }
+
+        function renderPredefinedEnvScopes() {
+            const select = document.getElementById('predefinedEnvScope');
+            if (!select) return;
+            const hosts = Object.keys(predefinedEnvProduction).sort();
+            select.innerHTML = ['<option value="">Development</option>']
+                .concat(hosts.map(h => `<option value="${escapeAttr(h)}">Production — ${escapeAttr(h)}</option>`))
+                .join('');
+            select.value = predefinedEnvScope;
+        }
+
         function renderPredefinedEnv() {
             const tbody = document.getElementById('predefinedEnvTableBody');
-            if (predefinedEnvVars.length === 0) {
+            renderPredefinedEnvScopes();
+            const rows = currentPredefinedEnvRows();
+            if (rows.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" class="text-sm text-[color:var(--nu-muted)] py-3">'
-                    + 'No predefined variables yet.</td></tr>';
+                    + (predefinedEnvScope
+                        ? 'No values have been resolved for this host yet.'
+                        : 'No shared variables yet.') + '</td></tr>';
                 return;
             }
-            tbody.innerHTML = predefinedEnvVars.map((v, i) => `
-                <tr>
-                    <td class="pr-2 py-1">
-                        <input type="text" value="${escapeAttr(v.name)}"
+            // Production is a view only: its values are written by a publish, and
+            // there is no per-host editor here.
+            const viewOnly = Boolean(predefinedEnvScope);
+            tbody.innerHTML = rows.map((v, i) => {
+                // An app-produced row is derived from that app's .env.shared and
+                // is replaced on the next refresh, so editing it here would
+                // silently do nothing. It still carries hidden inputs: the save
+                // path reads the DOM, and a row with no inputs would be dropped
+                // from the set it posts.
+                const readOnly = viewOnly || Boolean(v.app);
+                const nameCell = readOnly
+                    ? `<span class="nu-code text-sm">${escapeAttr(v.name)}</span>
+                       ${v.app ? `<span class="text-xs text-[color:var(--nu-muted)] ml-2">shared by ${escapeAttr(v.app)}</span>` : ''}
+                       <input type="hidden" value="${escapeAttr(v.name)}"
+                            data-predefined-env="name" data-index="${i}">`
+                    : `<input type="text" value="${escapeAttr(v.name)}"
                             placeholder="VARIABLE_NAME"
                             data-predefined-env="name" data-index="${i}"
                             oninput="updatePredefinedEnv(${i}, 'name', this.value)"
                             onblur="flushPredefinedEnv()"
-                            class="nu-input nu-code w-full px-2 py-1 text-sm">
-                    </td>
-                    <td class="pr-2 py-1">
-                        <input type="text" value="${escapeAttr(v.value)}"
+                            class="nu-input nu-code w-full px-2 py-1 text-sm">`;
+                const valueCell = readOnly
+                    ? `<span class="nu-code text-sm text-[color:var(--nu-muted)]">${escapeAttr(predefinedEnvRevealed[v.name] ? v.value : maskPredefinedEnvValue(v.value))}</span>
+                       <input type="hidden" value="${escapeAttr(v.value)}"
+                            data-predefined-env="value" data-index="${i}">`
+                    : `<input type="text" value="${escapeAttr(v.value)}"
                             data-predefined-env="value" data-index="${i}"
                             oninput="updatePredefinedEnv(${i}, 'value', this.value)"
                             onblur="flushPredefinedEnv()"
-                            class="nu-input nu-code w-full px-2 py-1 text-sm">
-                    </td>
-                    <td class="text-right py-1">
-                        <button type="button" onclick="removePredefinedEnvRow(${i})"
-                            class="nu-btn nu-btn-secondary nu-btn-compact">Remove</button>
-                    </td>
-                </tr>`).join('');
+                            class="nu-input nu-code w-full px-2 py-1 text-sm">`;
+                const action = readOnly
+                    ? `<button type="button" onclick="togglePredefinedEnvReveal('${escapeAttr(v.name)}')"
+                            class="nu-btn nu-btn-secondary nu-btn-compact">${predefinedEnvRevealed[v.name] ? 'Hide' : 'Show'}</button>`
+                    : `<button type="button" onclick="removePredefinedEnvRow(${i})"
+                            class="nu-btn nu-btn-secondary nu-btn-compact">Remove</button>`;
+                return `
+                <tr>
+                    <td class="pr-2 py-1">${nameCell}</td>
+                    <td class="pr-2 py-1">${valueCell}</td>
+                    <td class="text-right py-1">${action}</td>
+                </tr>`;
+            }).join('');
         }
 
         // Typing fires oninput per keystroke, so the edit path is debounced.
@@ -1189,11 +1267,19 @@
         // A fresh row has a blank name, and the server drops blank-name rows, so
         // saving here would POST a no-op. It persists on the first edit.
         function addPredefinedEnvRow() {
+            if (predefinedEnvScope) {
+                setPredefinedEnvStatus('Production values come from publishing the producing application.', 'info');
+                return;
+            }
             predefinedEnvVars.push({ name: '', value: '' });
             renderPredefinedEnv();
         }
 
         function removePredefinedEnvRow(index) {
+            // Belt and braces: the button is not rendered for these rows, and the
+            // server carries them over regardless, but removing one from the
+            // model would still make the table disagree with what is stored.
+            if (predefinedEnvVars[index] && predefinedEnvVars[index].app) return;
             // A queued edit would re-add the row it is holding in the DOM.
             if (predefinedEnvDebounce) {
                 clearTimeout(predefinedEnvDebounce);
@@ -1224,6 +1310,11 @@
         }
 
         async function importPredefinedEnvFile(input) {
+            if (predefinedEnvScope) {
+                input.value = '';
+                setPredefinedEnvStatus('Switch to Development to import variables.', 'info');
+                return;
+            }
             const file = input.files && input.files[0];
             // Reset first so re-picking the same file fires `change` again.
             input.value = '';
@@ -1311,6 +1402,7 @@
                 if (!resp.ok) throw new Error(await resp.text());
                 const data = await resp.json();
                 predefinedEnvVars = Array.isArray(data.vars) ? data.vars : [];
+                predefinedEnvProduction = data.production || {};
                 // Only a successful load licenses a save. On the failure path
                 // below predefinedEnvVars is [], and saving that would erase the
                 // very palette we could not read.
@@ -1321,6 +1413,21 @@
                 setPredefinedEnvStatus('Could not load predefined variables: ' + e.message, 'error');
             }
             renderPredefinedEnv();
+            scrollToSharedVariables();
+        }
+
+        // The card is rendered after /api/configuration resolves, so the
+        // browser's native fragment scroll has already fired against markup that
+        // did not exist. Arriving from the app list must land on the section.
+        let sharedVariablesScrolled = false;
+        function scrollToSharedVariables() {
+            if (sharedVariablesScrolled || location.hash !== '#sharedVariables') return;
+            const card = document.getElementById('sharedVariables');
+            if (!card) return;
+            sharedVariablesScrolled = true;
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            card.classList.add('ring-2', 'ring-[color:var(--nu-accent)]');
+            setTimeout(() => card.classList.remove('ring-2', 'ring-[color:var(--nu-accent)]'), 2000);
         }
 
         // The table, not the model, is the source of truth at save time. The row
@@ -1356,6 +1463,10 @@
             const opts = options || {};
             // Never write on behalf of a palette the user has not seen loaded.
             if (!predefinedEnvLoaded) return;
+            // The production view shows a different map, keyed by host, which
+            // this endpoint does not write. Posting its rows would replace the
+            // development palette with production values.
+            if (predefinedEnvScope) return;
             // The table, not the model, is the source of truth by default, so a
             // save can never miss an edit the user can see on screen.
             if (!opts.fromModel) {

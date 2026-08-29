@@ -106,6 +106,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
 | [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
 | [gitignore.go](gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
+| [shared.go](shared.go) | [18-shared.md](spec/18-shared.md) | `.env.shared` — apps publish service secrets as pointers into `~/.ops/config.json`; resolved into the workspace pool at launch, and per apihost at publish |
 
 The one feature that is a shell script rather than a Go file is the screenshot
 recorder: [screenshot.sh](screenshot.sh), specced in
