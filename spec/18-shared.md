@@ -138,10 +138,19 @@ reason: a name the pool can satisfy is not missing, and the launch gate must not
 block on a variable that is about to be filled. Ordering matters — the refresh
 runs before the gate.
 
-**Add from shared** adds an app-produced name with an **empty** value on
-purpose: leaving it empty is exactly what marks it as pool-supplied. A
-hand-typed palette entry does carry its value, because nothing else will ever
-supply it.
+**Add from shared** imports a variable **whole** — the name and the value it has
+in the pool, app-produced entries included. After the import the app's row holds
+exactly what the original variable holds; an imported row that showed only a name
+reads as unset, which is not what the user picked.
+
+The empty-only fill above still applies to every other row: a variable the app
+declares but never got a value for is filled from the pool at launch, so a name
+added by hand or by an app's `.env.dist` keeps tracking its producer's current
+credentials. An imported row carries a value, so it is a snapshot — re-import it
+to pick up a rotated credential.
+
+A name the app already declares with a non-empty value is still not overwritten,
+and a readonly row is still skipped.
 
 ## Production: one pool per apihost
 

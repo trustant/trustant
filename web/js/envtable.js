@@ -289,11 +289,11 @@
     // the user picking specific names, so it ALSO adds a row for a name the app
     // does not yet declare — that is the whole point of the button.
     //
-    // Shared values are never copied in: an app-produced name is added with an
-    // EMPTY value, and leaving it empty is exactly what marks it as
-    // pool-supplied, so generateAppEnvFiles fills it at launch with whatever the
-    // producing app's credentials are by then. A hand-typed palette entry does
-    // carry its value, because nothing else will ever supply it.
+    // The import is complete: a picked name is added WITH its value, so the row
+    // holds exactly the name and value of the shared variable it came from —
+    // app-produced entries included. A row left empty here would read as
+    // unset until the next launch resolved it, which is what made an import look
+    // like it had dropped half the variable.
     //
     // Never overwrites a non-empty value and never touches a readonly row,
     // matching applyPredefined. Nothing is saved here.
@@ -309,9 +309,8 @@
         entries.forEach((entry) => {
             const name = (entry && entry.name || '').trim();
             if (!name) return;
-            // An app-produced value is supplied at launch from the pool; only a
-            // hand-typed palette entry brings its value with it.
-            const value = entry.app ? '' : (entry.value || '');
+            // Every entry brings its value with it, whoever produced it.
+            const value = (entry && entry.value) || '';
             const existing = this.vars.find((item) => item.name === name);
             if (existing) {
                 if (scope === 'development' && existing.readonly) return;
