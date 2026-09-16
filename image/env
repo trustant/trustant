@@ -1,7 +1,5 @@
 HOME=/home/trustable
 PATH=/home/trustable/.local/bin:/usr/local/bin:/usr/bin:/bin
-OPS_REPO=https://github.com/nuvolaris/bestia
-OPS_BRANCH=0.1.0
 OLLAMA_ENDPOINT=http://localhost:11434
 WORKSPACE_DIR=/home/trustable/workspace
 WORKBENCH_DIR=/home/trustable/workbench

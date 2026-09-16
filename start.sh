@@ -615,52 +615,29 @@ GUEST
   fi
 }
 
-# Read an `ARG <VAR>=<VALUE>` default out of image/Dockerfile. Same reader
-# setup.sh uses (its step 0), on purpose: the Dockerfile is the single source of
-# BestIA source identity, so start.sh must never carry its own copy of these
-# values. A missing ARG is fatal — exporting an empty OPS_REPO would send an
-# interactive `ops` at the wrong fork silently.
-read_dockerfile_arg() {
-  local var="$1" val
-  [[ -f "$MOUNT_DIR/image/Dockerfile" ]] || fail "image/Dockerfile not found"
-  val=$(grep -m1 "^ARG ${var}=" "$MOUNT_DIR/image/Dockerfile" | cut -d'=' -f2- | tr -d ' ')
-  [[ -n "$val" ]] || fail "ARG $var not found in image/Dockerfile"
-  printf '%s' "$val"
-}
-
-# Export OPS_BRANCH/OPS_REPO from the shell rc files of both accounts that get a
-# shell here: the mirrored dev user and the package's 'trustable' user. The image
-# already bakes both into /etc/environment, and setup.sh reads the same ARGs to
-# install ops and to hard-fail on a mismatch — but neither reaches a user shell,
-# so an interactive `ops` ran without the pinned fork.
+# Strip the obsolete OPS_BRANCH/OPS_REPO managed block from the shell rc files of
+# both accounts that get a shell here: the mirrored dev user and the package's
+# 'trustable' user.
 #
-# WHY both ~/.profile and ~/.bashrc — the same split setup.sh documents at its
-# image-PATH step. Ubuntu's stock ~/.bashrc returns early for non-interactive
-# shells (`case $- in *i*) ;; *) return;;` at the top), so a block appended there
-# is dead code under `bash -lc` and under `ssh <host> <cmd>` — which is exactly
-# how ssh.sh invokes ops. ~/.profile is what login shells read regardless of
-# interactivity, so it is the file that actually carries these values; ~/.bashrc
-# covers interactive non-login shells, which never source ~/.profile.
+# WHY this exists at all rather than just deleting the writer: `ops` resolves its
+# task source from the binary itself now (installed via n7s.co/get-ops-tru, which
+# pins trustable-ai/openserverless-task), but the binary still lets both
+# variables OVERRIDE that default. An earlier start.sh wrote this block on every
+# run pinning nuvolaris/bestia, so every existing machine carries it and dropping
+# the writer alone would leave them all silently on the wrong fork forever.
 #
-# A managed block, rewritten whole on every run, rather than the append-if-absent
-# guard add_to_path uses: that one matches on the line it already wrote, so it
-# would pin the first-ever version forever and leave the rc files quietly
-# contradicting the Dockerfile after a bump — the drift this is meant to prevent.
-ensure_ops_env() {
-  local OPS_BRANCH OPS_REPO
-  OPS_BRANCH="$(read_dockerfile_arg OPS_BRANCH)"
-  OPS_REPO="$(read_dockerfile_arg OPS_REPO)"
-
+# Removal only — no replacement block is ever written. Idempotent and silent when
+# there is nothing to remove. See spec/start.md.
+remove_ops_env() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
-  echo "--- Exporting OPS_BRANCH/OPS_REPO in .profile/.bashrc${where} ---"
+  echo "--- Removing obsolete OPS_BRANCH/OPS_REPO exports from .profile/.bashrc${where} ---"
 
-  # HOST_USER is the mirrored account on macOS; on a native host it is just this
-  # user. 'trustable' is handled by the same loop, so neither account is special.
-  run_privileged HOST_USER="$HOST_USER" OPS_BRANCH="$OPS_BRANCH" OPS_REPO="$OPS_REPO" <<'GUEST'
+  run_privileged HOST_USER="$HOST_USER" <<'GUEST'
 BEGIN="# >>> trustable ops env >>>"
 END="# <<< trustable ops env <<<"
 seen=""
+removed=0
 
 for u in "$HOST_USER" trustable; do
   # Skip an account that does not exist: 'trustable' is created by the package,
@@ -671,33 +648,33 @@ for u in "$HOST_USER" trustable; do
 
   # Resolve the real home from passwd — never assume /home/$u. Lima hands the
   # mirrored user a suffixed home (e.g. /home/msciab.guest) to avoid colliding
-  # with the virtiofs mount, so the assumed path would write a .bashrc that no
-  # login shell ever reads.
+  # with the virtiofs mount, so the assumed path would miss the real rc files.
   home="$(getent passwd "$u" | cut -d: -f6)"
-  [ -n "$home" ] && [ -d "$home" ] || { echo "skipping $u: no home directory"; continue; }
-  group="$(id -gn "$u")"
+  [ -n "$home" ] && [ -d "$home" ] || continue
 
   for rc in "$home/.profile" "$home/.bashrc"; do
-    [ -f "$rc" ] || install -o "$u" -g "$group" -m 0644 /dev/null "$rc"
+    # Unlike the writer this replaced, do NOT create a missing rc file: there is
+    # nothing to remove from one, and creating it would leave a stray root-owned
+    # file behind.
+    [ -f "$rc" ] || continue
+    grep -qF "$BEGIN" "$rc" 2>/dev/null || continue
 
-    # Drop any previous managed block, then append the current one.
     awk -v b="$BEGIN" -v e="$END" '
-      $0==b {skip=1} !skip {print} $0==e {skip=0}' "$rc" > "$rc.tmp"
-    {
-      cat "$rc.tmp"
-      echo "$BEGIN"
-      echo "# Written by start.sh from image/Dockerfile ARGs. Edits are overwritten."
-      printf 'export OPS_BRANCH=%s\n' "$OPS_BRANCH"
-      printf 'export OPS_REPO=%s\n' "$OPS_REPO"
-      echo "$END"
-    } > "$rc"
+      $0==b {skip=1; next} $0==e {skip=0; next} !skip {print}' "$rc" > "$rc.tmp"
+
+    # Preserve the file's existing owner and mode rather than assuming them: this
+    # runs privileged, so a plain mv would hand the user's rc file to root.
+    cat "$rc.tmp" > "$rc"
     rm -f "$rc.tmp"
-    chown "$u:$group" "$rc"
-    echo "$rc: OPS_BRANCH=$OPS_BRANCH OPS_REPO=$OPS_REPO"
+    echo "$rc: removed OPS_BRANCH/OPS_REPO block"
+    removed=$((removed+1))
   done
 done
+
+[ "$removed" -eq 0 ] && echo "no OPS_BRANCH/OPS_REPO block present"
+exit 0
 GUEST
-  ok "OPS_BRANCH=$OPS_BRANCH OPS_REPO=$OPS_REPO exported in .profile/.bashrc"
+  ok "obsolete OPS_BRANCH/OPS_REPO exports removed from .profile/.bashrc"
 }
 
 # Install the host-rewrite proxy catch-all with ./proxy.sh (see
@@ -997,8 +974,8 @@ finish() {
   ensure_gh_apt
   ensure_jq
   # After refresh_support_files (which runs ensure_guest_user) and the package
-  # install, so both accounts this writes to exist.
-  ensure_ops_env
+  # install, so both accounts this cleans up exist.
+  remove_ops_env
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 
@@ -1062,7 +1039,7 @@ finish_native() {
   ensure_kubefwd
   ensure_jq
   # After the package install above, so the 'trustable' account exists.
-  ensure_ops_env
+  remove_ops_env
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
 

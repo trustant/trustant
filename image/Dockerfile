@@ -1,6 +1,8 @@
 ARG OLLAMA_VERSION=0.32.14
-ARG OPS_BRANCH=0.1.0
-ARG OPS_REPO=https://github.com/nuvolaris/bestia
+# NOTE: there is deliberately no OPS_REPO/OPS_BRANCH here. `ops` resolves its
+# task source from the binary (installed via n7s.co/get-ops-tru, which pins
+# trustable-ai/openserverless-task); both variables still OVERRIDE that default,
+# so declaring them is how an image ends up on the wrong fork. See spec/start.md.
 # WHY: VM setup reads these exact values too, so image and development installs
 # cannot drift back to the upstream Milvus MCP or a floating branch.
 ARG MILVUS_MCP_REPO=https://github.com/trustable-ai/mcp-server-milvus.git
@@ -13,8 +15,6 @@ ARG GH_SHA_ARM64=06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf90
 FROM ubuntu:24.04 AS loader
 ARG TARGETARCH
 ARG OLLAMA_VERSION
-ARG OPS_BRANCH
-ARG OPS_REPO
 
 # install ollama
 USER root
@@ -25,9 +25,7 @@ RUN curl -fsSL https://ollama.com/install.sh >ollama.sh
 RUN env OLLAMA_VERSION=${OLLAMA_VERSION} bash ollama.sh
 
 RUN \
-    echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment;\
-    echo "OPS_REPO=${OPS_REPO}" >>/etc/environment ;\
-    echo "OPS_BRANCH=${OPS_BRANCH}" >>/etc/environment
+    echo "OLLAMA_VERSION=${OLLAMA_VERSION}" >>/etc/environment
 
 ########################################################## stage1-root
 FROM ubuntu:24.04 AS stage1-root
@@ -160,7 +158,7 @@ USER trustable
 RUN \
     sed -e 's/^\(.*\)=\(.*\)/export \1="\2"/'  -e 's/""/"/g' >>$HOME/.bashrc /etc/environment  ;\
     echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:/usr/bin:/bin\"" >>$HOME/.bashrc ;\
-    curl -fsSL n7s.co/get-ops | bash
+    curl -fsSL n7s.co/get-ops-tru | bash
 
 RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 

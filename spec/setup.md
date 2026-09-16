@@ -57,8 +57,6 @@ ARG <VARIABLE>=<VALUE>
 and set the env vars
 
 - OLLAMA_VERSION
-- OPS_BRANCH
-- OPS_REPO
 - MILVUS_MCP_REPO
 - MILVUS_MCP_REF
 
@@ -91,16 +89,31 @@ the guest user's own $HOME).
 - Then `mkdir -p "$WORKSPACE_DIR"` and `mkdir -p "$WORKBENCH_DIR"`, load .env with
   the bash loop, and confirm both dirs exist (they now will).
 
-2. check ops is in the path and the values of the env vars should be the same as
-OPS_BRANCH and OPS_REPO
+2. check ops is in the path and that it resolves the Trustable task source
 
 ops may already be present from the VM's trustable package. If ops is missing,
-export OPS_REPO/OPS_BRANCH and install it, then add ~/.ops/linux-<arch>/bin to
-the path:
+install it and add ~/.ops/linux-<arch>/bin to the path:
 
-curl -sL n7s.co/get-ops | bash
+curl -sL n7s.co/get-ops-tru | bash
 
-If present but OPS_REPO/OPS_BRANCH mismatch, warn and recommend reinstalling.
+Use `get-ops-tru`, NOT `get-ops`. They are different installers: `get-ops`
+resolves `apache/openserverless-task` and the Apache CLI build, while
+`get-ops-tru` resolves `trustable-ai/openserverless-task` and the Trustable CLI
+build. Installing the wrong one is how a machine ends up on the upstream fork.
+
+Do NOT export OPS_REPO or OPS_BRANCH around the install. The source is wired
+into the binary; both variables are obsolete and still override that default, so
+setting them is what silently points ops at the wrong fork.
+
+Then assert `ops -info` reports
+
+OPS_REPO: https://github.com/trustable-ai/openserverless-task
+
+and fail otherwise. The check is against the wired-in source, not against a
+Dockerfile ARG. Fail with the same remediation when OPS_REPO or OPS_BRANCH is
+found set in the environment at all — that is the exact misconfiguration this
+guards, and it would otherwise make the assertion above pass or fail for the
+wrong reason.
 
 3. Add to the path ~/.ops/linux-<arch>/bin (<arch> from dpkg --print-architecture:
 arm64/amd64) and check uv is in path. If uv is missing, install it for the user:

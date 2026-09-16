@@ -287,47 +287,39 @@ OpenWhisk wait below, which parses `/api/info`, so it must be in place before
 that check runs rather than being discovered missing by it. Idempotent: skip when
 `jq` already resolves.
 
-## BestIA source identity in the shell (OPS_BRANCH / OPS_REPO)
+## Removing the obsolete OPS_BRANCH / OPS_REPO exports
 
-`image/Dockerfile` is the single source of BestIA source identity: `ARG
-OPS_BRANCH` and `ARG OPS_REPO` at the top of it are what the image bakes into
-`/etc/environment`, and what `setup.sh` reads (its step 0) both to install `ops`
-and to hard-fail when the installed `ops` reports a different fork.
+`ops` now resolves its task source from the binary itself: the installer
+`n7s.co/get-ops-tru` pins `trustable-ai/openserverless-task`, and a clean `ops
+-info` reports that repo with an empty `OPS_BRANCH`. Nothing needs to declare
+the source in the environment any more.
 
-Neither of those reaches a *user shell*, so an interactive or ssh-invoked `ops`
-ran without the pinned fork. During provisioning, on every finish path,
-`start.sh` therefore exports both variables for the two accounts that get a
-shell on this machine: the mirrored dev user and the package's `trustable` user.
+`OPS_BRANCH` and `OPS_REPO` are therefore **obsolete, and actively harmful**:
+the binary still lets both variables override its wired-in default, so any
+leftover export silently points `ops` at the wrong fork. They must not be set —
+not in `image/Dockerfile`, not in `/etc/environment`, not in a user shell.
 
-`start.sh` **reads the values from `image/Dockerfile` and never hardcodes them**,
-so the Dockerfile stays the only place a version is declared and the exports can
-never contradict `setup.sh`'s mismatch check. A missing `ARG` aborts the run — an
-empty `OPS_REPO` would silently point `ops` at the wrong fork.
+Earlier versions of `start.sh` wrote a delimited managed block
+(`# >>> trustable ops env >>>` … `# <<< trustable ops env <<<`) into
+`~/.profile` and `~/.bashrc` of both the mirrored dev user and the `trustable`
+account. That block is what pinned machines to the old `nuvolaris/bestia` fork.
 
-Write to **both `~/.profile` and `~/.bashrc`**, the same split `setup.sh` makes
-for the image PATH ordering and for the same reason: Ubuntu's stock `~/.bashrc`
-returns early for non-interactive shells, so a block appended only there is dead
-code under `bash -lc` and under `ssh <host> <cmd>` — which is exactly how
-`ssh.sh` invokes commands. `~/.profile` is what login shells read regardless of
-interactivity; `~/.bashrc` covers interactive non-login shells, which never
-source `~/.profile`.
+`start.sh` therefore **strips that block** from both rc files of both accounts,
+on every finish path, and never writes a replacement. Stripping is required
+rather than merely dropping the writer: the block was rewritten whole on every
+run, so existing machines carry it and nothing else would ever remove it.
 
-The exports live in a **delimited managed block** (`# >>> trustable ops env >>>`
-… `# <<< trustable ops env <<<`) that is rewritten whole on every run, like the
-`~/.ssh/config` block. An append-if-absent guard would match the line it had
-already written and so pin the first-ever version forever, leaving the rc files
-quietly contradicting the Dockerfile after a bump — the exact drift this
-prevents. Re-running must not duplicate the block, and bumping the `ARG` must
-change the exported value.
+Reuse the same account and file discovery the block itself used — resolve each
+home from `getent passwd` rather than assuming `/home/<user>` (Lima gives the
+mirrored user a suffixed home such as `/home/msciab.guest`), skip an account
+that does not exist, skip an rc file that does not exist, and leave ownership
+unchanged. Removal is idempotent and silent when there is no block to remove.
 
-Resolve each account's home from `getent passwd`, never `/home/<user>`: Lima
-gives the mirrored user a suffixed home (e.g. `/home/msciab.guest`) to avoid
-colliding with the virtiofs mount, so an assumed path writes a file no shell
-reads. Create an rc file that does not exist, `chown` it back to its owner, and
-skip an account that is absent — `trustable` is created by the package, and on a
-native host the dev user may already *be* `trustable`.
+`image/env` must not carry them either: it is COPYed in as the container's own
+`.env`, so a value left there reaches every deployed pod.
 
-This runs after the package install, so both accounts exist.
+A pre-existing `/etc/environment` inside an already-built image is **not**
+reachable from here; it clears on the next image build.
 
 ## Host-rewrite proxy catch-all
 

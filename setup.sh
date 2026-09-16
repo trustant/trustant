@@ -81,7 +81,7 @@ read_arg() {
 
 # WHY: source identity is owned by the image contract even in development.
 # Reading the same pinned fork here keeps clean VM and pod installations equal.
-for v in OLLAMA_VERSION OPS_BRANCH OPS_REPO MILVUS_MCP_REPO MILVUS_MCP_REF GH_VERSION GH_SHA_AMD64 GH_SHA_ARM64; do
+for v in OLLAMA_VERSION MILVUS_MCP_REPO MILVUS_MCP_REF GH_VERSION GH_SHA_AMD64 GH_SHA_ARM64; do
   val=$(read_arg "$v")
   [[ -n "$val" ]] || fail "ARG $v not found in image/Dockerfile"
   export "$v=$val"
@@ -135,13 +135,34 @@ mkdir -p "${WORKBENCH_DIR_EXPANDED}"
 [[ -d "${WORKBENCH_DIR_EXPANDED}" ]] || fail "WORKBENCH_DIR '${WORKBENCH_DIR}' could not be created"
 ok "WORKBENCH_DIR exists: ${WORKBENCH_DIR_EXPANDED}"
 
-# --- 2. Check ops is in PATH and OPS_REPO/OPS_BRANCH match Dockerfile values ---
+# --- 2. Check ops is in PATH and resolves the Trustable task source ---
 # ops may already be present from the VM's trustable package.
+#
+# The task source is wired into the binary: n7s.co/get-ops-tru pins
+# trustable-ai/openserverless-task, so nothing needs to declare it. OPS_REPO and
+# OPS_BRANCH are obsolete AND still override that default, which is exactly how a
+# machine ends up on the upstream fork without any visible error.
 echo "--- Checking ops ---"
+
+OPS_SOURCE_EXPECTED="https://github.com/trustable-ai/openserverless-task"
+
+# Fail loudly on a leftover export before looking at anything else: it would make
+# the assertion below pass or fail for the wrong reason, and it is the single
+# misconfiguration this step exists to catch.
+for v in OPS_REPO OPS_BRANCH; do
+  if [[ -n "${!v:-}" ]]; then
+    warn "$v is set to '${!v}' — it is obsolete and overrides the source wired into ops"
+    warn "Remove it from your shell and rc files (~/.profile, ~/.bashrc), then re-run"
+    warn "start.sh strips the managed block it used to write there"
+    fail "$v must not be set"
+  fi
+done
+
 if ! command -v ops &>/dev/null; then
   warn "ops not found in PATH, installing..."
-  export OPS_REPO OPS_BRANCH
-  curl -sL n7s.co/get-ops | bash || fail "ops install failed"
+  # get-ops-tru, NOT get-ops: they are different installers. get-ops resolves
+  # apache/openserverless-task and the Apache CLI build.
+  curl -sL n7s.co/get-ops-tru | bash || fail "ops install failed"
   add_to_path "$HOME/.local/bin"
   add_to_path "$HOME/.ops/linux-${ARCH}/bin"
   hash -r
@@ -150,24 +171,17 @@ if ! command -v ops &>/dev/null; then
 fi
 
 OPS_INFO=$(ops -info 2>/dev/null || true)
+# Values contain their own colons (OPS_REPO is a URL), so split on the FIRST only.
 ops_info_value() { echo "$OPS_INFO" | grep -i "^$1[:=]" | head -1 | cut -d: -f2- | xargs; }
-OPS_REPO_ACTUAL=$(ops_info_value OPS_REPO)
-OPS_BRANCH_ACTUAL=$(ops_info_value OPS_BRANCH)
-# fall back to the environment if ops -info does not expose them
-OPS_REPO_ACTUAL="${OPS_REPO_ACTUAL:-${OPS_REPO:-}}"
-OPS_BRANCH_ACTUAL="${OPS_BRANCH_ACTUAL:-${OPS_BRANCH:-}}"
+OPS_SOURCE_ACTUAL=$(ops_info_value OPS_REPO)
 
-if [[ "$OPS_REPO_ACTUAL" != "$OPS_REPO" ]]; then
-  warn "ops OPS_REPO is '${OPS_REPO_ACTUAL}', expected '${OPS_REPO}'"
-  warn "Recommend: export OPS_REPO=${OPS_REPO} and reinstall ops (curl -fsSL n7s.co/get-ops | bash)"
-  fail "OPS_REPO mismatch"
+if [[ "$OPS_SOURCE_ACTUAL" != "$OPS_SOURCE_EXPECTED" ]]; then
+  warn "ops resolves its task source from '${OPS_SOURCE_ACTUAL:-<unset>}'"
+  warn "expected '${OPS_SOURCE_EXPECTED}'"
+  warn "Reinstall the Trustable ops: curl -sL n7s.co/get-ops-tru | bash"
+  fail "ops task source mismatch"
 fi
-if [[ "$OPS_BRANCH_ACTUAL" != "$OPS_BRANCH" ]]; then
-  warn "ops OPS_BRANCH is '${OPS_BRANCH_ACTUAL}', expected '${OPS_BRANCH}'"
-  warn "Recommend: export OPS_BRANCH=${OPS_BRANCH} and reinstall ops (curl -fsSL n7s.co/get-ops | bash)"
-  fail "OPS_BRANCH mismatch"
-fi
-ok "ops is installed with correct OPS_REPO and OPS_BRANCH"
+ok "ops resolves the Trustable task source ($OPS_SOURCE_EXPECTED)"
 
 # --- 3. Add ~/.ops/linux-<arch>/bin to PATH and ensure uv ---
 echo "--- Checking ops bin dir and uv ---"
