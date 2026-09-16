@@ -197,7 +197,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# 2b. sanity: k3s must be up and the nuvolaris namespace present. Do NOT call
+# 2b. sanity: k3s must be up and the openserverless namespace present. Do NOT call
 #     ./start.sh here — that is macOS-only and provisions the VM from the host.
 KUBECONFIG_FILE="$HOME/.ops/tmp/kubeconfig"
 if [[ ! -f "$KUBECONFIG_FILE" ]]; then
@@ -215,8 +215,8 @@ fi
 kube() {
     KUBECONFIG="$KUBECONFIG_FILE" "${KUBECTL_CMD[@]}" "$@"
 }
-if ! kube get ns nuvolaris &>/dev/null; then
-    echo "k3s not ready or nuvolaris namespace missing — is the VM package healthy?"; exit 1
+if ! kube get ns openserverless &>/dev/null; then
+    echo "k3s not ready or openserverless namespace missing — is the VM package healthy?"; exit 1
 fi
 
 # 2c. Start one forwarder for the complete namespace. WHY: separate kubefwd
@@ -225,12 +225,12 @@ fi
 command -v kubefwd &>/dev/null \
     || { echo "kubefwd is missing — run ./start.sh (macOS or native Linux) or install the pinned version before run.sh" >&2; exit 1; }
 FORWARD_PROBE_SERVICE="$(
-    kube -n nuvolaris get services \
+    kube -n openserverless get services \
         -o custom-columns=NAME:.metadata.name --no-headers 2>/dev/null \
         | awk '$1 != "trustable-svc" { print $1; exit }'
 )"
 if [[ -z "$FORWARD_PROBE_SERVICE" ]]; then
-    echo "no nuvolaris service is available for kubefwd readiness (trustable-svc is intentionally excluded)" >&2
+    echo "no openserverless service is available for kubefwd readiness (trustable-svc is intentionally excluded)" >&2
     exit 1
 fi
 # WHY: kubefwd holds loopback addresses and /etc/hosts entries. A forwarder left
@@ -285,7 +285,7 @@ sudo -n sh -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' sh \
     "$KUBEFWD_PID_FILE" kubefwd svc \
     -f 'metadata.name!=trustable-svc' \
     --kubeconfig "$KUBECONFIG_FILE" \
-    -n nuvolaris >"$KUBEFWD_LOG" 2>&1 &
+    -n openserverless >"$KUBEFWD_LOG" 2>&1 &
 KUBEFWD_SUDO_PID=$!
 
 for _ in $(seq 1 50); do
@@ -323,7 +323,7 @@ if [[ "$KUBEFWD_READY" != true ]]; then
     tail -n 80 "$KUBEFWD_LOG" >&2
     exit 1
 fi
-echo "kubefwd ready for namespace nuvolaris (excluding trustable-svc)"
+echo "kubefwd ready for namespace openserverless (excluding trustable-svc)"
 
 # 2d. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT).
 #     start.sh installs it in the VM (owned by another user), so probe the port

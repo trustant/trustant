@@ -100,7 +100,7 @@ MCP stages). For a binary-only change see ./hotfix.sh, which layers onto the
 existing image in a minute or two.
 
   --build [--no-deploy]   tag, compile the host arch, build the image, ship it
-                          to the cluster and `ops bestia trustable redeploy`.
+                          to the cluster and `ops truinst trustable redeploy`.
                           --no-deploy stops after the image is built.
   --buildx                build both arches from the current tag and push the
                           multiarch manifest to the registry (used by CI).
@@ -210,7 +210,7 @@ fi
 if $MAC_VM; then
     # The VM cluster cannot see the local image store, so export and import.
     # Prune first: the VM disk is small and old images accumulate.
-    ops bestia trustable undeploy
+    ops truinst trustable undeploy
     ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all
 
     echo "Saving $IMAGE:$TAG"
@@ -227,4 +227,4 @@ else
     echo "Image $IMAGE:$TAG already in local k3s (built via $RUNTIME)"
 fi
 
-ops bestia trustable redeploy
+ops truinst trustable redeploy

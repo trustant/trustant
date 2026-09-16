@@ -24,7 +24,7 @@ Usage: ./ssh.sh [-p|-d|-i] [command...]
   -p   production access — log in as 'trustable', with access to the
        Trustable folder
   -i   image access — enter the VM, then the running trustable container
-       (sudo k3s kubectl -n nuvolaris exec trustable-0 -c trustable)
+       (sudo k3s kubectl -n openserverless exec trustable-0 -c trustable)
   -h   show this help
 
 With no arguments at all this help is shown. Any extra arguments are run
@@ -51,7 +51,7 @@ fi
 ID=~/Library/Application\ Support/Trustable/id_ed25519
 IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
 
-KUBECTL="sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable --"
+KUBECTL="sudo k3s kubectl -n openserverless exec -ti trustable-0 -c trustable --"
 
 case "$MODE" in
   prod)

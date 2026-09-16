@@ -281,7 +281,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: apihost-proxy
-  namespace: nuvolaris
+  namespace: openserverless
 data:
   nginx.conf: |
     user nginx;
@@ -320,7 +320,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: apihost-proxy
-  namespace: nuvolaris
+  namespace: openserverless
 spec:
   replicas: 1
   selector:
@@ -345,7 +345,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: apihost-proxy
-  namespace: nuvolaris
+  namespace: openserverless
 spec:
   type: LoadBalancer
   selector: { app: apihost-proxy }
@@ -356,7 +356,7 @@ spec:
 YAML
 
 # Roll the deployment so a changed ConfigMap (new IP) is picked up.
-k3s kubectl -n nuvolaris rollout restart deploy/apihost-proxy
+k3s kubectl -n openserverless rollout restart deploy/apihost-proxy
 
 # WSL can leave the old pod wedged in Terminating — its sandbox teardown never
 # completes against that kernel — and `rollout status` then sits on
@@ -366,10 +366,10 @@ k3s kubectl -n nuvolaris rollout restart deploy/apihost-proxy
 # otherwise idempotent. Drop the pods outright (the Deployment recreates them) so
 # the wait only ever tracks a fresh ReplicaSet. --ignore-not-found keeps this a
 # no-op on a first install, where there is no pod yet.
-k3s kubectl -n nuvolaris delete pod -l app=apihost-proxy \
+k3s kubectl -n openserverless delete pod -l app=apihost-proxy \
   --force --grace-period=0 --ignore-not-found
 
-k3s kubectl -n nuvolaris rollout status deploy/apihost-proxy --timeout=300s
+k3s kubectl -n openserverless rollout status deploy/apihost-proxy --timeout=300s
 echo "reverse proxy deployed (upstream traefik ${TRAEFIK_IP}:80)"
 GUEST
   ok "reverse proxy listening on :8080"
@@ -701,7 +701,7 @@ GUEST
 }
 
 # Install the host-rewrite proxy catch-all with ./proxy.sh (see
-# spec/17-proxy.md) rather than `ops bestia proxy install`, so the configuration
+# spec/17-proxy.md) rather than `ops truinst proxy install`, so the configuration
 # lives in this repo and is reviewable here. It installs nginx with apt-get and
 # serves :8911, rewriting Host to <label>.miniops.me for the upstream.
 #
@@ -729,7 +729,7 @@ ensure_bestia_proxy() {
   ok "host-rewrite proxy catch-all installed"
 }
 
-# A ready k3s API and a present nuvolaris namespace do not mean OpenWhisk serves
+# A ready k3s API and a present openserverless namespace do not mean OpenWhisk serves
 # requests yet — the controller comes up minutes later. Block here until the
 # apihost is actually usable, in two stages, so the failure says which one lost:
 #   1. http://miniops.me answers at all (traefik + ingress are wired)
@@ -1298,7 +1298,7 @@ GUEST
   ok "OpenServerless package installed on this host"
 }
 
-# Wait for the local k3s to serve /readyz and for the nuvolaris namespace to
+# Wait for the local k3s to serve /readyz and for the openserverless namespace to
 # exist. A fresh package install needs 60-90s before OpenWhisk is up, and
 # setup.sh step 7 curls the apihost, so it must not run against a booting cluster.
 wait_for_local_k3s() {
@@ -1334,14 +1334,14 @@ wait_for_local_k3s() {
 
   ready=false
   for _ in $(seq 1 90); do
-    if "${kubectl_cmd[@]}" get ns nuvolaris >/dev/null 2>&1; then
+    if "${kubectl_cmd[@]}" get ns openserverless >/dev/null 2>&1; then
       ready=true
       break
     fi
     sleep 2
   done
-  $ready || fail "the nuvolaris namespace never appeared — is the OpenServerless package healthy?"
-  ok "nuvolaris namespace is present"
+  $ready || fail "the openserverless namespace never appeared — is the OpenServerless package healthy?"
+  ok "openserverless namespace is present"
 }
 
 # Resolve the address other machines (and the browser) can reach this host on.

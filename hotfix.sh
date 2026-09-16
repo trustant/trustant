@@ -212,7 +212,7 @@ image recorded in olaris-bestia/opsroot.json -- a minute or two instead of the
   --tag                   generate the hotfix tag only; build nothing.
 
 A hotfix patches the running StatefulSet directly and is NOT durable: the next
-`ops bestia trustable redeploy` reverts it to the image in opsroot.json.
+`ops truinst trustable redeploy` reverts it to the image in opsroot.json.
 USAGE
     echo
     if [[ "$tag" =~ ^.*_.*_.*-[0-9]+$ ]]; then
@@ -365,30 +365,30 @@ case "$MODE" in
 
     detect_kubectl
     if { ! $MAC_VM && [ ${#KUBECTL_CMD[@]} -eq 0 ]; } ||
-        ! kube get ns nuvolaris >/dev/null 2>&1; then
+        ! kube get ns openserverless >/dev/null 2>&1; then
         echo "k3s not reachable -- image built as $IMAGE:$TAG, not rolled out"
         exit 0
     fi
 
-    OLD="$(kube -n nuvolaris get statefulset/trustable \
+    OLD="$(kube -n openserverless get statefulset/trustable \
         -o jsonpath='{.spec.template.spec.containers[?(@.name=="trustable")].image}' 2>/dev/null || true)"
     echo "Current image: ${OLD:-unknown}"
     echo "New image:     $IMAGE:$TAG"
 
-    kube -n nuvolaris set image statefulset/trustable "trustable=$IMAGE:$TAG"
+    kube -n openserverless set image statefulset/trustable "trustable=$IMAGE:$TAG"
     echo "StatefulSet patched, waiting for rollout..."
-    kube -n nuvolaris rollout status statefulset/trustable --timeout=600s
+    kube -n openserverless rollout status statefulset/trustable --timeout=600s
 
-    RUNNING="$(kube -n nuvolaris get pod trustable-0 \
+    RUNNING="$(kube -n openserverless get pod trustable-0 \
         -o jsonpath='{.spec.containers[?(@.name=="trustable")].image}' 2>/dev/null || true)"
     echo "Pod trustable-0 now running: ${RUNNING:-unknown}"
     # _build.txt is embedded in the binary, not shipped as a file, so the live
     # build string comes from what the server logs at startup (repo.go).
-    kube -n nuvolaris logs trustable-0 -c trustable --tail=200 2>/dev/null |
+    kube -n openserverless logs trustable-0 -c trustable --tail=200 2>/dev/null |
         grep -m1 'Build:' || true
     echo
     echo "Rolled out $IMAGE:$TAG"
-    echo "NOTE: this patch is not durable -- the next 'ops bestia trustable"
+    echo "NOTE: this patch is not durable -- the next 'ops truinst trustable"
     echo "redeploy' reverts to the image recorded in opsroot.json."
     ;;
 

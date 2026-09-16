@@ -531,9 +531,10 @@ command -v uv &>/dev/null || fail "uv is required to install MCP servers"
 MILVUS_MCP_SPEC="git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
 MILVUS_MCP_RECEIPT="$(uv tool dir)/mcp-server-milvus/uv-receipt.toml"
 
-# WHY the extra pins below: postgres-mcp and redis-mcp-server declare an open
-# upper bound on the MCP SDK (`mcp[cli]>=1.5.0` / `>=1.9.4`), but both still
-# import `mcp.server.fastmcp`, which mcp 2.x renamed to `mcp.server.mcpserver`.
+# WHY the extra pins below: postgres-mcp, redis-mcp-server, and mcp-server-milvus
+# declare an open upper bound on the MCP SDK (`mcp[cli]>=1.5.0` / `>=1.9.4`, or no
+# bound at all for the milvus fork), but all three still import
+# `mcp.server.fastmcp`, which mcp 2.x renamed to `mcp.server.mcpserver`.
 # Left unpinned, uv resolves mcp 2.x and each server dies at import; OpenCode
 # only sees the stdio pipe close and reports `-32000: Connection closed`.
 # The interpreter is pinned for the same class of reason: postgres-mcp requires
@@ -543,7 +544,7 @@ UV_PYTHON_PIN=3.12
 declare -a MCP_TOOL_SPECS=(
   "postgres-mcp==0.3.0|--with|mcp<2"
   "redis-mcp-server==0.5.0|--with|mcp<2"
-  "$MILVUS_MCP_SPEC"
+  "$MILVUS_MCP_SPEC|--with|mcp<2"
 )
 for spec in "${MCP_TOOL_SPECS[@]}"; do
   IFS='|' read -r -a spec_parts <<<"$spec"

@@ -1,6 +1,6 @@
 [submodule "olaris"]
 	path = olaris
-	url = https://github.com/nuvolaris/bestia
+	url = https://github.com/trustable-ai/olaris
 	branch = 0.1.0
 [submodule "skills"]
 	path = skills
@@ -22,3 +22,6 @@
 	path = olaris-truinst
 	url = https://github.com/trustable-ai/olaris-truinst
 	branch = main
+[submodule "ops-cli"]
+	path = ops-cli
+	url = https://github.com/trustable-ai/ops-cli
