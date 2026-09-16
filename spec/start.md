@@ -29,25 +29,61 @@ than duplicated per host.
 
 ## Download + cache the package (host side, before booting the VM)
 
-Pick the deb for the HOST arch and cache it under dist/:
+The cluster package is the Apache OpenServerless deb, published to a bucket that
+exposes a machine-readable index:
 
-- arm (Apple Silicon): curl -JLO landing.nuvolaris.org/api/my/v1/download/linux-arm  -> trustable_<version>_arm64.deb
-- intel:               curl -JLO landing.nuvolaris.org/api/my/v1/download/linux-amd  -> trustable_<version>_amd64.deb
+    https://openserverless.nuvolaris.download/index.json
 
-Cache as dist/trustable_<version>_<arch>.deb. If it already exists, skip the
-~4GB download. Download to a .part file and move into place so an interrupted
-download never leaves a truncated cache entry.
+The index is a two-level object, keyed by architecture and then by version, whose
+values are the download URLs:
 
-The release identity has a single source: `version.txt` contains the tagged form
-(`v0.4.0`) used by builds, and `start.sh` derives `TRUSTABLE_VERSION` from it by
-stripping the leading `v` (`0.4.0`) to name the cached deb. It must not hold a
-second, hand-maintained copy. If `version.txt` is missing or empty, warn and fall
-back to `unknown` rather than caching to a nameless `trustable__<arch>.deb`.
+```json
+{
+  "amd64": {
+    "0.1.0+f1553b": "https://openserverless.nuvolaris.download/openserverless_0.1.0+f1553b_amd64.deb",
+    "latest":       "https://openserverless.nuvolaris.download/openserverless_0.1.0+f1553b_amd64.deb"
+  },
+  "arm64": { ...same shape... }
+}
+```
 
-The download endpoint takes no version selector — it serves the current release —
-so `version.txt` governs the cache filename, not which package is fetched. Keep
-`--retry` on the download: a cold OpenWhisk action can answer the first request
-with HTTP 400 (`Response is not valid 'message/http'`) before serving normally.
+That bucket is a Cloudflare R2 custom domain and does **not** expose the S3
+`ListObjects` API — `?list-type=2` returns Cloudflare's own 404 page. `index.json`
+is the only supported way to discover what is published; never try to enumerate
+the bucket.
+
+Resolution order: detect the HOST arch, read the pinned version, look up
+`.[<arch>][<version>]` in the index, download that URL.
+
+`openserverless.txt` pins the version and is a **hard pin**. If the file is
+missing or empty, `start.sh` fails immediately — it must never install an
+unpinned package. If the pinned version is absent from the index, it fails with a
+message naming the requested version and listing the versions the index does
+offer, so a stale pin is loud and self-diagnosing. It must never silently fall
+back to the index's `latest` key.
+
+Cache as `dist/openserverless_<version>_<arch>.deb`, mirroring the bucket's own
+naming. If it already exists, skip the ~3GB download **and skip fetching the
+index** — a fully-cached run must not depend on the bucket being reachable.
+Download to a `.part` file and move into place so an interrupted download never
+leaves a truncated cache entry.
+
+Resolve the index without `jq`. `ensure_deb` runs on the HOST and, on both the
+macOS and native-Linux paths, *before* `ensure_jq` — which in any case installs jq
+in the VM, so it cannot help a Mac parse the index. The index is a fixed,
+generated shape, so a targeted `sed` over the flattened text is sufficient and
+keeps the host dependency-free.
+
+Two separate version files, deliberately not conflated:
+
+- `openserverless.txt` — the **cluster package** version (`0.1.0+f1553b`). Selects
+  what gets installed. Hard pin, no fallback.
+- `version.txt` — the **Trustable app** release identity in tagged form (`v0.4.0`),
+  the single source shared with `build.sh`/`hotfix.sh`/`run.sh`; `TRUSTABLE_VERSION`
+  strips the leading `v`. It must not hold a second, hand-maintained copy. It no
+  longer names the cached deb, and a missing value only warns.
+
+Keep `--retry` on the download.
 
 ## Boot the VM, then install (NOT via cloud-init provision)
 
@@ -89,7 +125,7 @@ files, the `trustable` user's installation, and the container running inside it.
   user's home.
 - `-i` — **image access**. Logs in as `trustable` and immediately hops one level
   further in, into the running container:
-  `sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- bash`.
+  `sudo k3s kubectl -n openserverless exec -ti trustable-0 -c trustable -- bash`.
   This is the shell for inspecting the deployed image itself — the
   `supervisord`-managed processes, `/usr/local/bin/trustable`, the packaged
   toolchain — as opposed to the VM hosting it.
@@ -175,7 +211,7 @@ literal 127.0.0.1 or an unexpanded <ip> placeholder. It's the value written to
 
 traefik's ingresses only match the *.miniops.me hostnames, but from the macOS
 host you reach the VM by IP. So deploy (idempotently, via kubectl apply) an nginx
-reverse proxy into k3s, in the nuvolaris namespace, as a LoadBalancer Service on
+reverse proxy into k3s, in the openserverless namespace, as a LoadBalancer Service on
 :8080 that rewrites the Host header and forwards to traefik's ClusterIP:
 
 - http://<apihost>            (Host: <ip> or <ip>.nip.io)        -> Host: miniops.me
@@ -296,7 +332,7 @@ This runs after the package install, so both accounts exist.
 ## Host-rewrite proxy catch-all
 
 After `setup.sh` completes, on every finish path, `start.sh` runs the repository's
-own [`./proxy.sh`](17-proxy.md) -- **not** `ops bestia proxy install`. The
+own [`./proxy.sh`](17-proxy.md) -- **not** `ops truinst proxy install`. The
 configuration then lives in this repo, where it is reviewable and versioned with
 the code it fronts, instead of inside the plugin.
 
@@ -313,7 +349,7 @@ extra guard here.
 
 ## Waiting for OpenWhisk
 
-A ready k3s API and a present `nuvolaris` namespace do not mean OpenWhisk serves
+A ready k3s API and a present `openserverless` namespace do not mean OpenWhisk serves
 requests — the controller comes up minutes after the cluster does. So **before**
 running `setup.sh`, on both hosts, `start.sh` blocks until the apihost is
 actually usable: `setup.sh` step 7 curls the apihost and would otherwise fail
@@ -425,7 +461,7 @@ they are inside `trudev`.
 Abort with an actionable message unless all of the following hold:
 
 - `/etc/os-release` identifies Ubuntu or Debian (`ID`/`ID_LIKE`). Every install
-  step below is `apt-get`/`dpkg`, and the Trustable package is a `.deb`.
+  step below is `apt-get`/`dpkg`, and the OpenServerless package is a `.deb`.
 - the architecture reported by `dpkg --print-architecture` is amd64 or arm64.
   This is the same source `ensure_deb` uses, so the preflight gate and the
   package actually selected can never disagree.
@@ -468,8 +504,10 @@ The macOS path is unaffected by all of this.
 
 ## Cluster
 
-If `dpkg -l trustable` does not report `ii`, download and cache the `.deb` and
-install it on this machine.
+If `dpkg -l openserverless` does not report `ii`, download and cache the `.deb`
+and install it on this machine. The installed-package check names the package
+actually being installed (`openserverless`); a host still carrying the older
+`trustable` package is therefore treated as uninstalled and gets the new one.
 
 The package must match the host architecture. On Linux, detect it with
 `dpkg --print-architecture` — that is what governs whether `apt-get install`
@@ -477,8 +515,8 @@ will accept the package, and it stays correct on a multiarch host where `uname`
 reports the kernel's architecture. It emits exactly the strings the filenames
 use, so:
 
-- arm64 -> `dist/trustable_<version>_arm64.deb` (download `linux-arm`)
-- amd64 -> `dist/trustable_<version>_amd64.deb` (download `linux-amd`)
+- arm64 -> `dist/openserverless_<version>_arm64.deb` (index key `arm64`)
+- amd64 -> `dist/openserverless_<version>_amd64.deb` (index key `amd64`)
 
 macOS has no `dpkg` — the `.deb` is installed inside the VM, which runs the host
 architecture under vz — so the macOS path keeps mapping from `uname -m`
@@ -500,7 +538,7 @@ Two deliberate differences from the in-VM install:
 
 If the package is already installed, skip straight to verification.
 
-Then wait for the local k3s to serve `/readyz` and for the `nuvolaris` namespace
+Then wait for the local k3s to serve `/readyz` and for the `openserverless` namespace
 to appear. A fresh install needs 60–90s before OpenWhisk is up, and `setup.sh`
 step 7 curls the apihost, so it must not run against a booting cluster.
 
@@ -713,7 +751,7 @@ fi`) because a native host has no VM to shell into. `-v`/`-n` handed to
 `code` must be on the **Windows** PATH for `-v`, with the WSL extension
 (`ms-vscode-remote.remote-wsl`) installed. This is checked **before any
 provisioning** — after the `-Stop`/`-Destroy` branches, which must never require
-an editor — so a run that downloads a ~4GB package cannot end by discovering
+an editor — so a run that downloads a ~3GB package cannot end by discovering
 the editor is missing. A `code --remote` that fails afterwards aborts naming the
 extension.
 

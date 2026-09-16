@@ -252,18 +252,19 @@ pointing the tool bin dir to ~/.local/bin:
 for tool in \
     postgres-mcp==0.3.0 --with 'mcp<2' \
     redis-mcp-server==0.5.0 --with 'mcp<2' \
-    git+https://github.com/trustable-ai/mcp-server-milvus.git@a7e624f3057a0d739528bca3ed92504943224ceb ;
+    git+https://github.com/trustable-ai/mcp-server-milvus.git@a7e624f3057a0d739528bca3ed92504943224ceb --with 'mcp<2' ;
 do
     env UV_TOOL_BIN_DIR="$HOME/.local/bin" uv tool install --python 3.12 $tool
 done
 ```
 
-`postgres-mcp` and `redis-mcp-server` must be constrained to the 1.x MCP SDK.
-Both declare an open upper bound (`mcp[cli]>=1.5.0` / `>=1.9.4`) but still
-import `mcp.server.fastmcp`, which mcp 2.x renamed to `mcp.server.mcpserver`.
-Unconstrained, uv resolves mcp 2.x and each server dies at import; the launcher
-sees only the stdio pipe close and reports `-32000: Connection closed`, which
-surfaces to the user as a silent "7/9 servers connected".
+`postgres-mcp`, `redis-mcp-server`, and `mcp-server-milvus` must all be
+constrained to the 1.x MCP SDK. They declare an open (or absent) upper bound
+(`mcp[cli]>=1.5.0` / `>=1.9.4`) but still import `mcp.server.fastmcp`, which mcp
+2.x renamed to `mcp.server.mcpserver`. Unconstrained, uv resolves mcp 2.x and
+each server dies at import; the launcher sees only the stdio pipe close and
+reports `-32000: Connection closed`, which surfaces to the user as a silent
+"7/9 servers connected".
 
 Pin the interpreter to 3.12 for the same class of reason: `postgres-mcp`
 requires `pglast==7.2.0`, which publishes no cp313 wheel, so a host whose

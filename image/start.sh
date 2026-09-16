@@ -49,7 +49,7 @@ mkdir -p "$HOME/workbench"
 chown trustable:trustable "$HOME/workbench"
 
 # Only $HOME/workspace is a mounted hostPath volume whose ownership can
-# actually be wrong (olaris-bestia/trustable/sts.yaml). Everything else in the
+# actually be wrong (oplugins-truinst/trustable/sts.yaml). Everything else in the
 # container is image content, already owned correctly by the Dockerfile's
 # COPY --chown and its USER/WORKDIR setup, so chowning bare $HOME walked
 # ~/.local, ~/.ops, ~/.cache and baked-in node_modules for nothing.

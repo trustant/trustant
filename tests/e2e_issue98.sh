@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-nuvolaris}"
+NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
 POD="${TRUSTABLE_E2E_POD:-trustable-0}"
 CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
 
@@ -74,7 +74,7 @@ else
   fi
   KUBEFWD_ARGS="$(ps -p "${KUBEFWD_PIDS[0]}" -o args=)"
   if [[ "$KUBEFWD_ARGS" != *"svc"* ||
-        "$KUBEFWD_ARGS" != *"-n nuvolaris"* ||
+        "$KUBEFWD_ARGS" != *"-n openserverless"* ||
         "$KUBEFWD_ARGS" != *"metadata.name!=trustable-svc"* ]]; then
     echo "ERROR local kubefwd does not match the run.sh namespace/exclusion contract" >&2
     exit 1

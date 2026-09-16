@@ -213,12 +213,12 @@ func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 	}
 }
 
-// TestPythonMCPServersPinTheMCPSDK guards the constraint that keeps postgres-mcp
-// and redis-mcp-server on the 1.x MCP SDK. Both declare an open upper bound but
-// import `mcp.server.fastmcp`, which mcp 2.x renamed; unconstrained they resolve
-// mcp 2.x and die at import, surfacing only as a reduced server count in the
-// agent runtime. The import probe is asserted for the same reason: without it a
-// broken resolution passes setup silently.
+// TestPythonMCPServersPinTheMCPSDK guards the constraint that keeps postgres-mcp,
+// redis-mcp-server, and mcp-server-milvus on the 1.x MCP SDK. All three declare
+// an open (or absent) upper bound but import `mcp.server.fastmcp`, which mcp 2.x
+// renamed; unconstrained they resolve mcp 2.x and die at import, surfacing only
+// as a reduced server count in the agent runtime. The import probe is asserted
+// for the same reason: without it a broken resolution passes setup silently.
 func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
 	setupContent, err := os.ReadFile("setup.sh")
 	if err != nil {
@@ -235,6 +235,7 @@ func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
 		for _, required := range []string{
 			"postgres-mcp==0.3.0|--with|mcp<2",
 			"redis-mcp-server==0.5.0|--with|mcp<2",
+			"|--with|mcp<2\"",
 			"postgres-mcp:postgres_mcp",
 			"redis-mcp-server:src.main",
 			"mcp-server-milvus:mcp_server_milvus",
@@ -536,7 +537,7 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 	for _, required := range []string{
 		`-f 'metadata.name!=trustable-svc'`,
 		`--kubeconfig "$KUBECONFIG_FILE"`,
-		`-n nuvolaris`,
+		`-n openserverless`,
 		`getent ahostsv4 "$FORWARD_PROBE_SERVICE"`,
 		`grep -q '^127\.'`,
 		`KUBEFWD_PID_FILE=`,
@@ -677,7 +678,7 @@ func TestLocalE2ERequiresRunKubefwd(t *testing.T) {
 	for _, required := range []string{
 		`pgrep -x kubefwd`,
 		`"${#KUBEFWD_PIDS[@]}" -ne 1`,
-		`"-n nuvolaris"`,
+		`"-n openserverless"`,
 		`metadata.name!=trustable-svc`,
 	} {
 		if !strings.Contains(source, required) {

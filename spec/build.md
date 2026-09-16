@@ -14,7 +14,7 @@ accident:
 | Mode | `build.sh` | `hotfix.sh` |
 |---|---|---|
 | *(no args)* | help, plus the current tag and a `git push --tags` hint | same, keyed on the `-<n>` tag shape |
-| `--build [--no-deploy]` | full image, ship, `ops bestia trustable redeploy` | thin layer, ship, StatefulSet patch + rollout |
+| `--build [--no-deploy]` | full image, ship, `ops truinst trustable redeploy` | thin layer, ship, StatefulSet patch + rollout |
 | `--buildx` | both arches, multiarch build, push to the registry (CI) | same, thin layer |
 | `--tag` | tag + `opsroot.json` + commit; builds nothing | tag only; builds nothing |
 
@@ -28,23 +28,23 @@ for compatibility but is no longer the documented form.
 
 1. computes the tag, **deletes every existing git tag**, forces the new one, and
    writes `_build.txt`
-2. **writes the image tag into `olaris-bestia/opsroot.json`** via `jq`, then
+2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`, then
    commits, so the deployment plugin always records the image just built
 3. builds the Go binary for the **host architecture** (a single-arch local image
    never uses the other binary; `--buildx` is where both are built)
 4. builds the container image through `image/image.sh`
 5. makes the image reachable by the cluster
-6. deploys with `ops bestia trustable redeploy`
+6. deploys with `ops truinst trustable redeploy`
 
 Only step 5 differs by host. On the macOS VM the cluster lives inside the VM
 and cannot see the local image store, so the image is exported and piped over
-ssh into the VM's containerd (preceded by `ops bestia trustable undeploy` and
+ssh into the VM's containerd (preceded by `ops truinst trustable undeploy` and
 `k3s ctr images prune --all`, which frees the old image so the VM's small disk
 can reclaim it). On the k3s server, an image built by nerdctl is already in the
 `k8s.io` namespace the kubelet reads and nothing is done; if Docker built it,
 it is imported with `save ... | sudo -n k3s ctr images import -`.
 
-Deployment is always `ops bestia trustable redeploy`, which is `undeploy` +
+Deployment is always `ops truinst trustable redeploy`, which is `undeploy` +
 `deploy`; `deploy` reads the image from `opsroot.json`. The StatefulSet is
 never patched directly with `kubectl set image`.
 
@@ -62,7 +62,7 @@ registry push from that explicit `--push` argument, not by sniffing
 `GITHUB_ACTIONS`: the caller knows which it wants.
 
 Note that updating `opsroot.json` only records the tag locally. Pushing the
-`olaris-bestia` submodule is what actually ships a version, and that requires
+`oplugins-truinst` submodule is what actually ships a version, and that requires
 explicit user authorization.
 
 ## Container runtime
@@ -181,7 +181,7 @@ instead of `101 Switching Protocols`.
 `start.sh` also installs the pinned official Linux `kubefwd` archive in
 `trudev`, selecting amd64 or arm64 and verifying a checked-in SHA-256 before
 placing it at `/usr/local/bin/kubefwd`. Repository-root `run.sh` owns exactly
-one namespace-wide forwarder for `nuvolaris`, excludes `trustable-svc`, waits
+one namespace-wide forwarder for `openserverless`, excludes `trustable-svc`, waits
 for bounded readiness, and cleans it with the normal development process trap.
 This is a VM-host process only: production pods use native Kubernetes Service
 DNS and never start `kubefwd`.
@@ -250,18 +250,18 @@ Publishing environment:
 - `TRUSTABLE_PUBLISH_BRANCH`: branch ref updated by `publish.sh`, defaulting to
   the current branch. Release branches can publish to `main` with
   `TRUSTABLE_PUBLISH_BRANCH=main ./publish.sh`.
-  After image CI succeeds, `publish.sh` may push `olaris-bestia`, but any push
-  to `olaris`, `olaris-bestia`, `olaris-trustable`, or another `olaris*` repo
+  After image CI succeeds, `publish.sh` may push `oplugins-truinst`, but any push
+  to `oplugins`, `oplugins-truinst`, or another plugin repo
   requires explicit user authorization first. If there are no local changes in
   that subrepo it skips the commit step and only pushes.
-Every build updates `olaris-bestia/opsroot.json`, so the deployment plugin and
+Every build updates `oplugins-truinst/opsroot.json`, so the deployment plugin and
 the running cluster always agree on which image was built. Recording the tag is
 local; publishing it is a separate, authorization-gated push of the submodule.
 
 ## Hotfix builds
 
 `hotfix.sh` layers four files onto the image already recorded in
-`olaris-bestia/opsroot.json` via `FROM <that image>`:
+`oplugins-truinst/opsroot.json` via `FROM <that image>`:
 
 | Source (context `image/`) | Destination | Owner |
 |---|---|---|
@@ -325,25 +325,25 @@ tree.
 `hotfix.sh` **never writes `opsroot.json` and never commits.** opsroot therefore
 keeps pointing at the base, which is what lets the next hotfix chain off it —
 and it is also why the rollout cannot go through the deployment plugin:
-`ops bestia trustable redeploy` resolves the image from `opsroot.json` and would
+`ops truinst trustable redeploy` resolves the image from `opsroot.json` and would
 roll out the *base*, not the hotfix. Making redeploy work would mean dirtying the
-`olaris-bestia` submodule on every hotfix.
+`oplugins-truinst` submodule on every hotfix.
 
 So `--build` patches the StatefulSet directly:
 
 ```bash
-kubectl -n nuvolaris set image statefulset/trustable trustable="$IMAGE:$TAG"
-kubectl -n nuvolaris rollout status statefulset/trustable --timeout=600s
+kubectl -n openserverless set image statefulset/trustable trustable="$IMAGE:$TAG"
+kubectl -n openserverless rollout status statefulset/trustable --timeout=600s
 ```
 
 This is a **scoped exception** to the rule above that the StatefulSet is never
 patched directly with `kubectl set image`. That rule governs the release path and
 stays true there.
 
-**The patch is not durable.** The next `ops bestia trustable redeploy`, or any
+**The patch is not durable.** The next `ops truinst trustable redeploy`, or any
 `deploy` from the plugin, reverts the StatefulSet to the opsroot image. A hotfix
 is a live patch, not a release; shipping one for real is still `build.sh --build`
-plus an authorized `olaris-bestia` push. `hotfix.sh` says so in its own output.
+plus an authorized `oplugins-truinst` push. `hotfix.sh` says so in its own output.
 
 Shipping the image reuses `build.sh`'s host split, with one difference: there is
 **no** `undeploy` and **no** `ctr images prune --all`. `build.sh` prunes to
@@ -359,10 +359,10 @@ way to tell from `/api/version` whether the hotfix is actually running.
 ### Publishing a hotfix
 
 `publish.sh` reports whether it is watching a hotfix or a full image, and on a
-hotfix tag it does **not touch `olaris-bestia` at all** — not the `cd`, not the
+hotfix tag it does **not touch `oplugins-truinst` at all** — not the `cd`, not the
 commit, not the push. `hotfix.sh` never writes `opsroot.json`, so a
 `git commit -a` there could only sweep up unrelated dirty files in that submodule
-under a message naming the hotfix tag, and the push is exactly the `olaris*` push
+under a message naming the hotfix tag, and the push is exactly the plugin-repo push
 that requires explicit authorization.
 
 Note that `publish.sh` pushes with `--tags`, i.e. every local tag. The
@@ -390,7 +390,7 @@ globs have no `[0-9]` character classes.
 
 The checkout must set `submodules: true` **and** pass
 `TRUSTABLE_AI_REPO_ACCESS_TOKEN`: `opsroot.json` lives in the private
-`olaris-bestia` submodule, and checkout clones submodules before the later
+`oplugins-truinst` submodule, and checkout clones submodules before the later
 git-config step runs. Without it the hotfix path cannot resolve its base image.
 
 Compilation lives in the scripts rather than the workflow so CI and a developer

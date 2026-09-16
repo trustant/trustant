@@ -103,7 +103,7 @@ protected by three independent gates:
 
    2. **Proxied** — port 80 is the cluster LoadBalancer, so every request there
       goes through nginx, which rewrites `Host` to `<label>.miniops.me` so the
-      ingress rules match (`olaris-bestia/proxy/default-nginx.yml`). It leaves
+      ingress rules match (`ensure_openserverless_proxy` in `start.sh`). It leaves
       `Origin` alone, and **cannot** do otherwise: the browser computes `Origin`
       from the address bar, and the terminal socket is built from
       `location.host` (`web/app.html`, `web/applist.html`). `Host` and `Origin`
@@ -143,7 +143,7 @@ protected by three independent gates:
    `r.Host` is `*.miniops.me`. That restores the one fact the rewrite destroys
    and makes the domain checkable again. It is not required for correctness —
    the label rule above is sufficient — and it was not taken because it needs a
-   ConfigMap change deployed in `olaris-bestia`. Note the header is
+   ConfigMap change deployed by `ensure_openserverless_proxy`. Note the header is
    client-settable, which is why the `r.Host` condition is load-bearing: a
    request reaching `trustable-svc:8910` directly could otherwise forge it on a
    remote-shell endpoint.
@@ -167,7 +167,7 @@ than a login, so in the deployed image it is empty while `/etc/passwd` records
 the real shell:
 
 ```
-$ kubectl exec -n nuvolaris trustable-0 -c trustable -- sh -c 'echo "SHELL=$SHELL"; getent passwd "$(id -u)"'
+$ kubectl exec -n openserverless trustable-0 -c trustable -- sh -c 'echo "SHELL=$SHELL"; getent passwd "$(id -u)"'
 SHELL=
 root:x:0:0:root:/root:/bin/bash
 ```

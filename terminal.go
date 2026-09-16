@@ -67,7 +67,7 @@ const (
 	// proxyCanonicalDomain is the hostname the proxy rewrites every inbound
 	// request to. Seeing it in r.Host is how a request is known to have arrived
 	// through the proxy: nginx is what sets it (proxy_set_header Host
-	// $appname.miniops.me, olaris-bestia/proxy/default-nginx.yml), so a client
+	// $appname.miniops.me, ensure_openserverless_proxy in start.sh), so a client
 	// connecting directly cannot produce it.
 	proxyCanonicalDomain = "miniops.me"
 )

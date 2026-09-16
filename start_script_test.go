@@ -134,42 +134,82 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 //     build.sh/hotfix.sh/run.sh) and holds the tagged form "v0.4.0"; the deb
 //     filename needs the numeric "0.4.0". A hardcoded copy in start.sh drifts
 //     silently whenever the tag moves.
-func TestStartScriptDownloadsCurrentReleaseFromLandingHost(t *testing.T) {
+func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 	content, err := os.ReadFile("start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
 	script := string(content)
 
-	if !strings.Contains(script, `DOWNLOAD_BASE="https://landing.nuvolaris.org/api/my/v1/download"`) {
-		t.Error("start.sh must download the package from landing.nuvolaris.org")
+	if !strings.Contains(script, `OPENSERVERLESS_INDEX="https://openserverless.nuvolaris.download/index.json"`) {
+		t.Error("start.sh must resolve the package through the OpenServerless index.json")
 	}
-	// Substring-safe: every landing2 occurrence is a real regression, and
-	// "landing.nuvolaris.org" does not contain "landing2".
+	// The landing endpoint served whatever the current release was, with no
+	// version selector, so nothing in the repo could pin what got installed.
+	// Any reappearance is a regression back to unpinned installs.
+	if strings.Contains(script, "landing.nuvolaris.org") {
+		t.Error("start.sh must not download from landing.nuvolaris.org — it serves an unpinned release")
+	}
 	if strings.Contains(script, "landing2") {
 		t.Error("start.sh must not use landing2.nuvolaris.org — it serves an older release")
 	}
 
-	if !strings.Contains(script, `TRUSTABLE_VERSION="$(head -n1 version.txt`) {
-		t.Error("start.sh must derive TRUSTABLE_VERSION from version.txt, not hardcode it")
+	// openserverless.txt selects what actually gets installed, so unlike
+	// version.txt it must be a hard pin: no "unknown" fallback, and no silent
+	// fallback onto the index's "latest" key.
+	if !strings.Contains(script, `OPENSERVERLESS_VERSION="$(head -n1 openserverless.txt`) {
+		t.Error("start.sh must read the pinned package version from openserverless.txt")
 	}
-	if !strings.Contains(script, `TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"`) {
-		t.Error("start.sh must strip the leading v from version.txt (v0.4.0 -> 0.4.0)")
+	if !strings.Contains(script, `|| fail "openserverless.txt not found or empty`) {
+		t.Error("start.sh must fail (not warn) when openserverless.txt is missing or empty")
 	}
-	// The fallback keeps a worktree without version.txt provisioning instead of
-	// caching to a nameless trustable__<arch>.deb, but it must be loud.
-	if !strings.Contains(script, `warn "version.txt not found or empty`) {
-		t.Error("start.sh must warn when version.txt is missing or empty")
+	if !strings.Contains(script, `is not published.`) {
+		t.Error("start.sh must fail loudly when the pinned version is absent from the index")
+	}
+	if !strings.Contains(script, "index_versions_for") {
+		t.Error("start.sh must list the available versions when the pin does not resolve")
 	}
 
-	// The download endpoint is an OpenWhisk action: a cold start can answer the
-	// first request with HTTP 400 before serving normally, so --retry is what
-	// makes provisioning reliable, and .part staging is what stops an
-	// interrupted transfer from poisoning the cache.
+	// ensure_deb runs on the HOST and before ensure_jq on both paths, and
+	// ensure_jq installs jq in the VM — so it can never help a Mac parse the
+	// index. A jq call inside the resolver would break provisioning on a clean
+	// Mac, which is exactly the host that cannot be caught by CI here.
+	resolver := script[strings.Index(script, "index_url_for()"):strings.Index(script, "# Copy the cached")]
+	if strings.Contains(resolver, "jq ") || strings.Contains(resolver, "jq\n") {
+		t.Error("the index resolver must not depend on jq — it runs on the host before jq exists")
+	}
+
+	// The cache is keyed by the pinned version, and a cache hit must not need
+	// the network: a fully-cached run cannot depend on the bucket being up.
+	if !strings.Contains(script, `DEB_FILE="${DIST_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"`) {
+		t.Error("start.sh must cache the deb under its pinned version and arch")
+	}
+	if !strings.Contains(script, `ok "Using cached package: $DEB_FILE"
+    return 0`) {
+		t.Error("a cache hit must return before fetching the index (no network on cached runs)")
+	}
+
+	// The package installed is now openserverless, so every installed-check must
+	// name it; a leftover `dpkg -l trustable` would never match and would
+	// re-run the ~3GB install on every invocation.
+	if strings.Contains(script, "dpkg -l trustable") {
+		t.Error("start.sh must check for the openserverless package, not trustable")
+	}
+
 	if !strings.Contains(script, "curl -fL --retry 3") {
-		t.Error("start.sh must keep --retry on the download (cold-start 400s)")
+		t.Error("start.sh must keep --retry on the download")
 	}
 	if !strings.Contains(script, `TMP_DEB="${DEB_FILE}.part"`) {
 		t.Error("start.sh must stage the download through a .part file")
+	}
+
+	// version.txt keeps its own, separate meaning (the app release identity
+	// shared with build.sh/hotfix.sh/run.sh) and must not be conflated with the
+	// package pin above.
+	if !strings.Contains(script, `TRUSTABLE_VERSION="$(head -n1 version.txt`) {
+		t.Error("start.sh must still derive TRUSTABLE_VERSION from version.txt")
+	}
+	if !strings.Contains(script, `TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"`) {
+		t.Error("start.sh must strip the leading v from version.txt (v0.4.0 -> 0.4.0)")
 	}
 }

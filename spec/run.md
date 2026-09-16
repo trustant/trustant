@@ -53,7 +53,7 @@ is the single entrypoint and owns the whole lifecycle:
 
 2. trap the ^c; when you press ^c terminate everything
 
-2b. sanity-check the local k3s (kubeconfig at ~/.ops/tmp/kubeconfig, nuvolaris
+2b. sanity-check the local k3s (kubeconfig at ~/.ops/tmp/kubeconfig, openserverless
 namespace present). Do NOT call ./start.sh — it is macOS-only and provisions the
 VM from the host.
 
@@ -68,7 +68,7 @@ leaves stale entries that break name resolution for every later run. If a
 forwarder somehow survives, warn and continue -- the readiness check below is
 what reports the real failure.
 
-Then start exactly one `kubefwd` for namespace `nuvolaris`, using
+Then start exactly one `kubefwd` for namespace `openserverless`, using
 `~/.ops/tmp/kubeconfig` and field selector
 `metadata.name!=trustable-svc`. Excluding `trustable-svc` prevents the forwarder
 from stealing Trustable's local ports 8910, 4096, and 5173. Wait for bounded

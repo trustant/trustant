@@ -1,14 +1,6 @@
-[submodule "olaris"]
-	path = olaris
-	url = https://github.com/nuvolaris/bestia
-	branch = 0.1.0
 [submodule "skills"]
 	path = skills
 	url = https://github.com/trustable-ai/skills
-        branch = main
-[submodule "olaris-bestia"]
-	path = olaris-bestia
-	url = https://github.com/trustable-ai/olaris-bestia
         branch = main
 [submodule "mcp"]
 	path = mcp
@@ -18,7 +10,11 @@
 	path = trustable-acp
 	url = https://github.com/trustable-ai/trustable-acp.git
 	branch = main
-[submodule "olaris-truinst"]
-	path = olaris-truinst
-	url = https://github.com/trustable-ai/olaris-truinst
-	branch = main
+[submodule "oplugins"]
+	path = oplugins
+	url = https://github.com/trustable-ai/openserverless-task
+	branch = 0.9.0
+[submodule "oplugins-truinst"]
+	path = oplugins-truinst
+	url = https://github.com/trustable-ai/oplugins-truinst
+        branch = main

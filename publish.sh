@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Publish: push tag, watch CI build, then push olaris-bestia
+# Publish: push tag, watch CI build, then push oplugins-truinst
 set -euo pipefail
 
 # Ensure gh is authenticated
@@ -72,24 +72,24 @@ if [ "$STATUS" != "success" ]; then
     exit 1
 fi
 
-# A hotfix must not touch olaris-bestia at all -- not the cd, not the commit,
+# A hotfix must not touch oplugins-truinst at all -- not the cd, not the commit,
 # not the push. hotfix.sh never writes opsroot.json, so `git commit -a` there
 # could only sweep up UNRELATED dirty files under a message naming the hotfix
-# tag, and the push is an unauthorized olaris* push.
+# tag, and the push is an unauthorized plugin-repo push.
 if $HOTFIX; then
     echo "CI passed. Hotfix image $TAG is in the registry."
     echo
     echo "opsroot.json still points at the base image: a hotfix patches the"
     echo "running StatefulSet and is not a release. To promote it, run"
-    echo "./build.sh --build and push olaris-bestia with explicit authorization."
+    echo "./build.sh --build and push oplugins-truinst with explicit authorization."
     echo "Done. Published $TAG successfully."
     exit 0
 fi
 
-echo "CI passed. Pushing olaris-bestia..."
-cd olaris-bestia
+echo "CI passed. Pushing oplugins-truinst..."
+cd oplugins-truinst
 if git diff --quiet && git diff --cached --quiet; then
-    echo "No olaris-bestia changes to commit."
+    echo "No oplugins-truinst changes to commit."
 else
     git commit -m "$TAG" -a
 fi

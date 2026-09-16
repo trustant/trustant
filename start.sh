@@ -90,16 +90,29 @@ else
   SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
 fi
 LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
-DOWNLOAD_BASE="https://landing.nuvolaris.org/api/my/v1/download"
+# The cluster package comes from the Apache OpenServerless bucket, which publishes
+# a machine-readable index keyed by architecture and version. That bucket is a
+# Cloudflare R2 custom domain and does NOT expose the S3 ListObjects API
+# (`?list-type=2` returns Cloudflare's 404 page) — index.json is the only
+# supported way to discover what is published. Do not try to enumerate it.
+OPENSERVERLESS_INDEX="https://openserverless.nuvolaris.download/index.json"
+# openserverless.txt pins WHICH package version gets installed, so it is a hard
+# pin: unlike TRUSTABLE_VERSION below there is no "unknown" fallback, because an
+# empty value here would silently install something other than what the repo
+# declares. A missing or bogus pin must fail loudly instead.
+OPENSERVERLESS_VERSION="$(head -n1 openserverless.txt 2>/dev/null | tr -d '[:space:]')"
+[[ -n "$OPENSERVERLESS_VERSION" ]] \
+  || fail "openserverless.txt not found or empty — it must pin the OpenServerless package version (e.g. 0.1.0+f1553b)"
 # The release identity lives in version.txt (tagged form, e.g. v0.4.0) and is the
-# single source shared with build.sh/hotfix.sh/run.sh. The deb filename uses the
-# numeric form, so strip the leading "v". The endpoint takes no version selector
-# — it serves the current release — so this only names the dist/ cache entry.
+# single source shared with build.sh/hotfix.sh/run.sh. It identifies the Trustable
+# APP release and is unrelated to OPENSERVERLESS_VERSION above, which identifies
+# the cluster package — the two version files are deliberately separate. The
+# numeric form is used, so strip the leading "v".
 TRUSTABLE_VERSION="$(head -n1 version.txt 2>/dev/null | tr -d '[:space:]')"
 TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"
 if [[ -z "$TRUSTABLE_VERSION" ]]; then
   TRUSTABLE_VERSION="unknown"
-  warn "version.txt not found or empty — caching the package as trustable_${TRUSTABLE_VERSION}_<arch>.deb"
+  warn "version.txt not found or empty"
 fi
 DIST_DIR="dist"                              # host-side cache (.deb + ollama tarball)
 
@@ -268,7 +281,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: apihost-proxy
-  namespace: nuvolaris
+  namespace: openserverless
 data:
   nginx.conf: |
     user nginx;
@@ -307,7 +320,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: apihost-proxy
-  namespace: nuvolaris
+  namespace: openserverless
 spec:
   replicas: 1
   selector:
@@ -332,7 +345,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: apihost-proxy
-  namespace: nuvolaris
+  namespace: openserverless
 spec:
   type: LoadBalancer
   selector: { app: apihost-proxy }
@@ -343,7 +356,7 @@ spec:
 YAML
 
 # Roll the deployment so a changed ConfigMap (new IP) is picked up.
-k3s kubectl -n nuvolaris rollout restart deploy/apihost-proxy
+k3s kubectl -n openserverless rollout restart deploy/apihost-proxy
 
 # WSL can leave the old pod wedged in Terminating — its sandbox teardown never
 # completes against that kernel — and `rollout status` then sits on
@@ -353,10 +366,10 @@ k3s kubectl -n nuvolaris rollout restart deploy/apihost-proxy
 # otherwise idempotent. Drop the pods outright (the Deployment recreates them) so
 # the wait only ever tracks a fresh ReplicaSet. --ignore-not-found keeps this a
 # no-op on a first install, where there is no pod yet.
-k3s kubectl -n nuvolaris delete pod -l app=apihost-proxy \
+k3s kubectl -n openserverless delete pod -l app=apihost-proxy \
   --force --grace-period=0 --ignore-not-found
 
-k3s kubectl -n nuvolaris rollout status deploy/apihost-proxy --timeout=300s
+k3s kubectl -n openserverless rollout status deploy/apihost-proxy --timeout=300s
 echo "reverse proxy deployed (upstream traefik ${TRAEFIK_IP}:80)"
 GUEST
   ok "reverse proxy listening on :8080"
@@ -688,7 +701,7 @@ GUEST
 }
 
 # Install the host-rewrite proxy catch-all with ./proxy.sh (see
-# spec/17-proxy.md) rather than `ops bestia proxy install`, so the configuration
+# spec/17-proxy.md) rather than `ops truinst proxy install`, so the configuration
 # lives in this repo and is reviewable here. It installs nginx with apt-get and
 # serves :8911, rewriting Host to <label>.miniops.me for the upstream.
 #
@@ -698,7 +711,7 @@ GUEST
 #
 # Fatal on failure: without the catch-all the app is unreachable through the
 # reverse proxy, and a warning here would only defer that confusion to the user.
-ensure_bestia_proxy() {
+ensure_openserverless_proxy() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
   echo "--- Installing the host-rewrite proxy catch-all${where} ---"
@@ -716,7 +729,7 @@ ensure_bestia_proxy() {
   ok "host-rewrite proxy catch-all installed"
 }
 
-# A ready k3s API and a present nuvolaris namespace do not mean OpenWhisk serves
+# A ready k3s API and a present openserverless namespace do not mean OpenWhisk serves
 # requests yet — the controller comes up minutes later. Block here until the
 # apihost is actually usable, in two stages, so the failure says which one lost:
 #   1. http://miniops.me answers at all (traefik + ingress are wired)
@@ -1000,7 +1013,7 @@ finish() {
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./setup.sh \
     || fail "setup.sh failed in the VM"
   ok "setup.sh completed"
-  ensure_bestia_proxy
+  ensure_openserverless_proxy
   ensure_gh
   login_github_from_token
 
@@ -1032,8 +1045,8 @@ finish_native() {
   ensure_source_submodules
 
   # Install the cluster only when it is absent; otherwise just confirm it runs.
-  if run_guest dpkg -l trustable 2>/dev/null | grep -q '^ii'; then
-    ok "Trustable package already installed"
+  if run_guest dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
+    ok "OpenServerless package already installed"
   else
     ensure_deb   # sets DEB_FILE
     install_package_native
@@ -1062,7 +1075,7 @@ finish_native() {
   echo "--- Running setup.sh as $(id -un) ---"
   bash ./setup.sh || fail "setup.sh failed"
   ok "setup.sh completed"
-  ensure_bestia_proxy
+  ensure_openserverless_proxy
   ensure_gh
   login_github_from_token
 
@@ -1083,11 +1096,47 @@ finish_native() {
   echo "  next:         ./run.sh"
 }
 
+# Pull a download URL out of the OpenServerless index.json for a given arch and
+# version, printing it on stdout (empty if absent). Deliberately does NOT use jq:
+# ensure_deb runs on the HOST and before ensure_jq on both paths, and ensure_jq
+# installs jq in the VM (or on a native-Linux host) — it cannot help a Mac parse
+# this. The index is a fixed two-level object of string values generated by the
+# bucket, so a targeted sed over the flattened text is sufficient and keeps the
+# host dependency-free.
+#
+# Matching is anchored on the "<version>": "<url>" pair inside the "<arch>" block:
+# the arch block is isolated first, so a version key present under a different
+# arch cannot satisfy the lookup.
+index_url_for() {
+  local json="$1" arch="$2" version="$3"
+  # Isolate the arch object: from "<arch>": { up to the closing brace.
+  printf '%s' "$json" \
+    | tr -d '\n' \
+    | sed -n "s/.*\"${arch}\"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p" \
+    | sed -n "s/.*\"$(printf '%s' "$version" | sed 's/[].[^$*\/+]/\\&/g')\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+# List the version keys published for an arch, comma-separated, for error output.
+index_versions_for() {
+  local json="$1" arch="$2"
+  printf '%s' "$json" \
+    | tr -d '\n' \
+    | sed -n "s/.*\"${arch}\"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p" \
+    | grep -o '"[^"]*"[[:space:]]*:' \
+    | sed 's/[[:space:]]*:$//; s/"//g' \
+    | paste -sd, - \
+    | sed 's/,/, /g'
+}
+
 # Resolve + cache the .deb for the host arch into dist/, downloading if absent.
 # Sets the global DEB_FILE. The deb arch matches the HOST arch (the VM runs the
 # host arch under vz): arm64 on Apple Silicon, amd64 on Intel.
+#
+# The version installed is pinned by openserverless.txt (OPENSERVERLESS_VERSION)
+# and resolved through the bucket's index.json, so what lands on the machine is
+# reproducible — a given checkout always installs the same package.
 ensure_deb() {
-  local DEB_ARCH DL_SUFFIX TMP_DEB HOST_ARCH
+  local DEB_ARCH TMP_DEB HOST_ARCH INDEX_JSON DEB_URL AVAILABLE
   # On Linux the package is installed by dpkg on THIS machine, so ask dpkg which
   # architecture it will accept — that is what governs `apt-get install`, and it
   # is authoritative on a multiarch host where uname reports the kernel's arch.
@@ -1100,25 +1149,46 @@ ensure_deb() {
     HOST_ARCH="$(uname -m)"
   fi
   case "$HOST_ARCH" in
-    arm64|aarch64) DEB_ARCH=arm64; DL_SUFFIX=linux-arm ;;
-    x86_64|amd64)  DEB_ARCH=amd64; DL_SUFFIX=linux-amd ;;
+    arm64|aarch64) DEB_ARCH=arm64 ;;
+    x86_64|amd64)  DEB_ARCH=amd64 ;;
     *) fail "unsupported host arch: $HOST_ARCH" ;;
   esac
   ok "package architecture: $DEB_ARCH (detected: $HOST_ARCH)"
-  DEB_FILE="${DIST_DIR}/trustable_${TRUSTABLE_VERSION}_${DEB_ARCH}.deb"
+
+  DEB_FILE="${DIST_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"
   mkdir -p "$DIST_DIR"
   if [[ -s "$DEB_FILE" ]]; then
     ok "Using cached package: $DEB_FILE"
-  else
-    echo "--- Downloading Trustable package (~4GB) -> $DEB_FILE ---"
-    # Download to a temp file then move into place, so an interrupted download
-    # never leaves a truncated cache entry.
-    TMP_DEB="${DEB_FILE}.part"
-    curl -fL --retry 3 -o "$TMP_DEB" "${DOWNLOAD_BASE}/${DL_SUFFIX}" \
-      || { rm -f "$TMP_DEB"; fail "download failed"; }
-    mv "$TMP_DEB" "$DEB_FILE"
-    ok "Downloaded $DEB_FILE"
+    return 0
   fi
+
+  # Only hit the network when the cache misses — resolving the index on every run
+  # would make a fully-cached start.sh depend on the bucket being reachable.
+  echo "--- Resolving OpenServerless ${OPENSERVERLESS_VERSION} (${DEB_ARCH}) ---"
+  INDEX_JSON="$(curl -fsSL --retry 3 "$OPENSERVERLESS_INDEX")" \
+    || fail "could not fetch the package index at $OPENSERVERLESS_INDEX"
+
+  DEB_URL="$(index_url_for "$INDEX_JSON" "$DEB_ARCH" "$OPENSERVERLESS_VERSION")"
+  if [[ -z "$DEB_URL" ]]; then
+    # Hard pin: a stale or mistyped openserverless.txt must be loud and
+    # self-diagnosing, never silently fall back to "latest".
+    AVAILABLE="$(index_versions_for "$INDEX_JSON" "$DEB_ARCH")"
+    [[ -n "$AVAILABLE" ]] || AVAILABLE="(none — no '$DEB_ARCH' section in the index)"
+    fail "OpenServerless version '$OPENSERVERLESS_VERSION' ($DEB_ARCH) is not published.
+    Requested by: openserverless.txt
+    Index:        $OPENSERVERLESS_INDEX
+    Available:    $AVAILABLE"
+  fi
+  ok "resolved: $DEB_URL"
+
+  echo "--- Downloading OpenServerless package (~3GB) -> $DEB_FILE ---"
+  # Download to a temp file then move into place, so an interrupted download
+  # never leaves a truncated cache entry.
+  TMP_DEB="${DEB_FILE}.part"
+  curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL" \
+    || { rm -f "$TMP_DEB"; fail "download failed: $DEB_URL"; }
+  mv "$TMP_DEB" "$DEB_FILE"
+  ok "Downloaded $DEB_FILE"
 }
 
 # Copy the cached .deb into the running VM and install it (k3s + helpers), set
@@ -1127,15 +1197,15 @@ ensure_deb() {
 # Requires DEB_FILE (call ensure_deb first) and a running VM.
 install_package() {
   echo "--- Copying package into the VM ---"
-  limactl copy "$DEB_FILE" "${VM_NAME}:/tmp/trustable.deb" \
+  limactl copy "$DEB_FILE" "${VM_NAME}:/tmp/openserverless.deb" \
     || fail "failed to copy $DEB_FILE into the VM"
 
-  echo "--- Installing the Trustable package ---"
+  echo "--- Installing the OpenServerless package ---"
   limactl shell "$VM_NAME" sudo bash -euo pipefail -s <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 
-if dpkg -l trustable 2>/dev/null | grep -q '^ii'; then
-  echo "trustable already installed"; exit 0
+if dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
+  echo "openserverless already installed"; exit 0
 fi
 
 apt-get update -qq
@@ -1166,9 +1236,9 @@ DEF_IFACE=$(ip -4 route show default | awk 'NR==1{print $5}')
 echo "default-route interface is now: ${DEF_IFACE}"
 [ "$DEF_IFACE" = eth0 ] || echo "WARNING: default route is $DEF_IFACE, not eth0 — port 80 may be blocked from host" >&2
 
-[ -s /tmp/trustable.deb ] || { echo "package not found in guest" >&2; exit 1; }
-apt-get install -y /tmp/trustable.deb
-rm -f /tmp/trustable.deb
+[ -s /tmp/openserverless.deb ] || { echo "package not found in guest" >&2; exit 1; }
+apt-get install -y /tmp/openserverless.deb
+rm -f /tmp/openserverless.deb
 
 # ssh.sh reaches the VM as trustable@<ip> with the Lima identity, so authorize
 # the Lima pubkey(s) for the package-created 'trustable' user.
@@ -1185,7 +1255,7 @@ chown -R trustable:trustable /home/trustable/.ssh
 chmod 0600 /home/trustable/.ssh/authorized_keys
 echo "install complete"
 GUEST
-  ok "Trustable package installed and ssh key authorized"
+  ok "OpenServerless package installed and ssh key authorized"
 }
 
 # Native-Linux counterpart of install_package: install the cached .deb straight
@@ -1202,7 +1272,7 @@ GUEST
 # Requires DEB_FILE (call ensure_deb first). No-op if already installed.
 install_package_native() {
   echo
-  warn "About to install the Trustable package on THIS machine:"
+  warn "About to install the OpenServerless package on THIS machine:"
   warn "  package:  $DEB_FILE"
   warn "  installs: k3s + the Trustable service stack, and a firewall dropin"
   warn "            that DROPs :80/:443/:6443 on the default-route interface"
@@ -1211,8 +1281,8 @@ install_package_native() {
   run_privileged DEB_FILE="$(cd "$(dirname "$DEB_FILE")" && pwd)/$(basename "$DEB_FILE")" <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 
-if dpkg -l trustable 2>/dev/null | grep -q '^ii'; then
-  echo "trustable already installed"; exit 0
+if dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
+  echo "openserverless already installed"; exit 0
 fi
 
 apt-get update -qq
@@ -1225,10 +1295,10 @@ echo "default-route interface: ${DEF_IFACE:-none}"
 apt-get install -y "$DEB_FILE"
 echo "install complete"
 GUEST
-  ok "Trustable package installed on this host"
+  ok "OpenServerless package installed on this host"
 }
 
-# Wait for the local k3s to serve /readyz and for the nuvolaris namespace to
+# Wait for the local k3s to serve /readyz and for the openserverless namespace to
 # exist. A fresh package install needs 60-90s before OpenWhisk is up, and
 # setup.sh step 7 curls the apihost, so it must not run against a booting cluster.
 wait_for_local_k3s() {
@@ -1244,7 +1314,7 @@ wait_for_local_k3s() {
   elif command -v kubectl >/dev/null 2>&1; then
     kubectl_cmd=(sudo -n kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml)
   else
-    fail "neither k3s nor kubectl is installed — the Trustable package did not install correctly"
+    fail "neither k3s nor kubectl is installed — the OpenServerless package did not install correctly"
   fi
 
   local ready=false
@@ -1264,14 +1334,14 @@ wait_for_local_k3s() {
 
   ready=false
   for _ in $(seq 1 90); do
-    if "${kubectl_cmd[@]}" get ns nuvolaris >/dev/null 2>&1; then
+    if "${kubectl_cmd[@]}" get ns openserverless >/dev/null 2>&1; then
       ready=true
       break
     fi
     sleep 2
   done
-  $ready || fail "the nuvolaris namespace never appeared — is the Trustable package healthy?"
-  ok "nuvolaris namespace is present"
+  $ready || fail "the openserverless namespace never appeared — is the OpenServerless package healthy?"
+  ok "openserverless namespace is present"
 }
 
 # Resolve the address other machines (and the browser) can reach this host on.
@@ -1443,9 +1513,9 @@ GUEST
   ok "guest user '$HOST_USER' ready (mount owner)"
 }
 
-# True if the trustable package is installed in the running VM.
+# True if the openserverless package is installed in the running VM.
 package_installed() {
-  limactl shell "$VM_NAME" dpkg -l trustable 2>/dev/null | grep -q '^ii'
+  limactl shell "$VM_NAME" dpkg -l openserverless 2>/dev/null | grep -q '^ii'
 }
 
 # -s and -k are VM lifecycle operations. On a native host there is no VM, and
@@ -1548,7 +1618,7 @@ fi
 # WHY: `gh auth login --with-token` authenticates the gh CLI but does NOT install
 # a git credential helper, so plain `git` still has no way to read github.com.
 # ensure_source_submodules runs on the HOST and clones private submodules
-# (trustable-acp, olaris-bestia) over https, which then fails with
+# (trustable-acp, oplugins-truinst) over https, which then fails with
 # "could not read Username for 'https://github.com'". This wires gh in as the
 # host's credential helper so those fetches authenticate with the existing token.
 setup_git_credential_helper
@@ -1588,8 +1658,8 @@ ensure_deb   # sets DEB_FILE
 # vz gives the guest two interfaces:
 #   * lima0 (192.168.252.x) — Lima's shared bridge, REACHABLE from the macOS host
 #   * eth0  (vzNAT)         — outbound NAT, NOT host-reachable
-# The Trustable .deb installs a firewall dropin that DROPs :80/:443/:6443 on the
-# DEFAULT-route interface. We therefore force the vzNAT interface to hold the
+# The OpenServerless .deb installs a firewall dropin that DROPs :80/:443/:6443
+# on the DEFAULT-route interface. We therefore force the vzNAT interface to hold the
 # default route (see the routefix provision below) so the DROP lands there and
 # lima0:80 stays reachable — that lima0 address is what we publish as the apihost.
 LIMA_CONFIG="$(mktemp -t trustable-lima-XXXX).yaml"

@@ -19,7 +19,7 @@ set -euo pipefail
 
 E2E_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 E2E_RESULTS_ROOT="${TRUSTABLE_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
-E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-nuvolaris}"
+E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
 E2E_POD="${TRUSTABLE_E2E_POD:-trustable-0}"
 E2E_CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
 E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustable.json}"
@@ -283,7 +283,7 @@ e2e_provider_main() {
   shift
   e2e_load_env
   E2E_RESULTS_ROOT="${TRUSTABLE_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
-  E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-nuvolaris}"
+  E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
   E2E_POD="${TRUSTABLE_E2E_POD:-trustable-0}"
   E2E_CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
   E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustable.json}"
