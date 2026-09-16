@@ -114,7 +114,7 @@ Environment variables:
 - `TRUSTABLE_E2E_NEW_APP`: optional deterministic app name for fresh app mode.
 - `TRUSTABLE_E2E_PASSWORD`: password for a freshly created app.
 - `TRUSTABLE_E2E_KEEP_APP=1`: keep a freshly created app after the test.
-- `TRUSTABLE_E2E_NAMESPACE`: Kubernetes namespace, default `nuvolaris`.
+- `TRUSTABLE_E2E_NAMESPACE`: Kubernetes namespace, default `openserverless`.
 - `TRUSTABLE_E2E_POD`: Trustable pod, default `trustable-0`.
 - `TRUSTABLE_E2E_CONTAINER`: Trustable container, default `trustable`.
 - `TRUSTABLE_E2E_SKIP_BROWSER_INSTALL=1`: skip Playwright Chromium install.

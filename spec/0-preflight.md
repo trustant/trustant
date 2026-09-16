@@ -114,7 +114,7 @@ migrated, read, or deleted.
 # startup ownership of the workspace
 
 `$HOME/workspace` is the only mounted `hostPath` volume
-([olaris-bestia/trustable/sts.yaml](../olaris-bestia/trustable/sts.yaml)), so it
+([oplugins-truinst/trustable/sts.yaml](../oplugins-truinst/trustable/sts.yaml)), so it
 is the only tree whose ownership can actually be wrong on a container start.
 The entrypoint ([image/start.sh](../image/start.sh)) therefore chowns **that
 path only**. It MUST NOT recursively chown bare `$HOME`: everything else in the

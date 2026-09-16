@@ -192,7 +192,7 @@ generic Pi-core policy:
 | `trustable-ai/trustable-acp` | exact nested Pi pin, build/install/package flow, managed extension |
 | `trustable-ai/trustable-app` | watcher log, runtime manifest, launch wiring, integration tests |
 
-No `olaris*` repository is involved.
+No plugin repository is involved.
 
 ## Acceptance criteria
 

@@ -7,7 +7,7 @@ Thanks for your interest in contributing to Trustable.
 **We cannot accept a pull request until a signed Contributor License Agreement
 (CLA) is on file for its author.** This applies to every contribution of any
 size, and to every repository in the Trustable project, including the
-`skills`, `olaris-bestia`, `olaris-truinst`, and `trustable-acp` submodules.
+`skills`, `oplugins-truinst`, and `trustable-acp` submodules.
 
 Trustable is released under the GNU Affero General Public License, version 3 or
 later (see [LICENSE](LICENSE)). Nuvolaris Inc also offers the software under
@@ -39,7 +39,7 @@ with `git ls-files`, which does not descend into submodules, so each
 Trustable-owned submodule carries its own `.licenserc.yaml` and must be checked
 from inside it.
 
-The `olaris` and `mcp` submodules are upstream Apache-2.0 projects with their
+The `oplugins` and `mcp` submodules are upstream Apache-2.0 projects with their
 own LICENSE and NOTICE files. Do not add AGPL headers there.
 
 ## Before you open a pull request

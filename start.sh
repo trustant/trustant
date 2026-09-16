@@ -711,7 +711,7 @@ GUEST
 #
 # Fatal on failure: without the catch-all the app is unreachable through the
 # reverse proxy, and a warning here would only defer that confusion to the user.
-ensure_bestia_proxy() {
+ensure_openserverless_proxy() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
   echo "--- Installing the host-rewrite proxy catch-all${where} ---"
@@ -1013,7 +1013,7 @@ finish() {
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./setup.sh \
     || fail "setup.sh failed in the VM"
   ok "setup.sh completed"
-  ensure_bestia_proxy
+  ensure_openserverless_proxy
   ensure_gh
   login_github_from_token
 
@@ -1075,7 +1075,7 @@ finish_native() {
   echo "--- Running setup.sh as $(id -un) ---"
   bash ./setup.sh || fail "setup.sh failed"
   ok "setup.sh completed"
-  ensure_bestia_proxy
+  ensure_openserverless_proxy
   ensure_gh
   login_github_from_token
 
@@ -1618,7 +1618,7 @@ fi
 # WHY: `gh auth login --with-token` authenticates the gh CLI but does NOT install
 # a git credential helper, so plain `git` still has no way to read github.com.
 # ensure_source_submodules runs on the HOST and clones private submodules
-# (trustable-acp, olaris-bestia) over https, which then fails with
+# (trustable-acp, oplugins-truinst) over https, which then fails with
 # "could not read Username for 'https://github.com'". This wires gh in as the
 # host's credential helper so those fetches authenticate with the existing token.
 setup_git_credential_helper

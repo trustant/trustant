@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # Ship a rebuilt binary (plus start.sh, .env and trustable.json) on top of the
-# image already recorded in olaris-bestia/opsroot.json.
+# image already recorded in oplugins-truinst/opsroot.json.
 #
 # WHY: image/image.sh takes ~20 minutes -- submodule init, npm install/build for
 # trustable-acp, npm ci/test/build/pack for the nested pi-acp fork, and three
@@ -29,7 +29,7 @@ cd "$(dirname "$0")"
 
 IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
 KEY=trustable
-OPSROOT="./olaris-bestia/opsroot.json"
+OPSROOT="./oplugins-truinst/opsroot.json"
 DOCKERFILE="Dockerfile.hotfix"
 
 # ---------------------------------------------------------------- tag helpers
@@ -43,7 +43,7 @@ base_tag() {
     ref="$(jq -r ".config.images.$KEY" "$OPSROOT")"
     if [ -z "$ref" ] || [ "$ref" = "null" ]; then
         echo "Cannot read .config.images.$KEY from $OPSROOT" >&2
-        echo "Is the olaris-bestia submodule initialized?" >&2
+        echo "Is the oplugins-truinst submodule initialized?" >&2
         exit 1
     fi
     local tag="${ref##*:}"
@@ -200,7 +200,7 @@ usage() {
 Usage: ./hotfix.sh <mode> [--no-deploy]
 
 Layers the rebuilt binary, image/start.sh, image/env and trustable.json onto the
-image recorded in olaris-bestia/opsroot.json -- a minute or two instead of the
+image recorded in oplugins-truinst/opsroot.json -- a minute or two instead of the
 ~20 minutes a full image build takes.
 
   --build [--no-deploy]   tag, compile the host arch, build the image locally,

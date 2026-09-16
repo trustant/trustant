@@ -50,16 +50,16 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ./screenshot.sh  # Run INSIDE the VM: interactive recorder — click the ● at the top right of the launched app to capture, then ENTER here to collect; SPACE refreshes, DEL removes the last frame, q quits; stages (never commits) <app>/screenshot.png (APNG, 1s/frame) so it ships with your own push, and copies it to ./screenshot.png to preview in the editor
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
 ./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustable.json on the existing image (minutes, not ~20 min)
-./publish.sh     # Pushes the latest git tag, watches CI, then may push olaris-bestia only with explicit user authorization
+./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
 go test ./...    # Unit tests (currently only configure_test.go)
 go test -run TestGenerateProjectAssetsForTruACP  # Single test
 ```
 
 `air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
 
-`build.sh --build` produces a single image and **always** writes the image tag into `olaris-bestia/opsroot.json` via `jq`, on every host. Deployment is always `ops bestia trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `olaris-bestia` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+`build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
-[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustable.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `olaris-bestia` for a hotfix tag. See [spec/build.md](spec/build.md).
+[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustable.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
 ## Required environment
 
@@ -193,8 +193,8 @@ Licenses are issued by the `trulicense` CLI, which lives in the **trustable-inst
 
 ## Submodules
 
-Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `olaris`, `olaris-bestia`, `skills`, and `support`. The macOS build flow writes the new image tag into `olaris-bestia/opsroot.json`; the Linux server build flow does not.
-Never push to any `olaris*` repository without explicit user authorization, including `olaris`, `olaris-bestia`, `olaris-trustable`, local plugin copies, submodules, and scripts that would push those repos.
+Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `oplugins`, `oplugins-truinst`, `skills`, and `trustable-acp`. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
+Never push to any plugin repository without explicit user authorization, including `oplugins`, `oplugins-truinst`, local plugin copies, submodules, and scripts that would push those repos.
 
 ## Tests
 

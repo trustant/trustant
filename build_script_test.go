@@ -117,7 +117,7 @@ func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
 // This is not style. opsroot keeps pointing at the BASE image so the next
 // hotfix chains off it instead of nesting (...2118-1-1), and it is the reason
 // the rollout patches the StatefulSet directly rather than calling
-// `ops bestia trustable redeploy`, which would resolve the base image and roll
+// `ops truinst trustable redeploy`, which would resolve the base image and roll
 // out the wrong thing. The moment this script writes opsroot, that whole design
 // stops making sense.
 func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
@@ -207,16 +207,16 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 	}
 	// Without submodules the hotfix path cannot read opsroot.json at all.
 	if !strings.Contains(workflow, "submodules: true") {
-		t.Error("images.yml must check out submodules; opsroot.json lives in olaris-bestia")
+		t.Error("images.yml must check out submodules; opsroot.json lives in oplugins-truinst")
 	}
 }
 
-// publish.sh must not touch olaris-bestia on a hotfix tag — not the cd, not the
+// publish.sh must not touch oplugins-truinst on a hotfix tag — not the cd, not the
 // commit, not the push.
 //
 // Asserting only on the push line would pass while a stray `git commit -a`
 // still swept unrelated dirty files in that submodule under a message naming
-// the hotfix tag. The push is also exactly the unauthorized olaris* push the
+// the hotfix tag. The push is also exactly the unauthorized plugin-repo push the
 // repository guidelines forbid, so the whole block has to sit behind the
 // not-a-hotfix guard.
 func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
@@ -228,16 +228,16 @@ func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
 
 	guard := strings.Index(publish, "if $HOTFIX; then")
 	if guard < 0 {
-		t.Fatal("publish.sh must branch on a hotfix tag before touching olaris-bestia")
+		t.Fatal("publish.sh must branch on a hotfix tag before touching oplugins-truinst")
 	}
 	exit := strings.Index(publish[guard:], "exit 0")
 	if exit < 0 {
-		t.Fatal("publish.sh hotfix branch must exit before the olaris-bestia block")
+		t.Fatal("publish.sh hotfix branch must exit before the oplugins-truinst block")
 	}
 
-	// Every olaris-bestia command must live after the hotfix branch has exited.
+	// Every oplugins-truinst command must live after the hotfix branch has exited.
 	limit := guard + exit
-	for _, forbidden := range []string{"cd olaris-bestia", "git push origin main"} {
+	for _, forbidden := range []string{"cd oplugins-truinst", "git push origin main"} {
 		if at := strings.Index(publish, forbidden); at >= 0 && at < limit {
 			t.Errorf("%q is reachable on the hotfix path", forbidden)
 		}

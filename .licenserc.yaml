@@ -5,9 +5,9 @@
 #
 # Scope: this repository only. license-eye discovers files via `git ls-files`,
 # which does not descend into submodules, so each Trustable-owned submodule
-# (skills, olaris-bestia, olaris-truinst, trustable-acp) carries its own
-# identical .licenserc.yaml and must be checked from inside it. The `olaris`
-# (nuvolaris/bestia) and `mcp` (apache/openserverless-mcp) submodules are
+# (skills, oplugins-truinst, trustable-acp) carries its own
+# identical .licenserc.yaml and must be checked from inside it. The `oplugins`
+# (trustable-ai/openserverless-task) and `mcp` (apache/openserverless-mcp) submodules are
 # upstream Apache-2.0 projects with their own LICENSE/NOTICE and are excluded
 # entirely -- never relicense third-party code.
 header:
@@ -59,7 +59,7 @@ header:
 
   paths-ignore:
     # Upstream Apache-2.0 submodules — never relicense third-party code.
-    - 'olaris'
+    - 'oplugins'
     - 'mcp'
     - 'skills'
 

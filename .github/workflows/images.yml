@@ -3,7 +3,7 @@
 # Compilation lives in ./build.sh and ./hotfix.sh, not here, so CI and a
 # developer machine produce the image exactly the same way. This workflow only
 # decides which of the two to call: a tag ending in -<n> is a hotfix (a thin
-# layer on the image recorded in olaris-bestia/opsroot.json), anything else is a
+# layer on the image recorded in oplugins-truinst/opsroot.json), anything else is a
 # full image build.
 
 name: Build and Push Images
@@ -41,7 +41,7 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v7
         with:
-          # opsroot.json lives in the olaris-bestia submodule; the hotfix path
+          # opsroot.json lives in the oplugins-truinst submodule; the hotfix path
           # reads its base image from there. That repo is private, and checkout
           # clones submodules before the git-config step below runs, so the
           # token has to be supplied here.

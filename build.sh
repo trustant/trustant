@@ -39,7 +39,7 @@ KEY=trustable
 VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
 IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
-OPSROOT="./olaris-bestia/opsroot.json"
+OPSROOT="./oplugins-truinst/opsroot.json"
 
 host_arch() {
     case "$(uname -m)" in

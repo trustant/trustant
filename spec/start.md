@@ -125,7 +125,7 @@ files, the `trustable` user's installation, and the container running inside it.
   user's home.
 - `-i` — **image access**. Logs in as `trustable` and immediately hops one level
   further in, into the running container:
-  `sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- bash`.
+  `sudo k3s kubectl -n openserverless exec -ti trustable-0 -c trustable -- bash`.
   This is the shell for inspecting the deployed image itself — the
   `supervisord`-managed processes, `/usr/local/bin/trustable`, the packaged
   toolchain — as opposed to the VM hosting it.
@@ -211,7 +211,7 @@ literal 127.0.0.1 or an unexpanded <ip> placeholder. It's the value written to
 
 traefik's ingresses only match the *.miniops.me hostnames, but from the macOS
 host you reach the VM by IP. So deploy (idempotently, via kubectl apply) an nginx
-reverse proxy into k3s, in the nuvolaris namespace, as a LoadBalancer Service on
+reverse proxy into k3s, in the openserverless namespace, as a LoadBalancer Service on
 :8080 that rewrites the Host header and forwards to traefik's ClusterIP:
 
 - http://<apihost>            (Host: <ip> or <ip>.nip.io)        -> Host: miniops.me
@@ -332,7 +332,7 @@ This runs after the package install, so both accounts exist.
 ## Host-rewrite proxy catch-all
 
 After `setup.sh` completes, on every finish path, `start.sh` runs the repository's
-own [`./proxy.sh`](17-proxy.md) -- **not** `ops bestia proxy install`. The
+own [`./proxy.sh`](17-proxy.md) -- **not** `ops truinst proxy install`. The
 configuration then lives in this repo, where it is reviewable and versioned with
 the code it fronts, instead of inside the plugin.
 
@@ -349,7 +349,7 @@ extra guard here.
 
 ## Waiting for OpenWhisk
 
-A ready k3s API and a present `nuvolaris` namespace do not mean OpenWhisk serves
+A ready k3s API and a present `openserverless` namespace do not mean OpenWhisk serves
 requests — the controller comes up minutes after the cluster does. So **before**
 running `setup.sh`, on both hosts, `start.sh` blocks until the apihost is
 actually usable: `setup.sh` step 7 curls the apihost and would otherwise fail
@@ -538,7 +538,7 @@ Two deliberate differences from the in-VM install:
 
 If the package is already installed, skip straight to verification.
 
-Then wait for the local k3s to serve `/readyz` and for the `nuvolaris` namespace
+Then wait for the local k3s to serve `/readyz` and for the `openserverless` namespace
 to appear. A fresh install needs 60–90s before OpenWhisk is up, and `setup.sh`
 step 7 curls the apihost, so it must not run against a booting cluster.
 
