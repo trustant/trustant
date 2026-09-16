@@ -705,3 +705,74 @@ func TestScriptSpecificationsLiveUnderSpec(t *testing.T) {
 		}
 	}
 }
+
+// The task source `ops` uses is wired into the binary: n7s.co/get-ops-tru pins
+// trustable-ai/openserverless-task, while the similarly-named n7s.co/get-ops
+// resolves apache/openserverless-task and the Apache CLI build. OPS_REPO and
+// OPS_BRANCH are obsolete and STILL override the wired-in default, so a
+// reintroduced export silently points ops at the wrong fork with no visible
+// error — the failure mode that made this test necessary. See spec/start.md.
+func TestOpsInstallsFromTrustableSourceWithoutObsoleteEnvVars(t *testing.T) {
+	files := map[string]string{
+		"setup.sh":                           "",
+		filepath.Join("image", "Dockerfile"): "",
+		filepath.Join("image", "env"):        "",
+		"start.sh":                           "",
+	}
+	for name := range files {
+		content, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %s", name, err)
+		}
+		files[name] = string(content)
+	}
+
+	// The installer must be get-ops-tru everywhere ops is installed. Matching on
+	// the bare "n7s.co/get-ops" prefix would also match "get-ops-tru", so assert
+	// on the pipe-to-bash form that an install actually takes.
+	for _, name := range []string{"setup.sh", filepath.Join("image", "Dockerfile")} {
+		if !strings.Contains(files[name], "n7s.co/get-ops-tru | bash") {
+			t.Fatalf("%s must install ops with n7s.co/get-ops-tru", name)
+		}
+		if strings.Contains(files[name], "n7s.co/get-ops | bash") {
+			t.Fatalf("%s installs ops from n7s.co/get-ops, which resolves the Apache fork; use get-ops-tru", name)
+		}
+	}
+
+	// No file may declare or export either variable. Comments explaining why they
+	// are absent are expected, so match only on assignment/declaration forms.
+	// image/env is COPYed in as the container's own .env, so a value left here
+	// reaches every deployed pod — bare "OPS_REPO=" covers that plain form too.
+	forbidden := []string{
+		"ARG OPS_REPO=", "ARG OPS_BRANCH=",
+		"export OPS_REPO=", "export OPS_BRANCH=",
+		"export OPS_REPO ", "export OPS_BRANCH ",
+		"OPS_REPO=${OPS_REPO}", "OPS_BRANCH=${OPS_BRANCH}",
+		"\nOPS_REPO=", "\nOPS_BRANCH=",
+	}
+	for name, content := range files {
+		for _, bad := range forbidden {
+			if strings.Contains(content, bad) {
+				t.Fatalf("%s sets the obsolete ops env var (%q); it overrides the source wired into the binary", name, bad)
+			}
+		}
+		if strings.Contains(content, "nuvolaris/bestia") && !strings.Contains(name, "start.sh") {
+			t.Fatalf("%s still references the retired nuvolaris/bestia fork", name)
+		}
+	}
+
+	// start.sh must strip the block it used to write: it was rewritten on every
+	// run, so existing machines carry it and dropping the writer alone would
+	// leave them pinned to the old fork forever.
+	if !strings.Contains(files["start.sh"], "remove_ops_env") {
+		t.Fatal("start.sh must strip the obsolete OPS_BRANCH/OPS_REPO managed block")
+	}
+	if strings.Contains(files["start.sh"], "ensure_ops_env") {
+		t.Fatal("start.sh must not re-export OPS_BRANCH/OPS_REPO")
+	}
+
+	// setup.sh asserts against the wired-in source, not a Dockerfile ARG.
+	if !strings.Contains(files["setup.sh"], "https://github.com/trustable-ai/openserverless-task") {
+		t.Fatal("setup.sh must assert ops resolves the Trustable task source")
+	}
+}
