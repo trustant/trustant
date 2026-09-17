@@ -45,24 +45,80 @@
 	 */
 	var EXPAND_MARGIN_PX = 24;
 
-	function overflows(bar) {
-		return bar.scrollWidth > bar.clientWidth + 1;
+	/*
+	 * WHY we sum the children instead of reading bar.scrollWidth: the top bar
+	 * separates its two button groups with a `flex-1` spacer. A flexible spacer
+	 * absorbs all the slack and then shrinks to zero under pressure, so the
+	 * content never reports as wider than the container — scrollWidth stays
+	 * equal to clientWidth at every window size, and with `overflow: hidden` on
+	 * the page the groups are simply clipped instead. Measuring the space the
+	 * children actually need is the only reading that detects this.
+	 */
+	function contentWidth(bar) {
+		var total = 0;
+		var style = getComputedStyle(bar);
+		var gap = parseFloat(style.columnGap || style.gap) || 0;
+		var counted = 0;
+		Array.prototype.forEach.call(bar.children, function (child) {
+			if (child.offsetParent === null && child !== bar.firstElementChild) {
+				return; // hidden (e.g. the credits pill on non-trustable apps)
+			}
+			// The flexible spacer contributes nothing of its own.
+			if (parseFloat(getComputedStyle(child).flexGrow) > 0) return;
+			total += child.scrollWidth;
+			counted++;
+		});
+		if (counted > 1) total += gap * (counted - 1);
+		total += parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+		return total;
 	}
 
-	function update(bar) {
-		if (!bar.isConnected) return;
+	function available(bar) {
+		return bar.clientWidth;
+	}
 
-		if (!bar.classList.contains("is-collapsed")) {
-			if (overflows(bar)) bar.classList.add("is-collapsed");
-			return;
+	/*
+	 * Two stages. Collapsing the buttons alone still leaves the app name, the
+	 * git status text and the device toggle, which together need ~370px — on a
+	 * genuinely small window the bar is still clipped. `is-collapsed-tight`
+	 * drops those too.
+	 *
+	 * Every decision is made from the widest state, so the measurement never
+	 * depends on which state we happen to be in when called. The class list is
+	 * written once at the end, and any intermediate state is applied and read
+	 * back within a single frame, so nothing intermediate is painted.
+	 */
+	function update(bar) {
+		if (!bar.isConnected || !bar.clientWidth) return;
+
+		var wasCollapsed = bar.classList.contains("is-collapsed");
+		var wasTight = bar.classList.contains("is-collapsed-tight");
+
+		// Measure expanded.
+		bar.classList.remove("is-collapsed", "is-collapsed-tight");
+		var room = available(bar);
+		var neededExpanded = contentWidth(bar);
+
+		// Expanding again needs a margin so a bar that fits by a hair does not
+		// flip-flop on sub-pixel rounding; staying expanded does not.
+		var expandedFits = wasCollapsed
+			? neededExpanded <= room - EXPAND_MARGIN_PX
+			: neededExpanded <= room;
+
+		var collapsed = false;
+		var tight = false;
+		if (!expandedFits) {
+			collapsed = true;
+			bar.classList.add("is-collapsed");
+			var neededCollapsed = contentWidth(bar);
+			var collapsedFits = wasTight
+				? neededCollapsed <= room - EXPAND_MARGIN_PX
+				: neededCollapsed <= room;
+			if (!collapsedFits) tight = true;
 		}
 
-		// Already collapsed: measure what the expanded bar would need. This
-		// write/read/write happens synchronously inside one frame, so it is
-		// never painted.
-		bar.classList.remove("is-collapsed");
-		var fitsExpanded = bar.scrollWidth <= bar.clientWidth - EXPAND_MARGIN_PX;
-		if (!fitsExpanded) bar.classList.add("is-collapsed");
+		bar.classList.toggle("is-collapsed", collapsed);
+		bar.classList.toggle("is-collapsed-tight", tight);
 	}
 
 	function watch(bar) {

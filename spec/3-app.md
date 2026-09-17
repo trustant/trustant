@@ -38,11 +38,23 @@ The top bar has no `flex-wrap`, so when the window is too narrow its buttons are
 cut off rather than reflowed. When that happens the bar **collapses to icons
 only** and every hidden label is still readable as a tooltip.
 
-- **Trigger — measured overflow, not a breakpoint.** `web/js/toolbar-collapse.js`
+- **Trigger — measured content width, not a breakpoint.** `web/js/toolbar-collapse.js`
   watches any element marked `data-collapse` (here `#topBar`) with a
-  `ResizeObserver` and compares `scrollWidth` against `clientWidth`. The bar's
-  natural width varies with the application name, the optional Credits box and
-  the current route, so no fixed media query is correct for every app.
+  `ResizeObserver`. The bar's natural width varies with the application name,
+  the optional Credits box and the current route, so no fixed media query is
+  correct for every app.
+- **Why `scrollWidth` cannot be used.** The bar separates its two button groups
+  with a `flex-1` spacer. A flexible spacer absorbs all the slack and then
+  shrinks to zero under pressure, so the content never reports as wider than
+  the container: `scrollWidth` stays equal to `clientWidth` at every window
+  size and the groups are simply clipped (the page sets `overflow: hidden`).
+  The watcher therefore sums the widths its non-growing children actually need.
+- **Two stages.** Collapsing the buttons alone is not enough: the app name, the
+  git status text and the device toggle together need roughly 370px. Under
+  `is-collapsed` the app name is truncated and the git status drops to its
+  coloured dot; when even that does not fit, `is-collapsed-tight` also hides
+  the app name and the device preview toggle (the preview can still be resized
+  by dragging the divider).
 - **Hysteresis.** Collapsing makes the bar narrower, which would clear the
   overflow and expand it again — an endless loop driven by our own DOM writes.
   Collapsing is therefore decided on real overflow, while expanding is decided

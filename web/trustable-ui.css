@@ -272,6 +272,32 @@ textarea {
     display: inline;
 }
 
+/* Collapsing only the buttons is not enough to fit a narrow window: the bar
+ * also carries three non-button items that together need ~370px. The app name
+ * is truncated rather than hidden (it tells the user which app they are in),
+ * while the git status drops to its coloured dot, whose text is already
+ * duplicated in the Commit button's state. */
+.is-collapsed #appName {
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.is-collapsed #gitText {
+    display: none;
+}
+
+/* The device preview toggle is three icon-only segments; the preview can also
+ * be resized by dragging the divider, so it is the safest thing to drop when
+ * space runs out entirely. */
+.is-collapsed-tight #deviceToggle {
+    display: none;
+}
+
+.is-collapsed-tight #appName {
+    display: none;
+}
+
 .nu-btn:disabled {
     cursor: not-allowed;
     opacity: .55;
