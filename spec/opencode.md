@@ -297,7 +297,8 @@ The embedded guidance must include a concrete backend execution loop:
 5. Edit only the generated editable module, not `__main__.py`. If the module
    exists without a wrapper, stop and repair/create the action through the MCP
    action tool before continuing.
-6. Add Python libraries with `action-requirements`.
+6. Add Python libraries with `action-requirements` — never with a virtualenv or
+   a `requirements.txt`.
 7. Run `ops ide deploy` after every action change. If setup actions changed,
    run `ops ide setup` after deploy, inspect failures, then validate via the
    real HTTP app path.
@@ -845,6 +846,12 @@ The embedded guidance must say:
 - frontend dependencies are added to `package.json`, then installed with
   `npm install`;
 - Python dependencies are added only with `action-requirements`;
+- assistants must never create a virtualenv (`python -m venv`, `virtualenv`,
+  `uv venv`, or any `.venv`/`venv` directory) and must never create or edit a
+  `requirements.txt`. `action-requirements` is the only supported path for
+  Python dependencies: actions are built and deployed server-side, so a local
+  virtualenv is never used at runtime and only creates artifacts that
+  `ops ide clean` then has to remove (see [4-launch.md](4-launch.md));
 - before importing a non-stdlib Python package such as `bcrypt`, `jwt`,
   `requests`, or a database driver, assistants must add it with
   `action-requirements` and redeploy the action;
