@@ -1482,9 +1482,9 @@ const (
 )
 
 func managedAppAgentsContent() string {
-	// opencode.md keeps its historical filename for compatibility, but its
-	// product guidance is agent-neutral and must reach Pi through standard files.
-	body := strings.TrimSpace(appAgentsMd) + "\n\n" + strings.TrimSpace(opencodeMd)
+	// The guidance is agent-neutral and reaches Pi, Codex and Claude Code through
+	// AGENTS.md and the CLAUDE.md symlink, never as a project-local file of its own.
+	body := strings.TrimSpace(appAgentsMd) + "\n\n" + strings.TrimSpace(openserverlessInstructionsMd)
 	return trustableAgentsBegin + "\n" + body + "\n" + trustableAgentsEnd + "\n"
 }
 

@@ -59,7 +59,7 @@ warn() {
 }
 
 if [ ! -f "$CONTRACT" ]; then
-  warn "$CONTRACT not found" "Use opencode.md as fallback guidance and report the missing contract."
+  warn "$CONTRACT not found" "Use the Trustable-managed block in AGENTS.md as fallback guidance and report the missing contract."
 fi
 
 if [ -d packages ]; then

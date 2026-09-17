@@ -94,7 +94,7 @@ then you can execute `./run.sh`
 - **Drives `ops` CLI subprocesses** for login, deploy, and teardown of each app on the k3s VM
 - **Handles configuration and billing** — provider/model selection, credits/top-up, and signature-gated publishing
 
-The production binary embeds `web/`, `_build.txt`, and `opencode.md`, so a shipped release is a **single self-contained executable** with no external asset dependencies at runtime.
+The production binary embeds `web/`, `_build.txt`, and `openserverless-instructions.md`, so a shipped release is a **single self-contained executable** with no external asset dependencies at runtime.
 
 ## Architecture at a glance
 
@@ -290,7 +290,7 @@ git submodule update --init --recursive
 ## Conventions
 
 - **Adding a new API:** register the route in [main.go](main.go), add the handler in the matching feature file, and update the spec doc under [spec/](spec/) — the spec is iterated on first, then the code follows.
-- **`opencode.md` is not repo guidance.** The `opencode.md` at the repo root is **embedded into the binary** and shown to the AI assistant running inside *user-created* apps. It is **not** instructions for editing this repository — that role belongs to `CLAUDE.md`. Don't confuse the two.
+- **`openserverless-instructions.md` is not repo guidance.** The `openserverless-instructions.md` at the repo root is **embedded into the binary** and shown to the AI assistant running inside *user-created* apps. It is **not** instructions for editing this repository — that role belongs to `CLAUDE.md`. Don't confuse the two.
 - **Process groups for cleanup.** Long-running subprocesses (`ops ide deploy`, `npm install`, `git push`) are spawned with their own process group; the `pgid` file in `$WORKBENCH_DIR` is how teardown finds and stops them.
 
 ## License
