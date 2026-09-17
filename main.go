@@ -31,8 +31,8 @@ var embeddedWeb embed.FS
 //go:embed _build.txt
 var buildTxt string
 
-//go:embed opencode.md
-var opencodeMd string
+//go:embed openserverless-instructions.md
+var openserverlessInstructionsMd string
 
 //go:embed openserverless-contract.md
 var openserverlessContractMd string

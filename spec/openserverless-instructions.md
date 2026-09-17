@@ -1,4 +1,4 @@
-# Embedded `opencode.md`
+# Embedded `openserverless-instructions.md`
 
 > **HISTORICAL RECORD.** Trustable no longer launches OpenCode and no longer
 > generates `opencode.json` or a project-local `opencode.md`. The still-relevant
@@ -25,11 +25,16 @@
 > `ops ide deploy`, additional `ops ide devel`, and direct shell inspection or
 > polling of `packages/**/*.zip`.
 
-This file specifies the `opencode.md` guidance embedded into the Trustable
-binary and written into every launched app as
-`<workbenchdir>/<app>/opencode.md`. The generated `opencode.json` must reference
-that project-local file in its `instructions` array, after the generated
-`<workbenchdir>/<app>/.openserverless-contract.md` critical contract.
+This file specifies the `openserverless-instructions.md` guidance embedded into
+the Trustable binary. It is not written into apps as a file of its own: launch
+folds it into the managed `AGENTS.md` block (see [4-launch.md](4-launch.md)).
+
+Historically it was named `opencode.md` and was written into every launched app
+as `<workbenchdir>/<app>/opencode.md`, and the generated `opencode.json`
+referenced that project-local file in its `instructions` array, after the
+generated `<workbenchdir>/<app>/.openserverless-contract.md` critical contract.
+The old name survives in `git.go` and `.gitignore`, which must keep listing it
+so repositories created before the migration still pull and save cleanly.
 Trustable also writes an app-local `AGENTS.md` guard file that OpenCode uses as
 the project rules entrypoint. `AGENTS.md`, `.openserverless-contract.md`,
 `opencode.md`, and `opencode.json` are the authoritative Trustable instruction
@@ -58,7 +63,7 @@ requested status response, never control-plane gate instructions.
 
 ## Purpose
 
-The embedded `opencode.md` must teach the assistant the Trustable serverless
+The embedded `openserverless-instructions.md` must teach the assistant the Trustable serverless
 mental model before listing detailed rules. The first substantive section must
 make clear that a Trustable app is not a conventional backend server and not a
 set of free-form Python modules:
