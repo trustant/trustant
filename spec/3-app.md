@@ -488,9 +488,8 @@ When triggered:
 
 The **Clean** entry in the Utils pulldown removes the local build artifacts of the
 current application by running `ops ide clean` — and nothing else. It does **not**
-redeploy. `ops ide clean` stops the devel watcher and removes the virtualenv,
-`node_modules`, and `*.zip` artifacts, so the preview stays down until the user
-redeploys. A plain Reload cannot bring it back.
+redeploy. `ops ide clean` stops the devel watcher and removes any generated build directories,
+`node_modules`, and `*.zip` artifacts. **Note:** Assistants must never create virtualenvs or `requirements.txt` files; Python dependencies come exclusively through the `action-requirements` tool. The preview stays down until the user redeploys. A plain Reload cannot bring it back.
 
 When clicked:
 

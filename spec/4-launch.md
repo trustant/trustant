@@ -1056,8 +1056,7 @@ This endpoint is not part of the publishing gate; it does not call
 # POST /api/clean
 
 Runs `ops ide clean` in `<workbenchdir>/<name>` to remove local build artifacts
-(virtualenv, `node_modules`, `*.zip`) and stop the devel watcher. Triggered by the
-**Clean** entry in the Utils pulldown (see [3-app.md](3-app.md)).
+(generated virtualenv directories if any exist, `node_modules`, `*.zip`) and stop the devel watcher. **Note:** Assistants must never create virtualenvs in the first place; Python dependencies come exclusively through the `action-requirements` tool. This endpoint is provided for cleanup purposes only. Triggered by the **Clean** entry in the Utils pulldown (see [3-app.md](3-app.md)).
 
 It shares the request/response contract, validation, workbench precondition, and
 lifecycle lock of `POST /api/undeploy`, and returns
