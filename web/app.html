@@ -28,6 +28,7 @@
     <script src="js/xterm.min.js"></script>
     <script src="js/xterm-addon-fit.min.js"></script>
     <script src="js/tutorial.js" defer></script>
+    <script src="js/toolbar-collapse.js" defer></script>
     <link rel="stylesheet" href="js/xterm.css">
     <link rel="stylesheet" href="trustable-ui.css">
     <style>
@@ -40,7 +41,7 @@
 </head>
 <body class="h-full flex flex-col">
     <!-- Top Bar (10% height) -->
-    <div class="h-[10%] nu-topbar flex items-center px-4 gap-3 relative">
+    <div id="topBar" data-collapse class="h-[10%] nu-topbar flex items-center px-4 gap-3 relative">
         <!-- Left group: logo, app name, config pulldown, utils pulldown -->
         <div class="flex items-center gap-3 h-full shrink-0">
             <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
@@ -49,10 +50,10 @@
                 <span class="font-medium">Credits:</span>
                 <span id="creditsValue">…</span>
             </div>
-            <button id="topupBtn" onclick="showTopupModal()"
+            <button id="topupBtn" onclick="showTopupModal()" title="Buy more AI credits for this account" aria-label="Top-up credits"
                 class="hidden nu-btn nu-btn-secondary items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                Top-up
+                <span class="nu-btn-label">Top-up</span>
             </button>
             <button id="sidebarToggleBtn" onclick="toggleSidebar()" title="Hide chat" aria-label="Hide chat" aria-pressed="false"
                 class="nu-btn nu-btn-secondary flex items-center">
@@ -61,10 +62,10 @@
             <!-- Tutorial pulldown (spec/16-tutorial.md): second in the bar,
                  immediately after the sidebar open/close toggle. -->
             <div class="relative">
-                <button id="tutorialBtn" onclick="toggleTutorialMenu()"
+                <button id="tutorialBtn" onclick="toggleTutorialMenu()" title="Guided walkthroughs of the editor" aria-label="Tutorial menu"
                     class="nu-btn nu-btn-secondary flex items-center gap-1">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
-                    Tutorial
+                    <span class="nu-btn-label">Tutorial</span>
                     <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
                 <div id="tutorialMenu" class="hidden absolute left-0 top-full mt-1 nu-dropdown py-1 z-50 min-w-[190px]">
@@ -85,16 +86,16 @@
                     </button>
                 </div>
             </div>
-            <button id="terminalBtn" onclick="toggleTerminal()"
+            <button id="terminalBtn" onclick="toggleTerminal()" title="Open a shell in this app's workbench" aria-label="Terminal"
                 class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/></svg>
-                Terminal
+                <span class="nu-btn-label">Terminal</span>
             </button>
             <div class="relative">
-                <button id="configBtn" onclick="toggleConfigMenu()"
+                <button id="configBtn" onclick="toggleConfigMenu()" title="Edit this app's environment, skills and agent instructions" aria-label="Config menu"
                     class="nu-btn nu-btn-secondary flex items-center gap-1">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/><circle cx="12" cy="12" r="3"/></svg>
-                    Config
+                    <span class="nu-btn-label">Config</span>
                     <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
                 <div id="configMenu" class="hidden absolute left-0 top-full mt-1 nu-dropdown py-1 z-50 min-w-[160px]">
@@ -116,9 +117,10 @@
                 </div>
             </div>
             <div class="relative">
-                <button id="utilsBtn" onclick="toggleUtilsMenu()"
+                <button id="utilsBtn" onclick="toggleUtilsMenu()" title="More actions: revert, redeploy, clean, files and upload" aria-label="Utils menu"
                     class="nu-btn nu-btn-secondary flex items-center gap-1">
-                    Utils
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+                    <span class="nu-btn-label">Utils</span>
                     <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
                 <div id="utilsMenu" class="hidden absolute left-0 top-full mt-1 nu-dropdown py-1 z-50 min-w-[160px]">
@@ -170,10 +172,10 @@
                 <span id="gitDot" class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"></span>
                 <span id="gitText">No changes</span>
             </div>
-            <button id="saveBtn" onclick="showSaveModal()" disabled
+            <button id="saveBtn" onclick="showSaveModal()" disabled title="Commit your changes to this app's repository" aria-label="Commit"
                 class="nu-btn nu-btn-primary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                Commit
+                <span class="nu-btn-label">Commit</span>
             </button>
             <div id="deviceToggle" class="flex items-center rounded-[4px] overflow-hidden border border-[color:var(--nu-control-border)]" role="group" aria-label="Preview device size">
                 <button id="devDesktop" type="button" onclick="setDevice('desktop')" title="Desktop preview" aria-label="Desktop preview"
@@ -189,21 +191,21 @@
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path stroke-linecap="round" d="M11 18.5h2"/></svg>
                 </button>
             </div>
-            <button id="routeBtn" onclick="showRouteModal()"
+            <button id="routeBtn" onclick="showRouteModal()" title="Change the preview URL path" aria-label="Change route"
                 class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
-                Route: <span id="routeLabel">/</span>
+                <span class="nu-btn-label">Route:</span> <span id="routeLabel">/</span>
             </button>
             <button id="reloadBtn" onclick="reloadOrRedeploy(event)"
                 title="Reload the preview (Shift+click to redeploy)"
                 class="nu-btn nu-btn-secondary flex items-center justify-center gap-1 min-w-[7.5rem]">
                 <svg id="reloadBtnIcon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M19.418 9A7.999 7.999 0 006.01 5.99L4 8m0 8l2.01 2.01A7.999 7.999 0 0019.418 15"/></svg>
-                <span id="reloadBtnLabel">Reload</span>
+                <span id="reloadBtnLabel" class="nu-btn-label">Reload</span>
             </button>
-            <button id="backBtn" onclick="goBack()"
+            <button id="backBtn" onclick="goBack()" title="Return to the application list" aria-label="Back to application list"
                 class="nu-btn nu-btn-secondary flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                Back
+                <span class="nu-btn-label">Back</span>
             </button>
         </div>
     </div>
