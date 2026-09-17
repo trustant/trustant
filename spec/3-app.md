@@ -18,7 +18,7 @@ In the bar, aligned to the left:
 - the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
 - the **sidebar toggle** (icon-only, panel glyph), immediately before the Terminal button — see "Sidebar Toggle" below
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
-- the **"Utils" pulldown** (orange, chevron-down icon), immediately to the right of Config — see "Utils Pulldown" below
+- the **"Utils" pulldown** (kebab "more actions" icon + chevron-down), immediately to the right of Config — see "Utils Pulldown" below
 - the **"Tutorial" pulldown** (book icon, chevron-down icon), immediately after the sidebar open/close toggle and before Terminal — it starts the guided tutorials described in [16-tutorial.md](16-tutorial.md)
 
 Aligned to the right:
@@ -31,6 +31,70 @@ Aligned to the right:
 - the button "Back" (gray, chevron left icon)
 
 Toolbar buttons use inline SVG icons that inherit the current button text color.
+
+## Compact toolbar
+
+The top bar has no `flex-wrap`, so when the window is too narrow its buttons are
+cut off rather than reflowed. When that happens the bar **collapses to icons
+only** and every hidden label is still readable as a tooltip.
+
+- **Trigger — measured content width, not a breakpoint.** `web/js/toolbar-collapse.js`
+  watches any element marked `data-collapse` (here `#topBar`) with a
+  `ResizeObserver`. The bar's natural width varies with the application name,
+  the optional Credits box and the current route, so no fixed media query is
+  correct for every app.
+- **Why `scrollWidth` cannot be used.** The bar separates its two button groups
+  with a `flex-1` spacer. A flexible spacer absorbs all the slack and then
+  shrinks to zero under pressure, so the content never reports as wider than
+  the container: `scrollWidth` stays equal to `clientWidth` at every window
+  size and the groups are simply clipped (the page sets `overflow: hidden`).
+  The watcher therefore sums the widths its non-growing children actually need.
+- **Why the sum is recursive.** The buttons are not direct children of the bar;
+  they sit inside `shrink-0` group wrappers. A flex item that cannot shrink is
+  laid out at full content width and overflows the *container*, but its own box
+  is not scrollable — its buttons fit inside it exactly — so `scrollWidth`
+  equals `clientWidth` for the wrapper too and the overflow stays invisible at
+  that depth. The watcher descends to the leaves (a button is measured whole,
+  never summed from its icon and label) and adds each level's gaps and padding,
+  so the reading does not depend on any wrapper being shrinkable. Leaf widths
+  come from `getBoundingClientRect()`, not `offsetWidth`: rounding ten buttons
+  down to whole pixels discards enough width to hide a real overflow.
+- **Out-of-flow children are skipped.** The Tutorial, Config and Utils menus are
+  children of a `relative` wrapper inside the bar, but they float over the page
+  and occupy no space in it. Anything computed `absolute` or `fixed`, and
+  anything `display: none` (the Credits box and Top-up button on apps without
+  credits), is left out of the sum — otherwise the bar would collapse merely
+  because a menu was open.
+- **Two stages.** Collapsing the buttons alone is not enough: the app name, the
+  git status text and the device toggle together need roughly 370px. Under
+  `is-collapsed` the app name is truncated and the git status drops to its
+  coloured dot; when even that does not fit, `is-collapsed-tight` also hides
+  the app name and the device preview toggle (the preview can still be resized
+  by dragging the divider).
+- **Hysteresis.** Collapsing makes the bar narrower, which would clear the
+  overflow and expand it again — an endless loop driven by our own DOM writes.
+  Collapsing is therefore decided on real overflow, while expanding is decided
+  by measuring what the *expanded* bar would need (the class is removed, the
+  width read, and restored within the same frame) and requires a 24px margin.
+- **Effect.** `.is-collapsed` hides every `.nu-btn-label`, evens up the button
+  padding so the icon centres, and drops the fixed width Reload reserves for its
+  Reload/Redeploy label swap.
+- **Labels must be wrapped.** A bare text node inside a button cannot be matched
+  by a CSS selector, so each label lives in `<span class="nu-btn-label">`.
+- **Exceptions.** The route path itself stays visible (it is live state the user
+  reads, not a button name — only the `Route:` prefix is a label), and the
+  pulldown chevrons stay visible because they signal a menu.
+- Every collapsible button carries `title` and `aria-label`, so the text
+  survives as a tooltip and for screen readers. The collapse never strips
+  `title` — collapsed is when it matters most.
+
+## Tooltips
+
+Every button in the bar and in the pulldowns has a `title` that **explains what
+it does**, rather than repeating its label. A tooltip reading "Clean" on a
+button labelled "Clean" adds nothing; it says what Clean removes. The
+destructive entries (Revert, Clean) say so plainly, so hovering warns before the
+click rather than the modal warning after it.
 
 # Config Pulldown
 

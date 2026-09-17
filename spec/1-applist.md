@@ -625,3 +625,20 @@ event preserves the existing error and setup-required behavior.
 If streaming is unavailable or the response is not `text/event-stream`, the
 browser falls back to the existing JSON response contract. This preserves
 compatibility with older servers and non-streaming clients. See issue #82.
+
+## Tooltips
+
+Every button on the page has a `title` that **explains what it does**, rather
+than repeating its own label — the filters say what they filter on, and the
+destructive actions (Delete) say that they are permanent, so hovering warns
+before the click rather than the modal warning after it.
+
+The per-card actions (Env, Git Pull, Git Push, Publish, Undeploy) are rendered
+by the shared `actionButton()` helper and take their tooltip from one
+`ACTION_TOOLTIPS` table, so the grid and list views — which both render through
+it — cannot drift apart. `Edit` and `Delete` are written inline in each of the
+two templates and carry the same text in both.
+
+Unlike the editor toolbar ([3-app.md](3-app.md)), this page's button rows use
+`flex-wrap`: when the window narrows they reflow onto another line rather than
+being cut off, so they are **not** collapsed to icons.

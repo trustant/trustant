@@ -240,6 +240,64 @@ textarea {
     display: none;
 }
 
+/* Compact toolbar (spec/3-app.md, spec/1-applist.md).
+ *
+ * `is-collapsed` is set on a toolbar by the overflow watcher in
+ * web/js/toolbar-collapse.js when its buttons no longer fit the window. Labels
+ * are hidden and each button falls back to its `title`/`aria-label`, so the
+ * text survives as a tooltip rather than being lost.
+ *
+ * Labels must be wrapped in `.nu-btn-label` to be hidden at all: a bare text
+ * node inside the button cannot be matched by a CSS selector. */
+.is-collapsed .nu-btn-label {
+    display: none;
+}
+
+/* Square the buttons up once the label is gone, so the icon sits centred
+ * instead of keeping the wider label padding. */
+.is-collapsed .nu-btn {
+    padding-left: .5rem;
+    padding-right: .5rem;
+}
+
+/* Reload reserves a fixed width for its Reload/Redeploy label swap
+ * (app.html `min-w-[7.5rem]`); collapsed there is no label to fit. */
+.is-collapsed #reloadBtn {
+    min-width: 0;
+}
+
+/* The route is live state the user reads, not a button name, so it stays
+ * visible when collapsed — only its "Route:" prefix is a label. */
+.is-collapsed #routeLabel {
+    display: inline;
+}
+
+/* Collapsing only the buttons is not enough to fit a narrow window: the bar
+ * also carries three non-button items that together need ~370px. The app name
+ * is truncated rather than hidden (it tells the user which app they are in),
+ * while the git status drops to its coloured dot, whose text is already
+ * duplicated in the Commit button's state. */
+.is-collapsed #appName {
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.is-collapsed #gitText {
+    display: none;
+}
+
+/* The device preview toggle is three icon-only segments; the preview can also
+ * be resized by dragging the divider, so it is the safest thing to drop when
+ * space runs out entirely. */
+.is-collapsed-tight #deviceToggle {
+    display: none;
+}
+
+.is-collapsed-tight #appName {
+    display: none;
+}
+
 .nu-btn:disabled {
     cursor: not-allowed;
     opacity: .55;
