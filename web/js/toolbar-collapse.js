@@ -53,24 +53,66 @@
 	 * equal to clientWidth at every window size, and with `overflow: hidden` on
 	 * the page the groups are simply clipped instead. Measuring the space the
 	 * children actually need is the only reading that detects this.
+	 *
+	 * WHY we recurse instead of reading each child's scrollWidth: the buttons
+	 * are not direct children of the bar, they sit inside `shrink-0` group
+	 * wrappers. A flex item that cannot shrink is laid out at its full content
+	 * width and overflows the *container*, but its own box is not scrollable —
+	 * its buttons fit inside it exactly — so scrollWidth == clientWidth for the
+	 * wrapper and the overflow is invisible to that reading. Descending to the
+	 * leaves measures the space actually needed regardless of whether any
+	 * wrapper in between happens to be shrinkable.
 	 */
-	function contentWidth(bar) {
-		var total = 0;
-		var style = getComputedStyle(bar);
+
+	/*
+	 * A leaf is something we measure whole rather than descend into: a control
+	 * and its internal icon/label, or any element with no element children.
+	 * Descending into a button would sum its icon and label as if they were
+	 * siblings to be laid out, which is not what the button's own box needs.
+	 */
+	function isLeaf(el) {
+		if (!el.firstElementChild) return true;
+		if (el.tagName === "BUTTON") return true;
+		return (
+			el.classList.contains("nu-btn") ||
+			el.classList.contains("nu-status-pill") ||
+			el.getAttribute("role") === "group"
+		);
+	}
+
+	/*
+	 * WHY getBoundingClientRect and not offsetWidth: offsetWidth rounds to
+	 * whole pixels. Rounding ~10 buttons down discards enough width to hide a
+	 * real overflow, which is exactly the case we are trying to detect.
+	 */
+	function measure(el) {
+		if (isLeaf(el)) return el.getBoundingClientRect().width;
+
+		var style = getComputedStyle(el);
 		var gap = parseFloat(style.columnGap || style.gap) || 0;
+		var total = 0;
 		var counted = 0;
-		Array.prototype.forEach.call(bar.children, function (child) {
-			if (child.offsetParent === null && child !== bar.firstElementChild) {
-				return; // hidden (e.g. the credits pill on non-trustable apps)
-			}
+		Array.prototype.forEach.call(el.children, function (child) {
+			var childStyle = getComputedStyle(child);
+			// Out of flow: an open dropdown menu is a child of a `relative`
+			// wrapper inside the bar, but it floats over the page and takes no
+			// space in it. Counting it would collapse the bar whenever a menu
+			// happens to be open.
+			var position = childStyle.position;
+			if (position === "absolute" || position === "fixed") return;
+			if (childStyle.display === "none") return;
 			// The flexible spacer contributes nothing of its own.
-			if (parseFloat(getComputedStyle(child).flexGrow) > 0) return;
-			total += child.scrollWidth;
+			if (parseFloat(childStyle.flexGrow) > 0) return;
+			total += measure(child);
 			counted++;
 		});
 		if (counted > 1) total += gap * (counted - 1);
 		total += parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
 		return total;
+	}
+
+	function contentWidth(bar) {
+		return measure(bar);
 	}
 
 	function available(bar) {

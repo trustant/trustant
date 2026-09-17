@@ -49,6 +49,22 @@ only** and every hidden label is still readable as a tooltip.
   the container: `scrollWidth` stays equal to `clientWidth` at every window
   size and the groups are simply clipped (the page sets `overflow: hidden`).
   The watcher therefore sums the widths its non-growing children actually need.
+- **Why the sum is recursive.** The buttons are not direct children of the bar;
+  they sit inside `shrink-0` group wrappers. A flex item that cannot shrink is
+  laid out at full content width and overflows the *container*, but its own box
+  is not scrollable — its buttons fit inside it exactly — so `scrollWidth`
+  equals `clientWidth` for the wrapper too and the overflow stays invisible at
+  that depth. The watcher descends to the leaves (a button is measured whole,
+  never summed from its icon and label) and adds each level's gaps and padding,
+  so the reading does not depend on any wrapper being shrinkable. Leaf widths
+  come from `getBoundingClientRect()`, not `offsetWidth`: rounding ten buttons
+  down to whole pixels discards enough width to hide a real overflow.
+- **Out-of-flow children are skipped.** The Tutorial, Config and Utils menus are
+  children of a `relative` wrapper inside the bar, but they float over the page
+  and occupy no space in it. Anything computed `absolute` or `fixed`, and
+  anything `display: none` (the Credits box and Top-up button on apps without
+  credits), is left out of the sum — otherwise the bar would collapse merely
+  because a menu was open.
 - **Two stages.** Collapsing the buttons alone is not enough: the app name, the
   git status text and the device toggle together need roughly 370px. Under
   `is-collapsed` the app name is truncated and the git status drops to its
