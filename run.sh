@@ -72,26 +72,34 @@ ensure_build_metadata() {
     write_dev_build_metadata
 }
 
-# On macOS everything lives in the trudev VM, not on the host. Do the whole
-# lifecycle from here so the user only ever runs ./run.sh:
-#   1. ./start.sh  — provision/boot the VM AND run setup.sh (idempotent)
-#   2. re-invoke this same script INSIDE the VM (same dir — Lima mounts this repo
-#      at the identical path; same user — start.sh mirrors the host user) to run
-#      the dev loop below
-#   3. on ^C (or when the loop exits), stop the VM with ./start.sh -s, keeping it
-#      for a fast restart next time
-if [[ "$(uname)" == "Darwin" ]]; then
-    ensure_build_metadata
-    command -v limactl >/dev/null 2>&1 || { echo "limactl not found (brew install lima)" >&2; exit 1; }
-    ./start.sh || { echo "start.sh failed" >&2; exit 1; }
-    # Ignore ^C on the host: the interrupt reaches the in-VM run.sh (same process
-    # group), which handles its own teardown and returns here. We then always stop
-    # the VM. `trap ''` keeps this outer script alive through the ^C so we reach it.
-    trap '' INT
-    limactl shell --workdir "$PWD" trudev "$PWD/run.sh"
-    echo; echo "Stopping VM (./start.sh -s)..."
-    ./start.sh -s
-    exit 0
+# This script is the dev loop and runs on Ubuntu only: the trudev Lima VM, a
+# WSL2 trudev distro, or a native Ubuntu host. The toolchain paths, apt-installed
+# packages and local-k3s assumptions below hold nowhere else. Refuse anywhere
+# else, and say what to do instead — on macOS/Windows the VM or distro is what
+# provides Ubuntu, so the answer there is start.sh/start.ps1, not this script.
+# Failing here is clearer than failing midway through the dev loop.
+if [[ ! -r /etc/os-release ]] || ! grep -Eq '^(ID|ID_LIKE)=.*ubuntu' /etc/os-release; then
+    case "$(uname -s)" in
+        Darwin)
+            echo "run.sh runs on Ubuntu only — this is macOS." >&2
+            echo "Use ./start.sh: it boots the trudev VM, runs setup.sh and starts the dev loop inside it." >&2
+            echo "To restart only the dev loop in a running VM: ./ssh.sh ./run.sh" >&2
+            ;;
+        CYGWIN*|MINGW*|MSYS*|Windows_NT)
+            echo "run.sh runs on Ubuntu only — this is Windows." >&2
+            echo "Use .\\start.ps1 from PowerShell: it creates the WSL2 trudev distro and starts the dev loop inside it." >&2
+            ;;
+        Linux)
+            distro="$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-$ID}")"
+            echo "run.sh requires Ubuntu — this Linux is ${distro:-unsupported} and is not supported." >&2
+            echo "Use an Ubuntu 24.04 host, or run Trustable in the trudev VM (./start.sh on a supported host)." >&2
+            ;;
+        *)
+            echo "run.sh runs on Ubuntu only — this system ($(uname -s)) is not supported." >&2
+            echo "Use ./start.sh (macOS/Linux) or .\\start.ps1 (Windows)." >&2
+            ;;
+    esac
+    exit 1
 fi
 
 # Replace release or verification metadata before starting Air unless HEAD is

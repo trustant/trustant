@@ -54,7 +54,9 @@ You can also
 
 ## Linux
 
-You need a Linux VM with Ubuntu 24.04 Intel or ARM with at least 16GB of memory
+You need Ubuntu 24.04 (Intel or ARM) with at least 16GB of memory — **Ubuntu
+specifically**: `run.sh` checks `/etc/os-release` and refuses on any other
+distribution, because the toolchain, apt packages and local k3s all assume it.
 
 Create a user with passwordless sudo rights and execute:
 
@@ -63,6 +65,17 @@ git clone https://github.com/trustable-ai/trustable-app
 cd trustable-app
 ./start.sh
 ```
+
+There is no VM here — `./start.sh` prepares this host directly, runs `./setup.sh`
+to install the toolchain, and then starts the dev loop with `./run.sh`, which
+prints the URL to open. Press **^C** to stop it.
+
+You can also
+
+- prepare the host without starting the dev loop with `./start.sh -n`
+- re-run just the dev loop afterwards with `./run.sh`
+
+`-s` and `-k` are VM operations and are refused here.
 
 
 
@@ -80,7 +93,7 @@ git pull origin main --recurse-submodules
 ./setup.sh
 ```
 
-then you can execute `./run.sh` 
+then you can execute `./run.sh` (inside the VM — from a Mac host use `./ssh.sh ./run.sh`) 
 
 # Trustable Introduction
 
@@ -178,14 +191,21 @@ The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.j
 
 See the TL;DR at the top for the per-system commands. In short:
 
-- **macOS** — `./run.sh` (or `./start.sh`, which ends in the same place). `./run.sh`
-  provisions/boots the `trudev` VM and runs `setup.sh` inside it via `./start.sh`, then
-  re-invokes itself in the VM to run the dev loop (free ports 8910/5173/4096, `air` hot
-  reload, print the UI URL). Press **^C** to stop — it tears down the dev loop and stops
-  the VM (`./start.sh -s`), keeping it for a fast restart next time.
+- **macOS** — `./start.sh`. It provisions/boots the `trudev` VM, runs `setup.sh` inside
+  it, and finishes by running `./run.sh` **in the VM** (free ports 8910/5173/4096, `air`
+  hot reload, print the UI URL). Press **^C** to stop the dev loop. `run.sh` refuses to
+  run on the Mac host itself — to restart just the dev loop in an already-booted VM, use
+  `./ssh.sh ./run.sh`.
 - **Windows** — `.\start.ps1`, which creates the WSL2 distribution and then runs the same
   Linux flow inside it, finishing with `./run.sh`.
-- **Linux** — `./start.sh` to prepare the host, then `./run.sh` for the dev loop.
+- **Linux (Ubuntu 24.04 only)** — `./start.sh`. It prepares the host, runs `./setup.sh`,
+  and finishes by running `./run.sh` in the foreground. `./start.sh -n` prepares without
+  starting the dev loop.
+
+`run.sh` is the dev loop and runs **on Ubuntu only**. It refuses to start anywhere else:
+on another Linux distribution it reports that the distribution is unsupported, and on
+macOS or Windows it points you at `./start.sh` / `.\start.ps1`, which provide the Ubuntu
+VM or WSL2 distribution it needs.
 
 Ollama sign-in happens inside Trustable. `start.sh`/`setup.sh` are invoked for you; run
 them directly only for a manual step (`./start.sh -k` to destroy the VM, `./setup.sh`
@@ -212,8 +232,9 @@ inside the VM to re-verify the toolchain).
 ## Common commands
 
 ```bash
-./run.sh         # macOS entrypoint: start VM + setup.sh, run dev loop, ^C stops the VM
-./start.sh       # Provision/boot the trudev VM, run setup.sh, then run.sh; -v vscode, -s stop, -k destroy
+./start.sh       # Entrypoint. macOS: boot the trudev VM, run setup.sh + run.sh in it (-v vscode, -s stop, -k destroy)
+                 # Linux: prepare this host, run setup.sh, then run.sh (-n to stop before the dev loop)
+./run.sh         # Dev loop, Ubuntu ONLY (VM, WSL2 distro or Ubuntu host); from a Mac host use ./ssh.sh ./run.sh
 .\start.ps1      # WINDOWS ONLY (PowerShell): create the WSL2 distro, run start.sh in it, then run.sh
 ./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/TruACP+Pi + MCP)
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only

@@ -701,6 +701,11 @@ for shell_rc in "$HOME/.profile" "$HOME/.bashrc"; do
   fi
 done
 
+
+# include bash aliases from openserverless
+curl -sL https://raw.githubusercontent.com/apache/openserverless/refs/heads/0.9.0/bash_aliases >~/.bash_aliases
+
+
 # Note: per-app AGENTS.md / .openserverless-contract.md are written at launch by
 # the Go binary, and skills come from OPS_SKILLS (default trustable-ai/skills)
 # cloned at launch by skills.go — setup does nothing for these.

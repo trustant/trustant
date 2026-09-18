@@ -46,7 +46,7 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 .\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 `trudev` distro (Ubuntu-24.04 image), mirrors the user with sudo, runs ./start.sh inside it over the /mnt mount, then ./run.sh; -v opens VS Code on the mount instead, -n neither; -Stop / -Destroy
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
-./run.sh         # Run INSIDE the VM: kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
+./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
 ./screenshot.sh  # Run INSIDE the VM: interactive recorder — click the ● at the top right of the launched app to capture, then ENTER here to collect; SPACE refreshes, DEL removes the last frame, q quits; stages (never commits) <app>/screenshot.png (APNG, 1s/frame) so it ships with your own push, and copies it to ./screenshot.png to preview in the editor
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
 ./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustable.json on the existing image (minutes, not ~20 min)

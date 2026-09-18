@@ -2,9 +2,9 @@
 
 This specification defines the repository-root `run.sh`, which invokes the app
 with Air inside the `trudev` VM (see [setup.md](setup.md)). On a native Ubuntu
-Linux host there is no VM, so the same dev loop runs directly: `uname` is not
-`Darwin`, step 0 is skipped, and execution falls straight through to the steps
-below. That host is initialized by the native path of `./start.sh` (see
+Linux host there is no VM, so the same dev loop runs directly: step 0's Ubuntu
+check passes and execution falls straight through to the steps below. That host
+is initialized by the native path of `./start.sh` (see
 [start.md](start.md)), which supplies the same kubeconfig, `kubefwd`, and
 toolchain the VM path provides.
 
@@ -36,26 +36,27 @@ persisted `npm config get prefix`). `~/.local/bin` remains first and the selecte
 prefix, missing `pi`, or missing `pi-acp` is an immediate prerequisite failure,
 not a deferred browser-side `ACP connection closed`.
 
-0. on macOS (uname == Darwin) everything lives in the VM, not the host — run.sh
-is the single entrypoint and owns the whole lifecycle:
-  a. `./start.sh` — provision/boot the trudev VM AND run setup.sh in it (both
-     idempotent); fail early if limactl is missing.
-  b. re-invoke this same script inside the VM: `limactl shell --workdir "$PWD"
-     trudev "$PWD/run.sh"`. Lima mounts this repo at the identical path and
-     start.sh mirrors the host user into the guest (same name/UID), so the in-VM
-     run lands in the same directory as the same user and falls through to the
-     steps below.
-  c. `trap '' INT` on the host so ^C reaches the in-VM run.sh (same process
-     group), which does its own teardown and returns; then always stop the VM
-     with `./start.sh -s` (keep it for a fast restart) and exit.
+0. `run.sh` runs on **Ubuntu only** and refuses to start anywhere else. The
+check reads `/etc/os-release` and requires `ubuntu` in `ID` or `ID_LIKE`, so the
+trudev Lima VM, a WSL2 trudev distro and a native Ubuntu host all pass, while
+Ubuntu derivatives do too. The toolchain paths, apt packages and local-k3s
+assumptions in the steps below hold nowhere else, so failing here is clearer
+than failing midway. The refusal names the detected system and says what to use
+instead, exiting 1:
+  a. another Linux distribution — report that this Linux is not supported and
+     point at Ubuntu 24.04 or the trudev VM.
+  b. macOS — point at `./start.sh`, which boots the VM and runs setup.sh and the
+     dev loop inside it; `./ssh.sh ./run.sh` restarts only the dev loop.
+  c. Windows — point at `.\start.ps1`, which creates the WSL2 trudev distro and
+     starts the dev loop inside it.
 
 1. terminate all the process listening in ports 8910, 5173 and 4096 found with lsof -i
 
 2. trap the ^c; when you press ^c terminate everything
 
 2b. sanity-check the local k3s (kubeconfig at ~/.ops/tmp/kubeconfig, openserverless
-namespace present). Do NOT call ./start.sh — it is macOS-only and provisions the
-VM from the host.
+namespace present). Do NOT call ./start.sh from here — it is the provisioning
+entrypoint and calls run.sh itself, so invoking it would recurse.
 
 2c. before starting the forwarder, terminate any pre-existing `kubefwd` with
 `SIGINT` and wait for it to exit. A forwarder left behind by an earlier run

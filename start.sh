@@ -1070,7 +1070,17 @@ finish_native() {
     echo "  vscode:       'code' not on PATH — open this folder with:  code $MOUNT_DIR"
     echo "                (VS Code: Command Palette > Shell Command: Install 'code' command in PATH)"
   fi
-  echo "  next:         ./run.sh"
+
+  # Finish by starting the dev loop, the same way the VM path finishes with
+  # run_in_vm — setup.sh has just run above, so the toolchain is in place. This
+  # stays in the foreground: run.sh owns kubefwd and `air`, so Ctrl-C here is how
+  # you stop the dev server. `./start.sh -n` (or -v) stops before this point.
+  if [[ "$RUN_APP" == 1 ]]; then
+    echo "--- Running ./run.sh as $(id -un) (Ctrl-C to stop) ---"
+    bash ./run.sh
+  else
+    echo "  next:         ./run.sh"
+  fi
 }
 
 # Pull a download URL out of the OpenServerless index.json for a given arch and
@@ -1538,8 +1548,14 @@ case "${1:-}" in
   -s|-k) RUN_APP=0 ;;
 esac
 # The native path has no VM to shell into and no Remote-SSH hop (you are already
-# on the machine), so both flags are accepted and ignored there.
-if $NATIVE_LINUX; then OPEN_VSCODE=0; RUN_APP=0; fi
+# on the machine), so -v is accepted and ignored there. RUN_APP is NOT forced
+# off: a native Linux start finishes by running ./run.sh directly, the same way
+# the VM path finishes by running it inside the VM. `-n` still skips it, and `-v`
+# still means "prepare only" here since there is no VS Code hop to take.
+if $NATIVE_LINUX; then
+  if [[ "$OPEN_VSCODE" == 1 ]]; then RUN_APP=0; fi
+  OPEN_VSCODE=0
+fi
 if [[ "$OPEN_VSCODE" == 1 ]]; then
   command -v code >/dev/null 2>&1 \
     || fail "'code' not found — enable it in VS Code: Shell Command: Install 'code' command in PATH, or run ./start.sh -n"

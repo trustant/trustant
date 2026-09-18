@@ -592,15 +592,26 @@ and attempt the warning-only `.ghtoken` login.
 - `-s` and `-k` are VM lifecycle operations with no native equivalent. They must
   exit non-zero with an explanatory message and must never be reinterpreted as
   "stop or destroy this machine's k3s".
-- `-n` and `-v` are accepted and ignored: VS Code is never opened on this path
-  (the sources are already local) and `run.sh` is not auto-started here, so a
-  habitual `./start.sh -n` or `-v` still works.
+- `-v` is accepted but never opens VS Code on this path (the sources are already
+  local); because there is no hop to take, it means "prepare only" and stops
+  before the dev loop, like `-n`.
+- `-n` finishes after provisioning without starting the dev loop.
+
+## Final step
+
+A plain `./start.sh` finishes by running `./run.sh` on this host, in the
+foreground, after `setup.sh` has installed the toolchain — the native
+counterpart of the VM path's `run.sh`-inside-the-VM finish, so one command takes
+a fresh Ubuntu host to a running dev server. `run.sh` owns `kubefwd` and `air`,
+so Ctrl-C is how the dev server is stopped. `-n` and `-v` stop before this step
+and print `./run.sh` as the next step instead.
 
 ## Summary
 
-Print the apihost, the host-rewrite URL pattern, the ollama endpoint, a `vscode`
-line, and `./run.sh` as the next step. Omit the ssh, mount, stop, and destroy
-lines — none of them exist here.
+Print the apihost, the host-rewrite URL pattern, the ollama endpoint, and a
+`vscode` line; when the dev loop is not being started, also print `./run.sh` as
+the next step. Omit the ssh, mount, stop, and destroy lines — none of them exist
+here.
 
 The `vscode` line prints the command that opens the sources, not a Remote-SSH
 hop: on a native host the repo is already local, so connecting is just
