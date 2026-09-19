@@ -2834,21 +2834,18 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		if isServiceRuntimeEnvKey(k) {
 			continue
 		}
-		// The recorded pool choice behind a wildcard import is bookkeeping, not a
-		// variable: writing it into .env would hand the app a stray name whose
-		// value is the name of another variable (spec/19-import.md).
-		if isImportChoiceKey(k) {
-			continue
-		}
-		// A variable bound to a pool entry tracks that entry, so a rotated
-		// credential reaches the app instead of the copy frozen in the config.
-		if useSharedPool {
-			if src := strings.TrimSpace(appCfg.Development[importChoiceKey(k)]); src != "" {
-				if shared, ok := cfg.PredefinedEnv[src]; ok && strings.TrimSpace(shared) != "" {
-					devVars[k] = shared
-					continue
-				}
+		// A value of the form ${{NAME}} is a reference to a shared variable, so
+		// the app tracks that entry and a rotated credential reaches it rather
+		// than a copy frozen in the config (spec/19-import.md). The reference
+		// itself is never written to .env — the app gets the value.
+		if src, isRef := importRefTarget(v); isRef {
+			if !useSharedPool {
+				continue
 			}
+			if shared, ok := cfg.PredefinedEnv[src]; ok && strings.TrimSpace(shared) != "" {
+				devVars[k] = shared
+			}
+			continue
 		}
 		// Empty-only: a value the user typed always wins, and the pool is never
 		// a source of variables the app does not already declare.
@@ -3012,7 +3009,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	}
 
 	for k := range appCfg.Development {
-		if !seen[k] && !isServiceRuntimeEnvKey(k) && !isImportChoiceKey(k) {
+		if !seen[k] && !isServiceRuntimeEnvKey(k) {
 			vars = append(vars, EnvVar{
 				Name:      k,
 				DevValue:  appCfg.Development[k],
@@ -3022,7 +3019,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		}
 	}
 	for k := range appCfg.Production {
-		if !seen[k] && !isServiceRuntimeEnvKey(k) && !isImportChoiceKey(k) {
+		if !seen[k] && !isServiceRuntimeEnvKey(k) {
 			vars = append(vars, EnvVar{
 				Name:      k,
 				DevValue:  appCfg.Development[k],
@@ -3036,7 +3033,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	// than duplicated: the user resolved it once, and the editor must offer the
 	// pull-down to re-point it, not a second row for the same name.
 	for _, b := range readAppEnvDistBindings(name) {
-		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) || isImportChoiceKey(b.Name) {
+		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
 			continue
 		}
 		res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
@@ -3046,6 +3043,12 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 					vars[i].Imported = true
 					vars[i].Source = res.Source
 					vars[i].Matches = res.Matches
+					// The stored value may be a ${{NAME}} reference, which is
+					// storage, not something to show: the editor renders the
+					// value the app will actually get.
+					if res.Source != "" {
+						vars[i].DevValue = res.Value
+					}
 					break
 				}
 			}
@@ -3100,18 +3103,11 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 
 	devVars := make(map[string]string)
 	prodVars := make(map[string]string)
-	// The recorded pool choices are bookkeeping the editor never sees, so they
-	// would be dropped by a save that rebuilds the map from the posted rows.
-	for k, v := range wsCfg.Apps[name].Development {
-		if isImportChoiceKey(k) {
-			devVars[k] = v
-		}
-	}
 	for _, v := range req.Vars {
 		if v.Name == "" {
 			continue
 		}
-		if isServiceRuntimeEnvKey(v.Name) || isImportChoiceKey(v.Name) {
+		if isServiceRuntimeEnvKey(v.Name) {
 			continue
 		}
 		// The env editor holds only variables that have a value. A blank one is

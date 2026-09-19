@@ -103,21 +103,40 @@ Precedence, in `resolveOneImport`:
 
 ### Where the choice is recorded
 
-In the app config, under the reserved prefix `__TRUSTABLE_IMPORT__<NAME>` — not
-in `.env.dist`.
+As a **reference in the variable's own value**, in the app config:
 
-`.env.dist` is committed, and the choice is **installation-specific**: the same
-repo on another machine has a different set of producers installed, so exporting
-the choice would hand a clone a binding naming a producer it does not have.
+```json
+"development": { "EXT_URL": "${{BILLING__POSTGRESDB}}" }
+```
 
-These keys are bookkeeping, not variables, and are filtered out of everything
-that sees the development map: `.env` generation, the env editor, and the
-`.env.dist` contract. Writing one into `.env` would hand the app a stray variable
-whose value is the name of another variable.
+Not in `.env.dist`: that file is committed, and the choice is
+**installation-specific** — the same repo on another machine has a different set
+of producers installed, so exporting the choice would hand a clone a binding
+naming a producer it does not have.
 
-A save from the env editor rebuilds the development map from the posted rows, so
-`handlePostAppConfig` carries these keys over explicitly — dropping them would
-unbind every wildcard import.
+**The value is the binding.** There is no second entry recording which producer
+was chosen, which means there is nothing to hide from `.env` generation, from the
+env editor, or from a save that rebuilds the map from the posted rows. One
+variable, one entry. A sidecar key would have been bookkeeping living in a map
+that is also read as the app's variables, so it would have had to be filtered out
+of all three, and carried over explicitly by `handlePostAppConfig` or every
+wildcard import would unbind on the next save.
+
+`${{...}}` rather than `${...}`: the single-brace form is shell syntax, and these
+values are written into a `.env` file a shell may source.
+
+A value is a reference only when the **whole** value is one — `importRefTarget`
+rejects `prefix ${{X}} suffix` — so an app can still hold a literal string that
+merely contains the delimiters.
+
+Consequences that fall out of this, rather than being implemented separately:
+
+- **A literal override just overwrites the reference.** Typing a value replaces
+  the binding, because they occupy the same slot.
+- **The reference never reaches `.env`.** `generateAppEnvFiles` resolves it and
+  writes the value; the app receives a secret, never a `${{...}}` string.
+- **The env editor shows the resolved value**, not the reference: the stored form
+  is storage, and the row renders what the app will actually get.
 
 ## Launching resolves every variable
 

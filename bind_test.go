@@ -190,10 +190,7 @@ func TestResolveImports(t *testing.T) {
 // instead of the copy frozen in the config.
 func TestResolveImportsRecordedChoiceTracksPool(t *testing.T) {
 	bindTestApp(t,
-		map[string]string{
-			"MANY":                  "postgres://stale",
-			importChoiceKey("MANY"): "BILLING__POSTGRESDB",
-		},
+		map[string]string{"MANY": importRef("BILLING__POSTGRESDB")},
 		map[string]string{
 			"APPSUITE__POSTGRESDB": "postgres://appsuite",
 			"BILLING__POSTGRESDB":  "postgres://billing-rotated",
@@ -216,10 +213,7 @@ func TestResolveImportsRecordedChoiceTracksPool(t *testing.T) {
 // would silently point the app at a different database.
 func TestResolveImportsStaleChoiceRepends(t *testing.T) {
 	bindTestApp(t,
-		map[string]string{
-			"MANY":                  "postgres://stale",
-			importChoiceKey("MANY"): "GONE__POSTGRESDB",
-		},
+		map[string]string{"MANY": importRef("GONE__POSTGRESDB")},
 		map[string]string{
 			"APPSUITE__POSTGRESDB": "postgres://appsuite",
 			"BILLING__POSTGRESDB":  "postgres://billing",
@@ -289,11 +283,8 @@ func TestApplyImportChoices(t *testing.T) {
 		t.Fatalf("load config: %s", err)
 	}
 	dev := cfg.Apps["demo"].Development
-	if dev["MANY"] != "postgres://billing" {
-		t.Errorf("value = %q, want the chosen producer's", dev["MANY"])
-	}
-	if dev[importChoiceKey("MANY")] != "BILLING__POSTGRESDB" {
-		t.Errorf("choice = %q, want it recorded", dev[importChoiceKey("MANY")])
+	if dev["MANY"] != importRef("BILLING__POSTGRESDB") {
+		t.Errorf("stored value = %q, want a reference to the chosen producer", dev["MANY"])
 	}
 
 	pending, err := pendingImports("demo")
@@ -325,7 +316,7 @@ func TestApplyImportChoicesRejectsUnknownSource(t *testing.T) {
 // it would resurrect the pool value on the next launch.
 func TestApplyImportChoicesLiteralClearsRecordedChoice(t *testing.T) {
 	bindTestApp(t,
-		map[string]string{importChoiceKey("MANY"): "BILLING__POSTGRESDB"},
+		map[string]string{"MANY": importRef("BILLING__POSTGRESDB")},
 		map[string]string{"BILLING__POSTGRESDB": "postgres://billing"},
 		"MANY=*__POSTGRESDB\n")
 
@@ -338,8 +329,8 @@ func TestApplyImportChoicesLiteralClearsRecordedChoice(t *testing.T) {
 	if dev["MANY"] != "postgres://manual" {
 		t.Errorf("value = %q, want the literal", dev["MANY"])
 	}
-	if _, ok := dev[importChoiceKey("MANY")]; ok {
-		t.Error("the recorded producer must be cleared by a literal override")
+	if _, isRef := importRefTarget(dev["MANY"]); isRef {
+		t.Error("a literal override must replace the reference, not leave it in place")
 	}
 }
 
@@ -390,7 +381,7 @@ func TestSaveImportBindingsRejectsDuplicatesAndServerKeys(t *testing.T) {
 // the name of another variable.
 func TestGenerateAppEnvFilesWritesImportsNotBookkeeping(t *testing.T) {
 	workbenchPath := bindTestApp(t,
-		map[string]string{importChoiceKey("MANY"): "BILLING__POSTGRESDB"},
+		map[string]string{"MANY": importRef("BILLING__POSTGRESDB")},
 		map[string]string{
 			"APPSUITE__REDIS":      "redis://appsuite",
 			"APPSUITE__POSTGRESDB": "postgres://appsuite",
@@ -413,8 +404,9 @@ func TestGenerateAppEnvFilesWritesImportsNotBookkeeping(t *testing.T) {
 	if !strings.Contains(env, "MANY=postgres://billing") {
 		t.Errorf("chosen import missing from .env:\n%s", env)
 	}
-	if strings.Contains(env, importChoicePrefix) {
-		t.Errorf("bookkeeping key leaked into .env:\n%s", env)
+	// The reference is storage, not a value: the app gets the resolved secret.
+	if strings.Contains(env, importRefOpen) {
+		t.Errorf("a reference leaked into .env instead of its value:\n%s", env)
 	}
 }
 
@@ -486,7 +478,74 @@ func TestImportsEndpointRoundTrip(t *testing.T) {
 	if !strings.Contains(string(env), "EXT_URL=postgres://billing") {
 		t.Fatalf(".env = %s", env)
 	}
-	if strings.Contains(string(env), "__TRUSTABLE_IMPORT__") {
-		t.Fatalf("bookkeeping leaked: %s", env)
+	if strings.Contains(string(env), importRefOpen) {
+		t.Fatalf("a reference leaked into .env instead of its value: %s", env)
+	}
+}
+
+// The reference is the whole value or it is not one: an app must be able to hold
+// a literal string that merely contains the delimiters.
+func TestImportRefTarget(t *testing.T) {
+	for _, tc := range []struct {
+		value  string
+		target string
+		isRef  bool
+	}{
+		{"${{APPSUITE__POSTGRESDB}}", "APPSUITE__POSTGRESDB", true},
+		{"  ${{APPSUITE__POSTGRESDB}}  ", "APPSUITE__POSTGRESDB", true},
+		{"${{ APPSUITE__POSTGRESDB }}", "APPSUITE__POSTGRESDB", true},
+		{"postgres://user:pass@host/db", "", false},
+		{"", "", false},
+		{"${{}}", "", false},
+		// Single braces are shell syntax, not ours.
+		{"${APPSUITE__POSTGRESDB}", "", false},
+		// A value that merely embeds one is a literal, not a reference.
+		{"prefix ${{X}} suffix", "", false},
+		{"${{X}}${{Y}}", "", false},
+	} {
+		target, isRef := importRefTarget(tc.value)
+		if isRef != tc.isRef || target != tc.target {
+			t.Errorf("importRefTarget(%q) = (%q, %v), want (%q, %v)",
+				tc.value, target, isRef, tc.target, tc.isRef)
+		}
+	}
+
+	// Round trip.
+	if target, isRef := importRefTarget(importRef("A__B")); !isRef || target != "A__B" {
+		t.Errorf("round trip failed: (%q, %v)", target, isRef)
+	}
+}
+
+// A reference is a value like any other, so it survives an env-editor save and
+// keeps resolving afterwards. This is what the two-key scheme needed special
+// handling for.
+func TestReferenceSurvivesEnvEditorSave(t *testing.T) {
+	bindTestApp(t,
+		map[string]string{"MANY": importRef("BILLING__POSTGRESDB")},
+		map[string]string{"BILLING__POSTGRESDB": "postgres://billing"},
+		"MANY=*__POSTGRESDB\n")
+
+	// What the editor renders is the resolved value, not the reference.
+	rec := httptest.NewRecorder()
+	handleGetAppConfig(rec, httptest.NewRequest("GET", "/api/appconfig/demo", nil),
+		"demo", filepath.Join(WorkspaceDir, "workspace", "demo"))
+	var shown AppEnvConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &shown); err != nil {
+		t.Fatalf("decode: %s", err)
+	}
+	var row *EnvVar
+	for i := range shown.Vars {
+		if shown.Vars[i].Name == "MANY" {
+			row = &shown.Vars[i]
+		}
+	}
+	if row == nil {
+		t.Fatal("MANY missing from the editor")
+	}
+	if row.DevValue != "postgres://billing" {
+		t.Errorf("editor shows %q, want the resolved value", row.DevValue)
+	}
+	if !row.Imported || row.Source != "BILLING__POSTGRESDB" {
+		t.Errorf("row = %+v, want it marked imported with its source", row)
 	}
 }

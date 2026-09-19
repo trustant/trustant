@@ -224,24 +224,46 @@ func matchWildcard(pattern, name string) bool {
 	return strings.HasSuffix(rest, parts[last]) && len(rest) >= len(parts[last])
 }
 
-// importChoiceKey is where a wildcard's chosen pool name is recorded: in the
-// app's development map, under a reserved prefix.
+// A wildcard's chosen producer is recorded as a REFERENCE in the variable's own
+// value, not as a second entry beside it:
+//
+//	"EXT_URL": "${{BILLING__POSTGRESDB}}"
+//
+// The value is the binding, so there is no bookkeeping key to hide from .env
+// generation, from the env editor, or from a save that rebuilds the map from the
+// posted rows. One variable, one entry.
 //
 // WHY the app config and not .env.dist: .env.dist is committed, and the choice
 // is installation-specific. The same repo on another machine has a different set
 // of producers installed, so exporting the choice would hand a clone a binding
 // that names a producer it does not have.
-const importChoicePrefix = "__TRUSTABLE_IMPORT__"
+//
+// `${{...}}` rather than `${...}`: the single-brace form is shell syntax, and
+// these values are written into a .env file that a shell may well source.
+const (
+	importRefOpen  = "${{"
+	importRefClose = "}}"
+)
 
-func importChoiceKey(name string) string {
-	return importChoicePrefix + name
+// importRef renders a reference to a pool entry.
+func importRef(source string) string {
+	return importRefOpen + source + importRefClose
 }
 
-// isImportChoiceKey reports whether a config entry is bookkeeping rather than a
-// variable. These are filtered out of everything the user or the app sees: the
-// env editor, .env generation, and the .env.dist contract.
-func isImportChoiceKey(name string) bool {
-	return strings.HasPrefix(name, importChoicePrefix)
+// importRefTarget returns the pool name a value refers to, and whether it is a
+// reference at all. A value that merely contains the delimiters somewhere is not
+// one: the whole value must be the reference, or an app could not hold a literal
+// string that happens to look like one.
+func importRefTarget(value string) (string, bool) {
+	v := strings.TrimSpace(value)
+	if !strings.HasPrefix(v, importRefOpen) || !strings.HasSuffix(v, importRefClose) {
+		return "", false
+	}
+	inner := strings.TrimSpace(v[len(importRefOpen) : len(v)-len(importRefClose)])
+	if inner == "" || strings.Contains(inner, importRefOpen) {
+		return "", false
+	}
+	return inner, true
 }
 
 // resolveImports answers, for every variable the app has, what it will be set to
@@ -266,7 +288,7 @@ func resolveImports(appName string) ([]ImportResolution, error) {
 	declared := make(map[string]bool)
 
 	for _, b := range readAppEnvDistBindings(appName) {
-		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) || isImportChoiceKey(b.Name) {
+		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
 			continue
 		}
 		declared[b.Name] = true
@@ -277,7 +299,7 @@ func resolveImports(appName string) ([]ImportResolution, error) {
 	// that every variable ends up with a value, so it has to show them too.
 	var plain []string
 	for name, value := range dev {
-		if declared[name] || isImportChoiceKey(name) || isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
+		if declared[name] || isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
 			continue
 		}
 		plain = append(plain, name)
@@ -304,23 +326,22 @@ func resolveOneImport(b EnvBinding, dev, pool map[string]string) ImportResolutio
 		res.Matches = matchPoolVariables(b.Pattern, pool)
 	}
 
-	// A value typed by hand is the escape hatch for a producer that is not
-	// installed here, so it outranks the pool.
 	if v := strings.TrimSpace(dev[b.Name]); v != "" {
-		if choice := strings.TrimSpace(dev[importChoiceKey(b.Name)]); choice != "" {
-			// The value came from a pool entry. If that entry is still present the
-			// binding tracks it, so a rotated credential is picked up rather than
-			// the stale copy in the config.
+		if choice, isRef := importRefTarget(v); isRef {
+			// The value is a reference, so the binding tracks its producer: a
+			// rotated credential is picked up rather than a stale copy.
 			if poolValue, ok := pool[choice]; ok {
 				res.Source, res.Value = choice, poolValue
 				return res
 			}
-			// The recorded producer is gone. Re-pend rather than keep serving a
+			// The referenced producer is gone. Re-pend rather than keep serving a
 			// value from a producer that no longer exists — silently falling back
 			// to another match would point the app at a different database.
 			res.Pending = true
 			return res
 		}
+		// A literal value typed by hand is the escape hatch for a producer that
+		// is not installed here, so it outranks the pool.
 		res.Value = v
 		return res
 	}
@@ -332,13 +353,6 @@ func resolveOneImport(b EnvBinding, dev, pool map[string]string) ImportResolutio
 		}
 		res.Pending = true
 		return res
-	}
-
-	if choice := strings.TrimSpace(dev[importChoiceKey(b.Name)]); choice != "" {
-		if v, ok := pool[choice]; ok {
-			res.Source, res.Value = choice, v
-			return res
-		}
 	}
 
 	// Exactly one match needs no decision; zero or several do.
@@ -379,20 +393,12 @@ func applyImportChoices(appName string, choices map[string]string, literals map[
 	if err != nil {
 		return err
 	}
-	for name, source := range choices {
+	for _, source := range choices {
 		if strings.TrimSpace(source) == "" {
 			continue
 		}
 		if _, ok := cfg.PredefinedEnv[source]; !ok {
 			return fmt.Errorf("shared variable %q does not exist", source)
-		}
-		if isImportChoiceKey(name) {
-			return fmt.Errorf("invalid variable name %q", name)
-		}
-	}
-	for name := range literals {
-		if isImportChoiceKey(name) {
-			return fmt.Errorf("invalid variable name %q", name)
 		}
 	}
 
@@ -411,21 +417,20 @@ func applyImportChoices(appName string, choices map[string]string, literals map[
 		appCfg.Development = make(map[string]string)
 	}
 
+	// The reference IS the value, so choosing a producer and typing a literal are
+	// the same write. A literal simply replaces the reference, which is how an
+	// override stops tracking the pool.
 	for name, source := range choices {
 		source = strings.TrimSpace(source)
 		if source == "" {
 			continue
 		}
-		appCfg.Development[importChoiceKey(name)] = source
-		appCfg.Development[name] = cfg.PredefinedEnv[source]
+		appCfg.Development[name] = importRef(source)
 	}
 	for name, value := range literals {
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		// A literal replaces any recorded pool choice: the user is overriding the
-		// binding, and leaving the old source would resurrect it on the next launch.
-		delete(appCfg.Development, importChoiceKey(name))
 		appCfg.Development[name] = value
 	}
 
@@ -558,7 +563,7 @@ func saveImportBindings(app string, bindings []EnvBinding) error {
 		if seen[name] {
 			return fmt.Errorf("duplicate variable %q", name)
 		}
-		if isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) || isImportChoiceKey(name) {
+		if isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
 			return fmt.Errorf("%q is supplied by the server and cannot be imported", name)
 		}
 		// The disjunction. A name that already has a value is owned by the env

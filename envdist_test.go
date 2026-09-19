@@ -256,17 +256,19 @@ func TestPostAppConfigAllowsBlankImportRow(t *testing.T) {
 	}
 }
 
-// A save rebuilds the development map from the posted rows, but the recorded
-// pool choices are bookkeeping the editor never sees. Dropping them would unbind
-// every wildcard import on the next save.
+// A save rebuilds the development map from the posted rows. The binding is the
+// variable's own value, so it travels with its row and survives — there is no
+// sidecar entry for the editor to drop.
 func TestPostAppConfigPreservesImportChoices(t *testing.T) {
 	envDistTestApp(t, "demo", map[string]string{
-		"ALPHA":                    "a",
-		importChoiceKey("EXT_URL"): "APPSUITE__POSTGRESDB",
+		"ALPHA": "a",
 	}, nil)
 
 	body, err := json.Marshal(map[string]interface{}{
-		"vars": []EnvVar{{Name: "ALPHA", DevValue: "a2"}},
+		"vars": []EnvVar{
+			{Name: "ALPHA", DevValue: "a2"},
+			{Name: "EXT_URL", DevValue: importRef("APPSUITE__POSTGRESDB")},
+		},
 	})
 	if err != nil {
 		t.Fatalf("marshal: %s", err)
@@ -282,7 +284,7 @@ func TestPostAppConfigPreservesImportChoices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %s", err)
 	}
-	if got := cfg.Apps["demo"].Development[importChoiceKey("EXT_URL")]; got != "APPSUITE__POSTGRESDB" {
-		t.Fatalf("import choice = %q, want it preserved", got)
+	if got := cfg.Apps["demo"].Development["EXT_URL"]; got != importRef("APPSUITE__POSTGRESDB") {
+		t.Fatalf("stored value = %q, want the reference preserved", got)
 	}
 }

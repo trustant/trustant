@@ -453,8 +453,11 @@ arrives with no value, and the popup is what fills it.
 
 The refusal is **total** — one bad row writes nothing, so a partial save can
 never leave the two files overlapping. Rows with an empty **name** are still
-discarded silently, and the `__TRUSTABLE_IMPORT__*` bookkeeping keys are carried
-over verbatim rather than being rebuilt from the posted rows.
+discarded silently.
+
+A variable bound to a shared variable stores a `${{NAME}}` **reference** as its
+value (see [19-import.md](19-import.md)). Because the binding *is* the value, it
+travels with its own row and needs no special handling here.
 
 ## Shared variables (`predefined_env`)
 
