@@ -605,16 +605,18 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// A cloned repo declares its required variables in .env.dist. Seed the ones we
-	// cannot populate as empty entries and report them, so the UI can open the env
-	// editor immediately rather than letting the user discover them at launch.
+	// A cloned repo declares what it imports in .env.dist. Report the ones the pool
+	// cannot resolve, so the UI can open the Import tab immediately rather than
+	// letting the user discover them at launch. Nothing is seeded into the app
+	// config: an unresolved import belongs to .env.dist, and the env editor holds
+	// only variables that have a value (spec/19-import.md).
 	var missingEnv []string
-	if _, err := seedMissingEnvKeys(req.Name); err != nil {
-		log.Printf("Warning: failed to seed env keys from .env.dist: %s", err)
-	} else if missing, err := missingAppEnvKeys(req.Name); err != nil {
-		log.Printf("Warning: failed to check missing env keys: %s", err)
+	if pending, err := pendingImports(req.Name); err != nil {
+		log.Printf("Warning: failed to resolve imports: %s", err)
 	} else {
-		missingEnv = missing
+		for _, r := range pending {
+			missingEnv = append(missingEnv, r.Name)
+		}
 	}
 
 	// Return the created application with optional warning

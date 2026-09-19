@@ -138,7 +138,7 @@ type trustableConfig struct {
 	// Configure page. It is NEVER applied to an application on its own: the only
 	// path into an app is the "Use predefined values" button in the
 	// missing-variables editor, followed by an explicit save. Nothing here is an
-	// input to generateAppEnvFiles or missingAppEnvKeys — a predefined value that
+	// input to generateAppEnvFiles or pendingImports — a predefined value that
 	// silently satisfied a required key would reach the app without the user ever
 	// seeing it. See spec/2a-config.md.
 	// PredefinedEnv is the workspace-wide pool the Configure page calls "Shared
@@ -2702,6 +2702,16 @@ type EnvVar struct {
 	ProdValue string `json:"prod_value"`
 	Readonly  bool   `json:"readonly,omitempty"`
 	Fixed     bool   `json:"fixed,omitempty"`
+	// Imported marks a variable whose value comes from the shared pool via a
+	// .env.dist binding. The editor renders it with the pull-down below rather
+	// than a plain text field, so it can be re-pointed at another producer.
+	// See spec/19-import.md.
+	Imported bool `json:"imported,omitempty"`
+	// Source is the pool entry currently feeding an imported variable, and
+	// Matches the pool entries its pattern allows. Both are derived state,
+	// ignored on POST.
+	Source  string   `json:"source,omitempty"`
+	Matches []string `json:"matches,omitempty"`
 }
 
 // AppEnvConfig represents the full env configuration for an app
@@ -2768,193 +2778,6 @@ func isEnvDistFixedKey(name string) bool {
 	return false
 }
 
-// appEnvVarNames returns the app's development and production variable names,
-// sorted so the committed .env.dist has a stable diff regardless of Go's map
-// iteration order. Server-supplied keys are omitted: .env.dist declares only what
-// the user must actually provide.
-func appEnvVarNames(appCfg *AppConfig) []string {
-	seen := make(map[string]bool)
-	var names []string
-	for _, set := range []map[string]string{appCfg.Development, appCfg.Production} {
-		for k := range set {
-			if k == "" || seen[k] || isEnvDistFixedKey(k) || isServiceRuntimeEnvKey(k) {
-				continue
-			}
-			seen[k] = true
-			names = append(names, k)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
-// writeEnvDistFile writes the committed key manifest: every variable name with
-// an empty value. Values are never copied — .env.dist is committed to git, so a
-// secret leaking in here would be published. It reports whether the file changed
-// so the caller can skip both the rewrite and the commit on a no-op launch.
-func writeEnvDistFile(path string, names []string) (bool, error) {
-	// An app whose variables are all server-supplied requires nothing of the
-	// user, so it declares no contract. Committing a zero-byte manifest would
-	// state one anyway; leave the file absent, and remove a stale one left by an
-	// earlier config that did have custom variables.
-	if len(names) == 0 {
-		if err := os.Remove(path); err != nil {
-			if os.IsNotExist(err) {
-				return false, nil
-			}
-			return false, err
-		}
-		return true, nil
-	}
-
-	var b strings.Builder
-	for _, name := range names {
-		b.WriteString(name)
-		b.WriteString("=\n")
-	}
-	content := b.String()
-
-	existing, err := os.ReadFile(path)
-	if err == nil && string(existing) == content {
-		return false, nil
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return false, err
-	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// parseEnvDistNames returns the variable names declared by a .env.dist body, in
-// file order. Only names are meaningful; any value present is ignored.
-func parseEnvDistNames(content string) []string {
-	var names []string
-	seen := make(map[string]bool)
-	for _, rawLine := range strings.Split(content, "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		line = strings.TrimPrefix(line, "export ")
-		eq := strings.Index(line, "=")
-		if eq <= 0 {
-			continue
-		}
-		name := strings.TrimSpace(line[:eq])
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	return names
-}
-
-// readAppEnvDist returns the .env.dist declared by an app, preferring the
-// workbench checkout and falling back to the workspace bare repo so an app that
-// has never been launched can still be inspected. Missing file → nil, no error.
-func readAppEnvDist(appName string) []string {
-	workbenchPath := filepath.Join(WorkbenchDir, appName, ".env.dist")
-	if data, err := os.ReadFile(workbenchPath); err == nil {
-		return parseEnvDistNames(string(data))
-	}
-
-	workspacePath := filepath.Join(WorkspaceDir, "workspace", appName)
-	if _, err := os.Stat(workspacePath); err != nil {
-		return nil
-	}
-	cmd := exec.Command("git", "show", "HEAD:.env.dist")
-	cmd.Dir = workspacePath
-	output, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-	return parseEnvDistNames(string(output))
-}
-
-// missingAppEnvKeys returns the .env.dist keys that have no development value in
-// the merged config for the app. These are the variables a cloned repo declares
-// but this installation has never been given — launch is blocked until they are
-// filled in. Fixed OPS_* keys are excluded: the server supplies them itself.
-func missingAppEnvKeys(appName string) ([]string, error) {
-	names := readAppEnvDist(appName)
-	if len(names) == 0 {
-		return nil, nil
-	}
-
-	cfg, err := loadTrustableConfig()
-	if err != nil {
-		return nil, err
-	}
-	appCfg := cfg.Apps[appName]
-
-	var missing []string
-	for _, name := range names {
-		if isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
-			continue
-		}
-		if appCfg != nil && strings.TrimSpace(appCfg.Development[name]) != "" {
-			continue
-		}
-		// A name the shared pool can fill is about to be supplied by
-		// generateAppEnvFiles, so it is not missing. The launch path refreshes
-		// the pool before this check runs.
-		if strings.TrimSpace(cfg.PredefinedEnv[name]) != "" {
-			continue
-		}
-		missing = append(missing, name)
-	}
-	return missing, nil
-}
-
-// seedMissingEnvKeys inserts every .env.dist key the app does not yet configure
-// into apps.<name>.development with an empty value. WHY empty entries rather
-// than nothing: the env editor renders one row per config entry, so seeding is
-// what makes an undeclared-but-required variable appear as an editable, visibly
-// blank row instead of being invisible. Returns the keys it added.
-func seedMissingEnvKeys(appName string) ([]string, error) {
-	names := readAppEnvDist(appName)
-	if len(names) == 0 {
-		return nil, nil
-	}
-
-	wsCfg, err := loadWorkspaceConfig()
-	if err != nil {
-		return nil, err
-	}
-	if wsCfg.Apps == nil {
-		wsCfg.Apps = make(map[string]*AppConfig)
-	}
-	if wsCfg.Apps[appName] == nil {
-		wsCfg.Apps[appName] = &AppConfig{}
-	}
-	appCfg := wsCfg.Apps[appName]
-	if appCfg.Development == nil {
-		appCfg.Development = make(map[string]string)
-	}
-
-	var seeded []string
-	for _, name := range names {
-		if isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
-			continue
-		}
-		if _, ok := appCfg.Development[name]; ok {
-			continue
-		}
-		appCfg.Development[name] = ""
-		seeded = append(seeded, name)
-	}
-	if len(seeded) == 0 {
-		return nil, nil
-	}
-	if err := saveWorkspaceConfig(wsCfg); err != nil {
-		return nil, err
-	}
-	return seeded, nil
-}
-
 // generateAppEnvFiles writes .env and .env.production for an app in its
 // workbench directory, filling any declared-but-empty variable from the shared
 // pool (see shared.go).
@@ -3011,6 +2834,22 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		if isServiceRuntimeEnvKey(k) {
 			continue
 		}
+		// The recorded pool choice behind a wildcard import is bookkeeping, not a
+		// variable: writing it into .env would hand the app a stray name whose
+		// value is the name of another variable (spec/19-import.md).
+		if isImportChoiceKey(k) {
+			continue
+		}
+		// A variable bound to a pool entry tracks that entry, so a rotated
+		// credential reaches the app instead of the copy frozen in the config.
+		if useSharedPool {
+			if src := strings.TrimSpace(appCfg.Development[importChoiceKey(k)]); src != "" {
+				if shared, ok := cfg.PredefinedEnv[src]; ok && strings.TrimSpace(shared) != "" {
+					devVars[k] = shared
+					continue
+				}
+			}
+		}
 		// Empty-only: a value the user typed always wins, and the pool is never
 		// a source of variables the app does not already declare.
 		if useSharedPool && strings.TrimSpace(v) == "" {
@@ -3019,6 +2858,24 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 			}
 		}
 		devVars[k] = v
+	}
+
+	// Imports declared in .env.dist are variables too: they are not in the config
+	// until the popup resolves them, but an unambiguous one needs no decision and
+	// must reach .env all the same.
+	if useSharedPool {
+		for _, b := range readAppEnvDistBindings(appName) {
+			if _, ok := devVars[b.Name]; ok {
+				continue
+			}
+			if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
+				continue
+			}
+			res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
+			if !res.Pending && strings.TrimSpace(res.Value) != "" {
+				devVars[b.Name] = res.Value
+			}
+		}
 	}
 
 	// Build production env
@@ -3057,17 +2914,11 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		}
 	}
 
-	// .env.dist is the committed counterpart of .env: the variable names a clone
-	// needs, never their values. It is written from the same union so it can
-	// never drift from what the app actually reads.
-	distPath := filepath.Join(workbenchPath, ".env.dist")
-	distChanged, err := writeEnvDistFile(distPath, appEnvVarNames(appCfg))
-	if err != nil {
-		return fmt.Errorf("failed to write .env.dist: %w", err)
-	}
-	if distChanged {
-		commitEnvDist(workbenchPath)
-	}
+	// .env.dist is NOT written here. It is a source file, owned by the Import tab
+	// of the Share dialog (spec/19-import.md): it declares which pool variables
+	// fill this app's variables, and regenerating it from the config would erase
+	// the user's patterns on every launch. The two files are disjoint — .env holds
+	// what has a value, .env.dist what is still to be imported.
 
 	return nil
 }
@@ -3161,7 +3012,7 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 	}
 
 	for k := range appCfg.Development {
-		if !seen[k] && !isServiceRuntimeEnvKey(k) {
+		if !seen[k] && !isServiceRuntimeEnvKey(k) && !isImportChoiceKey(k) {
 			vars = append(vars, EnvVar{
 				Name:      k,
 				DevValue:  appCfg.Development[k],
@@ -3171,13 +3022,44 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		}
 	}
 	for k := range appCfg.Production {
-		if !seen[k] && !isServiceRuntimeEnvKey(k) {
+		if !seen[k] && !isServiceRuntimeEnvKey(k) && !isImportChoiceKey(k) {
 			vars = append(vars, EnvVar{
 				Name:      k,
 				DevValue:  appCfg.Development[k],
 				ProdValue: appCfg.Production[k],
 			})
+			seen[k] = true
 		}
+	}
+
+	// Imported variables. A row already present is annotated in place rather
+	// than duplicated: the user resolved it once, and the editor must offer the
+	// pull-down to re-point it, not a second row for the same name.
+	for _, b := range readAppEnvDistBindings(name) {
+		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) || isImportChoiceKey(b.Name) {
+			continue
+		}
+		res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
+		if seen[b.Name] {
+			for i := range vars {
+				if vars[i].Name == b.Name {
+					vars[i].Imported = true
+					vars[i].Source = res.Source
+					vars[i].Matches = res.Matches
+					break
+				}
+			}
+			continue
+		}
+		vars = append(vars, EnvVar{
+			Name:      b.Name,
+			DevValue:  res.Value,
+			ProdValue: appCfg.Production[b.Name],
+			Imported:  true,
+			Source:    res.Source,
+			Matches:   res.Matches,
+		})
+		seen[b.Name] = true
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -3209,23 +3091,44 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 		wsCfg.Apps[name] = &AppConfig{}
 	}
 
+	// Imports are declared in .env.dist, not here: an import row arrives with the
+	// value the pool gave it, and an unresolved one legitimately has none.
+	importNames := make(map[string]bool)
+	for _, b := range readAppEnvDistBindings(name) {
+		importNames[b.Name] = true
+	}
+
 	devVars := make(map[string]string)
 	prodVars := make(map[string]string)
+	// The recorded pool choices are bookkeeping the editor never sees, so they
+	// would be dropped by a save that rebuilds the map from the posted rows.
+	for k, v := range wsCfg.Apps[name].Development {
+		if isImportChoiceKey(k) {
+			devVars[k] = v
+		}
+	}
 	for _, v := range req.Vars {
 		if v.Name == "" {
 			continue
 		}
-		if isServiceRuntimeEnvKey(v.Name) {
+		if isServiceRuntimeEnvKey(v.Name) || isImportChoiceKey(v.Name) {
 			continue
+		}
+		// The env editor holds only variables that have a value. A blank one is
+		// not an under-specified variable to be carried along: it belongs in
+		// .env.dist, edited in the Import tab, where the pool can fill it. The two
+		// files are disjoint and this is the half that enforces it
+		// (spec/19-import.md).
+		if strings.TrimSpace(v.DevValue) == "" && strings.TrimSpace(v.ProdValue) == "" {
+			if importNames[v.Name] {
+				continue
+			}
+			writeJSONError(w, http.StatusBadRequest,
+				fmt.Sprintf("%q has no value. Give it one, or declare it in the Import tab to take its value from a shared variable.", v.Name))
+			return
 		}
 		if v.DevValue != "" {
 			devVars[v.Name] = v.DevValue
-		} else if !isEnvDistFixedKey(v.Name) {
-			// Keep the key with an empty value rather than dropping it. A required
-			// variable seeded from .env.dist that the user has not filled in yet
-			// must survive a partial save, otherwise it vanishes from the editor
-			// and stops being reported as missing.
-			devVars[v.Name] = ""
 		}
 		if v.ProdValue != "" {
 			prodVars[v.Name] = v.ProdValue

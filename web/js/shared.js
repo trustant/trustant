@@ -84,9 +84,17 @@
         modal.classList.remove('hidden');
         modal.classList.add('flex');
 
-        this.el('Title').textContent = `Share service secrets — ${this.appName}`;
+        this.el('Title').textContent = `Shared variables — ${this.appName}`;
         this.el('Prefix').textContent = varPrefix(this.appName);
         this.el('Error').classList.add('hidden');
+
+        // The Import pane reads .env.dist and the pool; the Export pane reads the
+        // ops config. Both are loaded on open so switching tabs is instant and a
+        // save of either side sees current data.
+        if (this.importEditor) {
+            this.importEditor.load(this.appName);
+        }
+        this.showTab(this.activeTab || 'import');
         this.el('Tree').innerHTML = '<div class="text-xs text-[color:var(--nu-muted)] py-4">Connecting to OpenServerless…</div>';
         this.renderSelection();
 
@@ -235,7 +243,33 @@
         }).join('');
     };
 
+    // showTab switches panes. The two sides write different files, so each tab
+    // saves its own: a single Save that wrote both would make an edit in one tab
+    // an implicit commit of the other.
+    SharedPicker.prototype.showTab = function (tab) {
+        this.activeTab = tab === 'export' ? 'export' : 'import';
+        const panes = { import: this.el('PaneImport'), export: this.el('PaneExport') };
+        const tabs = { import: this.el('TabImport'), export: this.el('TabExport') };
+        Object.keys(panes).forEach((key) => {
+            const active = key === this.activeTab;
+            if (panes[key]) {
+                panes[key].classList.toggle('hidden', !active);
+                panes[key].classList.toggle('flex', active);
+            }
+            if (tabs[key]) {
+                tabs[key].classList.toggle('nu-btn-primary', active);
+                tabs[key].classList.toggle('nu-btn-secondary', !active);
+            }
+        });
+    };
+
     SharedPicker.prototype.save = async function () {
+        if (this.activeTab === 'import') {
+            if (this.importEditor && await this.importEditor.save()) {
+                this.close();
+            }
+            return;
+        }
         const paths = Object.keys(this.selection);
         // Refused here first so the error is immediate; the server refusal is
         // the real gate, and it is total — one bad name writes nothing.
@@ -281,26 +315,63 @@
             <div id="${prefix}Modal" class="hidden fixed inset-0 nu-modal-backdrop items-center justify-center z-50 p-4">
               <div class="nu-modal w-full max-w-5xl max-h-[90vh] flex flex-col">
                 <div class="flex items-center justify-between px-5 py-4 border-b border-[color:var(--nu-border)]">
-                  <h3 id="${prefix}Title" class="text-lg font-semibold">Share service secrets</h3>
+                  <h3 id="${prefix}Title" class="text-lg font-semibold">Shared variables</h3>
                   <button onclick="${globalName}.close()" class="nu-btn nu-btn-secondary nu-btn-compact">Close</button>
                 </div>
-                <div class="px-5 py-3 text-xs text-[color:var(--nu-muted)] border-b border-[color:var(--nu-border)]">
-                  <p>Choose which of this application's service secrets other applications may use.
-                     Each one is stored as <span class="nu-code" id="${prefix}Prefix">APP__</span><span class="nu-code">NAME</span>.</p>
-                  <p class="mt-1">Only names and paths are written to <span class="nu-code">.env.shared</span> and committed —
-                     never the values. They are resolved again on every launch.</p>
+
+                <!-- Import takes variables FROM other applications, Export publishes
+                     them TO other applications. Import is first because consuming is
+                     the common case: most apps use someone else's database, few
+                     publish one. -->
+                <div class="flex gap-1 px-5 pt-3 border-b border-[color:var(--nu-border)]">
+                  <button type="button" id="${prefix}TabImport" onclick="${globalName}.showTab('import')"
+                      class="nu-btn nu-btn-secondary nu-btn-compact rounded-b-none">Import</button>
+                  <button type="button" id="${prefix}TabExport" onclick="${globalName}.showTab('export')"
+                      class="nu-btn nu-btn-secondary nu-btn-compact rounded-b-none">Export</button>
                 </div>
+
                 <div id="${prefix}Error" class="hidden mx-5 mt-3 px-3 py-2 text-xs rounded bg-red-500/10 text-red-500"></div>
-                <div class="flex-1 overflow-hidden grid md:grid-cols-2 gap-4 p-5">
-                  <div class="flex flex-col overflow-hidden">
-                    <div class="text-xs font-semibold mb-2">Service configuration</div>
-                    <div id="${prefix}Tree" class="flex-1 overflow-y-auto nu-card p-2"></div>
+
+                <!-- Export pane -->
+                <div id="${prefix}PaneExport" class="hidden flex-1 flex-col overflow-hidden">
+                  <div class="px-5 py-3 text-xs text-[color:var(--nu-muted)] border-b border-[color:var(--nu-border)]">
+                    <p><strong>Export publishes this application's service secrets to other
+                       applications.</strong> Choose which ones they may use. Each is stored as
+                       <span class="nu-code" id="${prefix}Prefix">APP__</span><span class="nu-code">NAME</span>.</p>
+                    <p class="mt-1">Only names and paths are written to <span class="nu-code">.env.shared</span> and committed —
+                       never the values. They are resolved again on every launch.</p>
                   </div>
-                  <div class="flex flex-col overflow-hidden">
-                    <div class="text-xs font-semibold mb-2">Shared variables</div>
-                    <div id="${prefix}SelectedBody" class="flex-1 overflow-y-auto nu-card p-2"></div>
+                  <div class="flex-1 overflow-hidden grid md:grid-cols-2 gap-4 p-5">
+                    <div class="flex flex-col overflow-hidden">
+                      <div class="text-xs font-semibold mb-2">Service configuration</div>
+                      <div id="${prefix}Tree" class="flex-1 overflow-y-auto nu-card p-2"></div>
+                    </div>
+                    <div class="flex flex-col overflow-hidden">
+                      <div class="text-xs font-semibold mb-2">Exported variables</div>
+                      <div id="${prefix}SelectedBody" class="flex-1 overflow-y-auto nu-card p-2"></div>
+                    </div>
                   </div>
                 </div>
+
+                <!-- Import pane -->
+                <div id="${prefix}PaneImport" class="hidden flex-1 flex-col overflow-hidden">
+                  <div class="px-5 py-3 text-xs text-[color:var(--nu-muted)] border-b border-[color:var(--nu-border)]">
+                    <p><strong>Import takes variables from other applications.</strong> Name a
+                       variable this application needs, and how to find it among the shared
+                       variables other applications export.</p>
+                    <p class="mt-1">Leave the pattern empty to match a shared variable of exactly the
+                       same name, or use <span class="nu-code">*</span> to match a shape —
+                       <span class="nu-code">*__POSTGRESDB</span> matches whichever application
+                       exports it. Written to <span class="nu-code">.env.dist</span> and committed.</p>
+                  </div>
+                  <div id="${prefix}ImportError" class="hidden mx-5 mt-3 px-3 py-2 text-xs rounded bg-red-500/10 text-red-500"></div>
+                  <div class="flex-1 overflow-y-auto p-5">
+                    <div id="${prefix}ImportBody"></div>
+                    <button type="button" onclick="${globalName}.importEditor.add()"
+                        class="nu-btn nu-btn-secondary nu-btn-compact mt-2">Add variable</button>
+                  </div>
+                </div>
+
                 <div class="flex gap-2 px-5 py-4 border-t border-[color:var(--nu-border)]">
                   <button onclick="${globalName}.save()" class="nu-btn nu-btn-primary flex-1">Save</button>
                   <button onclick="${globalName}.close()" class="nu-btn nu-btn-secondary flex-1">Cancel</button>
@@ -308,6 +379,14 @@
               </div>
             </div>`;
         document.body.appendChild(container.firstElementChild);
+
+        // The Import tab is a separate module (bind.js) rendering into this
+        // modal's pane, so the export side stays exactly as it was.
+        if (global.ImportEditor) {
+            picker.importEditor = global.ImportEditor.mount(globalName + 'Import', {
+                prefix: prefix + 'Import'
+            });
+        }
         return picker;
     };
 

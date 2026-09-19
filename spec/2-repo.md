@@ -112,16 +112,16 @@ Return error if fails.
 
 Store the password and initial app config in `<WorkspaceDir>/trustable.json` under `apps.<name>` with empty `development` and `production` maps.
 
-## Seed the variables the cloned repo requires
+## Report the variables the cloned repo cannot resolve
 
-A repo cloned from anywhere declares the variables it needs in `.env.dist` (see
-[2a-config.md](2a-config.md)). After the clone lands, seed every declared key
-that this installation has no value for into `apps.<name>.development` with an
-empty value (`seedMissingEnvKeys`), so it shows up as an editable blank row in
-the env editor rather than being invisible.
+A repo cloned from anywhere declares what it imports in `.env.dist` (see
+[19-import.md](19-import.md)). Nothing is seeded into `apps.<name>.development`
+from it: an unresolved import belongs to `.env.dist`, and the env editor holds
+only variables that have a value.
 
-Report the still-missing keys in the response so the UI can open the env editor
-immediately, instead of letting the user discover them at the first launch:
+Report the ones the shared pool cannot resolve (`pendingImports`) in the response
+so the UI can open the resolution popup immediately, instead of letting the user
+discover them at the first launch:
 
 ```json
 {

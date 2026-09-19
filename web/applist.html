@@ -24,6 +24,7 @@
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
     <script src="js/envtable.js"></script>
+    <script src="js/bind.js"></script>
     <script src="js/shared.js"></script>
     <script src="js/github-account.js"></script>
     <script src="js/xterm.min.js"></script>
@@ -2432,13 +2433,14 @@
                     } else {
                         showCreatingResult('Application "' + name + '" created successfully.', 'success');
                     }
-                    // The clone declared variables we cannot fill in. Open the
-                    // editor now rather than letting them find out at the first
-                    // launch. Nothing to resume: no launch was in flight.
+                    // The clone declares imports this installation cannot resolve.
+                    // Open the popup now rather than letting them find out at the
+                    // first launch. Nothing to resume: no launch was in flight.
                     if (data.missing_env && data.missing_env.length > 0) {
                         hideCreatingModal();
-                        showMissingEnvModal(name, false);
                         loadApps();
+                        importResolver.resumeLaunch = false;
+                        importResolver.open(name);
                         return;
                     }
                 } else {
@@ -2603,6 +2605,16 @@
             sharedPicker.open(name);
         }
 
+        // The launch popup. Confirming writes the values into the app config and
+        // resumes the launch that was blocked, so the user never has to start it
+        // again by hand.
+        ImportResolver.mount('importResolver', {});
+        // Resuming is conditional: the launch path wants the app started once the
+        // values are in, the add path does not — nothing was in flight there.
+        importResolver.onResolved = (name) => {
+            if (importResolver.resumeLaunch) launchApp(name);
+        };
+
         EnvTable.register('missingEnvTable', new EnvTable({
             appName: '',
             tbodyId: 'missingEnvTableBody',
@@ -2747,12 +2759,14 @@
                     window.location.href = 'configure.html?setup=1';
                     return;
                 }
-                // The repo declares variables this installation has no value for.
-                // Nothing was started on the cluster. Swap the launch modal for
-                // the env editor; saving resumes this same launch.
+                // Variables still without a value. Nothing was started on the
+                // cluster. Swap the launch modal for the resolution popup, which
+                // offers the matching shared variables to pick from; confirming
+                // resumes this same launch (spec/19-import.md).
                 if (data.missing_env && data.missing_env.length > 0) {
                     hideLaunchModal();
-                    showMissingEnvModal(name, true);
+                    importResolver.resumeLaunch = true;
+                    importResolver.open(name, data.imports);
                     return;
                 }
                 if (data.error) {

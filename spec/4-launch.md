@@ -90,10 +90,11 @@ runtime setup still happens only when `/api/launch/<name>` is called.
 
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step. After a restart it never does, so this restore — not persistence — is how work reappears.
 
-After a fresh workspace→workbench clone, seed the variables the cloned repo
-declares in `.env.dist` but that this installation has no value for
-(`seedMissingEnvKeys`, see [2a-config.md](2a-config.md)) — before generating the
-`.env` files, so the seeded keys are part of the same generation pass.
+A cloned repo declares what it imports in `.env.dist`. Nothing is seeded into the
+app config from it: an unresolved import belongs to `.env.dist`, and the env
+editor holds only variables that have a value (see
+[19-import.md](19-import.md)). Imports the pool can already resolve are written
+into `.env` by the generation pass that follows.
 
 ## refresh shared variables
 
@@ -109,23 +110,31 @@ resolving here — rather than only when the Share picker saves — is what stop
 consumer being handed a stale secret. Failure is non-fatal: the previous pool
 values stand, and step 3's own login supersedes anything the refresh left behind.
 
-## check required environment variables
+## resolve every variable
 
-After the workbench exists and the `.env` files have been regenerated, but
-**before** `ops ide login`, check for missing development values
-(`missingAppEnvKeys`, see [2a-config.md](2a-config.md)). A variable declared in
-`.env.dist` with no development value cannot be supplied later — the app would
-deploy and fail at runtime.
+**Every variable must end up with a value before the app starts.** After the
+workbench exists and the `.env` files have been regenerated, but **before**
+`ops ide login`, resolve the app's variables (`pendingImports`, see
+[19-import.md](19-import.md)). One without a value cannot be supplied later — the
+app would deploy and fail at runtime.
 
-When the list is non-empty, abort with a structured error and no side effects on
-the runtime: nothing is created on the cluster, no process group is started.
+When anything is still pending, abort with a structured error and no side effects
+on the runtime: nothing is created on the cluster, no process group is started.
 
 ```json
 {
   "error": "Missing required environment variables",
-  "missing_env": ["STRIPE_KEY", "SENTRY_DSN"]
+  "missing_env": ["EXT_POSTGRESQLURL"],
+  "imports": [
+    {"name": "EXT_POSTGRESQLURL", "pattern": "*__POSTGRESDB",
+     "matches": ["APPSUITE__POSTGRESDB", "BILLING__POSTGRESDB"], "pending": true},
+    {"name": "AI_API_KEY", "value": "sk-…", "pending": false}
+  ]
 }
 ```
+
+`imports` carries **every** variable, not only the pending ones, so the popup can
+show the whole picture and let the user re-point a binding that already resolves.
 
 HTTP 200 with an `error` field, matching how the rest of the launch handler
 reports errors to the streaming client.
@@ -140,10 +149,12 @@ check is an interruption inside it, not a second task the user has to start
 again:
 
 1. The user presses Launch.
-2. The workbench is cloned, `.env` / `.env.dist` are generated, and the check runs.
-3. If anything is missing, the launch modal is **replaced in place** by the env
-   editor listing exactly those variables. The user never leaves the page.
-4. On Save, the launch **resumes automatically** — the same launch, continuing
+2. The workbench is cloned, `.env` is generated, and the resolution runs.
+3. If anything is pending, the launch modal is **replaced in place** by the
+   resolution popup, which lists every variable: a wildcard import gets a
+   pull-down of the shared variables it matches, one that matches nothing gets a
+   free-text field. The user never leaves the page.
+4. On Continue, the launch **resumes automatically** — the same launch, continuing
    from where it stopped. No second button, no navigation, no re-press.
 
 The env editor is therefore rendered on

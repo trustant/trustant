@@ -370,50 +370,51 @@ There is no global `env` section: environment variables for an app come only fro
 
 `regenerateAllAppEnvFiles()` iterates all apps and regenerates for each that has a workbench directory.
 
-## .env.dist — the committed key manifest
+## .env.dist — the committed import declaration
 
-`generateAppEnvFiles` also writes `$WORKBENCH_DIR/<name>/.env.dist`, the
-**committed** counterpart of `.env`: it declares which variables the app needs
-**from the user**, so a repo cloned anywhere else can be told what to supply.
+`$WORKBENCH_DIR/<name>/.env.dist` is the **committed** counterpart of `.env`: it
+declares which variables the app needs but does not have values for, so a repo
+cloned anywhere else can be told what to supply.
 
-- Content is the union of the development and production variable names, one
-  `NAME=` per line, sorted alphabetically for a stable diff regardless of Go map
-  iteration order.
-- **Values are always empty.** `.env.dist` is committed and pushed, so no value
-  is ever copied into it — not even one that looks non-secret.
+**It is a source file, not a generated one.** It used to be written by
+`generateAppEnvFiles` from the app's configured variable names on every launch,
+with values blanked. It is now written by the user, through the **Import** tab of
+the Share dialog, and its value field carries a matching pattern against the
+shared pool. The generator is gone — it would erase the user's patterns on every
+launch. See [19-import.md](19-import.md) for the format and the resolution rules.
+
+- One `NAME=PATTERN` per line, in the order the user arranged them. An empty
+  pattern is an exact match by name, which is what every pre-existing `.env.dist`
+  contains, so old files keep working unchanged.
+- **Values are never written here.** The file is committed and pushed; a pattern
+  names a pool entry, it is not a value.
 - The fixed `OPS_*` keys (`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
-  `OPS_SKILLS`) are **excluded**. The server supplies them on every launch from
-  the workspace config, never from user input, so listing them would state a
-  requirement the user is neither able nor ever asked to satisfy. They are not
-  generated into the manifest and are not required when a foreign manifest
-  happens to list them.
+  `OPS_SKILLS`) are **rejected**. The server supplies them on every launch from
+  the workspace config, never from user input, so declaring them would state a
+  requirement the user is neither able nor ever asked to satisfy. They are also
+  ignored when a foreign manifest happens to list them.
 - Keys excluded from `.env` are excluded here too: `isServiceRuntimeEnvKey`
   (currently `MONGODB_URI`).
 - When nothing is left to declare, **no file is written**, and a stale manifest
-  from an earlier config is removed. An app that requires nothing of the user
-  declares no contract; a zero-byte committed file would assert one.
-- `writeEnvDistFile` reports whether the content changed. An unchanged manifest
-  is not rewritten, so a launch that changes nothing leaves the working tree
-  clean. Removing a stale manifest counts as a change, so the deletion is
-  committed like any other.
-- Like `.env`, it is written **only** by the server-side generator. Coding
-  agents and MCP servers must treat it as immutable.
+  is removed. An app that imports nothing declares no contract; a zero-byte
+  committed file would assert one.
+- `writeEnvDistBindings` reports whether the content changed, so an unchanged
+  manifest is not rewritten and the auto-commit is skipped.
 
 ### Auto-commit
 
-When the manifest changes, the server stages and commits it itself
+When the Import tab saves, the server stages and commits the manifest itself
 (`commitEnvDist`), rather than leaving it dirty until the user next saves code.
-The manifest is the contract a clone reads, so it must track the app's variable
-set at all times. This mirrors the managed `.gitignore` commit described in
-[13-gitignore.md](13-gitignore.md) and carries the same constraints:
+The manifest is the contract a clone reads. This mirrors the managed `.gitignore`
+commit described in [13-gitignore.md](13-gitignore.md) and carries the same
+constraints:
 
-- Only when the content actually changed — otherwise every launch would attempt
-  an empty commit.
+- Only when the content actually changed — otherwise every save would attempt an
+  empty commit.
 - Scoped pathspec (`git add -- .env.dist`, `git commit -- .env.dist`): the
   commit contains that one file and never sweeps up the user's dirty work.
 - Best-effort and non-fatal. A missing git identity, a rejecting hook, or a
-  workbench that is not yet a git repository is logged and ignored;
-  `generateAppEnvFiles` still succeeds and the file is still written.
+  workbench that is not yet a git repository is logged and ignored.
 - It never pushes. The commit reaches the workspace bare repo through the
   normal save/push path.
 
@@ -423,43 +424,37 @@ which is what keeps the manifest tracked while the generated secrets stay out.
 
 ## Missing variables
 
-A variable is **missing** when `.env.dist` declares it but the merged config has
-no development value for it. `missingAppEnvKeys(appName)`:
+**Every variable must have a value before the app launches.** A variable is
+unresolved when it has no value of its own and the shared pool cannot supply one
+through its `.env.dist` binding. `pendingImports(appName)` returns them, and the
+launch opens the resolution popup instead of starting the app — see
+[19-import.md](19-import.md) and [4-launch.md](4-launch.md).
 
-1. Reads `.env.dist` from the workbench, falling back to
-   `git show HEAD:.env.dist` in the workspace bare repo so an app that has never
-   been launched can still be inspected. No manifest → no missing keys: an app
-   that declares no contract cannot violate one.
-2. Skips the fixed `OPS_*` keys and `isServiceRuntimeEnvKey` keys. The generator
-   no longer writes them, but a repo cloned from elsewhere may carry a
-   hand-written manifest that lists them; they must still never be treated as
-   required, or the gate would block every launch on values the user cannot
-   provide. The same filter keeps them from being seeded into the editable
-   config, where an empty entry would shadow the generated value.
-3. Treats a key as missing when `apps.<name>.development[key]` is absent or
-   empty after trimming.
-4. Returns the keys in `.env.dist` order.
+Only development values are checked. Production values are a publish-time concern
+and are not gated at launch.
 
-Only development values are checked. Production values are a publish-time
-concern and are not gated at launch.
+`missingAppEnvKeys` and `seedMissingEnvKeys` are **gone**. The latter seeded
+unresolved names into `apps.<name>.development` as empty entries so the env
+editor would render them as blank rows; blank rows are now illegal there.
 
-`seedMissingEnvKeys(appName)` inserts every such key into
-`apps.<name>.development` with an **empty string value** and saves the workspace
-config. The env editor renders one row per config entry, so seeding is what makes
-a declared-but-unset variable appear as an editable blank row instead of being
-invisible. It runs after a clone (`POST /api/repo`, see [2-repo.md](2-repo.md))
-and after the workspace→workbench clone (see [4-launch.md](4-launch.md)), and is
-idempotent.
+### The env editor holds no empty values
 
-### Empty values are preserved
+`POST /api/appconfig/<name>` **refuses** a variable whose development and
+production values are both empty, with 400 and a message naming it. The two files
+are disjoint:
 
-`POST /api/appconfig/<name>` keeps a variable whose name is non-empty even when
-its development and production values are both empty. Dropping empty values —
-as it previously did — would silently delete a seeded row on the next save, so
-an unfilled required variable would vanish from the editor and stop being
-reported as missing. Rows with an empty **name** are still discarded, and the
-fixed `OPS_*` keys are never stored as empty development entries because the
-server regenerates them.
+| | `.env` (Env editor) | `.env.dist` (Import tab) |
+|---|---|---|
+| holds | variables **with a value** | variables **to be imported** |
+| rejects | empty values | a name already valued in `.env` |
+
+A row declared in `.env.dist` is exempt: an unresolved import legitimately
+arrives with no value, and the popup is what fills it.
+
+The refusal is **total** — one bad row writes nothing, so a partial save can
+never leave the two files overlapping. Rows with an empty **name** are still
+discarded silently, and the `__TRUSTABLE_IMPORT__*` bookkeeping keys are carried
+over verbatim rather than being rebuilt from the posted rows.
 
 ## Shared variables (`predefined_env`)
 
@@ -490,12 +485,12 @@ The pool is an input to `.env` generation, but a **narrow** one:
 - The pool is **never a source of new variables**. An app that does not name a
   pool variable never sees it, so an app's `.env` stays what its own config
   declares.
-- `missingAppEnvKeys` consults the pool for the same reason: a declared name the
+- `pendingImports` consults the pool for the same reason: a declared name the
   pool can satisfy is about to be filled, so it is not missing and must not block
   the launch. The launch path refreshes the pool *before* this check.
-- `seedMissingEnvKeys` still seeds an **empty** string. The empty value is
-  exactly what marks a variable as pool-supplied, and it is what makes the row
-  visible in the env editor.
+- A name declared in `.env.dist` and resolvable from the pool reaches `.env`
+  without ever entering the app config — see [19-import.md](19-import.md).
+  Nothing is seeded into the config as an empty row any more.
 
 The **Add from shared** button in the env editor is how a user adds a pool name
 an app does not yet declare. An app-produced name is added with an empty value

@@ -1229,15 +1229,6 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 			return
 		}
 
-		// A repo cloned from anywhere declares its variables in .env.dist. Seed the
-		// ones this installation has no value for as empty config entries, so they
-		// surface as blank rows in the env editor instead of being invisible.
-		if seeded, err := seedMissingEnvKeys(app); err != nil {
-			log.Printf("Warning: failed to seed env keys from .env.dist: %s", err)
-		} else if len(seeded) > 0 {
-			log.Printf("Seeded %d env keys from .env.dist for %s: %v", len(seeded), app, seeded)
-		}
-
 		// Generate .env and .env.production from config
 		if err := generateAppEnvFiles(app); err != nil {
 			log.Printf("Warning: failed to generate workbench .env: %s", err)
@@ -1273,18 +1264,31 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// handed a stale secret. Logs back in as this app afterwards. Non-fatal.
 	refreshSharedPool(app)
 
-	// Gate: a variable the repo declares in .env.dist but that has no development
-	// value cannot be supplied later — the app would deploy and fail at runtime.
-	// Abort before ops ide login so nothing is touched on the cluster, and hand
-	// the frontend the key list so it can open the env editor on them.
-	// Development values only: production is a publish-time concern.
-	if missing, err := missingAppEnvKeys(app); err != nil {
-		log.Printf("Warning: failed to check missing env keys for %s: %s", app, err)
-	} else if len(missing) > 0 {
-		log.Printf("Launch of %s blocked, missing env values: %v", app, missing)
+	// Gate: every variable must end up with a value before the app starts, or it
+	// would deploy and fail at runtime. Abort before ops ide login so nothing is
+	// touched on the cluster, and hand the frontend the full resolution so it can
+	// open the popup: an exact import shows its pool value, a wildcard shows the
+	// matching pool names to choose from, and one that matches nothing gets a
+	// free-text field. Development values only: production is a publish-time
+	// concern. The pool refresh above must have run first, or a variable about to
+	// be filled would look unresolved. See spec/19-import.md.
+	if pending, err := pendingImports(app); err != nil {
+		log.Printf("Warning: failed to resolve imports for %s: %s", app, err)
+	} else if len(pending) > 0 {
+		all, err := resolveImports(app)
+		if err != nil {
+			log.Printf("Warning: failed to resolve imports for %s: %s", app, err)
+			all = pending
+		}
+		names := make([]string, 0, len(pending))
+		for _, r := range pending {
+			names = append(names, r.Name)
+		}
+		log.Printf("Launch of %s blocked, unresolved variables: %v", app, names)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":       "Missing required environment variables",
-			"missing_env": missing,
+			"missing_env": names,
+			"imports":     all,
 		})
 		return
 	}

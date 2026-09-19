@@ -52,21 +52,22 @@ real committed content, and revert must be free to restore them from HEAD.
 
 # The .env.dist commit
 
-`.env.dist` is the one generated file that stays **tracked**: it declares which
-variables an app needs **from the user**, with no values, so a clone knows what
-to supply (see [2a-config.md](2a-config.md)). The server-supplied `OPS_*` keys
-are excluded from it, so an app with no custom variables has no manifest at all.
-The `!.env.dist` negation above is what keeps it out of the `.env` ignore rule.
+`.env.dist` stays **tracked**: it declares what an app imports from the shared
+pool, with patterns rather than values, so a clone knows what to supply (see
+[19-import.md](19-import.md)). It is **not** a generated file — the user writes
+it in the Import tab of the Share dialog. The server-supplied `OPS_*` keys are
+rejected from it, so an app that imports nothing has no manifest at all. The
+`!.env.dist` negation above is what keeps it out of the `.env` ignore rule.
 
-`commitEnvDist` stages and commits it as soon as the generator changes it,
-rather than leaving it dirty until the user next saves code — the manifest is a
-contract, so it must track the app's variable set at all times. It follows the
-same rules as the managed-`.gitignore` commit:
+`commitEnvDist` stages and commits it as soon as the Import tab saves, rather
+than leaving it dirty until the user next saves code — the manifest is a
+contract, so it must travel with the repo. It follows the same rules as the
+managed-`.gitignore` commit:
 
-- Called **only** when `writeEnvDistFile` reports the content changed, so a
-  launch that changes nothing produces no commit. Removing a stale manifest (the
-  app's last custom variable was deleted) also counts as a change; `git add`
-  stages the deletion and it is committed like any other.
+- Called **only** when `writeEnvDistBindings` reports the content changed, so a
+  save that changes nothing produces no commit. Removing a stale manifest (the
+  app's last import was deleted) also counts as a change; `git add` stages the
+  deletion and it is committed like any other.
 - Scoped pathspec on both `git add` and `git commit`: the commit contains
   `.env.dist` alone and never picks up the user's dirty files.
 - Best-effort and non-fatal — a missing identity, a rejecting hook, or a

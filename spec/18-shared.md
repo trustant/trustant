@@ -120,10 +120,20 @@ a failed login leaves the previous pool value in place and logs the name.
 
 ## Consuming
 
+This is the **import** side, and it has its own document:
+[19-import.md](19-import.md). This section covers only how a consumed value
+reaches `.env`; the declaration format, wildcard matching and the launch popup
+live there.
+
 App B resolves nothing. It declares `APPSUITE__POSTGRES_URL` among its own
-variables — through **Add from shared**, or because its `.env.dist` lists it —
+variables — through **Add from shared**, or because its `.env.dist` imports it —
 and `generateAppEnvFiles` fills any declared variable whose value is **empty**
 from the pool.
+
+An import need not name the pool entry literally: `.env.dist` may bind a
+variable to a **shape**, `EXT_POSTGRESQLURL=*__POSTGRESDB`, and the user picks
+which producer feeds it. That indirection is what lets a consumer keep its own
+vocabulary instead of adopting the producer's.
 
 Two rules make this safe:
 
@@ -133,10 +143,10 @@ Two rules make this safe:
 
 This narrows, rather than drops, the rule in
 [2a-config.md](2a-config.md) that the palette is never an input to
-`generateAppEnvFiles`. `missingAppEnvKeys` consults the pool for the same
-reason: a name the pool can satisfy is not missing, and the launch gate must not
-block on a variable that is about to be filled. Ordering matters — the refresh
-runs before the gate.
+`generateAppEnvFiles`. `pendingImports` consults the pool for the same reason: a
+name the pool can satisfy is not missing, and the launch gate must not block on a
+variable that is about to be filled. Ordering matters — the refresh runs before
+the gate.
 
 **Add from shared** imports a variable **whole** — the name and the value it has
 in the pool, app-produced entries included. After the import the app's row holds
@@ -272,7 +282,10 @@ already own; the UI masks them on screen with a per-row reveal instead.
 
 **Share** is on the app list, per app, right after **Env** — the pool it writes
 into is workspace-wide, and the app.html modal is a glance at what the running
-app got, not a second place to edit it. One `SharedPicker` instance is mounted
+app got, not a second place to edit it. The dialog has **two tabs**: **Import**
+(what this app takes from others, [19-import.md](19-import.md)) and **Export**
+(what it publishes, this document). Each tab saves its own file, so an edit in
+one is never an implicit commit of the other. One `SharedPicker` instance is mounted
 and re-pointed by `openSharedPicker(name)` before opening, because the page
 lists many apps.
 
