@@ -278,22 +278,36 @@ func TestApplyPredefinedFillRuleIsConservative(t *testing.T) {
 	}
 }
 
-// The applist modal is the "screen that appears when there are variables
-// missing" the feature targets.
-func TestMissingEnvModalOffersPredefinedValues(t *testing.T) {
+// The "screen that appears when there are variables missing" is now the import
+// resolution popup (spec/19-import.md), and it offers the shared pool directly:
+// a variable that matches shared variables gets a pull-down of them, which is
+// what the old "Use predefined values" button approximated. The guard follows
+// the feature to its current home.
+func TestMissingEnvScreenOffersSharedValues(t *testing.T) {
 	page, err := os.ReadFile("web/applist.html")
 	if err != nil {
 		t.Fatalf("read applist.html: %s", err)
 	}
 	source := string(page)
-	if !strings.Contains(source, `id="missingEnvPredefinedBtn"`) {
-		t.Error("the missing-variables modal has no 'Use predefined values' button")
+	if !strings.Contains(source, "importResolver.open(") {
+		t.Error("the launch gate no longer opens the resolution popup")
 	}
-	if !strings.Contains(source, "missingEnvTable.applyPredefined(") {
-		t.Error("the button does not apply predefined values to the table")
+	if !strings.Contains(source, "importResolver.resumeLaunch = true") {
+		t.Error("resolving must resume the launch it interrupted")
 	}
-	if !strings.Contains(source, "/api/predefined-env") {
-		t.Error("the modal never reads the predefined variables")
+
+	resolver, err := os.ReadFile("web/js/bind.js")
+	if err != nil {
+		t.Fatalf("read bind.js: %s", err)
+	}
+	code := string(resolver)
+	if !strings.Contains(code, "setChoice(") || !strings.Contains(code, "<select") {
+		t.Error("a matching variable must be offered as a pull-down of shared variables")
+	}
+	// Without a free-text fallback an app whose producer is not installed here
+	// could never be launched.
+	if !strings.Contains(code, "setValue(") {
+		t.Error("a variable matching nothing must still be fillable by hand")
 	}
 }
 

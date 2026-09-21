@@ -236,34 +236,36 @@ Clicking on the button back will:
   - invoke the DELETE /api/launch to stop running subprocess
   - navigate to applist.html
 
-# Env (Editable)
+# Env (Read-only)
 
-Add an Env button to the toolbar. Clicking it opens a modal for editing the
-app's environment variables. It is a full editor, not a viewer: it is where the
-missing-variable flow lands, so the user can fix a blocked launch without
-leaving the app.
+Add an Env button to the toolbar. Clicking it opens a modal showing the
+environment variables the launched app received. It is a **viewer, not an
+editor**.
+
+Editing lives in the app list's **Env** action
+([appconfig.html](../web/appconfig.html)). The values can come from the
+workspace-wide shared pool (see [18-shared.md](18-shared.md)), and a second
+editor here would be a second place to get them wrong; the pool itself is edited
+on the Configure page and through each app's **Share** button, neither of which
+this modal can reach.
 
 The modal fetches `GET /api/appconfig/<name>` and renders a table with columns:
 VARIABLE, Development, Production, Actions.
 
-- Development and Production cells are `<input>`s, except rows flagged
-  `readonly` (`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
-  `OPS_SKILLS`) whose Development value stays a static label — the server
-  regenerates it on every launch, so an edit would be discarded. Rows flagged
-  `readonly` or `fixed` also keep a static name and no Remove button.
-- **Add Variable** appends a blank row; each editable row has a **Remove**
-  button.
-- **Save** posts the whole `vars` array to `POST /api/appconfig/<name>`. No new
-  API is introduced.
-- Closing with unsaved changes asks for confirmation, matching
-  [appconfig.html](../web/appconfig.html).
+- Every cell renders as static text and the Actions column is empty. This is the
+  table-level `readOnly` option on `EnvTable`, distinct from the per-row
+  `readonly` flag the editable hosts use for the server-supplied `OPS_*` keys.
+  With it set, `add()`, `save()`, `importEnvText()` and `applyPredefined()` are
+  inert, so a stray caller cannot mutate a table the user cannot see is editable.
+- The footer carries **Close** alone: no Add Variable, no Save.
+- There are no unsaved changes to confirm on close.
 
 ## Missing variables
 
-When the modal is opened for missing variables, empty Development inputs get a
-red border and a banner reads "N required variables have no value. Fill them in
-to launch this app." (singular "1 required variable has no value"). The flag
-clears as each value is filled in.
+When the modal is opened for missing variables, empty Development cells are
+flagged and a banner reads "N required variables have no value. Fill them in
+from the app list's Env action." (singular "1 required variable has no value").
+The banner is informational: the fix is made in the app list's editor, not here.
 
 The blocked-launch flow itself does **not** live here — it belongs to the page
 that owns the launch. [applist.html](../web/applist.html) renders the same
@@ -273,15 +275,14 @@ editor, reachable any time from the Config pulldown.
 
 ## Shared implementation
 
-The render/edit/import/save logic lives in
+The render/edit/save logic lives in
 [web/js/envtable.js](../web/js/envtable.js) and is shared with
 [appconfig.html](../web/appconfig.html) and
-[applist.html](../web/applist.html), so the editors cannot drift apart — which
-is exactly how this modal previously ended up read-only while the app-list
-editor was editable. The module owns the table; each host page supplies its own
-element ids and buttons (the full page additionally offers `.env` /
-`.env.production` file import; the app list adds the missing-variable banner and
-resumes the launch on Save).
+[applist.html](../web/applist.html), so the hosts cannot drift apart. The module
+owns the table; each host page supplies its own element ids and buttons. This
+modal passes `readOnly: true`; the app-list editor adds **Add from shared**, and
+the blocked-launch flow adds the missing-variable banner and resumes the launch
+on Save.
 
 The modal can be closed with the X button, Escape key, or clicking the backdrop.
 

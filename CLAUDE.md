@@ -57,6 +57,8 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 `air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
 
+**It watches the repo root and nothing else.** Every `.go` file is at the top level, so `exclude_dir` names *every* subdirectory — that is what prunes the walk, since `exclude_regex` filters files without stopping traversal and `include_dir` cannot express "root only". **Adding a top-level directory means adding it to `exclude_dir`**, or air will checksum its `node_modules` on every poll; leaving `apps/`, `packages/` and `react-mcp/` off the list once cost ~11,000 files per poll against the 64 that can trigger a rebuild. `include_ext` is `go` and `txt` only — a `web/` edit needs a browser reload, not a rebuild, because the running binary serves `web/` from disk and embeds it only at build time.
+
 `build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
 [hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustable.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
@@ -105,7 +107,9 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [memory.go](memory.go) | — | `/api/memory/` |
 | [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
 | [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
+| [bind.go](bind.go) | [19-import.md](spec/19-import.md) | `/api/imports/` — `.env.dist` as the import declaration: wildcard matching against the shared pool, and the launch-time resolution popup |
 | [gitignore.go](gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
+| [shared.go](shared.go) | [18-shared.md](spec/18-shared.md) | `.env.shared` — apps publish service secrets as pointers into `~/.ops/config.json`; resolved into the workspace pool at launch, and per apihost at publish; pruned from the pool when the producing app is deleted |
 
 The one feature that is a shell script rather than a Go file is the screenshot
 recorder: [screenshot.sh](screenshot.sh), specced in

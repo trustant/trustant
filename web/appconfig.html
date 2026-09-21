@@ -24,6 +24,8 @@
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
     <script src="js/envtable.js"></script>
+    <script src="js/bind.js"></script>
+    <script src="js/shared.js"></script>
     <link rel="stylesheet" href="trustable-ui.css">
 </head>
 <body class="min-h-screen">
@@ -61,16 +63,10 @@
                     class="nu-btn nu-btn-primary">
                     Add Variable
                 </button>
-                <button onclick="importEnvFile('development')"
+                <button onclick="sharedVarsPicker.open()"
                     class="nu-btn nu-btn-secondary">
-                    Import .env
+                    Add from shared
                 </button>
-                <button onclick="importEnvFile('production')"
-                    class="nu-btn nu-btn-secondary">
-                    Import .env.production
-                </button>
-                <input id="envImportFile" type="file" accept=".env,.env.production,text/plain"
-                    class="hidden" onchange="handleEnvFileImport(event)">
             </div>
         </div>
 
@@ -95,8 +91,6 @@
         }
         document.getElementById('appNameTitle').textContent = appName || '';
 
-        let envImportTarget = 'production';
-
         // The table itself (render, edit, import, save) lives in js/envtable.js so
         // this page and the Env modal in app.html cannot drift apart.
         // No `const envTable` here: register() puts the instance on window, which
@@ -106,6 +100,11 @@
             tbodyId: 'envTableBody',
             columns: 4
         }));
+
+        // The Shared Variables pool picker. An app-produced name is added with an
+        // empty value on purpose: leaving it empty is what makes launch fill it
+        // from the pool, so the value stays current as credentials rotate.
+        SharedVarsPicker.mount('sharedVarsPicker', { table: envTable });
 
         async function loadAppConfig() {
             try {
@@ -117,31 +116,6 @@
 
         function addVariable() {
             envTable.add();
-        }
-
-        function importEnvFile(target) {
-            envImportTarget = target === 'development' ? 'development' : 'production';
-            document.getElementById('envImportFile').click();
-        }
-
-        async function handleEnvFileImport(event) {
-            const input = event.target;
-            const file = input.files && input.files[0];
-            if (!file) return;
-            try {
-                const result = envTable.importEnvText(await file.text(), envImportTarget);
-                if (!result) {
-                    alert('No variables found in ' + file.name);
-                    return;
-                }
-                const targetLabel = result.scope === 'development' ? '.env' : '.env.production';
-                const skippedSummary = result.skippedReadonly ? `, ${result.skippedReadonly} read-only development values skipped` : '';
-                alert(`Imported ${result.total} variables from ${file.name} into ${targetLabel} (${result.updated} updated, ${result.added} added${skippedSummary}).`);
-            } catch (e) {
-                alert('Failed to import .env: ' + e.message);
-            } finally {
-                input.value = '';
-            }
         }
 
         async function saveAppConfig() {

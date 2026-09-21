@@ -370,50 +370,51 @@ There is no global `env` section: environment variables for an app come only fro
 
 `regenerateAllAppEnvFiles()` iterates all apps and regenerates for each that has a workbench directory.
 
-## .env.dist — the committed key manifest
+## .env.dist — the committed import declaration
 
-`generateAppEnvFiles` also writes `$WORKBENCH_DIR/<name>/.env.dist`, the
-**committed** counterpart of `.env`: it declares which variables the app needs
-**from the user**, so a repo cloned anywhere else can be told what to supply.
+`$WORKBENCH_DIR/<name>/.env.dist` is the **committed** counterpart of `.env`: it
+declares which variables the app needs but does not have values for, so a repo
+cloned anywhere else can be told what to supply.
 
-- Content is the union of the development and production variable names, one
-  `NAME=` per line, sorted alphabetically for a stable diff regardless of Go map
-  iteration order.
-- **Values are always empty.** `.env.dist` is committed and pushed, so no value
-  is ever copied into it — not even one that looks non-secret.
+**It is a source file, not a generated one.** It used to be written by
+`generateAppEnvFiles` from the app's configured variable names on every launch,
+with values blanked. It is now written by the user, through the **Import** tab of
+the Share dialog, and its value field carries a matching pattern against the
+shared pool. The generator is gone — it would erase the user's patterns on every
+launch. See [19-import.md](19-import.md) for the format and the resolution rules.
+
+- One `NAME=PATTERN` per line, in the order the user arranged them. An empty
+  pattern is an exact match by name, which is what every pre-existing `.env.dist`
+  contains, so old files keep working unchanged.
+- **Values are never written here.** The file is committed and pushed; a pattern
+  names a pool entry, it is not a value.
 - The fixed `OPS_*` keys (`OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`,
-  `OPS_SKILLS`) are **excluded**. The server supplies them on every launch from
-  the workspace config, never from user input, so listing them would state a
-  requirement the user is neither able nor ever asked to satisfy. They are not
-  generated into the manifest and are not required when a foreign manifest
-  happens to list them.
+  `OPS_SKILLS`) are **rejected**. The server supplies them on every launch from
+  the workspace config, never from user input, so declaring them would state a
+  requirement the user is neither able nor ever asked to satisfy. They are also
+  ignored when a foreign manifest happens to list them.
 - Keys excluded from `.env` are excluded here too: `isServiceRuntimeEnvKey`
   (currently `MONGODB_URI`).
 - When nothing is left to declare, **no file is written**, and a stale manifest
-  from an earlier config is removed. An app that requires nothing of the user
-  declares no contract; a zero-byte committed file would assert one.
-- `writeEnvDistFile` reports whether the content changed. An unchanged manifest
-  is not rewritten, so a launch that changes nothing leaves the working tree
-  clean. Removing a stale manifest counts as a change, so the deletion is
-  committed like any other.
-- Like `.env`, it is written **only** by the server-side generator. Coding
-  agents and MCP servers must treat it as immutable.
+  is removed. An app that imports nothing declares no contract; a zero-byte
+  committed file would assert one.
+- `writeEnvDistBindings` reports whether the content changed, so an unchanged
+  manifest is not rewritten and the auto-commit is skipped.
 
 ### Auto-commit
 
-When the manifest changes, the server stages and commits it itself
+When the Import tab saves, the server stages and commits the manifest itself
 (`commitEnvDist`), rather than leaving it dirty until the user next saves code.
-The manifest is the contract a clone reads, so it must track the app's variable
-set at all times. This mirrors the managed `.gitignore` commit described in
-[13-gitignore.md](13-gitignore.md) and carries the same constraints:
+The manifest is the contract a clone reads. This mirrors the managed `.gitignore`
+commit described in [13-gitignore.md](13-gitignore.md) and carries the same
+constraints:
 
-- Only when the content actually changed — otherwise every launch would attempt
-  an empty commit.
+- Only when the content actually changed — otherwise every save would attempt an
+  empty commit.
 - Scoped pathspec (`git add -- .env.dist`, `git commit -- .env.dist`): the
   commit contains that one file and never sweeps up the user's dirty work.
 - Best-effort and non-fatal. A missing git identity, a rejecting hook, or a
-  workbench that is not yet a git repository is logged and ignored;
-  `generateAppEnvFiles` still succeeds and the file is still written.
+  workbench that is not yet a git repository is logged and ignored.
 - It never pushes. The commit reaches the workspace bare repo through the
   normal save/push path.
 
@@ -423,73 +424,101 @@ which is what keeps the manifest tracked while the generated secrets stay out.
 
 ## Missing variables
 
-A variable is **missing** when `.env.dist` declares it but the merged config has
-no development value for it. `missingAppEnvKeys(appName)`:
+**Every variable must have a value before the app launches.** A variable is
+unresolved when it has no value of its own and the shared pool cannot supply one
+through its `.env.dist` binding. `pendingImports(appName)` returns them, and the
+launch opens the resolution popup instead of starting the app — see
+[19-import.md](19-import.md) and [4-launch.md](4-launch.md).
 
-1. Reads `.env.dist` from the workbench, falling back to
-   `git show HEAD:.env.dist` in the workspace bare repo so an app that has never
-   been launched can still be inspected. No manifest → no missing keys: an app
-   that declares no contract cannot violate one.
-2. Skips the fixed `OPS_*` keys and `isServiceRuntimeEnvKey` keys. The generator
-   no longer writes them, but a repo cloned from elsewhere may carry a
-   hand-written manifest that lists them; they must still never be treated as
-   required, or the gate would block every launch on values the user cannot
-   provide. The same filter keeps them from being seeded into the editable
-   config, where an empty entry would shadow the generated value.
-3. Treats a key as missing when `apps.<name>.development[key]` is absent or
-   empty after trimming.
-4. Returns the keys in `.env.dist` order.
+Only development values are checked. Production values are a publish-time concern
+and are not gated at launch.
 
-Only development values are checked. Production values are a publish-time
-concern and are not gated at launch.
+`missingAppEnvKeys` and `seedMissingEnvKeys` are **gone**. The latter seeded
+unresolved names into `apps.<name>.development` as empty entries so the env
+editor would render them as blank rows; blank rows are now illegal there.
 
-`seedMissingEnvKeys(appName)` inserts every such key into
-`apps.<name>.development` with an **empty string value** and saves the workspace
-config. The env editor renders one row per config entry, so seeding is what makes
-a declared-but-unset variable appear as an editable blank row instead of being
-invisible. It runs after a clone (`POST /api/repo`, see [2-repo.md](2-repo.md))
-and after the workspace→workbench clone (see [4-launch.md](4-launch.md)), and is
-idempotent.
+### The env editor holds no empty values
 
-### Empty values are preserved
+`POST /api/appconfig/<name>` **refuses** a variable whose development and
+production values are both empty, with 400 and a message naming it. The two files
+are disjoint:
 
-`POST /api/appconfig/<name>` keeps a variable whose name is non-empty even when
-its development and production values are both empty. Dropping empty values —
-as it previously did — would silently delete a seeded row on the next save, so
-an unfilled required variable would vanish from the editor and stop being
-reported as missing. Rows with an empty **name** are still discarded, and the
-fixed `OPS_*` keys are never stored as empty development entries because the
-server regenerates them.
+| | `.env` (Env editor) | `.env.dist` (Import tab) |
+|---|---|---|
+| holds | variables **with a value** | variables **to be imported** |
+| rejects | empty values | a name already valued in `.env` |
 
-## Predefined environment variables
+A row declared in `.env.dist` is exempt: an unresolved import legitimately
+arrives with no value, and the popup is what fills it.
 
-`predefined_env` is a workspace-level map of name→value pairs the user maintains
-on the Configure page. It exists so that values shared across applications — an
-API key, a shared endpoint — do not have to be retyped for every imported or
-newly created app.
+The refusal is **total** — one bad row writes nothing, so a partial save can
+never leave the two files overlapping. Rows with an empty **name** are still
+discarded silently.
 
-It is a **palette, not a source**. Nothing merges it into an application:
+A variable bound to a shared variable stores a `${{NAME}}` **reference** as its
+value (see [19-import.md](19-import.md)). Because the binding *is* the value, it
+travels with its own row and needs no special handling here.
 
-- `missingAppEnvKeys` does not consult it. A predefined value never satisfies a
-  `.env.dist` key, so the variable still appears in the missing-variables
-  editor. Were it otherwise, a value would reach an app without the user ever
-  seeing it.
-- `seedMissingEnvKeys` still seeds an **empty** string, not the predefined value.
-- `generateAppEnvFiles` does not read it.
+## Shared variables (`predefined_env`)
 
-The only path from the palette into an application is the **Use predefined
-values** button in the missing-variables editor (see
-[4-launch.md](4-launch.md)), followed by the user pressing Save. This keeps
-the rule stated under "Per-app .env generation": variables are not added to an
-app's config without the user asking for them.
+`predefined_env` is a workspace-level map of name→value pairs shown on the
+Configure page as **Shared Variables**. It exists so that values used across
+applications — an API key, a shared endpoint, a service credential published by
+another app — do not have to be retyped for every imported or newly created app.
+
+The **config key is still `predefined_env`** and the endpoint is still
+`/api/predefined-env`. Only the user-facing label changed; renaming the wire
+format would break every existing installation's `trustable.json`.
+
+It holds two kinds of entry:
+
+- values the user typed on the Configure page;
+- values resolved from applications' `.env.shared` declarations, named
+  `<APP>__<NAME>` (see [18-shared.md](18-shared.md)). These are shown read-only
+  and are refreshed on every launch; the user edits them with that application's
+  **Share** button.
+
+### It is applied only to a variable the app already declares
+
+The pool is an input to `.env` generation, but a **narrow** one:
+
+- `generateAppEnvFiles` fills a variable whose value is **empty** and whose name
+  the app **already declares**, in `apps.<name>.development` for `.env` and in
+  the production pool for `.env.production`. A value the user typed always wins.
+- The pool is **never a source of new variables**. An app that does not name a
+  pool variable never sees it, so an app's `.env` stays what its own config
+  declares.
+- `pendingImports` consults the pool for the same reason: a declared name the
+  pool can satisfy is about to be filled, so it is not missing and must not block
+  the launch. The launch path refreshes the pool *before* this check.
+- A name declared in `.env.dist` and resolvable from the pool reaches `.env`
+  without ever entering the app config — see [19-import.md](19-import.md).
+  Nothing is seeded into the config as an empty row any more.
+
+The **Add from shared** button in the env editor is how a user adds a pool name
+an app does not yet declare. An app-produced name is added with an empty value
+on purpose; a hand-typed palette entry carries its value, because nothing else
+will ever supply it.
+
+### The production pool is keyed by apihost
+
+`predefined_env_production` is a map of apihost → name → value. Service
+credentials on `api.nuvolaris.io` have nothing to do with those on
+`openserverless.dev` — same name, different cluster, different secret — so one
+flat map would hand an app the wrong cluster's credentials. Keys are normalized
+by `sharedHostKey`. It is written only by a publish; see
+[6-publish.md](6-publish.md).
 
 Layering follows `models` / `model_versions` — key-by-key, workspace over base —
-rather than the whole-map replacement used for `apps`.
+rather than the whole-map replacement used for `apps`. The production pool
+merges host-by-host and then key-by-key within a host.
 
 ### GET /api/predefined-env
 
-Returns `{"vars": [{"name": "...", "value": "..."}]}` from the **merged** config,
-sorted by name so the table renders in a stable order.
+Returns `{"vars": [...], "production": {"<host>": [...]}}` from the **merged**
+config, sorted by name so the table renders in a stable order. Each entry is
+`{"name", "value"}` plus `"app"` when the value is app-produced — that is how the
+page knows which rows it may not edit.
 
 ### POST /api/predefined-env
 
@@ -510,6 +539,31 @@ This is a separate endpoint rather than part of `POST /api/configuration`
 because that handler runs a model connectivity probe on every call and the
 Configure page navigates to the app list when it succeeds. Editing an
 environment variable must do neither.
+
+App-produced entries are **carried over** from the stored set, whatever the
+request contains. The page receives them read-only but posts the whole set, so
+honouring an omission would let a stale tab silently drop a live export — and
+the next refresh would undo the edit anyway. To remove one, use the DELETE
+below.
+
+### DELETE /api/predefined-env?name=&lt;NAME&gt;
+
+Removes **one** variable, from `predefined_env` and from every host in
+`predefined_env_production`, whether it is app-produced or typed by hand.
+Responds `{"status":"deleted","removed":<n>}`.
+
+- A missing or blank `name` is **400**: an empty name must never be read as
+  "remove everything".
+- Removing a name that is not in the pool is success, so a double-click is not
+  an error. `removed` is then `0` and nothing is written.
+
+Removing by name is safe where the bulk POST is not, and that asymmetry is the
+whole point: the POST carries the entire set, so an absent key is ambiguous
+between "delete this" and "my tab was out of date", while a request naming one
+variable states its intent and cannot be issued by accident. This is the only
+way to drop an app-produced entry; see
+[18-shared.md](18-shared.md#leaving-the-pool) for why such a removal is not
+durable while the producer still declares it.
 
 #### There is no Save button: the palette saves on edit
 
@@ -559,7 +613,7 @@ identical on the wire. Two guards make an accidental empty write impossible:
   set only inside the success branch of `loadPredefinedEnv()`, and
   `persistPredefinedEnv()` returns immediately while it is false. A flush firing
   before `GET /api/predefined-env` resolves would otherwise read a table that is
-  still showing the "No predefined variables yet." placeholder — a row with **no
+  still showing the "No shared variables yet." placeholder — a row with **no
   inputs** — and post `[]`. Setting the flag on the *failure* path too would be
   just as wrong: `predefinedEnvVars` is `[]` there, so a save would erase the very
   palette that could not be read.
@@ -685,13 +739,20 @@ no-op, startup prints `✓ Predefined environment variables up to date` whether
 the file was imported or was never there. An empty palette in a pod is expected
 and is not evidence of a failed import.
 
-### Neither path applies anything
+### Neither path applies anything on its own
 
-Both routes above populate the palette and go no further. The palette remains
-**not a source**: `missingAppEnvKeys`, `seedMissingEnvKeys` and
-`generateAppEnvFiles` are unchanged, and the only way a value reaches an
-application is still the **Use predefined values** button followed by an
-explicit save.
+Both routes above populate the pool and go no further. A value reaches an
+application only through the narrow rule above — a name the app already declares
+and left empty — or when the user adds it explicitly with **Add from shared** or
+**Use shared values** and saves.
+
+### App-produced entries are protected from POST
+
+`handlePostPredefinedEnv` replaces the whole set, but carries every app-produced
+key over verbatim from the stored config. The page renders those rows read-only,
+yet it posts the whole table; a stale tab must not be able to drop or rewrite a
+value that is derived from an application's `.env.shared`. Dropping one would
+break a consumer until the next refresh.
 
 ## Current app tracking
 
@@ -946,12 +1007,15 @@ concurrently; normal `modelsVersion` checks resume on the next app-list load.
 
 The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, `apps`, and `predefined_env` fields when saving — this POST is a full-document write, so a field left out is erased. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
-The Configure page also owns a **Predefined Environment Variables** card, sitting
-between Template Repository and Git User. It edits `predefined_env` through
-`GET`/`POST /api/predefined-env`, **saving on every edit** with no Save button of
-its own and reporting through an inline status line: it does not go through
-**Save & Configure**, does not run a model probe, and does not navigate away.
-See "Predefined environment variables" above.
+The Configure page also owns a **Shared Variables** card (`id="sharedVariables"`,
+linked from the app list header), sitting between Template Repository and Git
+User. It edits `predefined_env` through `GET`/`POST /api/predefined-env`,
+**saving on every edit** with no Save button of its own and reporting through an
+inline status line: it does not go through **Save & Configure**, does not run a
+model probe, and does not navigate away. An environment selector switches
+between Development and each production host; the production view is read-only,
+because those values are written by a publish and this endpoint does not save
+them. See "Shared variables" above.
 
 Read the configuration with `GET /api/configuration`. **Save & Configure** calls
 `POST /api/configuration`, which persists, runs testmodel, and writes Pi's

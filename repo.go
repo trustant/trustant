@@ -593,16 +593,30 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Warning: failed to save password to config: %s", err)
 	}
 
-	// A cloned repo declares its required variables in .env.dist. Seed the ones we
-	// cannot populate as empty entries and report them, so the UI can open the env
-	// editor immediately rather than letting the user discover them at launch.
+	// A newly installed app may itself declare shared variables. Resolve them now
+	// so they are in the pool before the missing-variable check below, and so
+	// another app can consume them without waiting for this one to be launched.
+	// A no-op when the app has no workbench yet, which is the common case.
+	func() {
+		unlock := lockRuntimeLifecycle("import shared variables " + req.Name)
+		defer unlock()
+		if _, err := refreshSharedForApp(req.Name); err != nil {
+			log.Printf("Warning: failed to resolve shared variables for %s: %s", req.Name, err)
+		}
+	}()
+
+	// A cloned repo declares what it imports in .env.dist. Report the ones the pool
+	// cannot resolve, so the UI can open the Import tab immediately rather than
+	// letting the user discover them at launch. Nothing is seeded into the app
+	// config: an unresolved import belongs to .env.dist, and the env editor holds
+	// only variables that have a value (spec/19-import.md).
 	var missingEnv []string
-	if _, err := seedMissingEnvKeys(req.Name); err != nil {
-		log.Printf("Warning: failed to seed env keys from .env.dist: %s", err)
-	} else if missing, err := missingAppEnvKeys(req.Name); err != nil {
-		log.Printf("Warning: failed to check missing env keys: %s", err)
+	if pending, err := pendingImports(req.Name); err != nil {
+		log.Printf("Warning: failed to resolve imports: %s", err)
 	} else {
-		missingEnv = missing
+		for _, r := range pending {
+			missingEnv = append(missingEnv, r.Name)
+		}
 	}
 
 	// Return the created application with optional warning
@@ -677,10 +691,25 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Warning: failed to remove workbench folder: %s", err)
 	}
 
-	// Remove app entry from workspace config
+	// Remove app entry from workspace config, along with everything the app
+	// shared. The pool is append-only otherwise, so without the prune the app's
+	// resolved secrets would outlive it forever — and, since ownership is
+	// derived from the name prefix matching an existing app, they would come
+	// back as editable hand-typed entries and be inherited by any app later
+	// created with the same name. Both happen in ONE save.
+	//
+	// Consumers of the pruned variables are already handled: resolveOneImport
+	// re-pends a ${{NAME}} reference whose target has left the pool rather than
+	// falling back to a different producer, so those apps ask the user at their
+	// next launch instead of silently binding to someone else's database.
 	wsCfg, err := loadWorkspaceConfig()
-	if err == nil && wsCfg.Apps != nil {
-		delete(wsCfg.Apps, req.Name)
+	if err == nil {
+		if wsCfg.Apps != nil {
+			delete(wsCfg.Apps, req.Name)
+		}
+		if pruned := pruneSharedPool(wsCfg, req.Name); pruned > 0 {
+			log.Printf("Shared: removed %d pool variables shared by %s", pruned, req.Name)
+		}
 		if err := saveWorkspaceConfig(wsCfg); err != nil {
 			log.Printf("Warning: failed to update config after delete: %s", err)
 		}

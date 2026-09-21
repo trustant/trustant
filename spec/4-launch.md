@@ -90,28 +90,51 @@ runtime setup still happens only when `/api/launch/<name>` is called.
 
 If `<workbenchdir>/<name>` already exists, keep it (continue previous work) and skip to the login step. After a restart it never does, so this restore — not persistence — is how work reappears.
 
-After a fresh workspace→workbench clone, seed the variables the cloned repo
-declares in `.env.dist` but that this installation has no value for
-(`seedMissingEnvKeys`, see [2a-config.md](2a-config.md)) — before generating the
-`.env` files, so the seeded keys are part of the same generation pass.
+A cloned repo declares what it imports in `.env.dist`. Nothing is seeded into the
+app config from it: an unresolved import belongs to `.env.dist`, and the env
+editor holds only variables that have a value (see
+[19-import.md](19-import.md)). Imports the pool can already resolve are written
+into `.env` by the generation pass that follows.
 
-## check required environment variables
+## refresh shared variables
 
-After the workbench exists and the `.env` files have been regenerated, but
-**before** `ops ide login`, check for missing development values
-(`missingAppEnvKeys`, see [2a-config.md](2a-config.md)). A variable declared in
-`.env.dist` with no development value cannot be supplied later — the app would
-deploy and fail at runtime.
+After the workbench exists and `.gitignore` is in place, but **before** the
+missing-variable check below, refresh the shared pool (`refreshSharedPool`, see
+[18-shared.md](18-shared.md)). It logs in as each app that declares a
+`.env.shared`, resolves its pointers into `predefined_env`, and logs back in as
+the launching app.
 
-When the list is non-empty, abort with a structured error and no side effects on
-the runtime: nothing is created on the cluster, no process group is started.
+Order matters: a variable the refresh is about to satisfy must not block the
+launch. Service credentials are regenerated on every `ops ide login`, so
+resolving here — rather than only when the Share picker saves — is what stops a
+consumer being handed a stale secret. Failure is non-fatal: the previous pool
+values stand, and step 3's own login supersedes anything the refresh left behind.
+
+## resolve every variable
+
+**Every variable must end up with a value before the app starts.** After the
+workbench exists and the `.env` files have been regenerated, but **before**
+`ops ide login`, resolve the app's variables (`pendingImports`, see
+[19-import.md](19-import.md)). One without a value cannot be supplied later — the
+app would deploy and fail at runtime.
+
+When anything is still pending, abort with a structured error and no side effects
+on the runtime: nothing is created on the cluster, no process group is started.
 
 ```json
 {
   "error": "Missing required environment variables",
-  "missing_env": ["STRIPE_KEY", "SENTRY_DSN"]
+  "missing_env": ["EXT_POSTGRESQLURL"],
+  "imports": [
+    {"name": "EXT_POSTGRESQLURL", "pattern": "*__POSTGRESDB",
+     "matches": ["APPSUITE__POSTGRESDB", "BILLING__POSTGRESDB"], "pending": true},
+    {"name": "AI_API_KEY", "value": "sk-…", "pending": false}
+  ]
 }
 ```
+
+`imports` carries **every** variable, not only the pending ones, so the popup can
+show the whole picture and let the user re-point a binding that already resolves.
 
 HTTP 200 with an `error` field, matching how the rest of the launch handler
 reports errors to the streaming client.
@@ -126,10 +149,12 @@ check is an interruption inside it, not a second task the user has to start
 again:
 
 1. The user presses Launch.
-2. The workbench is cloned, `.env` / `.env.dist` are generated, and the check runs.
-3. If anything is missing, the launch modal is **replaced in place** by the env
-   editor listing exactly those variables. The user never leaves the page.
-4. On Save, the launch **resumes automatically** — the same launch, continuing
+2. The workbench is cloned, `.env` is generated, and the resolution runs.
+3. If anything is pending, the launch modal is **replaced in place** by the
+   resolution popup, which lists every variable: a wildcard import gets a
+   pull-down of the shared variables it matches, one that matches nothing gets a
+   free-text field. The user never leaves the page.
+4. On Continue, the launch **resumes automatically** — the same launch, continuing
    from where it stopped. No second button, no navigation, no re-press.
 
 The env editor is therefore rendered on
@@ -141,10 +166,10 @@ missing variable simply continues.
 Cancelling the editor abandons the launch. Nothing was started on the cluster,
 so there is nothing to undo.
 
-### Use predefined values
+### Use shared values
 
-When the workspace has predefined environment variables (`predefined_env`, see
-[2a-config.md](2a-config.md)), the editor shows a **Use predefined values**
+When the workspace has shared variables (`predefined_env`, see
+[2a-config.md](2a-config.md)), the editor shows a **Use shared values**
 button beside **Add Variable**. It is hidden when the palette is empty.
 
 Pressing it fills Development values in the table, and is deliberately
@@ -156,7 +181,7 @@ conservative because the user did not choose these values for this app:
   template supplied is never replaced — the button is safe to press twice;
 - readonly rows (the fixed `OPS_*` keys) are skipped.
 
-It reports what it did inline ("Filled N variables from predefined values.
+It reports what it did inline ("Filled N variables from shared values.
 Review and press Save.", or "No empty variables matched your predefined
 values."), and **saves nothing**. The user reviews the filled table and presses
 the existing Save, which is the only way a predefined value reaches an
@@ -236,8 +261,14 @@ sync before logging in:
 
 ## login
 
-Change to `<workbenchdir>/<app>` folder
-and execute `ops ide login`
+Change to `<workbenchdir>/<app>` folder, **delete `~/.ops/config.json`**
+(`removeOpsConfig`) and execute `ops ide login`.
+
+The delete is not optional. `ops ide login` merges into that single global file
+rather than replacing it, so service blocks from a previous login for a
+different app survive and are indistinguishable from this app's own — a wrong
+service binding for MCP generation, `appServiceRuntimeEnv` and shared-variable
+resolution alike. A missing file is success. See [18-shared.md](18-shared.md).
 
 If it terminates with 0 continue otherwise return error
 

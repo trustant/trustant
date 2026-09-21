@@ -20,13 +20,25 @@ tmp_dir = "tmp"
   cmd = "go build -o ./tmp/main ."
   bin = "./tmp/main"
   delay = 1000
-  # Runtime subrepos are built explicitly by setup.sh. Watching them would make
-  # Air checksum Node/Bun build artifacts and can cause rebuild or permission loops.
-  exclude_dir = ["tmp", "workspace", "workbench", "web", "node_modules", "image", "olaris", "olaris-bestia", "trustable-code", "trustable-acp"]
+  # Every .go file in this program is at the top level (one package main,
+  # file-per-feature), so this list must name EVERY subdirectory. It prunes the
+  # whole subtree, which is the only thing that keeps the nested node_modules
+  # out: exclude_regex filters files but does not stop the walk, and include_dir
+  # cannot express "the root only" — it treats each entry as a subtree root.
+  #
+  # Leaving apps/, packages/ and react-mcp/ off this list had Air checksumming
+  # ~11,000 Node files on every poll against the 64 that can trigger a rebuild.
+  # These subrepos are built explicitly by setup.sh, and watching their build
+  # artifacts also risks rebuild and permission loops.
+  exclude_dir = ["tmp", "dist", "workspace", "workbench", "web", "node_modules", "image", "apps", "packages", "react-mcp", "mcp", "oplugins", "oplugins-truinst", "skills", "spec", "tests", "testing", "tn5250", "olaris", "olaris-bestia", "trustable-code", "trustable-acp"]
   exclude_regex = ["_test.go"]
   exclude_unchanged = true
   follow_symlink = false
-  include_ext = ["go", "js"]
+  # `js` is deliberately absent: web/ is served from disk by the running binary
+  # (embedded only at build time), so a frontend edit needs a browser reload,
+  # never a rebuild. `txt` is here for version.txt/expiry.txt, which parseVersion
+  # reads at startup.
+  include_ext = ["go", "txt"]
   kill_delay = "0s"
   log = "build-errors.log"
   poll = true

@@ -106,6 +106,10 @@
         // Only flag empty rows once the caller knows the app actually declares
         // them as required, so an ordinary blank row is not painted as an error.
         this.highlightMissing = Boolean(options.highlightMissing);
+        // A table-level read-only view: every cell renders as text and every
+        // mutator is inert. Used by the workbench Env modal, which shows what a
+        // launched app received — editing lives in the app list's Env action.
+        this.readOnly = Boolean(options.readOnly);
         this.vars = [];
         this.savedSnapshot = '[]';
         this.localEnvKeys = [];
@@ -146,20 +150,37 @@
             const flag = this.highlightMissing && isMissing(v);
             const devClass = flag ? 'nu-input w-full px-2 py-1 text-xs border-red-500' : 'nu-input w-full px-2 py-1 text-xs';
 
-            const nameField = (v.readonly || v.fixed)
+            const nameField = (this.readOnly || v.readonly || v.fixed)
                 ? `<span class="nu-code text-xs">${escapeHtml(v.name)}</span>`
                 : `<input type="text" value="${escapeHtml(v.name)}" onchange="${id}.update(${i}, 'name', this.value)"
                     class="nu-input nu-code w-full px-2 py-1 text-xs">`;
 
-            const devField = v.readonly
-                ? `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.dev_value)}</span>`
-                : `<input type="text" value="${escapeHtml(v.dev_value)}" onchange="${id}.update(${i}, 'dev_value', this.value)"
+            // An imported variable takes its value from a shared variable another
+            // application exports, so it is re-pointed with a pull-down rather
+            // than retyped. Editing the text would break the binding silently.
+            let devField;
+            if (v.imported && v.matches && v.matches.length && !this.readOnly) {
+                const options = ['<option value="">Choose a shared variable…</option>'].concat(
+                    v.matches.map((m) => {
+                        const sel = m === v.source ? ' selected' : '';
+                        return `<option value="${escapeHtml(m)}"${sel}>${escapeHtml(m)}</option>`;
+                    })
+                ).join('');
+                devField = `<select onchange="${id}.setImportSource(${i}, this.value)"
+                    class="nu-input nu-code w-full px-2 py-1 text-xs">${options}</select>`;
+            } else if (this.readOnly || v.readonly) {
+                devField = `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.dev_value)}</span>`;
+            } else {
+                devField = `<input type="text" value="${escapeHtml(v.dev_value)}" onchange="${id}.update(${i}, 'dev_value', this.value)"
                     class="${devClass}">`;
+            }
 
-            const prodField = `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="${id}.update(${i}, 'prod_value', this.value)"
-                class="nu-input w-full px-2 py-1 text-xs">`;
+            const prodField = this.readOnly
+                ? `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.prod_value)}</span>`
+                : `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="${id}.update(${i}, 'prod_value', this.value)"
+                    class="nu-input w-full px-2 py-1 text-xs">`;
 
-            const removeBtn = (v.readonly || v.fixed)
+            const removeBtn = (this.readOnly || v.readonly || v.fixed)
                 ? ''
                 : `<button onclick="${id}.remove(${i})" class="nu-btn nu-btn-danger nu-btn-compact">Remove</button>`;
 
@@ -198,6 +219,7 @@
     };
 
     EnvTable.prototype.add = function () {
+        if (this.readOnly) return;
         this.vars.push({ name: '', dev_value: '', prod_value: '', readonly: false, fixed: false });
         this.render();
         const inputs = this.tbody.querySelectorAll('input[type="text"]');
@@ -207,6 +229,7 @@
     };
 
     EnvTable.prototype.importEnvText = function (text, target) {
+        if (this.readOnly) return null;
         const entries = parseEnvText(text);
         if (entries.length === 0) return null;
 
@@ -258,7 +281,7 @@
     // Nothing is saved here: the caller re-renders and the user still presses
     // Save, which is the only path by which a predefined value reaches an app.
     EnvTable.prototype.applyPredefined = function (predefined) {
-        if (!predefined) return { filled: 0, names: [] };
+        if (this.readOnly || !predefined) return { filled: 0, names: [] };
         const names = [];
         this.vars.forEach((v) => {
             if (v.readonly) return;
@@ -276,9 +299,82 @@
         return { filled: names.length, names: names };
     };
 
+    // Adds variables chosen from the Shared Variables pool. Unlike
+    // applyPredefined, which only fills rows the app already declares, this is
+    // the user picking specific names, so it ALSO adds a row for a name the app
+    // does not yet declare — that is the whole point of the button.
+    //
+    // The import is complete: a picked name is added WITH its value, so the row
+    // holds exactly the name and value of the shared variable it came from —
+    // app-produced entries included. A row left empty here would read as
+    // unset until the next launch resolved it, which is what made an import look
+    // like it had dropped half the variable.
+    //
+    // Never overwrites a non-empty value and never touches a readonly row,
+    // matching applyPredefined. Nothing is saved here.
+    EnvTable.prototype.addFromShared = function (entries, target) {
+        if (this.readOnly || !Array.isArray(entries) || entries.length === 0) {
+            return { added: 0, filled: 0, names: [] };
+        }
+        const scope = target === 'production' ? 'production' : 'development';
+        const names = [];
+        let added = 0;
+        let filled = 0;
+
+        entries.forEach((entry) => {
+            const name = (entry && entry.name || '').trim();
+            if (!name) return;
+            // Every entry brings its value with it, whoever produced it.
+            const value = (entry && entry.value) || '';
+            const existing = this.vars.find((item) => item.name === name);
+            if (existing) {
+                if (scope === 'development' && existing.readonly) return;
+                const field = scope === 'production' ? 'prod_value' : 'dev_value';
+                if ((existing[field] || '').trim() !== '') return;
+                if (value === '') return;
+                existing[field] = value;
+                filled++;
+                names.push(name);
+                return;
+            }
+            this.vars.push({
+                name,
+                dev_value: scope === 'development' ? value : '',
+                prod_value: scope === 'production' ? value : '',
+                readonly: false,
+                fixed: false
+            });
+            added++;
+            names.push(name);
+        });
+
+        if (names.length > 0) {
+            this.render();
+            this.onChange();
+        }
+        return { added, filled, names };
+    };
+
     // Posts the whole vars array. Empty values are preserved server-side, which
     // is what keeps an unfilled required variable visible after a partial save.
     EnvTable.prototype.save = async function () {
+        // A read-only table has nothing to save, and posting its rows would
+        // rewrite the app's config from a view that was never editable.
+        if (this.readOnly) return this.missingNames();
+
+        // The env editor holds only variables that have a value. A blank one
+        // belongs in the Import tab of the Share dialog, where the shared pool
+        // can fill it. The server refuses too, and its refusal is the real gate;
+        // this one just makes the message immediate (spec/19-import.md).
+        const blank = this.vars.filter((v) =>
+            v.name && !v.readonly && !v.fixed && !v.imported &&
+            !(v.dev_value || '').trim() && !(v.prod_value || '').trim());
+        if (blank.length) {
+            throw new Error(
+                blank.map((v) => v.name).join(', ') +
+                ' has no value. Give it one, or declare it in the Import tab to take its value from a shared variable.');
+        }
+
         const resp = await fetch(`/api/appconfig/${encodeURIComponent(this.appName)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -289,6 +385,25 @@
         }
         this.savedSnapshot = JSON.stringify(this.vars);
         return this.missingNames();
+    };
+
+    // Re-points an imported variable at another producer. Posted separately from
+    // the table because it writes the binding, not just a value (spec/19-import.md).
+    EnvTable.prototype.setImportSource = async function (index, source) {
+        const v = this.vars[index];
+        if (!v || !source) return;
+        const resp = await fetch(`/api/imports/${encodeURIComponent(this.appName)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ choices: { [v.name]: source } })
+        });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            alert(data.error || 'Failed to change the shared variable');
+            return;
+        }
+        v.source = source;
+        if (this.onChange) this.onChange();
     };
 
     EnvTable.prototype.hasUnsavedChanges = function () {

@@ -24,6 +24,8 @@
     <script src="tailwind.js"></script>
     <script src="trustable-auth.js"></script>
     <script src="js/envtable.js"></script>
+    <script src="js/bind.js"></script>
+    <script src="js/shared.js"></script>
     <script src="js/github-account.js"></script>
     <script src="js/xterm.min.js"></script>
     <script src="js/xterm-addon-fit.min.js"></script>
@@ -55,6 +57,10 @@
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/></svg>
                     Terminal
                 </button>
+                <a href="configure.html#sharedVariables" title="Edit the environment variables shared between all applications"
+                    class="nu-btn nu-btn-secondary">
+                    Shared Variables
+                </a>
                 <a href="configure.html" title="Choose the AI provider, model and credentials"
                     class="nu-btn nu-btn-secondary">
                     Configure
@@ -649,7 +655,7 @@
                          Fills empty Development values in place; the user still
                          reviews the table and presses Save. -->
                     <button id="missingEnvPredefinedBtn" onclick="applyPredefinedEnv()"
-                        class="hidden nu-btn nu-btn-secondary">Use predefined values</button>
+                        class="hidden nu-btn nu-btn-secondary">Use shared values</button>
                     <span id="missingEnvPredefinedStatus" class="text-sm text-[color:var(--nu-muted)]"></span>
                 </div>
             </div>
@@ -1835,6 +1841,23 @@
         // Publish Remote functions
         let publishApp = null;
 
+        // The publish gate for unresolved shared values. `needs_config` also
+        // carries `missing_shared` when the app consumes a variable another app
+        // produces that has no value for THIS host — showing the credentials
+        // form there would be wrong: the fields are already filled and filling
+        // them again changes nothing.
+        function sharedGateMessage(missing) {
+            const host = missing[0] && missing[0].host ? missing[0].host : 'this host';
+            const lines = missing.map(m =>
+                `<li><span class="nu-code">${escapeHtml(m.name)}</span> — produced by <strong>${escapeHtml(m.app)}</strong></li>`
+            ).join('');
+            return `Cannot publish to <span class="nu-code">${escapeHtml(host)}</span>: `
+                + `${missing.length} shared variable${missing.length === 1 ? ' has' : 's have'} no value there.`
+                + `<ul class="list-disc ml-5 mt-2">${lines}</ul>`
+                + `<p class="mt-2">Publish the producing application to this host, or enter the value by hand `
+                + `in the application's Env editor under Production.</p>`;
+        }
+
         // This endpoint does double duty: it answers `needs_config` when the
         // production config is missing, but when the config is already present
         // the very same call performs the whole deploy. So it is streamed like
@@ -1846,7 +1869,9 @@
             try {
                 const response = await fetchPublishResponse('/api/publish/remote', { name }, 'publish');
                 const data = await response.json();
-                if (data.needs_config) {
+                if (data.missing_shared && data.missing_shared.length > 0) {
+                    showPublishResult(sharedGateMessage(data.missing_shared), 'error');
+                } else if (data.needs_config) {
                     // Not configured yet: fall back to the form.
                     showPublishModal();
                 } else if (data.error) {
@@ -1912,7 +1937,13 @@
                 const response = await fetchPublishResponse('/api/publish/remote',
                     { name: publishApp, apihost, user, password }, 'publish');
                 const data = await response.json();
-                if (data.error) {
+                if (data.missing_shared && data.missing_shared.length > 0) {
+                    showPublishResult(sharedGateMessage(data.missing_shared), 'error');
+                } else if (data.needs_config) {
+                    // The credentials are saved but something else is unresolved;
+                    // never report this as a success.
+                    showPublishResult('Production configuration is incomplete.', 'error');
+                } else if (data.error) {
                     showPublishResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
                     showPublishResult(data.message || data.output || 'Published successfully', 'success');
@@ -2048,6 +2079,7 @@
                     </div>
                     <div class="p-3 flex flex-wrap gap-2">
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
+                        ${actionButton('Share', `openSharedPicker('${escapeAttr(app.name)}')`, shareIcon(), 'purple')}
                         ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo', `data-tour-push="${escapeAttr(app.name)}"`)}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
@@ -2096,6 +2128,7 @@
                     <div class="flex flex-wrap gap-2 xl:flex-nowrap xl:justify-start">
                         <button onclick="launchApp('${escapeAttr(app.name)}')" title="Open this application in the editor" class="nu-btn nu-btn-primary">${editIcon('w-3.5 h-3.5')} Edit</button>
                         ${actionButton('Env', `configureApp('${escapeAttr(app.name)}')`, gearIcon(), 'purple')}
+                        ${actionButton('Share', `openSharedPicker('${escapeAttr(app.name)}')`, shareIcon(), 'purple')}
                         ${actionButton('Git Pull', `handleGitPull('${escapeAttr(app.name)}')`, downloadIcon(), 'neutral')}
                         ${actionButton('Git Push', `handleGitPush('${escapeAttr(app.name)}')`, uploadIcon(), 'indigo', `data-tour-push="${escapeAttr(app.name)}"`)}
                         ${actionButton('Publish', `handlePublishRemote('${escapeAttr(app.name)}')`, globeIcon(), 'teal')}
@@ -2241,6 +2274,10 @@
 
         function editIcon(cls) {
             return `<svg class="${cls}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>`;
+        }
+
+        function shareIcon() {
+            return `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.7 10.7a3 3 0 100 2.6m0-2.6l6.6-3.4m-6.6 6l6.6 3.4M18 7a3 3 0 11-2.7-1.7A3 3 0 0118 7zm0 10a3 3 0 11-2.7-1.7A3 3 0 0118 17z"/></svg>`;
         }
 
         function gearIcon() {
@@ -2396,13 +2433,14 @@
                     } else {
                         showCreatingResult('Application "' + name + '" created successfully.', 'success');
                     }
-                    // The clone declared variables we cannot fill in. Open the
-                    // editor now rather than letting them find out at the first
-                    // launch. Nothing to resume: no launch was in flight.
+                    // The clone declares imports this installation cannot resolve.
+                    // Open the popup now rather than letting them find out at the
+                    // first launch. Nothing to resume: no launch was in flight.
                     if (data.missing_env && data.missing_env.length > 0) {
                         hideCreatingModal();
-                        showMissingEnvModal(name, false);
                         loadApps();
+                        importResolver.resumeLaunch = false;
+                        importResolver.open(name);
                         return;
                     }
                 } else {
@@ -2551,6 +2589,32 @@
         // No `const missingEnvTable`: register() puts the instance on window,
         // which is the binding the table's inline handlers resolve to. appName is
         // set per-open, since this page edits whichever app is being launched.
+        // One picker instance for the whole list: it is per-app, but the page
+        // shows many, so openSharedPicker re-points it before opening.
+        SharedPicker.mount('sharedPicker', { appName: '' });
+        sharedPicker.onSaved = (data) => {
+            if (data && data.warning) {
+                alert(data.warning);
+                return;
+            }
+            const count = data && data.resolved ? data.resolved : 0;
+            alert(`${data.app}: ${data.declared} variable${data.declared === 1 ? '' : 's'} shared, ${count} resolved into Shared Variables.`);
+        };
+
+        function openSharedPicker(name) {
+            sharedPicker.open(name);
+        }
+
+        // The launch popup. Confirming writes the values into the app config and
+        // resumes the launch that was blocked, so the user never has to start it
+        // again by hand.
+        ImportResolver.mount('importResolver', {});
+        // Resuming is conditional: the launch path wants the app started once the
+        // values are in, the add path does not — nothing was in flight there.
+        importResolver.onResolved = (name) => {
+            if (importResolver.resumeLaunch) launchApp(name);
+        };
+
         EnvTable.register('missingEnvTable', new EnvTable({
             appName: '',
             tbodyId: 'missingEnvTableBody',
@@ -2622,8 +2686,8 @@
             const status = document.getElementById('missingEnvPredefinedStatus');
             const result = missingEnvTable.applyPredefined(predefinedEnvValues);
             status.textContent = result.filled > 0
-                ? `Filled ${result.filled} variable${result.filled === 1 ? '' : 's'} from predefined values. Review and press Save.`
-                : 'No empty variables matched your predefined values.';
+                ? `Filled ${result.filled} variable${result.filled === 1 ? '' : 's'} from shared values. Review and press Save.`
+                : 'No empty variables matched your shared values.';
         }
 
         async function loadMissingEnv(name) {
@@ -2695,12 +2759,14 @@
                     window.location.href = 'configure.html?setup=1';
                     return;
                 }
-                // The repo declares variables this installation has no value for.
-                // Nothing was started on the cluster. Swap the launch modal for
-                // the env editor; saving resumes this same launch.
+                // Variables still without a value. Nothing was started on the
+                // cluster. Swap the launch modal for the resolution popup, which
+                // offers the matching shared variables to pick from; confirming
+                // resumes this same launch (spec/19-import.md).
                 if (data.missing_env && data.missing_env.length > 0) {
                     hideLaunchModal();
-                    showMissingEnvModal(name, true);
+                    importResolver.resumeLaunch = true;
+                    importResolver.open(name, data.imports);
                     return;
                 }
                 if (data.error) {
