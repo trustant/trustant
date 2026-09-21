@@ -96,7 +96,11 @@ Precedence, in `resolveOneImport`:
    every resolve, so a rotated credential reaches the app rather than the copy
    frozen in the config. If the chosen entry has **left** the pool, the binding
    re-pends rather than falling back to another match — a silent fallback would
-   point the app at a different database.
+   point the app at a different database. An entry leaves the pool when its
+   producing app is **deleted** (the prune in
+   [18-shared.md](18-shared.md#leaving-the-pool)) or when it is removed by name
+   on the Configure page, so this case is reached by deleting a producer while
+   another app imports from it.
 3. **An exact binding** reads the pool entry of its target name.
 4. **A wildcard with exactly one match** resolves with no decision.
 5. Anything else is **pending**: zero matches, or several with no choice.

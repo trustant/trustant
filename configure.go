@@ -3179,9 +3179,48 @@ func handlePredefinedEnv(w http.ResponseWriter, r *http.Request) {
 		handleGetPredefinedEnv(w, r)
 	case http.MethodPost:
 		handlePostPredefinedEnv(w, r)
+	case http.MethodDelete:
+		handleDeletePredefinedEnv(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleDeletePredefinedEnv removes ONE pool variable by name, from the
+// development pool and from every per-host production pool, whether it is
+// app-produced or typed by hand.
+//
+// This is the only way to drop an app-produced entry. handlePostPredefinedEnv
+// deliberately carries those over, because it receives the whole set and a
+// stale tab must not be able to silently drop a live export. Naming one
+// variable makes the intent explicit, which is what makes the removal safe
+// here and unsafe there — so that carry-over stays exactly as it is.
+//
+// Removing a name that is not in the pool is success: the button is idempotent
+// and a double-click is not an error.
+func handleDeletePredefinedEnv(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		http.Error(w, "Variable name is required", http.StatusBadRequest)
+		return
+	}
+
+	wsCfg, err := loadWorkspaceConfig()
+	if err != nil {
+		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	removed := removeSharedPoolVar(wsCfg, name)
+	if removed > 0 {
+		if err := saveWorkspaceConfig(wsCfg); err != nil {
+			http.Error(w, "Failed to save configuration: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "deleted", "removed": removed})
 }
 
 // handleGetPredefinedEnv returns the merged set, sorted by name so the table

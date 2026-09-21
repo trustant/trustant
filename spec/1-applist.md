@@ -164,7 +164,12 @@ The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It
 You can
 - configure (general) — opens `index.html?choose=1`, which forces the **Provider Choice** modal so the user can switch between Ollama (internal or own-host) and Trustable Cloud (see [1-index.md](1-index.md)). It does **not** open `configure.html` directly.
 - add applications
-- remove applications
+- remove applications — this also removes the ops user, the bare repo, the
+  workbench checkout, the `apps.<name>` config entry **and every variable the
+  application shared** with the others (see "Leaving the pool" in
+  [18-shared.md](18-shared.md#leaving-the-pool)). Leaving the shared variables
+  behind would strand resolved secrets in the workspace config and let a later
+  application of the same name inherit them.
 - edit applications
 - env (configure application environment variables)
 - git pull (pull fast-forward updates from the configured production repository when available, otherwise the original application repository)

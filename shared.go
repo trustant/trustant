@@ -421,6 +421,106 @@ func foldIntoProductionPool(wsCfg *trustableConfig, host string, resolved map[st
 	return stored
 }
 
+// pruneSharedPool removes every pool entry produced by one app, from the
+// development pool and from every per-host production pool. It returns how many
+// entries it removed and does NOT save: the caller writes, so that the prune and
+// whatever else it is doing to the config land in a single write.
+//
+// The pool is otherwise append-only — foldIntoSharedPool only inserts and
+// overwrites — so this is the one path by which an app's exports leave it.
+// Without it a deleted app's resolved secrets stay in the workspace config
+// forever, and worse, they stop being recognised as app-produced: ownership is
+// derived by matching the name's prefix against the apps that exist, so once the
+// app is gone its orphans are indistinguishable from variables the user typed by
+// hand. They then become editable in the UI, are never refreshed again, and are
+// reclaimed by any app later created with the same name.
+//
+// Matching is on the name prefix directly rather than through sharedProducerOf,
+// because at the point of deletion the app may already be gone from cfg.Apps —
+// which would make sharedProducerOf report "not app-produced" for exactly the
+// keys being pruned.
+func pruneSharedPool(wsCfg *trustableConfig, app string) int {
+	app = strings.TrimSpace(app)
+	if wsCfg == nil || app == "" {
+		return 0
+	}
+
+	producedBy := func(name string) bool {
+		prefix, ok := splitSharedVarName(name)
+		return ok && strings.EqualFold(prefix, app)
+	}
+
+	removed := 0
+	for name := range wsCfg.PredefinedEnv {
+		if producedBy(name) {
+			delete(wsCfg.PredefinedEnv, name)
+			removed++
+		}
+	}
+	// An empty map would serialize as `"predefined_env": {}`; the workspace file
+	// uses omitempty to stay small, so drop it entirely.
+	if len(wsCfg.PredefinedEnv) == 0 {
+		wsCfg.PredefinedEnv = nil
+	}
+
+	for host, pool := range wsCfg.PredefinedEnvProduction {
+		for name := range pool {
+			if producedBy(name) {
+				delete(pool, name)
+				removed++
+			}
+		}
+		if len(pool) == 0 {
+			delete(wsCfg.PredefinedEnvProduction, host)
+		}
+	}
+	if len(wsCfg.PredefinedEnvProduction) == 0 {
+		wsCfg.PredefinedEnvProduction = nil
+	}
+
+	return removed
+}
+
+// removeSharedPoolVar removes one entry by name from the development pool and
+// from every per-host production pool, whoever produced it. Returns how many
+// entries it removed; it does not save.
+//
+// Removing by name is safe where the bulk POST is not. That POST carries the
+// whole set, so honouring an absent key would let a stale tab silently drop a
+// live export — which is why handlePostPredefinedEnv carries app-produced
+// entries over. A request naming one key states its intent unambiguously and
+// cannot be issued by accident.
+func removeSharedPoolVar(wsCfg *trustableConfig, name string) int {
+	name = strings.TrimSpace(name)
+	if wsCfg == nil || name == "" {
+		return 0
+	}
+
+	removed := 0
+	if _, ok := wsCfg.PredefinedEnv[name]; ok {
+		delete(wsCfg.PredefinedEnv, name)
+		removed++
+	}
+	if len(wsCfg.PredefinedEnv) == 0 {
+		wsCfg.PredefinedEnv = nil
+	}
+
+	for host, pool := range wsCfg.PredefinedEnvProduction {
+		if _, ok := pool[name]; ok {
+			delete(pool, name)
+			removed++
+		}
+		if len(pool) == 0 {
+			delete(wsCfg.PredefinedEnvProduction, host)
+		}
+	}
+	if len(wsCfg.PredefinedEnvProduction) == 0 {
+		wsCfg.PredefinedEnvProduction = nil
+	}
+
+	return removed
+}
+
 // refreshSharedPool re-resolves every producing app into the development pool,
 // then logs back in as restoreApp so the caller's own service bindings are the
 // ones left in ~/.ops/config.json.

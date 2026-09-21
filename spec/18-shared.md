@@ -118,6 +118,41 @@ launching app so its own bindings are what the rest of the launch sees.
 Refresh is **never fatal**: an unresolvable pointer, a missing service block or
 a failed login leaves the previous pool value in place and logs the name.
 
+### Leaving the pool
+
+Folding only inserts and overwrites, so refreshing can never make an entry go
+away. Two paths remove one, and they are the only two.
+
+**Deleting an application prunes what it shared.** `handleDeleteRepo` calls
+`pruneSharedPool(wsCfg, name)`, which removes every entry whose prefix is that
+app — from `predefined_env` and from every host in `predefined_env_production` —
+in the same save that drops `apps.<name>`.
+
+This is not housekeeping. Ownership is derived from the prefix matching an app
+that **exists**, so an orphaned entry does not merely linger: it stops being
+recognised as app-produced. It becomes editable on the Configure page, is never
+refreshed again, counts permanently against `maxPredefinedEnvVars`, and is
+**reclaimed as app-produced by any app later created with the same name** —
+handing a brand-new application the deleted one's credentials.
+
+Pruning matches on the prefix directly rather than through `sharedProducerOf`,
+because at that moment the app may already be gone from `cfg.Apps`, which would
+report "not app-produced" for exactly the keys being pruned. Consumers are
+already covered: `resolveOneImport` re-pends a `${{NAME}}` reference whose target
+has left the pool rather than falling back to a different producer, so those
+apps ask at their next launch instead of silently binding elsewhere.
+
+**One entry can be removed by name**, through `DELETE /api/predefined-env`,
+whoever produced it. For an app-produced entry the removal is **not durable**:
+the producer still declares it in `.env.shared`, so the next refresh brings it
+back. The UI says so before removing one and points at the real fix, which is to
+remove the declaration from the producer's `.env.shared`. The button exists for
+the entries nothing else can clear — a producer that stopped exporting, or one
+whose app is gone.
+
+An emptied host map is dropped and an emptied pool set to nil, so the workspace
+file stays small.
+
 ## Consuming
 
 This is the **import** side, and it has its own document:

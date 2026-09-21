@@ -691,10 +691,25 @@ func handleDeleteRepo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Warning: failed to remove workbench folder: %s", err)
 	}
 
-	// Remove app entry from workspace config
+	// Remove app entry from workspace config, along with everything the app
+	// shared. The pool is append-only otherwise, so without the prune the app's
+	// resolved secrets would outlive it forever — and, since ownership is
+	// derived from the name prefix matching an existing app, they would come
+	// back as editable hand-typed entries and be inherited by any app later
+	// created with the same name. Both happen in ONE save.
+	//
+	// Consumers of the pruned variables are already handled: resolveOneImport
+	// re-pends a ${{NAME}} reference whose target has left the pool rather than
+	// falling back to a different producer, so those apps ask the user at their
+	// next launch instead of silently binding to someone else's database.
 	wsCfg, err := loadWorkspaceConfig()
-	if err == nil && wsCfg.Apps != nil {
-		delete(wsCfg.Apps, req.Name)
+	if err == nil {
+		if wsCfg.Apps != nil {
+			delete(wsCfg.Apps, req.Name)
+		}
+		if pruned := pruneSharedPool(wsCfg, req.Name); pruned > 0 {
+			log.Printf("Shared: removed %d pool variables shared by %s", pruned, req.Name)
+		}
 		if err := saveWorkspaceConfig(wsCfg); err != nil {
 			log.Printf("Warning: failed to update config after delete: %s", err)
 		}

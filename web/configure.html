@@ -1224,9 +1224,17 @@
                             oninput="updatePredefinedEnv(${i}, 'value', this.value)"
                             onblur="flushPredefinedEnv()"
                             class="nu-input nu-code w-full px-2 py-1 text-sm">`;
+                // A read-only row cannot be edited, but it must still be
+                // removable: a derived entry whose producer was deleted, or
+                // which the producer stopped exporting, is otherwise stuck in
+                // the pool forever. It deletes by NAME against the server rather
+                // than by splicing the model, because the bulk save carries
+                // app-produced entries over and would put it straight back.
                 const action = readOnly
                     ? `<button type="button" onclick="togglePredefinedEnvReveal('${escapeAttr(v.name)}')"
-                            class="nu-btn nu-btn-secondary nu-btn-compact">${predefinedEnvRevealed[v.name] ? 'Hide' : 'Show'}</button>`
+                            class="nu-btn nu-btn-secondary nu-btn-compact">${predefinedEnvRevealed[v.name] ? 'Hide' : 'Show'}</button>
+                       <button type="button" onclick="deletePredefinedEnvVar('${escapeAttr(v.name)}', '${escapeAttr(v.app || '')}')"
+                            class="nu-btn nu-btn-secondary nu-btn-compact ml-1">Remove</button>`
                     : `<button type="button" onclick="removePredefinedEnvRow(${i})"
                             class="nu-btn nu-btn-secondary nu-btn-compact">Remove</button>`;
                 return `
@@ -1288,6 +1296,42 @@
             predefinedEnvVars.splice(index, 1);
             renderPredefinedEnv();
             persistPredefinedEnv({ rerender: false, fromModel: true });
+        }
+
+        // Remove one variable by name, server-side. This is the path for rows
+        // the bulk save cannot drop: app-produced ones, which the server carries
+        // over deliberately, and production ones, which this page never posts.
+        //
+        // An app-produced entry is derived, so removing it here is not durable
+        // while its producer still exports it. Saying so is the honest
+        // description of the button, and it points at the real fix.
+        async function deletePredefinedEnvVar(name, app) {
+            if (app) {
+                const ok = confirm(
+                    name + ' is shared by ' + app + '.\n\n'
+                    + 'Removing it here will not stop ' + app + ' exporting it: it comes back '
+                    + 'the next time ' + app + ' is launched. To stop it for good, remove the '
+                    + 'entry from ' + app + "'s .env.shared.\n\nRemove it anyway?");
+                if (!ok) return;
+            } else if (!confirm('Remove ' + name + ' from the shared variables?')) {
+                return;
+            }
+
+            setPredefinedEnvStatus('Removing…', 'info');
+            try {
+                const resp = await fetch('/api/predefined-env?name=' + encodeURIComponent(name), {
+                    method: 'DELETE'
+                });
+                if (!resp.ok) throw new Error(await resp.text());
+            } catch (e) {
+                setPredefinedEnvStatus('Could not remove ' + name + ': ' + e.message, 'error');
+                return;
+            }
+            // Reload rather than splice: the delete spans the development pool
+            // and every production host, so the model here is not enough to
+            // know what is left.
+            await loadPredefinedEnv();
+            setPredefinedEnvStatus('Removed ' + name + '.', 'success');
         }
 
         // Same rules as parseEnvFile in configure.go: trim the line, skip empty

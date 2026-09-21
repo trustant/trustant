@@ -540,6 +540,31 @@ because that handler runs a model connectivity probe on every call and the
 Configure page navigates to the app list when it succeeds. Editing an
 environment variable must do neither.
 
+App-produced entries are **carried over** from the stored set, whatever the
+request contains. The page receives them read-only but posts the whole set, so
+honouring an omission would let a stale tab silently drop a live export — and
+the next refresh would undo the edit anyway. To remove one, use the DELETE
+below.
+
+### DELETE /api/predefined-env?name=&lt;NAME&gt;
+
+Removes **one** variable, from `predefined_env` and from every host in
+`predefined_env_production`, whether it is app-produced or typed by hand.
+Responds `{"status":"deleted","removed":<n>}`.
+
+- A missing or blank `name` is **400**: an empty name must never be read as
+  "remove everything".
+- Removing a name that is not in the pool is success, so a double-click is not
+  an error. `removed` is then `0` and nothing is written.
+
+Removing by name is safe where the bulk POST is not, and that asymmetry is the
+whole point: the POST carries the entire set, so an absent key is ambiguous
+between "delete this" and "my tab was out of date", while a request naming one
+variable states its intent and cannot be issued by accident. This is the only
+way to drop an app-produced entry; see
+[18-shared.md](18-shared.md#leaving-the-pool) for why such a removal is not
+durable while the producer still declares it.
+
 #### There is no Save button: the palette saves on edit
 
 **Every mutation of the card persists on its own**, through a single
