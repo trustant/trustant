@@ -16,7 +16,7 @@
         branch = main
 [submodule "acp"]
 	path = acp
-	url = https://github.com/trustant/acp.git
+	url = https://github.com/trustant/trustant-acp.git
 	branch = main
 [submodule "packages"]
 	path = packages
