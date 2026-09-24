@@ -14,14 +14,10 @@
 	path = mcp
 	url = https://github.com/apache/openserverless-mcp.git
         branch = main
-[submodule "trustable-acp"]
-	path = trustable-acp
-	url = https://github.com/trustant/trustant-acp.git
+[submodule "acp"]
+	path = acp
+	url = https://github.com/trustant/acp.git
 	branch = main
-[submodule "testing"]
-	path = testing
-	url = https://github.com/trustable-ai/trustable-testing
-        branch = main
 [submodule "packages"]
 	path = packages
 	url = https://github.com/trustant/openserverless-packages
