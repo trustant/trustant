@@ -170,7 +170,7 @@ Pages talk to the backend only through `/api/*` JSON endpoints.
 [web/js/tutorial.js](web/js/tutorial.js) ([spec/16-tutorial.md](spec/16-tutorial.md)) adds the
 spotlight tutorials started from the Tutorial pulldown in `app.html`; `applist.html` loads it too
 because the Commit and Push tutorial resumes there. Steps that point inside the TruACP iframe are
-served by the tour bridge in the `trustable-acp` submodule (`web/tour-bridge.ts`), which reports
+served by the tour bridge in the `acp` submodule ([acp/web/tour-bridge.ts](acp/web/tour-bridge.ts)), which reports
 `data-tour` rects and notebook state across the origin boundary.
 
 ### Configuration layering
@@ -197,8 +197,10 @@ Licenses are issued by the `trulicense` CLI, which lives in the **trustable-inst
 
 ## Submodules
 
-Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `oplugins`, `oplugins-truinst`, `skills`, and `trustable-acp`. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
+Six git submodules in [.gitmodules](.gitmodules) — `mcp`, `oplugins`, `oplugins-truinst`, `packages`, `skills`, and `acp` (the TruACP/Pi runtime sources, checked out at path `acp`; it was formerly at path `trustable-acp`, a name much of the repo still uses — see below). The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
 Never push to any plugin repository without explicit user authorization, including `oplugins`, `oplugins-truinst`, local plugin copies, submodules, and scripts that would push those repos.
+
+**The `acp` submodule was renamed from `trustable-acp` and the rename is incomplete.** `.gitmodules` declares `path = acp`, but most of the repo still refers to the old `trustable-acp` path: [setup.sh](setup.sh) (the `pi.version`/`pi.integrity` pins and the `(cd trustable-acp && ./setup.sh)` build step, which fails its own initialization check), [hotfix.sh](hotfix.sh), [launch.go](launch.go), [.air.toml](.air.toml) `exclude_dir`, `truacp_runtime_test.go`, [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Until those are updated, treat `trustable-acp` in those files as meaning the `acp` directory.
 
 ## Tests
 
