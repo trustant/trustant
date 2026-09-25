@@ -258,8 +258,8 @@ func TestHandleStartersRejectsNonGET(t *testing.T) {
 // throttled with it. This pins the endpoint so it cannot regress by a careless
 // edit or a revert.
 func TestStartersIndexURLIsNotRateLimitedHost(t *testing.T) {
-	if !strings.HasPrefix(startersIndexURL, "https://trustant.it/") {
-		t.Errorf("startersIndexURL = %q, want it served from trustant.it", startersIndexURL)
+	if !strings.HasPrefix(startersIndexURL, "https://trustant.ai/") {
+		t.Errorf("startersIndexURL = %q, want it served from trustant.ai", startersIndexURL)
 	}
 	if strings.Contains(startersIndexURL, "raw.githubusercontent.com") {
 		t.Errorf("startersIndexURL points back at the rate-limited host: %q", startersIndexURL)

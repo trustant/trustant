@@ -15,7 +15,7 @@ Starters and applications are published as a **static `index.json`**, generated
 from the `trustable-ai/.github` repository by `support/index.py` — its format
 and generation rules are specified in [15a-index.md](15a-index.md).
 
-The canonical URL is **`https://trustant.it/index.json`**, served by GitHub
+The canonical URL is **`https://trustant.ai/index.json`**, served by GitHub
 Pages.
 
 **Trustant never calls the GitHub API.** It reads that one static file over
@@ -28,8 +28,8 @@ Add Application modal empty with a "Could not load application starters"
 warning. Pages exists to be served and does not throttle that way.
 
 The choice covers the icons as well. Each application's `icon` is published
-*inside* this document, and on `trustant.it` those URLs are
-`https://trustant.it/images/trustable-ai-<name>.png` — so the browser's
+*inside* this document, and on `trustant.ai` those URLs are
+`https://trustant.ai/images/trustable-ai-<name>.png` — so the browser's
 per-tile image requests leave the throttled host together with the index. Under
 the old host a 429 could blank the tiles even when the index itself came from
 cache. `sanitizeApplications` still accepts any `https://` icon and is

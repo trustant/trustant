@@ -28,7 +28,7 @@ import (
 )
 
 // Application starters are published as a static index.json served by GitHub
-// Pages at trustant.it. Trustant never calls the GitHub API: the index is
+// Pages at trustant.ai. Trustant never calls the GitHub API: the index is
 // generated and pushed by support/index.py, which is the only thing that talks
 // to the API. That keeps discovery identical on every installation.
 //
@@ -36,14 +36,14 @@ import (
 // raw.githubusercontent.com, which rate-limits and was observed returning
 // "429: Too Many Requests" — that makes fetchStarterIndex fail and empties the
 // Add Application modal. Pages is meant to be served, so it does not throttle.
-// The published icon URLs live in this same document and point at trustant.it
+// The published icon URLs live in this same document and point at trustant.ai
 // too, so the browser's per-tile image requests move off the throttled host
 // with it. Do not point this back at raw.githubusercontent.com.
 // See spec/15-starters.md.
 const (
-	startersIndexURL       = "https://trustant.it/index.json"
+	startersIndexURL       = "https://trustant.ai/index.json"
 	startersRequestTimeout = 10 * time.Second
-	startersUserAgent      = "trustable-app"
+	startersUserAgent      = "trustant-app"
 	startersCacheTTL       = 5 * time.Minute
 	startersMaxIndexBytes  = 4 << 20
 )
