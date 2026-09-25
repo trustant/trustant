@@ -22,7 +22,7 @@ E2E_RESULTS_ROOT="${TRUSTABLE_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
 E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
 E2E_POD="${TRUSTABLE_E2E_POD:-trustable-0}"
 E2E_CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
-E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustable.json}"
+E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustant.json}"
 E2E_LOCK_DIR="${TMPDIR:-/tmp}/trustable-e2e-provider.lock"
 E2E_CONFIG_BACKUP=""
 E2E_CONFIG_STAGED=""
@@ -286,7 +286,7 @@ e2e_provider_main() {
   E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
   E2E_POD="${TRUSTABLE_E2E_POD:-trustable-0}"
   E2E_CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
-  E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustable.json}"
+  E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustant.json}"
   e2e_need jq
   e2e_need kubectl
   e2e_need npm

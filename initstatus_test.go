@@ -34,7 +34,7 @@ func writeInitLock(t *testing.T, content string, write bool) string {
 	t.Cleanup(func() { WorkspaceDir = saved })
 
 	if write {
-		lock := filepath.Join(dir, ".trustable", "init.lock")
+		lock := filepath.Join(dir, ".trustant", "init.lock")
 		if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
 			t.Fatalf("mkdir: %s", err)
 		}

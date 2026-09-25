@@ -43,7 +43,7 @@ type piConfig struct {
 }
 
 // ModelLimits is the per-model hint block from /api/v2/status and what we
-// persist in trustable.json under the active provider's `models` map.
+// persist in trustant.json under the active provider's `models` map.
 // All three fields are optional (omitempty); zero values are dropped.
 type ModelLimits struct {
 	MaxToken         int                `json:"maxToken,omitempty"`
@@ -58,7 +58,7 @@ type ModelLimits struct {
 }
 
 // UnmarshalJSON accepts the new object form AND the legacy "256K" string form
-// so workspace trustable.json files written by older builds keep loading.
+// so workspace trustant.json files written by older builds keep loading.
 func (m *ModelLimits) UnmarshalJSON(data []byte) error {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) > 0 && trimmed[0] == '"' {
@@ -83,7 +83,7 @@ func (m *ModelLimits) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// AppConfig holds per-app configuration within trustable.json
+// AppConfig holds per-app configuration within trustant.json
 type AppConfig struct {
 	Password string `json:"password"`
 	// Templates is the notebook/templates repository inherited from the
@@ -103,13 +103,13 @@ type GitConfig struct {
 
 // NotebookConfig contains the non-secret GitHub source selected in Configure.
 // The write token is stored separately under WorkspaceDir and never serialized
-// into trustable.json or returned to the browser.
+// into trustant.json or returned to the browser.
 type NotebookConfig struct {
 	Repository string `json:"repository,omitempty"`
 	Ref        string `json:"ref,omitempty"`
 }
 
-// trustableConfig represents the structure of trustable.json
+// trustableConfig represents the structure of trustant.json
 type trustableConfig struct {
 	Provider string `json:"provider,omitempty"`
 	// BaseURL and APIKey are the top-level provider credentials.
@@ -119,7 +119,7 @@ type trustableConfig struct {
 	APIKey  string `json:"api_key,omitempty"`
 	// License is the signed "lic_<payload>.<sig>" token gating git push and
 	// production publishing. Workspace-only, like Provider and Apps: the base
-	// trustable.json never carries it. See spec/14-license.md.
+	// trustant.json never carries it. See spec/14-license.md.
 	License string `json:"license,omitempty"`
 	// ModelVersions is keyed by provider name ("ollama", "trustable", ...) and
 	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
@@ -165,7 +165,7 @@ type trustableConfig struct {
 
 // UnmarshalJSON tolerates the legacy singular `model_version` field by
 // folding it into ModelVersions under the active provider key. Lets existing
-// workspace trustable.json files written by older builds load cleanly.
+// workspace trustant.json files written by older builds load cleanly.
 func (c *trustableConfig) UnmarshalJSON(data []byte) error {
 	type alias trustableConfig
 	aux := &struct {
@@ -257,32 +257,32 @@ func apihostFilePathFor(goos, home, appData, xdgConfigHome string) string {
 	}
 }
 
-// loadBaseConfig reads the app-root trustable.json (immutable defaults)
+// loadBaseConfig reads the app-root trustant.json (immutable defaults)
 func loadBaseConfig() (*trustableConfig, error) {
-	data, err := os.ReadFile("trustable.json")
+	data, err := os.ReadFile("trustant.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read base trustable.json: %w", err)
+		return nil, fmt.Errorf("failed to read base trustant.json: %w", err)
 	}
 	var cfg trustableConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse base trustable.json: %w", err)
+		return nil, fmt.Errorf("failed to parse base trustant.json: %w", err)
 	}
 	return &cfg, nil
 }
 
-// loadWorkspaceConfig reads the workspace trustable.json (overrides)
+// loadWorkspaceConfig reads the workspace trustant.json (overrides)
 func loadWorkspaceConfig() (*trustableConfig, error) {
-	configPath := filepath.Join(WorkspaceDir, "trustable.json")
+	configPath := filepath.Join(WorkspaceDir, "trustant.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &trustableConfig{}, nil
 		}
-		return nil, fmt.Errorf("failed to read workspace trustable.json: %w", err)
+		return nil, fmt.Errorf("failed to read workspace trustant.json: %w", err)
 	}
 	var cfg trustableConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse workspace trustable.json: %w", err)
+		return nil, fmt.Errorf("failed to parse workspace trustant.json: %w", err)
 	}
 	return &cfg, nil
 }
@@ -410,13 +410,13 @@ func loadTrustableConfig() (*trustableConfig, error) {
 	return cfg, nil
 }
 
-// saveWorkspaceConfig writes only the workspace trustable.json
+// saveWorkspaceConfig writes only the workspace trustant.json
 func saveWorkspaceConfig(cfg *trustableConfig) error {
 	formatted, err := json.MarshalIndent(cfg, "", "    ")
 	if err != nil {
 		return fmt.Errorf("failed to format configuration: %w", err)
 	}
-	configPath := filepath.Join(WorkspaceDir, "trustable.json")
+	configPath := filepath.Join(WorkspaceDir, "trustant.json")
 	if err := os.MkdirAll(WorkspaceDir, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace dir: %w", err)
 	}
@@ -429,12 +429,7 @@ const (
 )
 
 func notebookGitHubTokenPath() string {
-	return filepath.Join(
-		WorkspaceDir,
-		".trustable",
-		"secrets",
-		"notebook-github-token",
-	)
+	return stateDir("secrets", "notebook-github-token")
 }
 
 func readNotebookGitHubToken() (string, error) {
@@ -1039,7 +1034,7 @@ func piPersistentConfigDir() string {
 	if strings.TrimSpace(WorkspaceDir) == "" {
 		return ""
 	}
-	return filepath.Join(WorkspaceDir, ".trustable", "pi-agent-config")
+	return stateDir("pi-agent-config")
 }
 
 func readPiJSONFileStrict(path string) (map[string]interface{}, error) {
@@ -1331,7 +1326,7 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	// Load trustable.json config first so we can branch on provider.
+	// Load trustant.json config first so we can branch on provider.
 	cfg, err := loadTrustableConfig()
 	if err != nil {
 		sendMsg("ERROR: " + err.Error())
@@ -1719,7 +1714,7 @@ func ensureEmbeddedExecutable(path, name, content string) (string, error) {
 }
 
 func ensureFrontendCheckerInstalled() (string, error) {
-	path, err := localBinInstallPath(frontendCheckerInstallPathOverride, "check_trustable_frontend.sh")
+	path, err := localBinInstallPath(frontendCheckerInstallPathOverride, "check_trustant_frontend.sh")
 	if err != nil {
 		return "", err
 	}
@@ -1727,7 +1722,7 @@ func ensureFrontendCheckerInstalled() (string, error) {
 }
 
 func ensureAppCheckerInstalled() (string, error) {
-	path, err := localBinInstallPath(appCheckerInstallPathOverride, "check_trustable_app.sh")
+	path, err := localBinInstallPath(appCheckerInstallPathOverride, "check_trustant_app.sh")
 	if err != nil {
 		return "", err
 	}
@@ -2212,14 +2207,14 @@ func runTestModel(cfg *trustableConfig) testModelResult {
 		return testModelResult{Error: "configuration not loaded"}
 	}
 	if cfg.Pi == nil || strings.TrimSpace(cfg.Pi.Default) == "" {
-		return testModelResult{Error: "pi.default not defined in trustable.json"}
+		return testModelResult{Error: "pi.default not defined in trustant.json"}
 	}
 	model := cfg.Pi.Default
 
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	apiKey := strings.TrimSpace(cfg.APIKey)
 	if baseURL == "" {
-		return testModelResult{Error: "base_url not defined in trustable.json"}
+		return testModelResult{Error: "base_url not defined in trustant.json"}
 	}
 	if cfg.Provider == "ollama" {
 		ollamaRoot, _ := resolveOllamaRoot(cfg)
@@ -2567,7 +2562,7 @@ func handleGetConfiguration(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(payload)
 }
 
-// handlePostConfiguration saves the provided configuration to workspace trustable.json
+// handlePostConfiguration saves the provided configuration to workspace trustant.json
 func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

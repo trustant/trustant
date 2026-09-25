@@ -2,14 +2,14 @@ This file describes the configuration system and the configure.go module.
 
 # Layered Configuration
 
-Configuration uses a two-layer system based on `trustable.json`:
+Configuration uses a two-layer system based on `trustant.json`:
 
-1. **Base config** (`trustable.json` in the app root directory) — immutable defaults shipped with the application
-2. **Workspace config** (`<WorkspaceDir>/trustable.json`) — user overrides, created on first save or migration
+1. **Base config** (`trustant.json` in the app root directory) — immutable defaults shipped with the application
+2. **Workspace config** (`<WorkspaceDir>/trustant.json`) — user overrides, created on first save or migration
 
 Loading merges both layers: workspace fields override base fields. Maps (models, env) are merged key-by-key. The workspace file only needs to contain overrides and the `apps` section.
 
-## trustable.json structure
+## trustant.json structure
 
 ```json
 {
@@ -54,7 +54,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   - **Ollama** — `api_key = "dummy"`. `base_url` depends on the Ollama mode picked on the splash sub-modal (see "Ollama mode selection"). For **internal** Ollama it is fixed to `http://localhost:11434/v1`; for **own host** the user enters host and port and `base_url` becomes `http://<host>:<port>/v1`. Scheme is always `http://` and path is always `/v1` — no HTTPS, no auth, no other paths.
   - **Trustable** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
   - **Private AI** — both are supplied by the user in the Private AI dialog on the splash (see [1-index.md](1-index.md)). `base_url` is any OpenAI-compatible endpoint matching `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve. `api_key` is optional and is persisted as `"dummy"` when left empty, because Pi requires a non-empty value to consider the provider configured (see [pi.md](pi.md)).
-  There is **no** global `env` section in `trustable.json`, and no global block is ever merged into an application. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`. The separate `predefined_env` map is **not** an exception: it is a palette of values the user is *offered*, never applied — see "Predefined environment variables" below.
+  There is **no** global `env` section in `trustant.json`, and no global block is ever merged into an application. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`. The separate `predefined_env` map is **not** an exception: it is a palette of values the user is *offered*, never applied — see "Predefined environment variables" below.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
 
   Each entry is an object of optional limits. Two of them are **user-editable per model** in Configure, for every provider:
@@ -79,8 +79,8 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   by notebook workflows in every launched TruACP session, unless the launched app
   overrides the repository via `apps.<name>.templates`. The defaults are
   `trustable-ai/templates` and `main`. The write token is deliberately absent
-  from `trustable.json`: Configure stores it as a mode-`0600` workspace secret
-  under `<WorkspaceDir>/.trustable/secrets/` and the API exposes only
+  from `trustant.json`: Configure stores it as a mode-`0600` workspace secret
+  under `<WorkspaceDir>/.trustant/secrets/` and the API exposes only
   `notebook.has_token`.
 - `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustable Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
 - `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
@@ -156,7 +156,7 @@ There is no longer a top-level `version` field driving reselect — the previous
 
 ### Version tracking (per provider)
 
-The workspace `trustable.json` carries a `model_versions` map: `{ "ollama"?: int, "trustable"?: int }`. Each entry caches the `modelsVersion` that was current when the user last saved (or first seeded) that provider's models.
+The workspace `trustant.json` carries a `model_versions` map: `{ "ollama"?: int, "trustable"?: int }`. Each entry caches the `modelsVersion` that was current when the user last saved (or first seeded) that provider's models.
 
 On every page load that depends on a chosen provider (splash, applist), the frontend fetches `/api/status` and compares `status[provider].modelsVersion` against `config.model_versions[provider]`:
 
@@ -193,7 +193,7 @@ This single rule is reused by:
 
 ### Per-provider seeding
 
-When the user picks a provider on the choice screen (or when the configure UI's "Change Provider" button completes a switch), the workspace `trustable.json` is rewritten with:
+When the user picks a provider on the choice screen (or when the configure UI's "Change Provider" button completes a switch), the workspace `trustant.json` is rewritten with:
 
 - `provider` — the chosen value
 - `models` — `status.<provider>.models` verbatim
@@ -293,14 +293,14 @@ Backend behavior:
 
 On any failure return `{ "error": "<message>" }` with an HTTP status reflecting the cause (400 for bad input, 502/504 for upstream failures, 500 for parse errors).
 
-The endpoint is purely a read — it does not write to `trustable.json`. The frontend takes the returned model list, builds the new `config.models` map with default limits, resets `config.pi.default`, and saves via `POST /api/configuration` as usual.
+The endpoint is purely a read — it does not write to `trustant.json`. The frontend takes the returned model list, builds the new `config.models` map with default limits, resets `config.pi.default`, and saves via `POST /api/configuration` as usual.
 
 This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which was Ollama-specific in name only — it already hit the OpenAI-compatible `/v1/models` endpoint). The old route is removed; callers must use `POST /api/discover-models`.
 
 ## Config loading functions
 
-- `loadBaseConfig()` — reads app-root `trustable.json`
-- `loadWorkspaceConfig()` — reads `<WorkspaceDir>/trustable.json` (returns empty if missing)
+- `loadBaseConfig()` — reads app-root `trustant.json`
+- `loadWorkspaceConfig()` — reads `<WorkspaceDir>/trustant.json` (returns empty if missing)
 - `mergeConfigs(base, override)` — merges workspace overrides onto base
 - `loadTrustableConfig()` — returns the merged result (base + workspace)
 - `saveWorkspaceConfig(cfg)` — writes only the workspace file
@@ -468,7 +468,7 @@ another app — do not have to be retyped for every imported or newly created ap
 
 The **config key is still `predefined_env`** and the endpoint is still
 `/api/predefined-env`. Only the user-facing label changed; renaming the wire
-format would break every existing installation's `trustable.json`.
+format would break every existing installation's `trustant.json`.
 
 It holds two kinds of entry:
 
@@ -605,7 +605,7 @@ edit instead, through the debounced path.
 #### An empty set is only ever written deliberately
 
 `POST /api/predefined-env` **replaces the whole set**, so any save that posts an
-empty list erases `predefined_env` in `trustable.json`. On an auto-saving card
+empty list erases `predefined_env` in `trustant.json`. On an auto-saving card
 that is a live hazard, because an empty table and an unloaded table look
 identical on the wire. Two guards make an accidental empty write impossible:
 
@@ -756,7 +756,7 @@ break a consumer until the next refresh.
 
 ## Current app tracking
 
-The `current` field in the workspace `trustable.json` stores the name of the currently launched app. It is set when an app is launched (`writeCurrentApp`) and cleared when the launch is stopped (`removeCurrentFile`). The `workbench/current` file is also maintained for backward compatibility.
+The `current` field in the workspace `trustant.json` stores the name of the currently launched app. It is set when an app is launched (`writeCurrentApp`) and cleared when the launch is stopped (`removeCurrentFile`). The `workbench/current` file is also maintained for backward compatibility.
 
 ## OpenServerless CLI card
 
@@ -782,11 +782,11 @@ the rows. The app-list footer carries only the 6-character task hash.
 
 ## Password storage
 
-Passwords are stored in `apps.<name>.password` in the workspace `trustable.json` (not in separate `.password` files). They are set when creating an app via `POST /api/repo` and read during .env generation. During migration, passwords are recovered via `ops util kubeget whiskuser/<name> .spec.password` (never from `.password` files).
+Passwords are stored in `apps.<name>.password` in the workspace `trustant.json` (not in separate `.password` files). They are set when creating an app via `POST /api/repo` and read during .env generation. During migration, passwords are recovered via `ops util kubeget whiskuser/<name> .spec.password` (never from `.password` files).
 
 # Configuration API: GET /api/configure
 
-This endpoint streams progress to the client. It assumes a provider has already been chosen (`provider`, `base_url`, and `api_key` are set in the workspace `trustable.json`); it does **not** prompt for provider selection. Provider selection happens once on the splash page (see [1-index.md](1-index.md)) and is changed only via the **Change Provider** button in the configure UI. If `provider` is empty, the splash flow handles the choice — `/api/configure` is only invoked afterwards.
+This endpoint streams progress to the client. It assumes a provider has already been chosen (`provider`, `base_url`, and `api_key` are set in the workspace `trustant.json`); it does **not** prompt for provider selection. Provider selection happens once on the splash page (see [1-index.md](1-index.md)) and is changed only via the **Change Provider** button in the configure UI. If `provider` is empty, the splash flow handles the choice — `/api/configure` is only invoked afterwards.
 
 `/api/configure` is the streamed path used by the splash after a provider is freshly chosen: it runs the Ollama connectivity check and the model-pull loop. It is **not** invoked by the configure UI's Save & Configure button — that path is now `POST /api/configuration` (see below), which persists, runs testmodel, and writes global Pi configuration in a single call.
 
@@ -819,7 +819,7 @@ Installed models are detected by a single `GET <root>/api/tags` call before the 
 
 If `/api/tags` itself fails, stream `OK: Could not list installed models (<err>) — pulling all` and pull every model. Failing open keeps the previous behaviour on an unexpected endpoint rather than silently skipping an install that never happened.
 
-This matters because the models are already present after the first configuration, while the flow reruns on every provider re-selection, every retry after an `AUTH_REQUIRED` sign-in, and every catalog version bump — at a 600s client timeout per model, on a screen the user sits and watches. No pull state is persisted in `trustable.json`: the `/api/tags` check is self-healing, so a manually deleted model is re-pulled and the detection cannot go stale.
+This matters because the models are already present after the first configuration, while the flow reruns on every provider re-selection, every retry after an `AUTH_REQUIRED` sign-in, and every catalog version bump — at a 600s client timeout per model, on a screen the user sits and watches. No pull state is persisted in `trustant.json`: the `/api/tags` check is self-healing, so a manually deleted model is re-pulled and the detection cannot go stale.
 
 For **own host** Ollama (i.e. `base_url` points at a non-localhost host) this step is skipped — the models were discovered via `POST /api/discover-models` against `<base_url>/models` on that host and are already installed there. The stream emits `OK: Skipping model pull (using your own Ollama host — models are already installed there)`.
 
@@ -851,7 +851,7 @@ Project-local MCP and instruction assets are described in
 [4-launch.md](4-launch.md).
 
 After the live files are written, the same JSON content is persisted under
-`<WorkspaceDir>/.trustable/pi-agent-config/`. Only `models.json`,
+`<WorkspaceDir>/.trustant/pi-agent-config/`. Only `models.json`,
 `settings.json`, and `auth.json` are persisted; Pi's npm package directory
 continues to come from the current image/setup.
 
@@ -859,7 +859,7 @@ During server preflight, a valid durable snapshot is restored into the fresh
 runtime directory and merged with the current image's package registration.
 When upgrading an existing workspace that predates the snapshot, preflight may
 recreate the three native files from the provider, model, limits, endpoint, and
-credential already stored in the workspace `trustable.json`. This recovery does
+credential already stored in the workspace `trustant.json`. This recovery does
 not probe the provider or alter the saved selection. If `pi.default` is absent,
 preflight does not invent one and the normal Configure guard remains mandatory.
 
@@ -873,9 +873,9 @@ the GitHub token value.
 
 The unified save endpoint used by `configure.html` and by the splash provider-choice handlers. Performs two steps in order and returns a single JSON result:
 
-1. **Persist** — write the payload to the workspace `trustable.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
+1. **Persist** — write the payload to the workspace `trustant.json`. Preserve the existing `apps` section if not included in the request. Regenerate `.env` and `.env.production` files for all apps that have a workbench directory.
    The optional `notebook.github_token` request field is write-only and is
-   stored in the private workspace secret file, never in `trustable.json`.
+   stored in the private workspace secret file, never in `trustant.json`.
    Omitting it preserves the current token; `notebook.clear_token=true`
    explicitly removes it. Repository/ref are validated and normalized before
    persistence.
@@ -957,7 +957,7 @@ The page header shows a "Current provider: <Ollama|Trustable>" line and a **Chan
 
 The page uses the shared Nuvolaris-style Trustable visual system defined in
 [1-applist.md](1-applist.md) under "Shared Trustable visual system" and linked
-from `web/trustable-ui.css`. Keep the configuration UI compact and operational:
+from `web/trustant-ui.css`. Keep the configuration UI compact and operational:
 neutral panels, thin table rules, Work Sans typography, restrained buttons, 4px
 radii, and no marketing hero. Restyling must preserve all existing field ids,
 provider switching,
@@ -980,7 +980,7 @@ Sections (rendered top to bottom in this order):
   operators can diagnose provider inventory without letting a basic user choose
   an embedding, rerank, tiny, or otherwise unsuitable model. `POST
   /api/configuration` enforces the same policy server-side before writing
-  `trustable.json`; UI filtering alone is not sufficient.
+  `trustant.json`; UI filtering alone is not sufficient.
 - **Notebook Repository** — global repository and branch/ref fields plus a
   write-only GitHub token field. The page shows only whether a token is already
   configured. Leaving the password field blank preserves it; an explicit
@@ -1040,7 +1040,7 @@ On any error: replace the strip with a red error box containing the error text a
 Shows a table with columns: VARIABLE, Development, Production, Actions.
 
 The app config editor uses the same shared Trustable visual system from
-`web/trustable-ui.css`. Treat it as a dense data-entry page: compact table rows,
+`web/trustant-ui.css`. Treat it as a dense data-entry page: compact table rows,
 aligned inputs, restrained import / commit actions, and no decorative hero
 content. Preserve all environment import, edit, save, unsaved-warning, and close
 behavior while restyling.

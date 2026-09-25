@@ -81,7 +81,7 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(start, `chown -Rvf trustable:trustable "$HOME/workspace"`) {
+	if !strings.Contains(start, `chown -Rvf trustant:trustant "$HOME/workspace"`) {
 		t.Fatal("image/start.sh must chown $HOME/workspace recursively")
 	}
 	if !strings.Contains(start, ") &") {
@@ -99,12 +99,12 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 		t.Fatal("image/start.sh must create the init lock before backgrounding the chown")
 	}
 
-	// start.sh runs as root, the server reads the lock as trustable. An
+	// start.sh runs as root, the server reads the lock as trustant. An
 	// existing-but-unreadable lock is indistinguishable from a stale one and
 	// would hang the splash, so ownership is set at creation time rather than
 	// left to the background chown to reach.
-	if !strings.Contains(start, `chown trustable:trustable "$(dirname "$INIT_LOCK")" "$INIT_LOCK"`) {
-		t.Fatal("image/start.sh must make the init lock owned by trustable so the server can read it")
+	if !strings.Contains(start, `chown trustant:trustant "$(dirname "$INIT_LOCK")" "$INIT_LOCK"`) {
+		t.Fatal("image/start.sh must make the init lock owned by trustant so the server can read it")
 	}
 	if !strings.Contains(start, `chmod 644 "$INIT_LOCK"`) {
 		t.Fatal("image/start.sh must make the init lock readable by the server user")

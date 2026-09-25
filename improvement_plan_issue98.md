@@ -213,7 +213,7 @@ instruction payload is the markdown file.
 Current implementation:
 
 - `buildModelProvider` sets each model's `limit.context` from
-  `trustable.json` model limits:
+  `trustant.json` model limits:
   - `maxToken` first;
   - else `maxInput`;
   - else fallback `32768`.

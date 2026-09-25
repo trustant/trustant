@@ -67,7 +67,7 @@ If it is not an error, the user exists then use the returned value as `<local-pa
 If it is an error:
 - generate a random 20-character alphanumeric `<local-password>` with
   `crypto/rand`. The alphabet is deliberately alphanumeric: the value is passed
-  on a command line and stored in `trustable.json`, so shell-significant
+  on a command line and stored in `trustant.json`, so shell-significant
   characters would only create quoting hazards.
 - create the user with
 
@@ -79,7 +79,7 @@ already existed and its existing local password was reused.
 ## Store the starter templates
 
 When `<templates>` is present, store the normalized value as
-`apps.<name>.templates` in the workspace `trustable.json`. It overrides the
+`apps.<name>.templates` in the workspace `trustant.json`. It overrides the
 global `notebook.repository` for this app at launch — see
 [15-starters.md](15-starters.md) and [2a-config.md](2a-config.md).
 
@@ -110,7 +110,7 @@ files are never returned in API errors or logs.
 
 Return error if fails.
 
-Store the password and initial app config in `<WorkspaceDir>/trustable.json` under `apps.<name>` with empty `development` and `production` maps.
+Store the password and initial app config in `<WorkspaceDir>/trustant.json` under `apps.<name>` with empty `development` and `production` maps.
 
 ## Report the variables the cloned repo cannot resolve
 
@@ -153,7 +153,7 @@ Remove the folder  `<workspacedir>/workspace/<name>`
 
 Also remove the folder `<workbenchdir>/<name>` if it exists.
 
-Remove the app entry from `<WorkspaceDir>/trustable.json` under `apps.<name>`.
+Remove the app entry from `<WorkspaceDir>/trustant.json` under `apps.<name>`.
 
 # GET /api/repo
 

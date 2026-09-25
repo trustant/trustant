@@ -26,7 +26,7 @@ import (
 )
 
 // isolateSharedWorkspace points WorkspaceDir/WorkbenchDir and HOME at temp
-// directories so a test can write .env.shared, trustable.json and
+// directories so a test can write .env.shared, trustant.json and
 // ~/.ops/config.json without touching the developer's own.
 func isolateSharedWorkspace(t *testing.T) (root string) {
 	t.Helper()

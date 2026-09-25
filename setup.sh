@@ -471,14 +471,14 @@ fi
   || fail "global milvus_cli entry point missing at /usr/local/bin/milvus_cli"
 ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 
-# --- 11. Install the pi coding-agent toolchain (pinned by trustable-acp/pi.version) ---
+# --- 11. Install the pi coding-agent toolchain (pinned by acp/pi.version) ---
 # Same pin file the image stages beside the standalone TruACP setup.sh. Format:
 # one literal npm install spec per line, `#` comments and blank lines ignored,
 # every entry MUST carry a version.
 echo "--- Installing the pi coding-agent toolchain ---"
-PI_VERSIONS_FILE="trustable-acp/pi.version"
+PI_VERSIONS_FILE="acp/pi.version"
 [[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
-PI_INTEGRITY_FILE="trustable-acp/pi.integrity"
+PI_INTEGRITY_FILE="acp/pi.integrity"
 [[ -f "$PI_INTEGRITY_FILE" ]] || fail "$PI_INTEGRITY_FILE not found — it pins the reviewed upstream Pi artifacts"
 
 command -v npm &>/dev/null || fail "npm is required to install the pi toolchain"
@@ -655,29 +655,29 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 # truacp serves its own React UI on :4096 and spawns the `pi` coding agent over
 # stdio via the `pi-acp` adapter. Trustable launches it as
 # `truacp --port <n> --dir <workbench>` (see spec/4-launch.md,
-# trustable-acp/SPEC.md §10a). Its setup.sh bundles the server + embedded web UI,
+# acp/SPEC.md §10a). Its setup.sh bundles the server + embedded web UI,
 # then installs the launcher at ~/.local/bin/truacp. Development setup builds
 # inside the VM so project dependencies match that declared environment; image
 # builds separately stage the resulting portable JavaScript bundle.
 #
-# trustable-acp/setup.sh owns this step: it (re)installs the pinned agents and
+# acp/setup.sh owns this step: it (re)installs the pinned agents and
 # integrity-verified upstream Pi packages from pi.version, builds the nested
 # Trustable pi-acp fork, then,
 # because a package.json is present in the working directory, builds and installs
-# the ~/.local/bin/truacp launcher. It MUST be run from inside trustable-acp/:
+# the ~/.local/bin/truacp launcher. It MUST be run from inside acp/:
 # the build/install phases key off a package.json in the *current* directory, so
 # invoking it from here would install the agents and skip the build entirely
-# (trustable-acp/SPEC.md §10b).
+# (acp/SPEC.md §10b).
 # WHY: NPM_CONFIG_PREFIX is inherited here so the nested installer consumes the
 # root policy; configuring another prefix inside the submodule would duplicate
 # packages and make clean VM behavior differ from the image workflow.
 echo "--- Building truacp ---"
-[[ -f trustable-acp/package.json && -f trustable-acp/pi.version ]] \
-  || fail "trustable-acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init trustable-acp)"
-[[ -f trustable-acp/pi-acp/package.json ]] \
-  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive trustable-acp)"
-[[ -x trustable-acp/setup.sh ]] || chmod +x trustable-acp/setup.sh
-(cd trustable-acp && ./setup.sh) || fail "truacp build/install failed"
+[[ -f acp/package.json && -f acp/pi.version ]] \
+  || fail "acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init acp)"
+[[ -f acp/pi-acp/package.json ]] \
+  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive acp)"
+[[ -x acp/setup.sh ]] || chmod +x acp/setup.sh
+(cd acp && ./setup.sh) || fail "truacp build/install failed"
 command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
 ok "truacp installed ($(command -v truacp))"
 

@@ -71,8 +71,8 @@ func authTestHandler(a *authManager) http.Handler {
 
 func authRequest(method, target string, body []byte) *http.Request {
 	req := httptest.NewRequest(method, target, bytes.NewReader(body))
-	req.Host = "trustable.example.test"
-	req.Header.Set("Origin", "http://trustable.example.test")
+	req.Host = "trustant.example.test"
+	req.Header.Set("Origin", "http://trustant.example.test")
 	req.RemoteAddr = "192.0.2.10:1234"
 	return req
 }
@@ -80,7 +80,7 @@ func authRequest(method, target string, body []byte) *http.Request {
 func loginForTest(t *testing.T, handler http.Handler, username, password string) (*http.Cookie, string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"username": username, "password": password})
-	req := authRequest(http.MethodPost, "http://trustable.example.test/api/auth/login", body)
+	req := authRequest(http.MethodPost, "http://trustant.example.test/api/auth/login", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -106,7 +106,7 @@ func TestAuthDisabledPreservesExistingHandler(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 	}))
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, authRequest(http.MethodPost, "http://trustable.example.test/api/write", nil))
+	handler.ServeHTTP(rec, authRequest(http.MethodPost, "http://trustant.example.test/api/write", nil))
 	if rec.Code != http.StatusTeapot {
 		t.Fatalf("disabled status = %d, want %d", rec.Code, http.StatusTeapot)
 	}
@@ -165,12 +165,12 @@ func TestLocalAuthLoginSessionCSRFAndLogout(t *testing.T) {
 	handler := authTestHandler(a)
 
 	page := httptest.NewRecorder()
-	handler.ServeHTTP(page, authRequest(http.MethodGet, "http://trustable.example.test/applist.html?view=list", nil))
+	handler.ServeHTTP(page, authRequest(http.MethodGet, "http://trustant.example.test/applist.html?view=list", nil))
 	if page.Code != http.StatusSeeOther || !strings.HasPrefix(page.Header().Get("Location"), "/login.html?next=") {
 		t.Fatalf("page response = %d location=%q", page.Code, page.Header().Get("Location"))
 	}
 	api := httptest.NewRecorder()
-	handler.ServeHTTP(api, authRequest(http.MethodGet, "http://trustable.example.test/api/read", nil))
+	handler.ServeHTTP(api, authRequest(http.MethodGet, "http://trustant.example.test/api/read", nil))
 	if api.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated API status = %d", api.Code)
 	}
@@ -180,7 +180,7 @@ func TestLocalAuthLoginSessionCSRFAndLogout(t *testing.T) {
 		t.Fatalf("unexpected HTTP cookie: %#v", cookie)
 	}
 
-	readReq := authRequest(http.MethodGet, "http://trustable.example.test/api/read", nil)
+	readReq := authRequest(http.MethodGet, "http://trustant.example.test/api/read", nil)
 	readReq.AddCookie(cookie)
 	read := httptest.NewRecorder()
 	handler.ServeHTTP(read, readReq)
@@ -188,14 +188,14 @@ func TestLocalAuthLoginSessionCSRFAndLogout(t *testing.T) {
 		t.Fatalf("authenticated read = %d %q", read.Code, read.Body.String())
 	}
 
-	writeReq := authRequest(http.MethodPost, "http://trustable.example.test/api/write", nil)
+	writeReq := authRequest(http.MethodPost, "http://trustant.example.test/api/write", nil)
 	writeReq.AddCookie(cookie)
 	write := httptest.NewRecorder()
 	handler.ServeHTTP(write, writeReq)
 	if write.Code != http.StatusForbidden {
 		t.Fatalf("write without CSRF = %d", write.Code)
 	}
-	writeReq = authRequest(http.MethodPost, "http://trustable.example.test/api/write", nil)
+	writeReq = authRequest(http.MethodPost, "http://trustant.example.test/api/write", nil)
 	writeReq.AddCookie(cookie)
 	writeReq.Header.Set(authCSRFHeader, csrf)
 	write = httptest.NewRecorder()
@@ -204,14 +204,14 @@ func TestLocalAuthLoginSessionCSRFAndLogout(t *testing.T) {
 		t.Fatalf("write with CSRF = %d, body=%s", write.Code, write.Body.String())
 	}
 
-	launchReq := authRequest(http.MethodGet, "http://trustable.example.test/api/launch/demo", nil)
+	launchReq := authRequest(http.MethodGet, "http://trustant.example.test/api/launch/demo", nil)
 	launchReq.AddCookie(cookie)
 	launch := httptest.NewRecorder()
 	handler.ServeHTTP(launch, launchReq)
 	if launch.Code != http.StatusForbidden {
 		t.Fatalf("effectful GET without CSRF = %d", launch.Code)
 	}
-	launchReq = authRequest(http.MethodGet, "http://trustable.example.test/api/launch/demo", nil)
+	launchReq = authRequest(http.MethodGet, "http://trustant.example.test/api/launch/demo", nil)
 	launchReq.AddCookie(cookie)
 	launchReq.Header.Set(authCSRFHeader, csrf)
 	launch = httptest.NewRecorder()
@@ -220,7 +220,7 @@ func TestLocalAuthLoginSessionCSRFAndLogout(t *testing.T) {
 		t.Fatalf("effectful GET with CSRF = %d", launch.Code)
 	}
 
-	logoutReq := authRequest(http.MethodPost, "http://trustable.example.test/api/auth/logout", nil)
+	logoutReq := authRequest(http.MethodPost, "http://trustant.example.test/api/auth/logout", nil)
 	logoutReq.AddCookie(cookie)
 	logoutReq.Header.Set(authCSRFHeader, csrf)
 	logout := httptest.NewRecorder()
@@ -228,7 +228,7 @@ func TestLocalAuthLoginSessionCSRFAndLogout(t *testing.T) {
 	if logout.Code != http.StatusNoContent || len(logout.Result().Cookies()) != 2 {
 		t.Fatalf("logout = %d cookies=%d", logout.Code, len(logout.Result().Cookies()))
 	}
-	readReq = authRequest(http.MethodGet, "http://trustable.example.test/api/read", nil)
+	readReq = authRequest(http.MethodGet, "http://trustant.example.test/api/read", nil)
 	readReq.AddCookie(cookie)
 	read = httptest.NewRecorder()
 	handler.ServeHTTP(read, readReq)
@@ -241,9 +241,9 @@ func TestLocalAuthHTTPSCookie(t *testing.T) {
 	a := testAuthManager()
 	handler := authTestHandler(a)
 	body := []byte(`{"username":"admin","password":"correct horse"}`)
-	req := authRequest(http.MethodPost, "http://trustable.example.test/api/auth/login", body)
+	req := authRequest(http.MethodPost, "http://trustant.example.test/api/auth/login", body)
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("Origin", "https://trustable.example.test")
+	req.Header.Set("Origin", "https://trustant.example.test")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -277,7 +277,7 @@ func TestLocalAuthSessionsExpireAndAreBounded(t *testing.T) {
 		t.Fatal("oldest session was not evicted")
 	}
 
-	req := authRequest(http.MethodGet, "http://trustable.example.test/api/read", nil)
+	req := authRequest(http.MethodGet, "http://trustant.example.test/api/read", nil)
 	req.AddCookie(&http.Cookie{Name: authSessionCookie, Value: firstToken})
 	if session := a.requestSession(req); session != nil {
 		t.Fatal("evicted session is still accepted")
@@ -285,7 +285,7 @@ func TestLocalAuthSessionsExpireAndAreBounded(t *testing.T) {
 
 	latest, latestToken, _ := a.createSession()
 	now = latest.ExpiresAt.Add(time.Second)
-	req = authRequest(http.MethodGet, "http://trustable.example.test/api/read", nil)
+	req = authRequest(http.MethodGet, "http://trustant.example.test/api/read", nil)
 	req.AddCookie(&http.Cookie{Name: authSessionCookie, Value: latestToken})
 	if session := a.requestSession(req); session != nil {
 		t.Fatal("expired session is still accepted")
@@ -298,20 +298,20 @@ func TestLocalAuthLoginRateLimit(t *testing.T) {
 	for attempt := 0; attempt < defaultLoginMaxFails; attempt++ {
 		body := []byte(`{"username":"admin","password":"wrong"}`)
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, authRequest(http.MethodPost, "http://trustable.example.test/api/auth/login", body))
+		handler.ServeHTTP(rec, authRequest(http.MethodPost, "http://trustant.example.test/api/auth/login", body))
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("failed login %d status = %d", attempt+1, rec.Code)
 		}
 	}
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, authRequest(http.MethodPost, "http://trustable.example.test/api/auth/login", []byte(`{"username":"admin","password":"correct horse"}`)))
+	handler.ServeHTTP(rec, authRequest(http.MethodPost, "http://trustant.example.test/api/auth/login", []byte(`{"username":"admin","password":"correct horse"}`)))
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
 		t.Fatalf("rate-limited login = %d retry=%q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 }
 
 func TestAuthRateLimitIdentityDoesNotTrustForwardedClientHeaders(t *testing.T) {
-	req := authRequest(http.MethodPost, "http://trustable.example.test/api/auth/login", nil)
+	req := authRequest(http.MethodPost, "http://trustant.example.test/api/auth/login", nil)
 	req.Header.Set("X-Real-IP", "198.51.100.25")
 	req.Header.Set("X-Forwarded-For", "198.51.100.26")
 	if got := authClientKey(req); got != "192.0.2.10" {
@@ -321,12 +321,12 @@ func TestAuthRateLimitIdentityDoesNotTrustForwardedClientHeaders(t *testing.T) {
 
 func TestEffectfulAuthRoutes(t *testing.T) {
 	for _, path := range []string{"/api/launch/demo", "/api/configure", "/api/ollama-connect", "/api/redeploy"} {
-		req := authRequest(http.MethodGet, "http://trustable.example.test"+path, nil)
+		req := authRequest(http.MethodGet, "http://trustant.example.test"+path, nil)
 		if !effectfulAuthRequest(req) {
 			t.Errorf("GET %s should require CSRF", path)
 		}
 	}
-	if effectfulAuthRequest(authRequest(http.MethodGet, "http://trustable.example.test/api/configuration", nil)) {
+	if effectfulAuthRequest(authRequest(http.MethodGet, "http://trustant.example.test/api/configuration", nil)) {
 		t.Fatal("read-only configuration GET unexpectedly requires CSRF")
 	}
 }

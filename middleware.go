@@ -36,9 +36,9 @@ var ipPattern = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 // the switch below without being added here would be routable but unable to
 // open a terminal.
 var routingLabels = map[string]bool{
-	"trustable": true,
-	"opencode":  true,
-	"vite":      true,
+	"trustant": true,
+	"truacp":   true,
+	"vite":     true,
 }
 
 // reverse proxy instances for the coding assistant (TruACP) and Vite.
@@ -108,18 +108,18 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hostname, port, protocol := parseHostname(r)
 
-		// If hostname is "localhost", redirect to trustable.127.0.0.1.nip.io
+		// If hostname is "localhost", redirect to trustant.127.0.0.1.nip.io
 		if hostname == "localhost" {
 			hostname = "127.0.0.1"
 		}
 
-		// If the hostname is an IP address, redirect to trustable.<ip>.nip.io format
+		// If the hostname is an IP address, redirect to trustant.<ip>.nip.io format
 		if ipPattern.MatchString(hostname) {
 			var redirectURL string
 			if port != "" {
-				redirectURL = fmt.Sprintf("%s://trustable.%s.nip.io:%s%s", protocol, hostname, port, r.URL.RequestURI())
+				redirectURL = fmt.Sprintf("%s://trustant.%s.nip.io:%s%s", protocol, hostname, port, r.URL.RequestURI())
 			} else {
-				redirectURL = fmt.Sprintf("%s://trustable.%s.nip.io%s", protocol, hostname, r.URL.RequestURI())
+				redirectURL = fmt.Sprintf("%s://trustant.%s.nip.io%s", protocol, hostname, r.URL.RequestURI())
 			}
 			log.Printf("Redirecting IP-based URL to: %s", redirectURL)
 			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
@@ -129,13 +129,13 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 		// Parse hostname as <host>.<domain> (host has no dots, domain can have dots)
 		dotIdx := strings.Index(hostname, ".")
 		if dotIdx == -1 {
-			// No dot found - not a valid FQDN, redirect to trustable.<ip>.nip.io
+			// No dot found - not a valid FQDN, redirect to trustant.<ip>.nip.io
 			localHostname := getLocalHostname()
 			var redirectURL string
 			if port != "" {
-				redirectURL = fmt.Sprintf("%s://trustable.%s.nip.io:%s%s", protocol, localHostname, port, r.URL.RequestURI())
+				redirectURL = fmt.Sprintf("%s://trustant.%s.nip.io:%s%s", protocol, localHostname, port, r.URL.RequestURI())
 			} else {
-				redirectURL = fmt.Sprintf("%s://trustable.%s.nip.io%s", protocol, localHostname, r.URL.RequestURI())
+				redirectURL = fmt.Sprintf("%s://trustant.%s.nip.io%s", protocol, localHostname, r.URL.RequestURI())
 			}
 			log.Printf("Redirecting plain hostname %s to: %s", hostname, redirectURL)
 			http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
@@ -145,13 +145,14 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 		hostPart := hostname[:dotIdx]
 
 		switch hostPart {
-		case "trustable":
+		case "trustant":
 			// Serve the web folder (static files + API)
 			next.ServeHTTP(w, r)
-		case "opencode":
-			// Keep the public hostname stable while proxying the new ACP runtime.
-			// TruACP serves its own UI and owns cwd/session state internally, so
-			// no OpenCode directory or session rewriting is performed.
+		case "truacp":
+			// Renamed from the historical "opencode" label: the runtime behind
+			// it is TruACP, which serves its own UI and owns cwd/session state
+			// internally, so no OpenCode directory or session rewriting is
+			// performed. The matching ingress is truacp-ing.
 			truacpProxy.ServeHTTP(w, r)
 		case "vite":
 			// Proxy pass to port 5173
@@ -164,9 +165,9 @@ func hostnameMiddleware(next http.Handler) http.Handler {
 			domain := hostname[dotIdx+1:]
 			var suggestedURL string
 			if port != "" {
-				suggestedURL = fmt.Sprintf("%s://trustable.%s:%s", protocol, domain, port)
+				suggestedURL = fmt.Sprintf("%s://trustant.%s:%s", protocol, domain, port)
 			} else {
-				suggestedURL = fmt.Sprintf("%s://trustable.%s", protocol, domain)
+				suggestedURL = fmt.Sprintf("%s://trustant.%s", protocol, domain)
 			}
 
 			errorMsg := fmt.Sprintf("Invalid hostname. Please use %s", suggestedURL)

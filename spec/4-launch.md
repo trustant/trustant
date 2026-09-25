@@ -293,7 +293,7 @@ Both `applist.html` and the launch API enforce this guard so a stale/direct tab
 is routed back to `configure.html?setup=1`.
 
 The server preflight may restore those global JSON files from
-`<WorkspaceDir>/.trustable/pi-agent-config/`, or reconstruct a missing initial
+`<WorkspaceDir>/.trustant/pi-agent-config/`, or reconstruct a missing initial
 snapshot from an already-selected workspace configuration after a pod image
 replacement. This happens before serving launch requests and does not make
 launch a configuration writer.
@@ -321,7 +321,7 @@ What launch writes into `<workbenchdir>/<app>/` is:
   contract.
 
 After these files exist, launch writes the credential-free issue #57 runtime
-manifest described in [trustable-pi-runtime.md](trustable-pi-runtime.md). Its
+manifest described in [trustant-pi-runtime.md](trustant-pi-runtime.md). Its
 required server names come from the exact generated `.mcp.json`, its workspace
 is the canonical active checkout, and its browser-visible `browserUrl` is
 derived from the incoming `trustable.<domain>[:port]` request by replacing only
@@ -341,7 +341,7 @@ manifest-matched workbench/server and injects private values directly into the
 child process.
 
 Plus, once per Trustable user in `~/.local/bin`: `check_openserverless_actions.sh`,
-`check_trustable_frontend.sh`, and `check_trustable_app.sh`, all executable and
+`check_trustant_frontend.sh`, and `check_trustant_app.sh`, all executable and
 not duplicated into every app repo. The generated app contract tells the agent to
 run the OpenServerless checker with the current app path for source-contract
 validation. During managed Edit it runs after canonical watcher evidence and
@@ -854,7 +854,7 @@ For setup/seed modules, bulk `INSERT INTO` logic should warn only when no
 obvious idempotency guard exists. Explicit seed markers and
 `SELECT COUNT(*) FROM ...` checks are accepted as low-noise guards.
 
-The aggregate `check_trustable_app.sh` runs the OpenServerless checker plus
+The aggregate `check_trustant_app.sh` runs the OpenServerless checker plus
 high-confidence frontend checks, including root-relative internal anchors used
 with `HashRouter` and passwords placed in request URLs. With `HashRouter`, it
 must also reject `Link`, `NavLink`, `Navigate`, or `navigate(...)` targets

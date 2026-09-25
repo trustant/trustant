@@ -90,7 +90,7 @@ func managedGitHubPaths() (root, configDir, gitConfig, home string, err error) {
 	if strings.TrimSpace(WorkspaceDir) == "" {
 		return "", "", "", "", errors.New("workspace directory is not configured")
 	}
-	root = filepath.Join(WorkspaceDir, ".trustable", "github")
+	root = stateDir("github")
 	configDir = filepath.Join(root, "gh")
 	gitConfig = filepath.Join(root, "gitconfig")
 	home = filepath.Join(root, "home")
@@ -621,7 +621,7 @@ func handleGitHubLogout(w http.ResponseWriter, r *http.Request) {
 		}
 		logoutCancel()
 	}
-	root := filepath.Join(WorkspaceDir, ".trustable", "github")
+	root := stateDir("github")
 	if err := os.RemoveAll(root); err != nil {
 		writeGitHubJSON(w, http.StatusInternalServerError, map[string]string{"error": "managed GitHub state could not be removed"})
 		return

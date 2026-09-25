@@ -35,8 +35,8 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 		`generateProjectAssetsInDir(workbenchPath, buildMCPFromOpsConfig(serviceConfig))`,
 		`setupServiceToolingFromConfig(serviceConfig)`,
 		`writeTrustablePiRuntimeManifest(app, workbenchPath, browserURL, watcherLogPath)`,
-		`"TRUSTABLE_RUNTIME_CONFIG="+runtimeManifestPath`,
-		`"TRUSTABLE_PI_EXTENSION_PATH="+extensionPath`,
+		`"TRUSTABLE_RUNTIME_CONFIG=" + runtimeManifestPath`,
+		`"TRUSTABLE_PI_EXTENSION_PATH=" + extensionPath`,
 		`if piDefaultModel(cfg) == ""`,
 		`"PI_SKIP_VERSION_CHECK=1"`,
 	} {
@@ -57,14 +57,21 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 	}
 }
 
-func TestTruACPUsesHistoricalPublicHostnameOnly(t *testing.T) {
+// The public hostname was `opencode.<domain>` while the runtime migrated from
+// OpenCode to TruACP; the rebrand renamed it to `truacp.<domain>`, matching the
+// truacp-ing ingress. What must stay true either way is that the proxy is a
+// plain pass-through: TruACP owns its own cwd and session state.
+func TestTruACPProxiesItsOwnHostnameWithoutRewriting(t *testing.T) {
 	data, err := os.ReadFile("middleware.go")
 	if err != nil {
 		t.Fatalf("read middleware.go: %s", err)
 	}
 	source := string(data)
-	if !strings.Contains(source, `case "opencode":`) || !strings.Contains(source, `truacpProxy.ServeHTTP(w, r)`) {
-		t.Fatal("historical opencode hostname must proxy the TruACP UI")
+	if !strings.Contains(source, `case "truacp":`) || !strings.Contains(source, `truacpProxy.ServeHTTP(w, r)`) {
+		t.Fatal("truacp hostname must proxy the TruACP UI")
+	}
+	if strings.Contains(source, `case "opencode":`) {
+		t.Fatal("the historical opencode hostname must no longer be routed")
 	}
 	if strings.Contains(source, "redirectOpenCodeSession") || strings.Contains(source, "X-Opencode-Directory") {
 		t.Fatal("TruACP proxy must not rewrite OpenCode directories or sessions")
@@ -78,11 +85,11 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	}
 	source := string(dockerfile)
 	for _, required := range []string{
-		"COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh",
-		"COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version",
-		"COPY --chown=trustable:trustable truacp-runtime/pi.integrity /tmp/truacp/pi.integrity",
-		"COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs",
-		"COPY --chown=trustable:trustable truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts",
+		"COPY --chown=trustant:trustant truacp-runtime/setup.sh /tmp/truacp/setup.sh",
+		"COPY --chown=trustant:trustant truacp-runtime/pi.version /tmp/truacp/pi.version",
+		"COPY --chown=trustant:trustant truacp-runtime/pi.integrity /tmp/truacp/pi.integrity",
+		"COPY --chown=trustant:trustant truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs",
+		"COPY --chown=trustant:trustant truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts",
 		"sh setup.sh",
 		`test -x "$HOME/.local/bin/truacp"`,
 	} {
@@ -90,7 +97,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 			t.Fatalf("TruACP image contract missing %q", required)
 		}
 	}
-	for _, removed := range []string{"opencode-builder", "OPENCODE_VERSION", "@opencode-ai/plugin", "COPY trustable-code", "COPY --chown=trustable:trustable trustable-acp"} {
+	for _, removed := range []string{"opencode-builder", "OPENCODE_VERSION", "@opencode-ai/plugin", "COPY trustable-code", "COPY --chown=trustable:trustable acp"} {
 		if strings.Contains(source, removed) {
 			t.Fatalf("runtime image still contains OpenCode build path %q", removed)
 		}
@@ -104,19 +111,19 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	for _, required := range []string{
 		`TRUACP_ARTIFACT_DIR="truacp-runtime"`,
 		`npm run build`,
-		`cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"`,
-		`cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
-		`cp ../trustable-acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
-		`cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
-		`cp ../trustable-acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"`,
+		`cp ../acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"`,
+		`cp ../acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
+		`cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
+		`cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
+		`cp ../acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"`,
 		// The staged artifact must still be identified by the submodule commit
 		// it came from and by a content hash of what was actually staged.
-		// These used to feed `printf 'trustable-acp=%s:%s\n'` into a BASE_HASH
+		// These used to feed `printf 'acp=%s:%s\n'` into a BASE_HASH
 		// cache key for a hash-tagged base image; that two-stage split was
 		// removed in 0bebc41 because buildkit cannot resolve `FROM base`
 		// against an image it has just built, so the key it fed is gone with
 		// it. What must not regress is that both values are still derived.
-		`TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"`,
+		`TRUACP_REF="$(git -C ../acp rev-parse HEAD)"`,
 		`TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"`,
 	} {
 		if !strings.Contains(staging, required) {
@@ -124,8 +131,8 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		`tar -C ../trustable-acp`,
-		`TRUACP_CONTEXT_DIR="trustable-acp"`,
+		`tar -C ../acp`,
+		`TRUACP_CONTEXT_DIR="acp"`,
 		`PI_LOCAL_RELEASE_USE_CHECKED_IN_MODELS`,
 		`pi-packages`,
 		// WHY: the issue #57 execution-policy extension must return through

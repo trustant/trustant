@@ -38,7 +38,7 @@ fi
 KEY=trustable
 VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
-IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
+IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustant/trustant}"
 OPSROOT="./oplugins-truinst/opsroot.json"
 
 host_arch() {
@@ -169,7 +169,7 @@ case "$MODE" in
     mkdir -p image/bin
     env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
     env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
-    cp -v trustable.json image/trustable.json
+    cp -v trustant.json image/trustant.json
 
     image/image.sh "$TAG" --push
     exit 0
@@ -198,7 +198,7 @@ ARCH="$(host_arch)"
 mkdir -p image/bin
 # Host arch only: a single-arch local image never uses the other binary.
 env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustable-$ARCH"
-cp -v trustable.json image/trustable.json
+cp -v trustant.json image/trustant.json
 
 image/image.sh "$TAG"
 

@@ -109,7 +109,7 @@ func TestManagedGitHubEnvironmentIsIsolated(t *testing.T) {
 	if values["GH_TOKEN"] != "" || values["GITHUB_TOKEN"] != "" {
 		t.Fatal("managed environment inherited a process GitHub token")
 	}
-	if !strings.HasPrefix(values["GH_CONFIG_DIR"], filepath.Join(WorkspaceDir, ".trustable", "github")) {
+	if !strings.HasPrefix(values["GH_CONFIG_DIR"], filepath.Join(WorkspaceDir, ".trustant", "github")) {
 		t.Fatalf("GH_CONFIG_DIR is outside managed workspace: %q", values["GH_CONFIG_DIR"])
 	}
 	if values["HOME"] == os.Getenv("HOME") {

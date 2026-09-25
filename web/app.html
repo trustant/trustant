@@ -22,7 +22,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable App</title>
     <script src="tailwind.js"></script>
-    <script src="trustable-auth.js"></script>
+    <script src="trustant-auth.js"></script>
     <script src="js/envtable.js"></script>
     <script src="js/marked.min.js"></script>
     <script src="js/xterm.min.js"></script>
@@ -30,7 +30,7 @@
     <script src="js/tutorial.js" defer></script>
     <script src="js/toolbar-collapse.js" defer></script>
     <link rel="stylesheet" href="js/xterm.css">
-    <link rel="stylesheet" href="trustable-ui.css">
+    <link rel="stylesheet" href="trustant-ui.css">
     <style>
         html, body {
             height: 100%;
@@ -44,7 +44,7 @@
     <div id="topBar" data-collapse class="h-[10%] nu-topbar flex items-center px-4 gap-3 relative">
         <!-- Left group: logo, app name, config pulldown, utils pulldown -->
         <div class="flex items-center gap-3 h-full shrink-0">
-            <img src="trustable-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
+            <img src="trustant-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
             <h1 id="appName" class="text-xl font-medium text-[color:var(--nu-ink)] whitespace-nowrap"></h1>
             <div id="creditsBox" class="hidden items-center gap-1 px-2 py-1 nu-status-pill text-xs">
                 <span class="font-medium">Credits:</span>
@@ -603,8 +603,8 @@
         // Set route label
         document.getElementById('routeLabel').textContent = currentRoute;
 
-        // TruACP owns its cwd and ACP sessions. The public hostname remains
-        // opencode.<domain> for compatibility, but the iframe always loads the
+        // TruACP owns its cwd and ACP sessions. The public hostname is
+        // truacp.<domain>, but the iframe always loads the
         // runtime root instead of an OpenCode directory/session route.
         if (leftURL) {
             document.getElementById('leftFrame').src = `${leftURL}/`;

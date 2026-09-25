@@ -245,7 +245,7 @@ It is shell embedded in a Dockerfile, so nothing compiles it and no test ran it;
 
 Note that a change here ships only with a **full `./build.sh --build`**.
 `hotfix.sh` layers the binary plus `image/start.sh`, `image/env` and
-`trustable.json` onto the existing image and never re-runs the Dockerfile stage
+`trustant.json` onto the existing image and never re-runs the Dockerfile stage
 that writes `.bashrc`.
 
 The publishing-auth gap tracked as #91 is **not** addressed here and must not be

@@ -53,10 +53,10 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	if !strings.Contains(setup, `install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
 		t.Fatal("setup.sh must install the Trustable Redis namespace wrapper")
 	}
-	if strings.Contains(setup, `git -C trustable-acp`) || strings.Contains(setup, `git -C mcp`) {
+	if strings.Contains(setup, `git -C acp`) || strings.Contains(setup, `git -C mcp`) {
 		t.Fatal("setup.sh must consume mounted source without following host-only Git metadata")
 	}
-	if !strings.Contains(setup, `(cd trustable-acp && ./setup.sh)`) {
+	if !strings.Contains(setup, `(cd acp && ./setup.sh)`) {
 		t.Fatal("setup.sh must build TruACP from the checked-out submodule")
 	}
 }
@@ -113,16 +113,16 @@ func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
 		t.Fatal("setup.sh must configure and export the npm prefix before global npm installs")
 	}
 
-	acpContent, err := os.ReadFile(filepath.Join("trustable-acp", "setup.sh"))
+	acpContent, err := os.ReadFile(filepath.Join("acp", "setup.sh"))
 	if err != nil {
-		t.Fatalf("read trustable-acp/setup.sh: %s", err)
+		t.Fatalf("read acp/setup.sh: %s", err)
 	}
 	acpSetup := string(acpContent)
 	if !strings.Contains(acpSetup, `GLOBAL_PREFIX=$(npm config get prefix)`) {
-		t.Fatal("trustable-acp/setup.sh must consume the caller-selected npm prefix")
+		t.Fatal("acp/setup.sh must consume the caller-selected npm prefix")
 	}
 	if strings.Contains(acpSetup, ".npm-global") {
-		t.Fatal("trustable-acp/setup.sh must not define a competing persistent npm-prefix default")
+		t.Fatal("acp/setup.sh must not define a competing persistent npm-prefix default")
 	}
 }
 
@@ -135,21 +135,21 @@ func TestSetupChecksUpstreamPiBeforeNestedACPBuild(t *testing.T) {
 	}
 	setup := string(content)
 
-	nestedBuildAt := strings.Index(setup, `(cd trustable-acp && ./setup.sh)`)
+	nestedBuildAt := strings.Index(setup, `(cd acp && ./setup.sh)`)
 	if nestedBuildAt < 0 {
-		t.Fatal("setup.sh must build the nested trustable-acp installer")
+		t.Fatal("setup.sh must build the nested acp installer")
 	}
 	piCheckAt := strings.Index(setup, `command -v pi &>/dev/null`)
 	if piCheckAt < 0 {
 		t.Fatal("setup.sh must verify the pi CLI is installed")
 	}
 	if piCheckAt > nestedBuildAt {
-		t.Fatal("setup.sh must check upstream pi before trustable-acp/setup.sh builds pi-acp")
+		t.Fatal("setup.sh must check upstream pi before acp/setup.sh builds pi-acp")
 	}
 
-	versions, err := os.ReadFile(filepath.Join("trustable-acp", "pi.version"))
+	versions, err := os.ReadFile(filepath.Join("acp", "pi.version"))
 	if err != nil {
-		t.Fatalf("read trustable-acp/pi.version: %s", err)
+		t.Fatalf("read acp/pi.version: %s", err)
 	}
 	hasUpstreamPi := false
 	for _, line := range strings.Split(string(versions), "\n") {
@@ -349,9 +349,9 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 		// -c core.eol=lf` between `git -C "$MOUNT_DIR"` and the subcommand so a
 		// fresh Windows checkout lands as LF. What must hold is that both
 		// source submodules are initialised recursively, not the exact flags.
-		`submodule update --init --recursive mcp trustable-acp`,
+		`submodule update --init --recursive mcp acp`,
 		`[[ -f "$MOUNT_DIR/mcp/package.json" ]]`,
-		`[[ -f "$MOUNT_DIR/trustable-acp/package.json" ]]`,
+		`[[ -f "$MOUNT_DIR/acp/package.json" ]]`,
 		`ensure_source_submodules`,
 	} {
 		if !strings.Contains(start, required) {

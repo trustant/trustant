@@ -169,7 +169,7 @@ workbench width.
 The workbench chrome, menus, modals, and toolbar controls use the shared
 Nuvolaris-style Trustable visual system defined in
 [1-applist.md](1-applist.md) under "Shared Trustable visual system" and loaded
-from `web/trustable-ui.css`. The top bar uses the shared near-paper surface,
+from `web/trustant-ui.css`. The top bar uses the shared near-paper surface,
 thin border, Work Sans typography, compact app identity, status pill, restrained
 buttons, and shared dropdown/menu styling. Dialogs, the environment editor and
 read-only skills view, memory editor shell, top-up iframe shell, route/query popup, and

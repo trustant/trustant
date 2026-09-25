@@ -88,7 +88,7 @@ recoverable from the name (`sharedProducerOf`: a name is app-produced exactly
 when its prefix matches an app that exists), so **nothing records it** — there is
 no ownership map to keep in sync.
 
-**The pool stores real secrets.** `trustable.json` under `$WORKSPACE_DIR` is
+**The pool stores real secrets.** `trustant.json` under `$WORKSPACE_DIR` is
 workspace-local and never committed, and this is what lets a consumer read a
 value without logging in as the producer. It also makes the pool a **cache, not
 a source of record**: `.env.shared` is the durable declaration.
@@ -342,6 +342,6 @@ a different map, and posting its rows would replace the development palette.
 
 **The rename is a label change on the wire.** The config key stays
 `predefined_env` and the endpoint stays `/api/predefined-env`; renaming them
-would break every existing installation's `trustable.json` for no user-visible
+would break every existing installation's `trustant.json` for no user-visible
 gain. `handlePostPredefinedEnv` carries app-produced keys over verbatim, so a
 stale tab cannot drop or rewrite a derived value.

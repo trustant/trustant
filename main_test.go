@@ -37,7 +37,7 @@ func TestNoStoreHTMLPreventsStaleConfigurationFlow(t *testing.T) {
 
 	// Assets can still use their normal HTTP caching semantics; only documents
 	// carry inline boot logic capable of redirecting between configuration pages.
-	request := httptest.NewRequest(http.MethodGet, "/trustable-ui.css", nil)
+	request := httptest.NewRequest(http.MethodGet, "/trustant-ui.css", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if got := response.Header().Get("Cache-Control"); got != "" {

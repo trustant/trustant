@@ -22,7 +22,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable</title>
     <script src="tailwind.js"></script>
-    <script src="trustable-auth.js"></script>
+    <script src="trustant-auth.js"></script>
     <script src="js/envtable.js"></script>
     <script src="js/bind.js"></script>
     <script src="js/shared.js"></script>
@@ -32,13 +32,13 @@
     <!-- Resumes any tutorial that crosses over from app.html. -->
     <script src="js/tutorial.js" defer></script>
     <link rel="stylesheet" href="js/xterm.css">
-    <link rel="stylesheet" href="trustable-ui.css">
+    <link rel="stylesheet" href="trustant-ui.css">
 </head>
 <body class="min-h-screen">
     <header class="nu-topbar">
         <div class="nu-shell-full px-3 md:px-5 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div class="flex items-center gap-4">
-                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-16 h-16">
+                <img src="trustant-logo.svg" alt="Trustable Logo" class="w-16 h-16">
                 <div>
                     <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
                     <h1 class="text-3xl md:text-4xl font-light text-[color:var(--nu-ink)]">Trustable</h1>
@@ -2740,13 +2740,13 @@
             const currentPort = window.location.port;
             const protocol = window.location.protocol;
             const dotIdx = currentHostname.indexOf('.');
-            if (dotIdx === -1 || !currentHostname.startsWith('trustable.')) {
-                showLaunchError('Invalid domain format. Expected: trustable.<domain>');
+            if (dotIdx === -1 || !currentHostname.startsWith('trustant.')) {
+                showLaunchError('Invalid domain format. Expected: trustant.<domain>');
                 return;
             }
             const domain = currentHostname.substring(dotIdx + 1);
             const portSuffix = currentPort ? `:${currentPort}` : '';
-            const leftURL = `${protocol}//opencode.${domain}${portSuffix}`;
+            const leftURL = `${protocol}//truacp.${domain}${portSuffix}`;
             const rightURL = `${protocol}//vite.${domain}${portSuffix}`;
 
             try {

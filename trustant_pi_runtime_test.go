@@ -26,8 +26,8 @@ import (
 )
 
 func TestBrowserVisibleDevelopmentURLUsesCallingTrustableOrigin(t *testing.T) {
-	request := httptest.NewRequest("GET", "http://trustable.invalid/api/launch/example", nil)
-	request.Host = "trustable.192.168.64.9.nip.io:8910"
+	request := httptest.NewRequest("GET", "http://trustant.invalid/api/launch/example", nil)
+	request.Host = "trustant.192.168.64.9.nip.io:8910"
 
 	got, err := browserVisibleDevelopmentURL(request)
 	if err != nil {
@@ -37,8 +37,8 @@ func TestBrowserVisibleDevelopmentURLUsesCallingTrustableOrigin(t *testing.T) {
 		t.Fatalf("development URL = %q", got)
 	}
 
-	httpsRequest := httptest.NewRequest("GET", "https://trustable.example.test/api/launch/example", nil)
-	httpsRequest.Host = "trustable.example.test"
+	httpsRequest := httptest.NewRequest("GET", "https://trustant.example.test/api/launch/example", nil)
+	httpsRequest.Host = "trustant.example.test"
 	httpsRequest.TLS = &tls.ConnectionState{}
 	got, err = browserVisibleDevelopmentURL(httpsRequest)
 	if err != nil {

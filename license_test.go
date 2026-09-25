@@ -80,7 +80,7 @@ func useTestWorkspace(t *testing.T, license string) string {
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "trustable.json"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "trustant.json"), data, 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	invalidateLicenseCache()
@@ -279,7 +279,7 @@ func TestIsLocalApihost(t *testing.T) {
 func TestPostLicenseRejectsMalformedTokenAndLeavesConfigUntouched(t *testing.T) {
 	withTestMasterKey(t)
 	dir := useTestWorkspace(t, "")
-	configPath := filepath.Join(dir, "trustable.json")
+	configPath := filepath.Join(dir, "trustant.json")
 	before, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read config: %v", err)

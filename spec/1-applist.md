@@ -16,7 +16,7 @@ After the provider guard passes, fetch `GET /api/status` and apply the same per-
 
 # App List Page
 
-The page shows the Trustable logo (`trustable-logo.svg`), product name, and the
+The page shows the Trustable logo (`trustant-logo.svg`), product name, and the
 version returned by the version API as a compact release tag.
 
 The release tag shows `<version> · <stream>`.
@@ -109,7 +109,7 @@ Shared primitives:
   handler, provider choice path, model selection flow, launch link, git action,
   and app environment editing behavior while restyling.
 - Keep the frontend plain HTML plus Tailwind loaded from `web/tailwind.js`.
-  Shared visual primitives live in `web/trustable-ui.css`; pages should link
+  Shared visual primitives live in `web/trustant-ui.css`; pages should link
   that stylesheet rather than reintroducing page-local copies of the same
   palette, typography, button, panel, table, and input rules.
 - **Never copy to the clipboard through `navigator.clipboard` alone.** Trustable
@@ -185,7 +185,7 @@ actions may keep a red text/border treatment, but should not use a solid red
 background in the normal state.
 
 Feedback UI on the app list uses the shared Trustable primitives from
-`web/trustable-ui.css`: status banners, progress masks, confirmation dialogs,
+`web/trustant-ui.css`: status banners, progress masks, confirmation dialogs,
 result blocks, and error/success/warning messages are rendered as `nu-modal`,
 `nu-btn`, `nu-input`, and `nu-feedback` surfaces. Destructive confirmations such
 as app Delete remain clearly marked with the pale danger treatment, but the
@@ -569,7 +569,7 @@ the pruduction value can be changed
 
 OPS_REPO is initialized to the git remote origin (org/repo) of the application.
 
-Then there are the env vars listed in `trustable.json` in section `env`
+Then there are the env vars listed in `trustant.json` in section `env`
 there cannot be added or removed but both the development and pruduction value can be changed
 
 then you can add and remove other variables set both development and production values.

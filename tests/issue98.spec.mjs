@@ -514,7 +514,7 @@ async function runPromptStep(request, app, launch) {
   }
 
   const checkerOutput = podShell(
-    `cd ${shellQuote(workbenchDir)} && timeout 120 check_trustable_app.sh .`,
+    `cd ${shellQuote(workbenchDir)} && timeout 120 check_trustant_app.sh .`,
     { timeout: 150_000 },
   );
   expect(checkerOutput).toContain("Trustable app completion check passed");
@@ -535,7 +535,7 @@ async function validateExistingPromptStep(request, app, launch) {
   if (env.TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW === "1") assertActionWorkflow(messages);
 
   const checkerOutput = podShell(
-    `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustable_app.sh .`,
+    `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustant_app.sh .`,
     { timeout: 150_000 },
   );
   expect(checkerOutput).toContain("Trustable app completion check passed");
@@ -789,7 +789,7 @@ test.describe("issue98 guardrail E2E", () => {
 
       await test.step("action and frontend checkers pass inside the pod", async () => {
         const output = podShell(
-          `cd ${JSON.stringify(workbenchDir)} && timeout 120 check_trustable_app.sh .`,
+          `cd ${JSON.stringify(workbenchDir)} && timeout 120 check_trustant_app.sh .`,
           { timeout: 150_000 },
         );
         expect(output).toContain("Trustable app completion check passed");
@@ -880,7 +880,7 @@ test.describe("issue98 guardrail E2E", () => {
       assertCompactionRecovery([...compactMessages, ...followup.promptMessages], guardrailState, marker);
 
       const checkerOutput = podShell(
-        `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustable_app.sh .`,
+        `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustant_app.sh .`,
         { timeout: 150_000 },
       );
       expect(checkerOutput).toContain("Trustable app completion check passed");

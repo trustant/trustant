@@ -179,61 +179,61 @@ func TestTerminalSameOriginAcceptsBothDeploymentShapes(t *testing.T) {
 	}{
 		// Direct access on an nip.io name: Origin and Host agree. Pinning to
 		// miniops.me alone is what broke exactly this case.
-		{"direct nip.io", "trustable.192.168.252.47.nip.io:8910",
-			"http://trustable.192.168.252.47.nip.io:8910", true},
+		{"direct nip.io", "trustant.192.168.252.47.nip.io:8910",
+			"http://trustant.192.168.252.47.nip.io:8910", true},
 		// Sibling labels under the same domain the request arrived on.
-		{"direct sibling", "trustable.192.168.252.47.nip.io:8910",
+		{"direct sibling", "trustant.192.168.252.47.nip.io:8910",
 			"http://vite.192.168.252.47.nip.io:8910", true},
-		{"direct bare domain", "trustable.192.168.252.47.nip.io:8910",
+		{"direct bare domain", "trustant.192.168.252.47.nip.io:8910",
 			"http://192.168.252.47.nip.io", true},
 		// Proxied: the proxy canonicalizes Host to <label>.miniops.me while the
 		// browser's Origin still carries the hostname the user typed.
-		{"proxied canonical host", "trustable.miniops.me",
-			"http://trustable.miniops.me", true},
-		{"proxied bare miniops", "trustable.miniops.me", "http://miniops.me", true},
-		{"proxied vite label", "trustable.miniops.me", "http://vite.miniops.me", true},
+		{"proxied canonical host", "trustant.miniops.me",
+			"http://trustant.miniops.me", true},
+		{"proxied bare miniops", "trustant.miniops.me", "http://miniops.me", true},
+		{"proxied vite label", "trustant.miniops.me", "http://vite.miniops.me", true},
 		// miniops.me is NOT accepted on a direct connection. The old rule
 		// accepted it unconditionally, which let a page on *.miniops.me open a
 		// shell against a local nip.io server; the proxied branch is now
 		// reached only when Host shows the request actually came through the
 		// proxy, so that widening is gone.
-		{"miniops origin on nip.io host", "trustable.192.168.252.47.nip.io:8910",
-			"http://trustable.miniops.me", false},
+		{"miniops origin on nip.io host", "trustant.192.168.252.47.nip.io:8910",
+			"http://trustant.miniops.me", false},
 		// Suffix-match traps: neither may be accepted.
-		{"suffix trap", "trustable.miniops.me", "http://miniops.me.evil.com", false},
-		{"prefix trap", "trustable.miniops.me", "http://notminiops.me", false},
-		{"empty label", "trustable.miniops.me", "http://.miniops.me", false},
+		{"suffix trap", "trustant.miniops.me", "http://miniops.me.evil.com", false},
+		{"prefix trap", "trustant.miniops.me", "http://notminiops.me", false},
+		{"empty label", "trustant.miniops.me", "http://.miniops.me", false},
 		// A foreign domain is rejected even though it shares the ".me" TLD with
 		// the accepted host — the climb strips at most one label.
-		{"same tld", "trustable.miniops.me", "http://evil.me", false},
-		{"unrelated domain", "trustable.miniops.me", "http://evil.example.com", false},
-		{"unrelated nip.io", "trustable.192.168.252.47.nip.io:8910",
-			"http://trustable.10.0.0.1.nip.io", false},
-		{"not a url", "trustable.miniops.me", "not a url", false},
+		{"same tld", "trustant.miniops.me", "http://evil.me", false},
+		{"unrelated domain", "trustant.miniops.me", "http://evil.example.com", false},
+		{"unrelated nip.io", "trustant.192.168.252.47.nip.io:8910",
+			"http://trustant.10.0.0.1.nip.io", false},
+		{"not a url", "trustant.miniops.me", "not a url", false},
 
 		// --- Proxied nip.io (the reported bug) -------------------------------
 		// Port 80 is the cluster LoadBalancer, so nginx rewrote Host to the
 		// canonical domain while Origin kept the nip.io name the user typed.
 		// The domain can no longer be compared; the routing label is all that
 		// is left to check.
-		{"proxied nip.io", "trustable.miniops.me",
-			"http://trustable.192.168.252.47.nip.io", true},
-		{"proxied nip.io sibling label", "trustable.miniops.me",
+		{"proxied nip.io", "trustant.miniops.me",
+			"http://trustant.192.168.252.47.nip.io", true},
+		{"proxied nip.io sibling label", "trustant.miniops.me",
 			"http://vite.192.168.252.47.nip.io", true},
-		{"proxied nip.io opencode label", "trustable.miniops.me",
-			"http://opencode.192.168.252.47.nip.io", true},
+		{"proxied nip.io opencode label", "trustant.miniops.me",
+			"http://truacp.192.168.252.47.nip.io", true},
 		// A label the router would not accept is rejected even when proxied.
-		{"proxied bad label", "trustable.miniops.me",
+		{"proxied bad label", "trustant.miniops.me",
 			"http://evil.192.168.252.47.nip.io", false},
 		// A label needs a real domain under it.
-		{"proxied bare label", "trustable.miniops.me", "http://trustable", false},
-		{"proxied trailing dot", "trustable.miniops.me", "http://trustable.", false},
+		{"proxied bare label", "trustant.miniops.me", "http://trustant", false},
+		{"proxied trailing dot", "trustant.miniops.me", "http://trustant.", false},
 
 		// The proxied relaxation must not leak into the direct case: arriving
 		// on an nip.io Host, a foreign domain is still rejected however
 		// plausible its label.
-		{"direct rejects foreign label host", "trustable.192.168.252.47.nip.io:8910",
-			"http://trustable.evil.com", false},
+		{"direct rejects foreign label host", "trustant.192.168.252.47.nip.io:8910",
+			"http://trustant.evil.com", false},
 	}
 
 	for _, tc := range cases {
@@ -254,7 +254,7 @@ func TestTerminalSameOriginAcceptsBothDeploymentShapes(t *testing.T) {
 // curl) working: a browser always sends Origin on a cross-origin upgrade, which
 // is the case the check guards.
 func TestTerminalSameOriginAllowsMissingOrigin(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "http://trustable.miniops.me/api/terminal/", nil)
+	request := httptest.NewRequest(http.MethodGet, "http://trustant.miniops.me/api/terminal/", nil)
 	if !terminalSameOrigin(request) {
 		t.Error("an upgrade with no Origin header must be accepted")
 	}
@@ -268,7 +268,7 @@ func TestTerminalAcceptsProxyRewrittenHost(t *testing.T) {
 	// the browser's Origin still carries the subdomain it was loaded from.
 	request := httptest.NewRequest(http.MethodGet, "http://miniops.me/api/terminal/", nil)
 	request.Host = "miniops.me"
-	request.Header.Set("Origin", "http://trustable.miniops.me")
+	request.Header.Set("Origin", "http://trustant.miniops.me")
 
 	if !terminalSameOrigin(request) {
 		t.Error("a proxy-rewritten Host must not cause the upgrade to be rejected")

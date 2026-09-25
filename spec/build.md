@@ -55,7 +55,7 @@ never patched directly with `kubectl set image`.
 **never tags, commits or writes `opsroot.json`**: CI runs on a detached checkout
 of an already-pushed tag, so creating a tag there is meaningless and a commit
 would be orphaned. It writes `_build.txt`, compiles both arches, stages
-`trustable.json` and calls `image/image.sh "$TAG" --push`.
+`trustant.json` and calls `image/image.sh "$TAG" --push`.
 
 `image/image.sh` decides between a local single-arch build and a multiarch
 registry push from that explicit `--push` argument, not by sniffing
@@ -102,7 +102,7 @@ The issue #57 extension is a separately loaded, versioned runtime artifact. It
 must be staged beside the matching TruACP bundle and pinned `pi-acp` package.
 The image must not restore the former `trustable-guardrails.ts` placeholder or
 claim policy capabilities beyond those documented in
-[trustable-pi-runtime.md](trustable-pi-runtime.md).
+[trustant-pi-runtime.md](trustant-pi-runtime.md).
 
 `trustable-acp` is tracked as a Git submodule from
 `https://github.com/trustable-ai/trustable-acp.git`, following `main` while the
@@ -147,7 +147,7 @@ cached developer copy or bypass its fail-closed per-application namespace
 policy.
 
 Managed account state is runtime data under
-`$WORKSPACE_DIR/.trustable/github`, not an image layer. The directory is on the
+`$WORKSPACE_DIR/.trustant/github`, not an image layer. The directory is on the
 durable workspace mount in the pod and in `trudev`, so authentication survives
 supported restarts while remaining isolated from the normal host account.
 
@@ -234,7 +234,7 @@ release markers.
 Build environment:
 
 - `TRUSTABLE_IMAGE`: image repository, default
-  `ghcr.io/trustable-ai/trustable-app`.
+  `ghcr.io/trustant/trustant`.
 - `TRUSTABLE_BUILD_TAG`: explicit image tag. If omitted, the tag is
   `<key>_<version>_<yy.jjj.HHMM>`.
 - `TRUSTABLE_HOTFIX_TAG`: explicit hotfix tag for `hotfix.sh --buildx`,
@@ -268,7 +268,7 @@ local; publishing it is a separate, authorization-gated push of the submodule.
 | `bin/trustable-$TARGETARCH` | `/usr/local/bin/trustable` | root |
 | `start.sh` | `/usr/local/bin/start.sh` | root |
 | `env` | `/home/trustable/.env` | `trustable:trustable` |
-| `trustable.json` | `/home/trustable/trustable.json` | `trustable:trustable` |
+| `trustant.json` | `/home/trustable/trustant.json` | `trustable:trustable` |
 
 That set covers a Go change, a container entrypoint fix, a flag flip in `.env`
 (`ENABLE_LICENSE`, `ENABLE_REGOLO`) and a base-config change — none of which
@@ -280,8 +280,8 @@ staged MCP context dirs, ~20 minutes) is skipped.
 The ownership split mirrors `image/Dockerfile` and is not cosmetic: root-owned
 files in `/home/trustable` break the running app, which writes there.
 Destinations are absolute because `WORKDIR` is set after the COPYs.
-`image/trustable.json` is gitignored and generated, so the build stages it with
-`cp trustable.json image/trustable.json` first; `image/env` and `image/start.sh`
+`image/trustant.json` is gitignored and generated, so the build stages it with
+`cp trustant.json image/trustant.json` first; `image/env` and `image/start.sh`
 are tracked. The generated Dockerfile must use the **dot** name
 `image/Dockerfile.hotfix` — `.gitignore` ignores `image/Dockerfile.*` but not the
 dash form, so a crashed run would otherwise leave an untracked file that fails

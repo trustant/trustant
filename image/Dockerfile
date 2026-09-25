@@ -148,16 +148,16 @@ ARG TARGETARCH
 USER root
 
 RUN \
-    useradd -d /home/trustable -u 769 -s /bin/bash -m trustable ;\
-    echo 'trustable ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
+    useradd -d /home/trustant -u 769 -s /bin/bash -m trustant ;\
+    echo 'trustant ALL=(ALL:ALL) NOPASSWD: ALL' >>/etc/sudoers
 
-ENV HOME=/home/trustable
-WORKDIR /home/trustable
-USER trustable
+ENV HOME=/home/trustant
+WORKDIR /home/trustant
+USER trustant
 
 RUN \
     sed -e 's/^\(.*\)=\(.*\)/export \1="\2"/'  -e 's/""/"/g' >>$HOME/.bashrc /etc/environment  ;\
-    echo "export PATH=\"/home/trustable/.local/bin:/home/trustable/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:/usr/bin:/bin\"" >>$HOME/.bashrc ;\
+    echo "export PATH=\"/home/trustant/.local/bin:/home/trustant/.ops/linux-${TARGETARCH}/bin:/usr/local/bin:/usr/bin:/bin\"" >>$HOME/.bashrc ;\
     curl -fsSL n7s.co/get-ops-tru | bash
 
 RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
@@ -167,12 +167,12 @@ RUN bash -ic "source $HOME/.bashrc ;  ops -t ; ops -info"
 # stages only the runtime artifacts; source and node_modules must never enter an
 # image layer. The separately loaded policy file is pinned with this artifact
 # set so managed Pi cannot start without the issue #57 host contract.
-COPY --chown=trustable:trustable truacp-runtime/setup.sh /tmp/truacp/setup.sh
-COPY --chown=trustable:trustable truacp-runtime/pi.version /tmp/truacp/pi.version
-COPY --chown=trustable:trustable truacp-runtime/pi.integrity /tmp/truacp/pi.integrity
-COPY --chown=trustable:trustable truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
-COPY --chown=trustable:trustable truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
-COPY --chown=trustable:trustable truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts
+COPY --chown=trustant:trustant truacp-runtime/setup.sh /tmp/truacp/setup.sh
+COPY --chown=trustant:trustant truacp-runtime/pi.version /tmp/truacp/pi.version
+COPY --chown=trustant:trustant truacp-runtime/pi.integrity /tmp/truacp/pi.integrity
+COPY --chown=trustant:trustant truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
+COPY --chown=trustant:trustant truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
+COPY --chown=trustant:trustant truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts
 RUN \
     cd /tmp/truacp ;\
     sh setup.sh ;\
@@ -196,18 +196,18 @@ RUN \
 # .bashrc, not .profile: the terminal spawns `$SHELL -i` (see spec/12-terminal.md),
 # which reads .bashrc and never sources the profile files.
 RUN \
-    mkdir -p /home/trustable/workspace ;\
+    mkdir -p /home/trustant/workspace ;\
     cat >>$HOME/.bashrc <<'BASHRC'
 
 # Start in the launched app's checkout, if there is one. Silent otherwise: no
 # current app is the normal state on a fresh pod, and `current` can still name an
 # app whose checkout has since been removed.
 if [ -r "$HOME/workbench/current" ]; then
-    __trustable_app="$(tr -d '[:space:]' <"$HOME/workbench/current" 2>/dev/null || true)"
-    if [ -n "$__trustable_app" ] && [ -d "$HOME/workbench/$__trustable_app" ]; then
-        cd "$HOME/workbench/$__trustable_app" || true
+    __trustant_app="$(tr -d '[:space:]' <"$HOME/workbench/current" 2>/dev/null || true)"
+    if [ -n "$__trustant_app" ] && [ -d "$HOME/workbench/$__trustant_app" ]; then
+        cd "$HOME/workbench/$__trustant_app" || true
     fi
-    unset __trustable_app
+    unset __trustant_app
 fi
 BASHRC
 
@@ -226,10 +226,10 @@ COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]
 
-COPY --chown=trustable:trustable env .env
-COPY --chown=trustable:trustable trustable.json trustable.json
+COPY --chown=trustant:trustant env .env
+COPY --chown=trustant:trustant trustant.json trustant.json
 
 # start.sh / supervisord must run as root: start.sh chowns $HOME and
 # supervisord (user=root) drops privilege per-program. Final user MUST be root.
 USER root
-WORKDIR /home/trustable
+WORKDIR /home/trustant

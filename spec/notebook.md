@@ -338,9 +338,9 @@ TruACP server `.env`.
 
 - Trustable's main **Configure** screen owns the global template repository,
   branch/ref, and write token, under a **Template Repository** heading.
-- Repository/ref are persisted in workspace `trustable.json`; the token is
+- Repository/ref are persisted in workspace `trustant.json`; the token is
   write-only and stored separately in a mode-`0600` file under
-  `<WorkspaceDir>/.trustable/secrets/`.
+  `<WorkspaceDir>/.trustant/secrets/`.
 - `GET /api/configuration` returns repository/ref plus only `has_token`.
   `POST /api/configuration` preserves an omitted token and supports an explicit
   clear action.

@@ -14,20 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Ship a rebuilt binary (plus start.sh, .env and trustable.json) on top of the
+# Ship a rebuilt binary (plus start.sh, .env and trustant.json) on top of the
 # image already recorded in oplugins-truinst/opsroot.json.
 #
 # WHY: image/image.sh takes ~20 minutes -- submodule init, npm install/build for
-# trustable-acp, npm ci/test/build/pack for the nested pi-acp fork, and three
+# acp, npm ci/test/build/pack for the nested pi-acp fork, and three
 # staged MCP context dirs, all before the first docker build line. When only the
-# Go binary, the container entrypoint, the image .env or the base trustable.json
+# Go binary, the container entrypoint, the image .env or the base trustant.json
 # changed, none of that work is needed. Layering those four files onto the
 # existing image with `FROM <that image>` takes a minute or two instead.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustable-ai/trustable-app}"
+IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustant/trustant}"
 KEY=trustable
 OPSROOT="./oplugins-truinst/opsroot.json"
 DOCKERFILE="Dockerfile.hotfix"
@@ -132,7 +132,7 @@ host_arch() {
 # MCP/TruACP stages.
 #
 # The ownership split is not cosmetic: the base image copies env and
-# trustable.json as --chown=trustable:trustable into the user's home
+# trustant.json as --chown=trustant:trustant into the user's home
 # (image/Dockerfile), while the binary and start.sh go to /usr/local/bin as
 # root. Root-owned files in that home break the running app, which writes there.
 # Destinations are absolute because WORKDIR is set after these COPYs.
@@ -148,10 +148,10 @@ USER root
 COPY bin/trustable-\$TARGETARCH /usr/local/bin/trustable
 COPY start.sh /usr/local/bin/start.sh
 RUN chmod 0755 /usr/local/bin/trustable /usr/local/bin/start.sh
-COPY --chown=trustable:trustable env /home/trustable/.env
-COPY --chown=trustable:trustable trustable.json /home/trustable/trustable.json
+COPY --chown=trustant:trustant env /home/trustant/.env
+COPY --chown=trustant:trustant trustant.json /home/trustant/trustant.json
 CMD ["/usr/local/bin/start.sh"]
-WORKDIR /home/trustable
+WORKDIR /home/trustant
 EOF
 }
 
@@ -159,10 +159,10 @@ cleanup() {
     rm -f "image/$DOCKERFILE"
 }
 
-# image/trustable.json is gitignored and generated -- without this the build
+# image/trustant.json is gitignored and generated -- without this the build
 # ships a stale copy from an earlier build, or fails on a clean checkout.
 stage_config() {
-    cp -v trustable.json image/trustable.json
+    cp -v trustant.json image/trustant.json
 }
 
 # ---------------------------------------------------------------- k8s rollout
@@ -199,7 +199,7 @@ usage() {
     cat <<'USAGE'
 Usage: ./hotfix.sh <mode> [--no-deploy]
 
-Layers the rebuilt binary, image/start.sh, image/env and trustable.json onto the
+Layers the rebuilt binary, image/start.sh, image/env and trustant.json onto the
 image recorded in oplugins-truinst/opsroot.json -- a minute or two instead of the
 ~20 minutes a full image build takes.
 

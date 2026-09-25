@@ -84,7 +84,7 @@ models that cap lower.
 Both limits are user-editable per model in Configure (see
 [2a-config.md](2a-config.md)), for every provider: a catalog that reports no
 size, or a wrong one, is exactly the case this has to fix. An absent value in
-`trustable.json` means "use the default"; zero and absent are equivalent.
+`trustant.json` means "use the default"; zero and absent are equivalent.
 
 Pi reasoning capability is written per model. Explicit catalog values for
 `reasoning` and `thinkingLevelMap` are preserved after validating Pi's known
@@ -101,7 +101,7 @@ configuration: Edit is an app operation, while Configure is the single owner of
 runtime settings and credentials.
 
 After a successful Configure write, Trustable snapshots only these three JSON
-files under `<WorkspaceDir>/.trustable/pi-agent-config/`, with a private
+files under `<WorkspaceDir>/.trustant/pi-agent-config/`, with a private
 directory and the same per-file modes. The npm extension tree is deliberately
 not persisted: every replacement image must supply the versions pinned by that
 image rather than inherit packages from an older pod.
@@ -110,11 +110,11 @@ At server preflight, Trustable overlays the durable JSON snapshot onto the fresh
 image's Pi directory while preserving the current image's `settings.packages`.
 For the first upgrade from an image that did not create a snapshot, preflight
 may materialize the already-selected provider from the durable
-`trustable.json`. This is state recovery, not a second configuration owner: it
+`trustant.json`. This is state recovery, not a second configuration owner: it
 does not change provider/model selection, run a model probe, or run from app
 launch. A missing `pi.default` still requires the explicit Configure flow.
 
-The selected model is stored as `pi.default` in `trustable.json`. There is no
+The selected model is stored as `pi.default` in `trustant.json`. There is no
 secondary/small model. Legacy `opencode.default` and `opencode.small` fields are
 ignored rather than migrated; an existing installation without `pi.default`
 is redirected to `configure.html?setup=1` for one explicit selection.
@@ -304,7 +304,7 @@ There is still no global step/turn budget.
 
 Context-continuity state and completion evidence remain subsequent issue #57
 increments. The complete versioned contract and acceptance matrix are
-specified in [trustable-pi-runtime.md](trustable-pi-runtime.md).
+specified in [trustant-pi-runtime.md](trustant-pi-runtime.md).
 
 ## Upstream runtime ownership (#71)
 

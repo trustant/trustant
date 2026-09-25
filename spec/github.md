@@ -11,9 +11,9 @@ bounded lifecycle state.
 
 Managed state lives under:
 
-- `$WORKSPACE_DIR/.trustable/github/gh` as `GH_CONFIG_DIR`;
-- `$WORKSPACE_DIR/.trustable/github/gitconfig` as `GIT_CONFIG_GLOBAL`;
-- `$WORKSPACE_DIR/.trustable/github/home` as the managed command `HOME`.
+- `$WORKSPACE_DIR/.trustant/github/gh` as `GH_CONFIG_DIR`;
+- `$WORKSPACE_DIR/.trustant/github/gitconfig` as `GIT_CONFIG_GLOBAL`;
+- `$WORKSPACE_DIR/.trustant/github/home` as the managed command `HOME`.
 
 Directories use mode `0700`; credential-bearing files use `0600`. Trustable
 strips inherited `GH_TOKEN`, `GITHUB_TOKEN`, and enterprise token variables

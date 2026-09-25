@@ -37,7 +37,7 @@ Linux server development uses local access to the Trustable k3s cluster with Doc
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
-./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustable.json on the existing image (minutes, not ~20 min)
+./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
 go test ./...    # Unit tests (currently only configure_test.go)
 go test -run TestGenerateProjectAssetsForTruACP  # Single test
@@ -47,7 +47,7 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 `build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
-[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustable.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
+[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
 ## Required environment
 
@@ -73,10 +73,10 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | File | Spec | Responsibility |
 |---|---|---|
 | [main.go](main.go) | — | Embeds `web/`, registers `/api/*` routes, starts `:8910` with `hostnameMiddleware` |
-| [preflight.go](preflight.go) | [0-preflight.md](spec/0-preflight.md) | Loads `.env`, kills leftover processes on 8910/5173/4096, checks ssh key, runs the workspace `trustable.json` migration |
+| [preflight.go](preflight.go) | [0-preflight.md](spec/0-preflight.md) | Loads `.env`, kills leftover processes on 8910/5173/4096, checks ssh key, runs the workspace `trustant.json` migration |
 | [middleware.go](middleware.go) | [0-preflight.md](spec/0-preflight.md) | **Host-based routing** — the same `:8910` handles three apps by hostname prefix |
 | [repo.go](repo.go) | [2-repo.md](spec/2-repo.md) | `/api/repo`, `/api/upload`, `/api/git*` — manages per-app bare git repos under `$WORKSPACE_DIR/workspace/<name>` |
-| [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config (base `trustable.json` + workspace `trustable.json`), `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` — also writes per-app `.env`/`.env.production` files |
+| [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config (base `trustant.json` + workspace `trustant.json`), `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` — also writes per-app `.env`/`.env.production` files |
 | [launch.go](launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clones workspace → workbench, runs `ops ide login/clean/deploy`, owns the pgid file for orderly shutdown |
 | [git.go](git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
 | [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — **every endpoint calls `requireValidLicense` first** |
@@ -122,10 +122,10 @@ Pages talk to the backend only through `/api/*` JSON endpoints.
 
 ### Configuration layering
 
-Config is loaded by merging two `trustable.json` files (see [spec/2a-config.md](spec/2a-config.md)):
+Config is loaded by merging two `trustant.json` files (see [spec/2a-config.md](spec/2a-config.md)):
 
-1. **Base** (`./trustable.json`) — immutable defaults shipped with the binary
-2. **Workspace** (`$WORKSPACE_DIR/trustable.json`) — user overrides + `apps` + `provider`
+1. **Base** (`./trustant.json`) — immutable defaults shipped with the binary
+2. **Workspace** (`$WORKSPACE_DIR/trustant.json`) — user overrides + `apps` + `provider`
 
 Maps merge key-by-key. The workspace file uses `omitempty` so it stays small. `provider`, `apps`, and chosen models live only in the workspace layer. There is no global `env` block — per-app env vars live under `apps.<name>.development` / `apps.<name>.production`.
 

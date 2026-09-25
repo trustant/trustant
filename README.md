@@ -160,10 +160,10 @@ Launching an app **clones workspace → workbench** when the workbench is missin
 
 ### Configuration layering
 
-Configuration is the result of **merging two `trustable.json` files** (see [spec/2a-config.md](spec/2a-config.md)):
+Configuration is the result of **merging two `trustant.json` files** (see [spec/2a-config.md](spec/2a-config.md)):
 
-1. **Base** — `./trustable.json`, the immutable defaults shipped with the binary.
-2. **Workspace** — `$WORKSPACE_DIR/trustable.json`, holding user overrides plus the `apps` and `provider` data.
+1. **Base** — `./trustant.json`, the immutable defaults shipped with the binary.
+2. **Workspace** — `$WORKSPACE_DIR/trustant.json`, holding user overrides plus the `apps` and `provider` data.
 
 Maps are merged **key-by-key** (not wholesale-replaced), so the workspace layer only needs to carry deltas. `provider`, `apps`, and the chosen models live **only** in the workspace layer. Per-app environment variables live under `apps.<name>.development` and `apps.<name>.production`.
 
@@ -238,7 +238,7 @@ inside the VM to re-verify the toolchain).
 .\start.ps1      # WINDOWS ONLY (PowerShell): create the WSL2 distro, run start.sh in it, then run.sh
 ./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/TruACP+Pi + MCP)
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
-./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustable.json on the existing image (minutes, not ~20 min)
+./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Push the latest git tag and watch CI; pushes oplugins-truinst only with explicit authorization (never for a hotfix)
 ./ssh.sh         # SSH into the running Trustable VM; no args prints help, -d development (your files), -p production (trustable user), -i inside the container
 go test ./...    # Unit tests

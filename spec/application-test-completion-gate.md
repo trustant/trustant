@@ -7,8 +7,8 @@
 > blocked. Nothing below is enforced today. See "No tool-permission guardrail" in
 > [pi.md](pi.md).
 >
-> What survives is advisory only: the `check_trustable_app.sh` /
-> `check_openserverless_actions.sh` / `check_trustable_frontend.sh` scripts, which
+> What survives is advisory only: the `check_trustant_app.sh` /
+> `check_openserverless_actions.sh` / `check_trustant_frontend.sh` scripts, which
 > the managed `AGENTS.md` tells the agent to run but cannot compel it to.
 >
 > The description below is retained so the behaviour can be re-specified if a

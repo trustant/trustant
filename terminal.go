@@ -42,8 +42,8 @@ import (
 // This endpoint is a remote shell and is the most sensitive surface in the app.
 // It is protected by three independent gates:
 //
-//  1. hostnameMiddleware — reachable only on the trustable.<domain> prefix,
-//     never on the vite. or opencode. proxies.
+//  1. hostnameMiddleware — reachable only on the trustant.<domain> prefix,
+//     never on the vite. or truacp. proxies.
 //  2. authManager.middleware — /api/terminal/ is not a publicAuthPath, so a
 //     valid signed session is required whenever auth is enabled.
 //  3. terminalSameOrigin — a WebSocket upgrade is a GET and therefore skips the
@@ -129,7 +129,7 @@ func releaseTerminalSession(name string, session *terminalSession) {
 //
 // There are three request shapes, and the check must accept the first two:
 //
-//  1. Direct — a browser on trustable.<ip>.nip.io:8910 reaches the server with
+//  1. Direct — a browser on trustant.<ip>.nip.io:8910 reaches the server with
 //     no proxy in between, so Origin and Host agree and are compared directly.
 //  2. Proxied — port 80 is the cluster LoadBalancer, so every request there goes
 //     through nginx, which rewrites Host to <label>.miniops.me while leaving
@@ -187,8 +187,8 @@ func terminalSameOrigin(r *http.Request) bool {
 // domain as an accepted host.
 //
 // It matches the host itself, a label beneath it, and a sibling label under its
-// parent — the last because the request may arrive on trustable.<domain> while a
-// legitimate Origin is that same trustable.<domain>, or arrive on <domain> bare.
+// parent — the last because the request may arrive on trustant.<domain> while a
+// legitimate Origin is that same trustant.<domain>, or arrive on <domain> bare.
 // The leading dot on every suffix test is what rejects miniops.me.evil.com, and
 // requiring a non-empty label before it rejects a bare ".miniops.me".
 func originSharesDomain(host, accepted string) bool {
@@ -205,7 +205,7 @@ func originSharesDomain(host, accepted string) bool {
 		return true
 	}
 	// Climb at most one label, and never to something that is not itself a
-	// dotted domain — otherwise an accepted host of trustable.miniops.me would
+	// dotted domain — otherwise an accepted host of trustant.miniops.me would
 	// widen to all of ".me".
 	if _, parent, found := strings.Cut(accepted, "."); found && strings.Contains(parent, ".") {
 		return under(parent)
@@ -214,13 +214,13 @@ func originSharesDomain(host, accepted string) bool {
 }
 
 // isRoutingLabelHost reports whether an Origin hostname is a routing label over
-// some domain — trustable.<domain>, vite.<domain>, opencode.<domain>.
+// some domain — trustant.<domain>, vite.<domain>, truacp.<domain>.
 //
 // This is the proxied-request test. The domain is deliberately not constrained:
 // nginx has already discarded the one the user typed, so there is nothing left
 // to compare it against. The label must still be one hostnameMiddleware would
 // route, and there must be a real domain under it, which is what rejects a bare
-// "trustable" or a trailing-dot name.
+// "trustant" or a trailing-dot name.
 func isRoutingLabelHost(host string) bool {
 	label, domain, found := strings.Cut(host, ".")
 	if !found || !strings.Contains(domain, ".") {

@@ -34,7 +34,7 @@ var (
 	WorkspaceDir string
 	WorkbenchDir string
 	// OPENAI_BASE_URL / OPENAI_API_KEY are deliberately not mirrored into globals:
-	// the provider base URL comes from cfg.BaseURL in the layered trustable.json,
+	// the provider base URL comes from cfg.BaseURL in the layered trustant.json,
 	// and the real key is resolved by Pi through auth.json from the literal
 	// "$OPENAI_API_KEY" reference. Both still reach subprocesses via the process
 	// environment that loadEnv sets, and are stripped from the user-visible shell
@@ -174,7 +174,7 @@ func runPreflight() error {
 		log.Println("✓ Port cleanup complete")
 	}
 
-	// Step 2b: Migrate existing apps into workspace trustable.json
+	// Step 2b: Migrate existing apps into workspace trustant.json
 	if err := migrateToLayeredConfig(); err != nil {
 		log.Printf("Warning: config migration failed: %v", err)
 	}
@@ -191,7 +191,7 @@ func runPreflight() error {
 	// Step 3: Seed the predefined-env palette. Optional and non-fatal: a
 	// malformed .env.default must not stop the server from starting. Runs after
 	// migrateToLayeredConfig, which is what guarantees a workspace
-	// trustable.json exists to write into.
+	// trustant.json exists to write into.
 	log.Println("[3/4] Importing predefined environment variables...")
 	if err := importDefaultPredefinedEnv(); err != nil {
 		log.Printf("Warning: predefined env import failed: %v", err)
@@ -227,7 +227,20 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
-// migrateToLayeredConfig migrates existing apps into workspace trustable.json
+// stateDirName is the workspace directory holding server-side state that must
+// survive a pod restart: the persistent ssh key, GitHub auth, secrets and the
+// Pi agent config. A pre-rebrand .trustable/ directory is deliberately ignored
+// rather than migrated: it is left in place and its contents are regenerated
+// under the new name.
+const stateDirName = ".trustant"
+
+// stateDir returns the workspace state directory. Every caller must go through
+// this rather than joining the literal, so the name has exactly one definition.
+func stateDir(elem ...string) string {
+	return filepath.Join(append([]string{WorkspaceDir, stateDirName}, elem...)...)
+}
+
+// migrateToLayeredConfig migrates existing apps into workspace trustant.json
 func migrateToLayeredConfig() error {
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
@@ -417,7 +430,7 @@ func checkSSHKey() {
 	sshDir := filepath.Join(homeDir, ".ssh")
 	keyPath := filepath.Join(sshDir, "id_ed25519")
 	pubPath := keyPath + ".pub"
-	persistentDir := filepath.Join(WorkspaceDir, ".trustable", "ssh")
+	persistentDir := stateDir("ssh")
 	persistentKeyPath := filepath.Join(persistentDir, "id_ed25519")
 	persistentPubPath := persistentKeyPath + ".pub"
 
@@ -512,10 +525,10 @@ func handleSSHKey(w http.ResponseWriter, r *http.Request) {
 
 // initLockPath is the file image/start.sh maintains while its background chown
 // of $HOME/workspace runs. Its content is the running count of files processed.
-// It lives under the workspace .trustable/ directory, the existing convention
+// It lives under the workspace state directory, the existing convention
 // for server-side state.
 func initLockPath() string {
-	return filepath.Join(WorkspaceDir, ".trustable", "init.lock")
+	return stateDir("init.lock")
 }
 
 // handleInitStatus reports whether the startup chown is still running, via

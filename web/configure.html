@@ -22,15 +22,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trustable - Configuration</title>
     <script src="tailwind.js"></script>
-    <script src="trustable-auth.js"></script>
+    <script src="trustant-auth.js"></script>
     <script src="js/github-account.js"></script>
-    <link rel="stylesheet" href="trustable-ui.css">
+    <link rel="stylesheet" href="trustant-ui.css">
 </head>
 <body class="min-h-screen">
     <header class="nu-topbar">
         <div class="nu-shell-narrow px-4 md:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div class="flex items-center gap-4">
-                <img src="trustable-logo.svg" alt="Trustable Logo" class="w-14 h-14">
+                <img src="trustant-logo.svg" alt="Trustable Logo" class="w-14 h-14">
                 <div>
                     <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)]">Trustable settings</p>
                     <h1 class="text-3xl font-light text-[color:var(--nu-ink)]">Configuration</h1>
@@ -846,7 +846,7 @@
          * Write one of the two limits for a model. An empty box deletes the key
          * rather than storing 0: Go treats absent and zero identically
          * (omitempty plus the `> 0` guards), so a stored 0 would only mislead
-         * whoever reads trustable.json.
+         * whoever reads trustant.json.
          */
         function setModelLimit(name, field, value, input) {
             if (!config.models) config.models = {};
@@ -1066,7 +1066,7 @@
                 apps: config.apps || {},
                 // Echoed back for the same reason as `apps`: this POST is a
                 // full-document write, so a field left out here is erased from
-                // trustable.json. The predefined variables are edited by their
+                // trustant.json. The predefined variables are edited by their
                 // own card against /api/predefined-env, never by this payload.
                 predefined_env: config.predefined_env || {}
             };
@@ -1139,7 +1139,7 @@
         // Nothing may be saved before the palette has loaded. The table starts
         // holding a placeholder row with no inputs, so a save that read it would
         // post an empty set — and POST /api/predefined-env replaces the WHOLE
-        // set, erasing predefined_env in trustable.json.
+        // set, erasing predefined_env in trustant.json.
         let predefinedEnvLoaded = false;
 
         // Which pool the table is showing: '' for development, or a production
@@ -1520,7 +1520,7 @@
                 // whenever the table is empty, and the same shape appears if the
                 // table has not been rendered yet. Clearing is only ever
                 // expressed through Remove, which saves fromModel. Posting []
-                // here would replace the whole set and erase trustable.json.
+                // here would replace the whole set and erase trustant.json.
                 if (rows.length === 0) return;
                 predefinedEnvVars = rows;
             }

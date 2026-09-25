@@ -35,7 +35,7 @@ import (
 )
 
 // appPasswordAlphabet is deliberately alphanumeric: the value is passed to
-// `ops admin adduser` on a command line and stored in trustable.json, so
+// `ops admin adduser` on a command line and stored in trustant.json, so
 // shell-significant characters would only create quoting hazards.
 const appPasswordAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -575,7 +575,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Store the password and initial config in workspace trustable.json
+	// Store the password and initial config in workspace trustant.json
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
 		wsCfg = &trustableConfig{}

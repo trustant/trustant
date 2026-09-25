@@ -51,8 +51,8 @@ func isolateOpenServerlessCheckerInstall(t *testing.T) string {
 	root := t.TempDir()
 	checkerInstallPath := filepath.Join(root, "bin", "check_openserverless_actions.sh")
 	openServerlessCheckerInstallPathOverride = checkerInstallPath
-	frontendCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_frontend.sh")
-	appCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustable_app.sh")
+	frontendCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustant_frontend.sh")
+	appCheckerInstallPathOverride = filepath.Join(root, "bin", "check_trustant_app.sh")
 	t.Cleanup(func() {
 		openServerlessCheckerInstallPathOverride = origCheckerPath
 		frontendCheckerInstallPathOverride = origFrontendPath
@@ -595,7 +595,7 @@ func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
     }
   }
 }`
-	if err := os.WriteFile(filepath.Join(WorkspaceDir, "trustable.json"), []byte(workspaceConfig), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(WorkspaceDir, "trustant.json"), []byte(workspaceConfig), 0644); err != nil {
 		t.Fatalf("write workspace config: %s", err)
 	}
 	if err := os.MkdirAll(filepath.Join(WorkbenchDir, "truapp"), 0755); err != nil {
@@ -604,7 +604,7 @@ func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
 	// WHY: older builds created this durable MCP-owned store. Env generation
 	// must ignore it so an agent cannot mutate application configuration behind
 	// the user-facing Trustable editor.
-	legacySecretPath := filepath.Join(WorkspaceDir, ".trustable", "secrets", "truapp.env")
+	legacySecretPath := filepath.Join(WorkspaceDir, ".trustant", "secrets", "truapp.env")
 	if err := os.MkdirAll(filepath.Dir(legacySecretPath), 0700); err != nil {
 		t.Fatalf("mkdir legacy app secret store: %s", err)
 	}
@@ -1747,7 +1747,7 @@ func TestFrontendCheckerRejectsRootAnchorsWithHashRouter(t *testing.T) {
 		t.Fatalf("write app: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("HashRouter root anchor should fail, output=%s", strings.TrimSpace(string(out)))
@@ -1768,7 +1768,7 @@ func TestFrontendCheckerAcceptsRouterLinks(t *testing.T) {
 		t.Fatalf("write app: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("router Link should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
@@ -1788,7 +1788,7 @@ func TestFrontendCheckerRejectsHashPrefixedRouterLinks(t *testing.T) {
 		t.Fatalf("write app: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("hash-prefixed router targets should fail, output=%s", strings.TrimSpace(string(out)))
@@ -1809,7 +1809,7 @@ func TestFrontendCheckerRejectsPasswordInQueryString(t *testing.T) {
 		t.Fatalf("write api: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("password query should fail, output=%s", strings.TrimSpace(string(out)))
@@ -1831,7 +1831,7 @@ func TestFrontendCheckerRejectsBrowserControlledIdentity(t *testing.T) {
 		t.Fatalf("write api: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("browser-controlled identity should fail, output=%s", strings.TrimSpace(string(out)))
@@ -1861,7 +1861,7 @@ func TestFrontendCheckerRejectsAsyncIdentityRedirectBeforeLoad(t *testing.T) {
 		t.Fatalf("write dashboard: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("premature async identity redirect should fail, output=%s", strings.TrimSpace(string(out)))
@@ -1890,7 +1890,7 @@ func TestFrontendCheckerAcceptsAsyncIdentityWithLoadingGate(t *testing.T) {
 		t.Fatalf("write dashboard: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("loading-gated async identity should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))
@@ -1912,7 +1912,7 @@ func TestFrontendCheckerRejectsCachedUserAsAuthoritativeSession(t *testing.T) {
 		t.Fatalf("write auth provider: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("cached browser identity should not establish a session, output=%s", strings.TrimSpace(string(out)))
@@ -1939,7 +1939,7 @@ func TestFrontendCheckerAcceptsCachedProfileAfterBackendSessionValidation(t *tes
 		t.Fatalf("write auth provider: %s", err)
 	}
 
-	cmd := exec.Command("bash", "check_trustable_frontend.sh", dir)
+	cmd := exec.Command("bash", "check_trustant_frontend.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("backend-validated cached profile should pass, err=%s output=%s", err, strings.TrimSpace(string(out)))

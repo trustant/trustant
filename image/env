@@ -1,8 +1,8 @@
-HOME=/home/trustable
-PATH=/home/trustable/.local/bin:/usr/local/bin:/usr/bin:/bin
+HOME=/home/trustant
+PATH=/home/trustant/.local/bin:/usr/local/bin:/usr/bin:/bin
 OLLAMA_ENDPOINT=http://localhost:11434
-WORKSPACE_DIR=/home/trustable/workspace
-WORKBENCH_DIR=/home/trustable/workbench
+WORKSPACE_DIR=/home/trustant/workspace
+WORKBENCH_DIR=/home/trustant/workbench
 AIP_REGISTER_URL=https://api.nuvolaris.io/_register
 AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
 ENABLE_LICENSE=1

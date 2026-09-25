@@ -65,8 +65,8 @@ compares for **exact equality**.
 # Storage
 
 The token lives in the `license` field of the **workspace** config,
-`$WORKSPACE_DIR/trustable.json`, so it survives rebuilds. Like `provider` and
-`apps`, it is workspace-only: the base `./trustable.json` never carries it, and
+`$WORKSPACE_DIR/trustant.json`, so it survives rebuilds. Like `provider` and
+`apps`, it is workspace-only: the base `./trustant.json` never carries it, and
 `mergeConfigs` does not copy it.
 
 `loadLicense` caches the parsed payload for the process lifetime;

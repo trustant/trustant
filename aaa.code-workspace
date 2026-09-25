@@ -4,7 +4,7 @@
 			"path": "."
 		},
 		{
-			"path": "trustable-acp"
+			"path": "acp"
 		},
 		{
 			"path": "mcp"

@@ -18,7 +18,7 @@ This phase does not protect the Kubernetes ingresses that route
 Those hosts require a later host-specific session bootstrap; a parent-domain
 cookie must not be used.
 
-See [trustable-auth-flow.svg](trustable-auth-flow.svg).
+See [trustant-auth-flow.svg](trustant-auth-flow.svg).
 
 ## Configuration
 
@@ -68,7 +68,7 @@ The response creates an opaque, signed, host-only cookie with `HttpOnly`,
 HTTPS. Sessions are stored only in memory, expire after eight hours, are
 bounded to 256 entries, and are invalidated by a server restart.
 
-`web/trustable-auth.js` wraps first-party `fetch` calls and adds
+`web/trustant-auth.js` wraps first-party `fetch` calls and adds
 `X-Trustable-CSRF` to mutating and effectful requests. The server requires both
 the session CSRF value and same-origin request evidence (`Origin`, or `Referer`
 when browsers omit `Origin` on a same-origin GET) for:

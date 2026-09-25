@@ -209,10 +209,10 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 				"--password", cfg.Redis.Password,
 			},
 			"environment": map[string]string{
-				"REDIS_USERNAME": redisUsername(cfg),
-				"REDIS_HOST":     cfg.Redis.Service,
-				"REDIS_PORT":     fmt.Sprintf("%d", cfg.Redis.Port),
-				"REDIS_PWD":      cfg.Redis.Password,
+				"REDIS_USERNAME":         redisUsername(cfg),
+				"REDIS_HOST":             cfg.Redis.Service,
+				"REDIS_PORT":             fmt.Sprintf("%d", cfg.Redis.Port),
+				"REDIS_PWD":              cfg.Redis.Password,
 				"TRUSTABLE_REDIS_PREFIX": cfg.Redis.Prefix,
 			},
 			"enabled": true,
@@ -371,7 +371,7 @@ func trustablePiRuntimeManifestPath() (string, error) {
 	return filepath.Join(home, ".config", "trustable", "pi-runtime.json"), nil
 }
 
-// trustablePiExtensionPath resolves the extension installed by trustable-acp's
+// trustablePiExtensionPath resolves the extension installed by acp's
 // setup.sh. WHY: managed mode must fail before starting a session when the
 // deterministic policy artifact is absent instead of silently running plain Pi.
 func trustablePiExtensionPath() (string, error) {
@@ -412,11 +412,11 @@ func browserVisibleDevelopmentURL(r *http.Request) (string, error) {
 	if err != nil || requestURL.Hostname() == "" {
 		return "", fmt.Errorf("invalid Trustable request host %q", r.Host)
 	}
-	const trustablePrefix = "trustable."
-	if !strings.HasPrefix(requestURL.Hostname(), trustablePrefix) {
-		return "", fmt.Errorf("invalid Trustable request host %q: expected trustable.<domain>", r.Host)
+	const trustantPrefix = "trustant."
+	if !strings.HasPrefix(requestURL.Hostname(), trustantPrefix) {
+		return "", fmt.Errorf("invalid Trustable request host %q: expected trustant.<domain>", r.Host)
 	}
-	viteHost := "vite." + strings.TrimPrefix(requestURL.Hostname(), trustablePrefix)
+	viteHost := "vite." + strings.TrimPrefix(requestURL.Hostname(), trustantPrefix)
 	if port := requestURL.Port(); port != "" {
 		viteHost = net.JoinHostPort(viteHost, port)
 	}
@@ -1016,7 +1016,7 @@ func waitForProcessStart(cmd *exec.Cmd, duration time.Duration) error {
 // ensureRequiredWorkbenchFolders scaffolds the folders every app must have
 // (spec/4-launch.md "ensure required folders"). It creates packages/.gitkeep
 // when packages/ is missing, and seeds web/ (index.html from the embedded
-// template plus favicon.ico and trustable-head.png) when web/ does not already
+// template plus favicon.ico and trustant-head.png) when web/ does not already
 // exist — an app shipping its own web/ is left untouched. Any created files are
 // staged and committed with a fixed message. Best-effort: failures are logged,
 // never fatal to a launch.
@@ -1043,9 +1043,9 @@ func ensureRequiredWorkbenchFolders(workbenchPath string) {
 		} else {
 			// index.html from the embedded template, plus the assets it references.
 			seeds := map[string]string{
-				"index.html":         "web/template.html",
-				"favicon.ico":        "web/favicon.ico",
-				"trustable-head.png": "web/trustable-head.png",
+				"index.html":        "web/template.html",
+				"favicon.ico":       "web/favicon.ico",
+				"trustant-head.png": "web/trustant-head.png",
 			}
 			for dest, src := range seeds {
 				data, err := embeddedWeb.ReadFile(src)
@@ -1558,8 +1558,8 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// Trustable's ownership of configuration and dependency updates.
 	managedEnv := []string{
 		"TRUSTABLE_MANAGED_RUNTIME=1",
-		"TRUSTABLE_RUNTIME_CONFIG="+runtimeManifestPath,
-		"TRUSTABLE_PI_EXTENSION_PATH="+extensionPath,
+		"TRUSTABLE_RUNTIME_CONFIG=" + runtimeManifestPath,
+		"TRUSTABLE_PI_EXTENSION_PATH=" + extensionPath,
 		"PI_SKIP_VERSION_CHECK=1",
 	}
 	managedEnv = append(managedEnv, notebookEnv...)

@@ -45,7 +45,7 @@ func withPredefinedEnvWorkspace(t *testing.T, workspaceJSON string) string {
 		t.Fatalf("mkdir workspace: %s", err)
 	}
 	if workspaceJSON != "" {
-		path := filepath.Join(WorkspaceDir, "trustable.json")
+		path := filepath.Join(WorkspaceDir, "trustant.json")
 		if err := os.WriteFile(path, []byte(workspaceJSON), 0644); err != nil {
 			t.Fatalf("write workspace config: %s", err)
 		}
@@ -55,7 +55,7 @@ func withPredefinedEnvWorkspace(t *testing.T, workspaceJSON string) string {
 
 func readPredefinedEnvFromDisk(t *testing.T) map[string]string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(WorkspaceDir, "trustable.json"))
+	data, err := os.ReadFile(filepath.Join(WorkspaceDir, "trustant.json"))
 	if err != nil {
 		t.Fatalf("read workspace config: %s", err)
 	}
@@ -318,7 +318,7 @@ func TestMissingEnvScreenOffersSharedValues(t *testing.T) {
 // the user set on the Configure page.
 
 // withPredefinedEnvImportDir puts the process in a temp working directory
-// holding a base trustable.json, because loadBaseConfig, loadTrustableConfig
+// holding a base trustant.json, because loadBaseConfig, loadTrustableConfig
 // and the .env.default lookup are all CWD-relative.
 func withPredefinedEnvImportDir(t *testing.T, baseJSON, workspaceJSON, defaultEnv string) {
 	t.Helper()
@@ -328,7 +328,7 @@ func withPredefinedEnvImportDir(t *testing.T, baseJSON, workspaceJSON, defaultEn
 	if baseJSON == "" {
 		baseJSON = "{}"
 	}
-	if err := os.WriteFile(filepath.Join(dir, "trustable.json"), []byte(baseJSON), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "trustant.json"), []byte(baseJSON), 0644); err != nil {
 		t.Fatalf("write base config: %s", err)
 	}
 	if defaultEnv != "" {
@@ -341,7 +341,7 @@ func withPredefinedEnvImportDir(t *testing.T, baseJSON, workspaceJSON, defaultEn
 
 func workspaceConfigBytes(t *testing.T) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(WorkspaceDir, "trustable.json"))
+	data, err := os.ReadFile(filepath.Join(WorkspaceDir, "trustant.json"))
 	if err != nil {
 		t.Fatalf("read workspace config: %s", err)
 	}
@@ -589,7 +589,7 @@ func TestConfigurePageSavesImportedVariablesImmediately(t *testing.T) {
 // Opening the Configure page must never erase the palette.
 //
 // POST /api/predefined-env replaces the WHOLE set, so any save that posts an
-// empty list clears predefined_env in trustable.json. Two paths could reach it:
+// empty list clears predefined_env in trustant.json. Two paths could reach it:
 // a flush firing before GET /api/predefined-env has resolved, and a DOM read of
 // a table showing the "No predefined variables yet." placeholder, which has no
 // input rows. Both look exactly like "the user cleared the palette" on the wire.

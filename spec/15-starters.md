@@ -85,5 +85,5 @@ it unconditionally.
 
 The `templates` value of the selected starter is sent to `POST /api/repo`
 ([2-repo.md](2-repo.md)) and stored as `apps.<name>.templates` in the workspace
-`trustable.json`. At launch it overrides the global `notebook.repository` for
+`trustant.json`. At launch it overrides the global `notebook.repository` for
 that app only — see [2a-config.md](2a-config.md) and [notebook.md](notebook.md).

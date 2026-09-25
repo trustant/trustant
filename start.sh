@@ -147,22 +147,22 @@ ENV_DIST_FILE="$MOUNT_DIR/.env.dist"
 # the macOS host before the guest starts; setup.sh then consumes plain files and
 # never follows host-only Git metadata.
 ensure_source_submodules() {
-  # WHY: trustable-acp may already be populated while its nested pi-acp fork is
+  # WHY: acp may already be populated while its nested pi-acp fork is
   # still empty. Test the leaf explicitly so a reused worktree cannot reach the
   # VM setup with an incomplete runtime source tree.
   if [[ ! -f "$MOUNT_DIR/mcp/package.json" ||
-        ! -f "$MOUNT_DIR/trustable-acp/package.json" ||
-        ! -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]]; then
+        ! -f "$MOUNT_DIR/acp/package.json" ||
+        ! -f "$MOUNT_DIR/acp/pi-acp/package.json" ]]; then
     echo "--- Initializing runtime source submodules on the host ---"
     # -c ... is inherited by the clone/checkout git runs per submodule, so a
     # fresh Windows checkout lands as LF instead of needing the repair below.
     git -C "$MOUNT_DIR" -c core.autocrlf=false -c core.eol=lf \
-      submodule update --init --recursive mcp trustable-acp \
-      || fail "failed to initialize mcp/trustable-acp submodules"
+      submodule update --init --recursive mcp acp \
+      || fail "failed to initialize mcp/acp submodules"
   fi
   [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
-  [[ -f "$MOUNT_DIR/trustable-acp/package.json" ]] || fail "trustable-acp submodule source is unavailable"
-  [[ -f "$MOUNT_DIR/trustable-acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
+  [[ -f "$MOUNT_DIR/acp/package.json" ]] || fail "acp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
   ok "runtime source submodules are available"
   normalize_submodule_eol
 }
@@ -1611,7 +1611,7 @@ fi
 # WHY: `gh auth login --with-token` authenticates the gh CLI but does NOT install
 # a git credential helper, so plain `git` still has no way to read github.com.
 # ensure_source_submodules runs on the HOST and clones private submodules
-# (trustable-acp, oplugins-truinst) over https, which then fails with
+# (acp, oplugins-truinst) over https, which then fails with
 # "could not read Username for 'https://github.com'". This wires gh in as the
 # host's credential helper so those fetches authenticate with the existing token.
 setup_git_credential_helper

@@ -74,13 +74,13 @@ The ops **version** is not a separate field — it is the `OPS_VERSION` row of
 
 `OPENAI_BASE_URL` and `OPENAI_API_KEY` are deliberately **not** mirrored into
 internal variables. The provider base URL is read from `cfg.BaseURL` in the
-layered `trustable.json`, and the real key is resolved by Pi through `auth.json`
+layered `trustant.json`, and the real key is resolved by Pi through `auth.json`
 from the literal `$OPENAI_API_KEY` reference stored in its model catalog — the
 server never substitutes it. Both variables are still propagated to subcommands
 through the process environment, and both are stripped from the user-visible
 shell by the terminal (see [12-terminal.md](12-terminal.md)).
 
-- Run migration: if the workspace `trustable.json` does not yet have an `apps` section, scan `<WorkspaceDir>/workspace/*/` for existing app directories, retrieve each app's password via `ops util kubeget whiskuser/<name> .spec.password`, build `apps` entries, strip fields that match the base config, and save the updated workspace `trustable.json`.
+- Run migration: if the workspace `trustant.json` does not yet have an `apps` section, scan `<WorkspaceDir>/workspace/*/` for existing app directories, retrieve each app's password via `ops util kubeget whiskuser/<name> .spec.password`, build `apps` entries, strip fields that match the base config, and save the updated workspace `trustant.json`.
 
 # workbench is ephemeral
 
@@ -124,10 +124,17 @@ container is image content already owned correctly by the `Dockerfile`'s
 
 The chown runs **in the background** so `supervisord` starts immediately rather
 than after the walk. Progress is reported through a lock file at
-`$HOME/workspace/.trustable/init.lock`, under the existing `.trustable/`
+`$HOME/workspace/.trustant/init.lock`, under the existing `.trustant/`
 convention for server-side state, whose content is the running count of files
 processed. The count is rewritten periodically rather than per file, so the
 counter itself never becomes the bottleneck on a large volume.
+
+`.trustant/` was called `.trustable/` before the rebrand. A pre-rebrand
+directory is **ignored, not migrated**: `.trustant/` is created fresh and its
+contents (the ssh key, GitHub auth, secrets and Pi agent config) are
+regenerated under the new name. Any old `.trustable/` is left in place on the
+volume for an operator to remove. Go callers reach the directory through the
+`stateDir()` helper, which is its single definition.
 
 Three properties are required of the lock:
 
@@ -175,7 +182,7 @@ The splash gate that consumes this is specced in [1-index.md](1-index.md).
 # import predefined environment variables
 
 After the migration above — which is what guarantees a workspace
-`trustable.json` exists to write into — and before the SSH key check, fold an
+`trustant.json` exists to write into — and before the SSH key check, fold an
 **optional** `.env.default` in the working directory into the `predefined_env`
 palette, adding only names that are not already there.
 
@@ -190,11 +197,11 @@ environment variables".
 # check ssh key
 
 Ensure a persistent ed25519 key exists under
-`$WORKSPACE_DIR/.trustable/ssh/id_ed25519`. If an old ephemeral
+`$WORKSPACE_DIR/.trustant/ssh/id_ed25519`. If an old ephemeral
 `~/.ssh/id_ed25519` exists and the persistent key is missing, migrate it there.
 Otherwise generate a passphrase-less keypair at the persistent path
 (`ssh-keygen -t ed25519 -N "" -C "trustable" -f
-$WORKSPACE_DIR/.trustable/ssh/id_ed25519`). Derive the matching `.pub` via
+$WORKSPACE_DIR/.trustant/ssh/id_ed25519`). Derive the matching `.pub` via
 `ssh-keygen -y` when missing, chmod private/public key files 600, and expose
 them at the compatibility paths `~/.ssh/id_ed25519` and
 `~/.ssh/id_ed25519.pub` using symlinks when possible, falling back to copies.

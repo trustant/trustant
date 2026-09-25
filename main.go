@@ -46,10 +46,10 @@ var appAgentsMd string
 //go:embed check_openserverless_actions.sh
 var openserverlessCheckerSh string
 
-//go:embed check_trustable_frontend.sh
+//go:embed check_trustant_frontend.sh
 var trustableFrontendCheckerSh string
 
-//go:embed check_trustable_app.sh
+//go:embed check_trustant_app.sh
 var trustableAppCheckerSh string
 
 //go:embed milvus_cli.tmpl

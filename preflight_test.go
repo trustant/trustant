@@ -39,7 +39,7 @@ func TestCheckSSHKeyPersistsKeyInWorkspace(t *testing.T) {
 		t.Fatalf("expected ssh key to be available after first check")
 	}
 
-	persistentKey := filepath.Join(workspace, ".trustable", "ssh", "id_ed25519")
+	persistentKey := filepath.Join(workspace, ".trustant", "ssh", "id_ed25519")
 	persistentPub := persistentKey + ".pub"
 	homeKey := filepath.Join(home, ".ssh", "id_ed25519")
 	homePub := homeKey + ".pub"

@@ -738,7 +738,7 @@ When an app has login or registration:
   not keep the Trustable starter/welcome template.
 - Before marking auth UI complete, inspect the router and the component used by
   `/` or `#/`. Remove or replace generated starter content such as `Welcome`,
-  `Try the following prompts to start`, `Powered by Trustable`, `trustable.png`,
+  `Try the following prompts to start`, `Powered by Trustable`, `trustant.png`,
   or sample prompt lists. A protected app is incomplete if the browser-visible
   home page still shows the starter screen.
 - Hide protected navigation items such as dashboards, contacts, orders,

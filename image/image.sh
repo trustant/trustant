@@ -19,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-IMAGE="ghcr.io/trustable-ai/trustable-app"
+IMAGE="ghcr.io/trustant/trustant"
 DOCKERFILE="Dockerfile"
 # shellcheck source=runtime.sh
 . ./runtime.sh
@@ -99,9 +99,9 @@ case "$NERDCTL_ARCH" in
     aarch64|arm64) NERDCTL_ARCH="arm64" ;;
 esac
 git submodule update --init ../mcp
-# WHY: trustable-acp owns pinned Pi and pi-acp forks. Recursive initialization
+# WHY: acp owns pinned Pi and pi-acp forks. Recursive initialization
 # is required so image builds cannot silently fall back to npm runtimes.
-git submodule update --init --recursive ../trustable-acp
+git submodule update --init --recursive ../acp
 
 if [ ! -f ../mcp/package.json ]; then
     echo "Error: ../mcp is not initialized. Run: git submodule update --init mcp" >&2
@@ -114,23 +114,23 @@ rm -rf "$MCP_CONTEXT_DIR"
 mkdir -p "$MCP_CONTEXT_DIR"
 git -C ../mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
 
-if [ ! -f ../trustable-acp/package.json ]; then
-    echo "Error: ../trustable-acp is not initialized. Run: git submodule update --init trustable-acp" >&2
+if [ ! -f ../acp/package.json ]; then
+    echo "Error: ../acp is not initialized. Run: git submodule update --init acp" >&2
     exit 1
 fi
-TRUACP_REF="$(git -C ../trustable-acp rev-parse HEAD)"
-echo "Using trustable-acp submodule: $TRUACP_REF"
+TRUACP_REF="$(git -C ../acp rev-parse HEAD)"
+echo "Using acp submodule: $TRUACP_REF"
 # WHY: the managed runtime must package the issue #57 policy extension beside
 # the exact TruACP and pi-acp versions that negotiate its typed launch path.
 for required in setup.sh pi.version pi.integrity package-lock.json extensions/trustable-runtime.ts; do
-    if [ ! -f "../trustable-acp/$required" ]; then
-        echo "Error: ../trustable-acp/$required is missing." >&2
+    if [ ! -f "../acp/$required" ]; then
+        echo "Error: ../acp/$required is missing." >&2
         exit 1
     fi
 done
 for required in package.json package-lock.json; do
-    if [ ! -f "../trustable-acp/pi-acp/$required" ]; then
-        echo "Error: nested trustable-acp/pi-acp/$required is missing." >&2
+    if [ ! -f "../acp/pi-acp/$required" ]; then
+        echo "Error: nested acp/pi-acp/$required is missing." >&2
         exit 1
     fi
 done
@@ -140,26 +140,26 @@ done
 # retain them even after rm and would let Docker and VM installation paths drift
 # apart.
 (
-    cd ../trustable-acp
+    cd ../acp
     npm install
     npm run build
 )
-if [ ! -s ../trustable-acp/dist-bin/truacp.cjs ]; then
-    echo "Error: trustable-acp build did not produce dist-bin/truacp.cjs" >&2
+if [ ! -s ../acp/dist-bin/truacp.cjs ]; then
+    echo "Error: acp build did not produce dist-bin/truacp.cjs" >&2
     exit 1
 fi
 
 rm -rf "$TRUACP_ARTIFACT_DIR"
 mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
-cp ../trustable-acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
-cp ../trustable-acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
-cp ../trustable-acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"
-cp ../trustable-acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
+cp ../acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
+cp ../acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
+cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"
+cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
 mkdir -p "$TRUACP_ARTIFACT_DIR/extensions"
-cp ../trustable-acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"
+cp ../acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"
 TRUACP_ARTIFACT_ABS="$PWD/$TRUACP_ARTIFACT_DIR"
 (
-    cd ../trustable-acp/pi-acp
+    cd ../acp/pi-acp
     npm ci
     npm test
     npm run build

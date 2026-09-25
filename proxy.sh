@@ -127,4 +127,4 @@ echo
 echo "Proxy ready on port ${LISTEN_PORT}."
 echo "  <host>.<any-domain>:${LISTEN_PORT}  ->  ${UPSTREAM_HOST}:${UPSTREAM_PORT}  (Host: <host>.${TARGET_DOMAIN})"
 echo
-echo "Try:  curl -s -o /dev/null -w '%{http_code}\\n' -H 'Host: trustable.example.com' http://127.0.0.1:${LISTEN_PORT}/api/version"
+echo "Try:  curl -s -o /dev/null -w '%{http_code}\\n' -H 'Host: trustant.example.com' http://127.0.0.1:${LISTEN_PORT}/api/version"

@@ -13,7 +13,7 @@
 > separate project sources; it must explicitly say that project-local
 > `opencode.md` does not exist. Immutable workbench, browser-origin, and MCP
 > requirements come from the host-owned issue #57 runtime manifest described in
-> [trustable-pi-runtime.md](trustable-pi-runtime.md).
+> [trustant-pi-runtime.md](trustant-pi-runtime.md).
 >
 > The active Pi projection also supersedes every historical instruction below
 > that tells an assistant to run `ops ide deploy`. Launch performs one initial
@@ -774,7 +774,7 @@ When an app has login or registration, the embedded guidance must say:
 - before marking auth UI complete, assistants must inspect the router and the
   component used by `/` or `#/`, and must remove or replace generated starter
   content such as `Welcome`, `Try the following prompts to start`, `Powered by
-  Trustable`, `trustable.png`, or sample prompt lists. A protected app is
+  Trustable`, `trustant.png`, or sample prompt lists. A protected app is
   incomplete if the browser-visible home page still shows the starter screen;
 - protected navigation items such as dashboards, contacts, orders, settings,
   admin, or profile must be hidden until the user is authenticated;

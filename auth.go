@@ -247,7 +247,7 @@ func (a *authManager) middleware(next http.Handler) http.Handler {
 
 func publicAuthPath(path string) bool {
 	switch path {
-	case "/login.html", "/trustable-ui.css", "/tailwind.js", "/trustable-logo.svg", "/favicon.ico",
+	case "/login.html", "/trustant-ui.css", "/tailwind.js", "/trustant-logo.svg", "/favicon.ico",
 		"/api/auth/login", "/api/version", "/api/status":
 		return true
 	default:

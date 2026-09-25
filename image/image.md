@@ -2,7 +2,7 @@ Implement an image.sh script
 
 cd to the directory of the script at the beginning
 
-the <image> name is ghcr.io/trustable-ai/trustable-app
+the <image> name is ghcr.io/trustant/trustant
 
 if no arguments: delete all tags and generate one with date +%y.%j.%H%S
 otherwise use the first argument as tag
