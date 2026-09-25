@@ -388,10 +388,15 @@ The classification happens in a step, not in `on:`, because the
 `push: tags: ['*_*_*']` filter matches both `..._2118` and `..._2118-1` and GHA
 globs have no `[0-9]` character classes.
 
-The checkout must set `submodules: true` **and** pass
-`TRUSTABLE_AI_REPO_ACCESS_TOKEN`: `opsroot.json` lives in the private
-`oplugins-truinst` submodule, and checkout clones submodules before the later
-git-config step runs. Without it the hotfix path cannot resolve its base image.
+The checkout must set `submodules: recursive`: `opsroot.json` lives in the
+`oplugins-truinst` submodule, and without it the hotfix path cannot resolve its
+base image. That submodule is private, but it is in the same org as this repo
+(`trustant`), so the job's own `GITHUB_TOKEN` reaches it and **no PAT is
+involved**. Every other submodule is public.
+
+The GHCR login uses that same `GITHUB_TOKEN`: the image publishes to
+`ghcr.io/trustant/trustant`, the org that owns this repo, so the `packages:
+write` permission the job already declares is sufficient.
 
 Compilation lives in the scripts rather than the workflow so CI and a developer
 machine produce the image the same way.
