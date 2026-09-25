@@ -31,14 +31,16 @@ and its home, the k3s node name, the published image, and every identifier,
 filename and env var across all submodules.
 
 **The one exception is the `trustable-ai` GitHub org**, which must NOT be
-renamed. It still hosts `oplugins`, `skills`, the starter/template repos and
-this repo itself. Concretely, these stay literally `trustable`:
+renamed. It still hosts the `oplugins` and `skills` submodules and the
+starter/template repos. Concretely, these stay literally `trustable`:
 
-- `github.com/trustable-ai/*` — including `trustable-ai/trustable-app` (the
-  repo `publish.sh` watches for CI runs) and `trustable-ai/templates` (the
-  default notebook source)
-- `module github.com/trustable-ai/trustable-app` in [go.mod](go.mod)
-- the `TRUSTABLE_AI_REPO_ACCESS_TOKEN` CI secret
+- `github.com/trustable-ai/*` — the `oplugins` and `skills` submodules, and
+  `trustable-ai/templates` (the default notebook source)
+- `module github.com/trustable-ai/trustable-app` in [go.mod](go.mod) — a
+  module path, never fetched, and nothing imports it (all `package main`)
+
+This repo itself now lives at `github.com/trustant/trustant`; CI runs there and
+`publish.sh` watches it.
 
 The published **image** is not part of that exception: it is
 `ghcr.io/trustant/trustant`.

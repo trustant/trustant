@@ -47,9 +47,9 @@ git push origin "HEAD:$TARGET_BRANCH" --tags
 
 # Wait for a workflow run matching this tag to appear
 echo "Waiting for CI run for tag $TAG..."
-# The GitHub repo whose Actions runs are watched — NOT the image name. The
-# image now publishes to ghcr.io/trustant/trustant, but CI still runs here.
-REPO="trustable-ai/trustable-app"
+# The GitHub repo whose Actions runs are watched. Same org as the image
+# (ghcr.io/trustant/trustant), but this is the repo, not the image name.
+REPO="trustant/trustant"
 for i in $(seq 1 30); do
     RUN_ID=$(gh run list --repo "$REPO" --limit 5 --json databaseId,headBranch,status \
         --jq ".[] | select(.headBranch==\"$TAG\") | .databaseId" | head -1)

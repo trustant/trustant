@@ -21,7 +21,7 @@ You need a Mac (Apple Silicon or Intel) with at least 16GB of memory and 60GB di
 - clone sources and start the vm
 
 ```
-git clone https://github.com/trustable-ai/trustable-app --recurse-submodules
+git clone https://github.com/trustant/trustant --recurse-submodules
 cd trustable-app
 ./start.sh
 ```
@@ -61,7 +61,7 @@ distribution, because the toolchain, apt packages and local k3s all assume it.
 Create a user with passwordless sudo rights and execute:
 
 ```
-git clone https://github.com/trustable-ai/trustable-app
+git clone https://github.com/trustant/trustant
 cd trustable-app
 ./start.sh
 ```

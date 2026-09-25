@@ -206,7 +206,9 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 		}
 	}
 	// Without submodules the hotfix path cannot read opsroot.json at all.
-	if !strings.Contains(workflow, "submodules: true") {
+	// "recursive" also pulls the nested pi-acp fork the image build stages.
+	if !strings.Contains(workflow, "submodules: true") &&
+		!strings.Contains(workflow, "submodules: recursive") {
 		t.Error("images.yml must check out submodules; opsroot.json lives in oplugins-truinst")
 	}
 }
