@@ -8,13 +8,13 @@ If it expired show a page with only a centered message saying "This version expi
 
 # Splash Screen
 
-The page shows centered the Trustable logo (`trustant-logo.svg`) in large size, the text "Trustable Cloud" in large font, the subtitle "powered by Regolo.AI" in smaller font, and below it the version (e.g. "v1.2.3") in large font.
+The page shows centered the Trustant logo (`trustant-logo.svg`) in large size, the text "Trustant Cloud" in large font, the subtitle "powered by Regolo.AI" in smaller font, and below it the version (e.g. "v1.2.3") in large font.
 
 Show also in smaller font "Expiration date: <date>"
 
 The splash and all provider/sign-in/configuration modals use the shared
-Nuvolaris-style Trustable visual system defined in [1-applist.md](1-applist.md)
-under "Shared Trustable visual system" and linked from `web/trustant-ui.css`.
+Nuvolaris-style Trustant visual system defined in [1-applist.md](1-applist.md)
+under "Shared Trustant visual system" and linked from `web/trustant-ui.css`.
 This page is a real splash/choice page, so a centered first-run composition is
 acceptable, but it should still use Work Sans, the shared palette tokens,
 compact modal/card geometry, and restrained professional SaaS controls. Provider
@@ -58,7 +58,7 @@ Two cases must not block the user:
 
 After the version check, fetch the merged config via `GET /api/configuration`, then fetch `GET /api/status` (the backend's pass-through of the ai-proxy `/api/v2/status` response — see [status_check.md](status_check.md)). The response carries a per-provider `modelsVersion` integer plus the canonical `models`, `default`, and `small` for each provider.
 
-Per-provider model-list freshness is tracked on the workspace config in `model_versions: { ollama?: int, trustable?: int }`. When `provider` is set, compare `status[provider].modelsVersion` against `config.model_versions[provider]`:
+Per-provider model-list freshness is tracked on the workspace config in `model_versions: { ollama?: int, trustant?: int }`. When `provider` is set, compare `status[provider].modelsVersion` against `config.model_versions[provider]`:
 
 - **Bumped** — persist the new value via `POST /api/configuration` and redirect to `configure.html?reselect=1` so the user re-picks `pi.default` from the refreshed catalog. The configuration flow below does not run on this turn — it resumes after the user saves on the configure screen.
 - **Same / first run** — proceed to the provider-choice / configuration flow below.
@@ -69,7 +69,7 @@ catalog. A valid saved `pi.default` may intentionally differ from that catalog
 default and must not trigger a reselect redirect; treating that difference as
 catalog drift creates a `configure.html` / `applist.html` loop.
 
-**Exception — own-host Ollama:** the reselect redirect is suppressed when the saved provider is Ollama **and** `base_url` is not a localhost URL (see "Detecting own-host Ollama" in [2a-config.md](2a-config.md)). On own-host the model list is discovered via `POST /api/discover-models` against the user's machine, not from the proxy catalog, so catalog drift is irrelevant. Internal Ollama (localhost `base_url`) and Trustable are both catalog-backed and **do** trigger the redirect.
+**Exception — own-host Ollama:** the reselect redirect is suppressed when the saved provider is Ollama **and** `base_url` is not a localhost URL (see "Detecting own-host Ollama" in [2a-config.md](2a-config.md)). On own-host the model list is discovered via `POST /api/discover-models` against the user's machine, not from the proxy catalog, so catalog drift is irrelevant. Internal Ollama (localhost `base_url`) and Trustant are both catalog-backed and **do** trigger the redirect.
 
 Then:
 
@@ -82,7 +82,7 @@ Then:
   internal `pi.default not defined` diagnostic.
 - Otherwise (provider is set and `?choose=1` is absent), skip the choice screen and go straight to the **Configuration** flow below.
 
-Before opening a catalog-backed provider flow (Trustable Cloud or internal
+Before opening a catalog-backed provider flow (Trustant Cloud or internal
 Ollama), validate that its `/api/status` section has a non-empty `models`
 object, a non-empty `default`, and that `default` is a key in `models`. An
 incomplete section is unavailable and must not be persisted. Own-host Ollama
@@ -95,24 +95,24 @@ shows equal cards in a `grid-cols-1 md:grid-cols-3` row:
 | Card | Subtitle | Attribution | Logo | Stored provider |
 |---|---|---|---|---|
 | **Cloud AI** | Subscription-based AI. | Powered by Ollama Cloud. | `ollama-head.png` | `ollama` |
-| **Sovereign AI** | Credit-based AI. | Powered by Regolo.AI. | `regolo-head.png` | `trustable` |
+| **Sovereign AI** | Credit-based AI. | Powered by Regolo.AI. | `regolo-head.png` | `trustant` |
 | **Private AI** | No token required. | Your own AI hardware. | `privateai-head.png` | `private` |
 
 **Sovereign AI is conditional on `ENABLE_REGOLO`** (see
 [0-preflight.md](0-preflight.md)). The boot code reads the `regolo` boolean from
-`/api/version`; when it is false it removes the `providerTrustable` card from the
+`/api/version`; when it is false it removes the `providerTrustant` card from the
 DOM and switches `providerGrid` from `md:grid-cols-3` to `md:grid-cols-2`, so the
 two remaining cards fill the row instead of leaving a gap. Removing the card is
-the only change — nothing else about the `trustable` provider is touched, so a
-workspace that already stores `provider: "trustable"` keeps working.
+the only change — nothing else about the `trustant` provider is touched, so a
+workspace that already stores `provider: "trustant"` keeps working.
 
 All user-facing copy on this page uses sentence case with terminal punctuation.
-Product names (Ollama Cloud, Regolo.AI, Trustable Cloud) keep their own
+Product names (Ollama Cloud, Regolo.AI, Trustant Cloud) keep their own
 capitalization; progress messages end in an ellipsis character (`…`), not three
 dots.
 
 Note the naming: the card labelled **Cloud AI** stores `provider: "ollama"` and
-**Sovereign AI** stores `provider: "trustable"`. Only the labels changed — the
+**Sovereign AI** stores `provider: "trustant"`. Only the labels changed — the
 persisted values are unchanged, so existing workspaces keep working.
 
 Each card is laid out **heading → subtitle → attribution → body copy → logo**,
@@ -154,7 +154,7 @@ Card body copy:
 ## Cloud AI selected
 
 Cloud AI is always the internal Ollama server with the recommended cloud models.
-Pointing Trustable at a user-supplied Ollama host is covered by the **Private
+Pointing Trustant at a user-supplied Ollama host is covered by the **Private
 AI** card, so the splash asks no further questions:
 
 1. `POST /api/configuration` with the merged config plus:
@@ -172,7 +172,7 @@ workspaces saved that way before this change keep working — `configure.html`
 still honours `?ollama=own` and the reselect exemption below still applies to
 them — but new users reach the same outcome through **Private AI**.
 
-## Trustable Cloud selected
+## Trustant Cloud selected
 
 1. Open a centered iframe overlay covering 80% of the viewport (width and height, centered on the page) loading the URL from `register_url` on the merged config (sourced from the `AIP_REGISTER_URL` env var; see [2a-config.md](2a-config.md)). The overlay has a "Cancel" button that closes the iframe and returns to the choice modal without saving anything.
 2. Listen for `message` events from the iframe. Expected payload (matches what ai-proxy `success.html` posts today):
@@ -185,13 +185,13 @@ them — but new users reach the same outcome through **Private AI**.
    ```
 
 3. On message: close the iframe and merge into the workspace config:
-   - `provider: "trustable"`
-   - `models` from `status.trustable.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
+   - `provider: "trustant"`
+   - `models` from `status.trustant.models` (per "Per-provider seeding" in [2a-config.md](2a-config.md))
    - `pi.default` from a non-empty iframe Pi payload if present, else from
-     `status.trustable.default`; legacy `opencode` payloads and empty Pi values
+     `status.trustant.default`; legacy `opencode` payloads and empty Pi values
      from older registration pages are ignored
    - `base_url` and `api_key` from the iframe payload's `env.OPENAI_BASE_URL` and `env.OPENAI_API_KEY`
-   - `model_versions.trustable = status.trustable.modelsVersion`
+   - `model_versions.trustant = status.trustant.modelsVersion`
 
    then `POST /api/configuration`.
 4. Hide the modal and run the **trimmed** Configuration flow: skip the Ollama connectivity check and the model-pull step entirely (the backend handles this based on `provider`); only the say-OK test runs.
@@ -263,7 +263,7 @@ reaches the probe and surfaces the internal `pi.default not defined` diagnostic.
 Every time the index page is opened (after a provider has been chosen), invoke the configuration api.
 Expect a streamed answer and show the messages with a modal while it is configuring.
 
-When `provider == "trustable"` the backend skips the Ollama connectivity check and model-pull steps and streams a single `OK: Skipping Ollama setup (Trustable Cloud)` line — see [2a-config.md](2a-config.md).
+When `provider == "trustant"` the backend skips the Ollama connectivity check and model-pull steps and streams a single `OK: Skipping Ollama setup (Trustant Cloud)` line — see [2a-config.md](2a-config.md).
 
 The same applies when `provider == "private"`: the backend skips the Ollama connectivity check and model-pull and streams `OK: Skipping Ollama setup (Private AI)`. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop. Its model list comes from `POST /api/discover-models` (run in the Private AI dialog), not the status catalog.
 
@@ -274,9 +274,9 @@ requiring the reply to contain `ok` (see "GET /api/testmodel" in
 
 If the connectivity probe returns an authentication error **and** `provider == "ollama"`, show a sign-in required popup. This applies both to the structured `testmodel.auth_required` result returned while saving configuration and to the `AUTH_REQUIRED:` marker emitted by the streamed `/api/configure` Pi gate. The backend treats common sign-in messages (`not logged in`, `unauthorized`, `401`, etc.) **and Ollama's `internal service error`** as auth failures — they all route through this same flow:
 
-- Dev startup does not pre-run an external `ops trustable signin` / Docker-based Ollama signin helper. The sign-in flow belongs to Trustable itself and starts only after the app detects an Ollama auth failure.
+- Dev startup does not pre-run an external `ops trustant signin` / Docker-based Ollama signin helper. The sign-in flow belongs to Trustant itself and starts only after the app detects an Ollama auth failure.
 
-- The backend executes `ollama signin` as a subprocess with `HOME=$WORKSPACE_DIR` and `OLLAMA_HOST=$OLLAMA_ENDPOINT`, then scrapes its output for the first URL starting with `https://ollama.com/connect`. The current page's query string is **not** forwarded — the URL returned by `ollama signin` is used verbatim. In the Trustable pod this writes the Ollama Cloud identity into `/home/trustable/workspace`, the same persistent home used by the pod-local `ollama serve` process.
+- The backend executes `ollama signin` as a subprocess with `HOME=$WORKSPACE_DIR` and `OLLAMA_HOST=$OLLAMA_ENDPOINT`, then scrapes its output for the first URL starting with `https://ollama.com/connect`. The current page's query string is **not** forwarded — the URL returned by `ollama signin` is used verbatim. In the Trustant pod this writes the Ollama Cloud identity into `/home/trustant/workspace`, the same persistent home used by the pod-local `ollama serve` process.
 
 - If a URL is found, show **"Click here to login to Ollama Cloud"** as a link pointing to that URL with `target="_blank"` (opens in a new tab) and a Retry button. Retry reruns the streamed Pi gate, rather than only the model probe, so a successful sign-in also writes Pi's global models, authentication reference, and default selection.
 
@@ -284,9 +284,9 @@ If the connectivity probe returns an authentication error **and** `provider == "
 
 Repeat until the test succeeded.
 
-When `provider == "trustable"` and `/api/testmodel` returns an error, run the **Trustable sign-in recovery**:
+When `provider == "trustant"` and `/api/testmodel` returns an error, run the **Trustant sign-in recovery**:
 
-1. Re-open the registration iframe overlay (the same one used by the initial Trustable Cloud selection) pointing at `register_url`.
+1. Re-open the registration iframe overlay (the same one used by the initial Trustant Cloud selection) pointing at `register_url`.
 2. Wait for the iframe's `postMessage` payload containing `base_url`, `api_key`,
    and optionally `pi: { default }`.
 3. On message, merge the new `base_url` and `api_key` into the workspace config, `POST /api/configuration`, then **re-run the health check** (`/api/testmodel`).
@@ -294,6 +294,6 @@ When `provider == "trustable"` and `/api/testmodel` returns an error, run the **
 
 Repeat until the test succeeds.
 
-If the user cancels the recovery flow (closes the signin modal without retrying, or clicks **Cancel** in the Trustable iframe), or the test still fails after recovery, the splash **returns to the Provider Choice modal** rather than proceeding to `applist.html`. A failed health check always sends the user back to provider selection — the app is unusable without a working model.
+If the user cancels the recovery flow (closes the signin modal without retrying, or clicks **Cancel** in the Trustant iframe), or the test still fails after recovery, the splash **returns to the Provider Choice modal** rather than proceeding to `applist.html`. A failed health check always sends the user back to provider selection — the app is unusable without a working model.
 
 Once configuration completes successfully, navigate to `applist.html`.

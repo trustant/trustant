@@ -214,7 +214,7 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 	// full parsed `ops -info` table for the Configure page. The ops version is
 	// not a separate field — it is one of the opsinfo rows.
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"version": fmt.Sprintf("Trustable %s", appVersion),
+		"version": fmt.Sprintf("Trustant %s", appVersion),
 		"build":   appBuild,
 		"branch":  appBranch,
 		"stream":  appStream,
@@ -333,7 +333,7 @@ func handleGetRepo(w http.ResponseWriter, r *http.Request) {
 
 		// Read production config from workspace config
 		var apihost, opsuser, opsrepo string
-		cfg, cfgErr := loadTrustableConfig()
+		cfg, cfgErr := loadTrustantConfig()
 		if cfgErr == nil && cfg.Apps != nil && cfg.Apps[name] != nil {
 			apihost = cfg.Apps[name].Production["OPS_APIHOST"]
 			opsuser = cfg.Apps[name].Production["OPS_USER"]
@@ -578,7 +578,7 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	// Store the password and initial config in workspace trustant.json
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
-		wsCfg = &trustableConfig{}
+		wsCfg = &trustantConfig{}
 	}
 	if wsCfg.Apps == nil {
 		wsCfg.Apps = make(map[string]*AppConfig)

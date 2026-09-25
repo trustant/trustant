@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="920" height="360" viewBox="0 0 920 360" role="img" aria-labelledby="title desc">
-  <title id="title">Trustable git pull flow</title>
-  <desc id="desc">Trustable pulls remote repository updates into the local bare workspace repository, then fast-forwards the active workbench checkout.</desc>
+  <title id="title">Trustant git pull flow</title>
+  <desc id="desc">Trustant pulls remote repository updates into the local bare workspace repository, then fast-forwards the active workbench checkout.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
@@ -47,6 +47,6 @@
 
   <text x="66" y="230" class="small">Dirty workbench, local-only commits,</text>
   <text x="66" y="250" class="small">or divergent history stop the pull.</text>
-  <text x="66" y="286" class="small">When the workbench updates, Trustable</text>
+  <text x="66" y="286" class="small">When the workbench updates, Trustant</text>
   <text x="66" y="306" class="small">runs ops ide clean and ops ide deploy.</text>
 </svg>

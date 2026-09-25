@@ -1,6 +1,6 @@
-# Trustable-managed Pi runtime contract
+# Trustant-managed Pi runtime contract
 
-Issue #57 owns the execution competencies that Trustable must add to Pi/TruACP.
+Issue #57 owns the execution competencies that Trustant must add to Pi/TruACP.
 This contract is separate from the generic session and UI work in issue #58.
 The active runtime remains:
 
@@ -15,7 +15,7 @@ MCP servers and then perform the same work through hundreds of shell calls.
 
 ## Version 2 host manifest
 
-After generating the exact workbench `.mcp.json`, Trustable writes a private
+After generating the exact workbench `.mcp.json`, Trustant writes a private
 credential-free manifest outside the application checkout:
 
 ```json
@@ -28,8 +28,8 @@ credential-free manifest outside the application checkout:
       "developmentUrl": "http://localhost:5173",
       "browserUrl": "http://vite.192.168.64.9.nip.io:8910",
       "requiredMcpServers": ["openserverless", "postgres"],
-      "mcpConfig": "/home/user/.config/trustable/runtime/example/mcp.json",
-      "watcherLog": "/home/user/.config/trustable/runtime/example/ops-ide-devel.log"
+      "mcpConfig": "/home/user/.config/trustant/runtime/example/mcp.json",
+      "watcherLog": "/home/user/.config/trustant/runtime/example/ops-ide-devel.log"
     }
   ]
 }
@@ -39,7 +39,7 @@ credential-free manifest outside the application checkout:
 - `developmentUrl` is the co-located Vite endpoint of the canonical current
   workbench.
 - `browserUrl` is derived from the calling browser's
-  `trustable.<domain>[:port]` origin. It is not `localhost`, `OPS_APIHOST`, or a
+  `trustant.<domain>[:port]` origin. It is not `localhost`, `OPS_APIHOST`, or a
   guessed `miniops.me` URL.
 - `requiredMcpServers` is the sorted set of server names in the generated
   `.mcp.json`, including the always-present deterministic `react` validator
@@ -52,14 +52,14 @@ credential-free manifest outside the application checkout:
   `ops ide devel` process. It remains outside the workbench, is mode `0600`,
   rotates at a bounded size, and is never supplied by browser or app content.
 - The manifest contains no credentials and is atomically written with mode
-  `0600` under `~/.config/trustable/`.
+  `0600` under `~/.config/trustant/`.
 
-Trustable passes only these process-scoped variables to TruACP:
+Trustant passes only these process-scoped variables to TruACP:
 
 ```
-TRUSTABLE_MANAGED_RUNTIME=1
-TRUSTABLE_RUNTIME_CONFIG=<absolute manifest path>
-TRUSTABLE_PI_EXTENSION_PATH=<absolute installed extension path>
+TRUSTANT_MANAGED_RUNTIME=1
+TRUSTANT_RUNTIME_CONFIG=<absolute manifest path>
+TRUSTANT_PI_EXTENSION_PATH=<absolute installed extension path>
 ```
 
 They must never be written to an application `.env`, `.env.production`, or
@@ -67,7 +67,7 @@ generated environment map.
 
 The extension treats those application env files as immutable agent
 boundaries: it blocks direct read/write/edit/shell access and automatic MCP
-secret generation through `secret_ensure`. Only the user-facing Trustable
+secret generation through `secret_ensure`. Only the user-facing Trustant
 configuration flow owns application env values. For generated app
 authentication it injects the Redis-backed opaque-session contract, blocks
 JWT/secret auto-setup, and allows the corrected `auth_setup` tool because that
@@ -79,8 +79,8 @@ Managed TruACP validates the manifest, selected working directory, exact
 credential-free `.mcp.json`, private MCP config, and extension file before
 creating a session. It passes the private MCP entries over ACP to Codex and
 Claude, while Pi retains its adapter proxy and resolves credential-bearing
-stdio entries through `trustable-mcp-launch`. It then uses the
-versioned `_meta.trustable.piLaunch` contract to pass the extension path to the
+stdio entries through `trustant-mcp-launch`. It then uses the
+versioned `_meta.trustant.piLaunch` contract to pass the extension path to the
 pinned `pi-acp` fork. Raw browser requests and generic agent configuration
 cannot inject extension paths or arbitrary Pi argv.
 
@@ -93,7 +93,7 @@ history. Pi's extension blocks reads and shell inspection of the private MCP
 config; generated instructions forbid direct MCP startup for every agent.
 
 Redis is additionally isolated inside its selected MCP subprocess:
-`trustable-redis-mcp` applies the manifest-selected application's private
+`trustant-redis-mcp` applies the manifest-selected application's private
 prefix to every reviewed key-bearing request before the upstream server sees
 it, hides non-isolatable global tools, and rejects unknown tools. S3 names its
 environment-derived primary connection `default`, so process replacement
@@ -102,14 +102,14 @@ recreates one discoverable connection without a mutable client-side registry.
 Exactly one initialized ACP agent is retained. Switching agents disconnects the
 previous process tree before the replacement starts.
 
-Standalone TruACP remains unchanged. Once `TRUSTABLE_MANAGED_RUNTIME=1` is set,
+Standalone TruACP remains unchanged. Once `TRUSTANT_MANAGED_RUNTIME=1` is set,
 missing, malformed, stale, or mismatched inputs are fatal: managed mode must not
 fall back to plain Pi.
 
-The extension is installed by `trustable-acp/setup.sh` at:
+The extension is installed by `trustant-acp/setup.sh` at:
 
 ```
-~/.local/lib/truacp/extensions/trustable-runtime.ts
+~/.local/lib/truacp/extensions/trustant-runtime.ts
 ```
 
 The same artifact is staged into the container image beside the pinned TruACP
@@ -140,7 +140,7 @@ Version 2 revalidates the host contract inside Pi and:
   application work. Read-only service discovery and verification remain
   available; reproducible mutations belong in setup/public actions;
 - blocks Pi shell calls that would run `ops ide deploy` or start another
-  `ops ide devel` process. The existing Trustable-managed development watcher
+  `ops ide devel` process. The existing Trustant-managed development watcher
   is the sole owner of live action packaging and deployment;
 - keeps TruACP's explicit user `!` shell path outside Pi and its tool hooks.
   The browser never executes a process or supplies cwd: the Node host accepts
@@ -148,8 +148,8 @@ Version 2 revalidates the host contract inside Pi and:
   filters credential-bearing environment variables, bounds time/output, and
   renders command, stdout/stderr, nonzero status, timeout, or truncation in the
   conversation. Non-leading `!` remains an ordinary agent prompt;
-- registers `trustable_runtime_redeploy`, which invokes the same co-located
-  `/api/redeploy` SSE workflow as the Trustable UI. A successful
+- registers `trustant_runtime_redeploy`, which invokes the same co-located
+  `/api/redeploy` SSE workflow as the Trustant UI. A successful
   OpenServerless `action_new` creation requires one call after the coherent
   action/wiring/source batch; a compatible idempotent no-op does not. Watcher
   status, checker, HTTP, and browser verification remain blocked until the
@@ -165,7 +165,7 @@ Version 2 revalidates the host contract inside Pi and:
 - blocks shell-based writes under `src/` or `packages/` and destructive Git
   reset/restore/clean operations, keeping mutations on typed tools where
   workbench and generated-artifact policy can observe them;
-- registers `trustable_runtime_status`, a read-only tool returning a bounded,
+- registers `trustant_runtime_status`, a read-only tool returning a bounded,
   redacted tail of the authoritative watcher log. Action diagnosis must use
   this evidence before one source-contract checker pass and real HTTP checks;
   managed checker mode ignores sibling ZIP existence/freshness, while the
@@ -197,11 +197,11 @@ The following issue #57 increments remain explicit:
 
 ## Managed project instructions
 
-The full Trustable guidance is embedded directly in generated `AGENTS.md`.
+The full Trustant guidance is embedded directly in generated `AGENTS.md`.
 There is no project-local `opencode.md`. The managed instructions must
 therefore identify only these runtime sources:
 
-1. the Trustable-managed block in `AGENTS.md`;
+1. the Trustant-managed block in `AGENTS.md`;
 2. `.openserverless-contract.md`;
 3. `.mcp.json`.
 
@@ -246,7 +246,7 @@ Tests must cover:
   Streamable HTTP session and fail-closed source/version drift;
 - a healthy run exceeding 300 provider turns is not truncated, while repeated
   prose inside one streamed response is terminated deterministically;
-- watcher output is bounded, private, redacted by `trustable_runtime_status`,
+- watcher output is bounded, private, redacted by `trustant_runtime_status`,
   and available in both initial launch and explicit redeploy paths.
 - Redis exact-key, hash-field, scan, channel, and index arguments cannot escape
   the selected application prefix; global and unknown Redis tools fail at the
@@ -258,7 +258,7 @@ Tests must cover:
 
 This section supersedes the earlier requirement to own a Pi core fork. The
 runtime is the exact upstream Pi `0.82.0` package set with checked-in SRI values.
-Trustable's repeated-stream guard runs in the managed extension: after four
+Trustant's repeated-stream guard runs in the managed extension: after four
 occurrences of a normalized 32-word window within one assistant text stream it
 calls `ctx.abort()` and rewrites `message_end` with an explicit provider-loop
 error. State resets at the next assistant response; healthy runs beyond 300

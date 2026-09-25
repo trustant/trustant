@@ -75,7 +75,7 @@ func useTestWorkspace(t *testing.T, license string) string {
 		invalidateLicenseCache()
 	})
 
-	cfg := trustableConfig{License: license}
+	cfg := trustantConfig{License: license}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)

@@ -25,10 +25,10 @@ package_python_sources=()
 package_action_modules=()
 MANAGED_LIVE_MODE=0
 
-# WHY: in Trustable Edit, ops ide devel owns packaging asynchronously and its
+# WHY: in Trustant Edit, ops ide devel owns packaging asynchronously and its
 # private log is the deployment authority. Treating sibling ZIP timestamps as
 # a source contract made Pi poll derived artifacts and race the watcher.
-if [ "${TRUSTABLE_MANAGED_RUNTIME:-0}" = "1" ]; then
+if [ "${TRUSTANT_MANAGED_RUNTIME:-0}" = "1" ]; then
   MANAGED_LIVE_MODE=1
 fi
 
@@ -59,7 +59,7 @@ warn() {
 }
 
 if [ ! -f "$CONTRACT" ]; then
-  warn "$CONTRACT not found" "Use the Trustable-managed block in AGENTS.md as fallback guidance and report the missing contract."
+  warn "$CONTRACT not found" "Use the Trustant-managed block in AGENTS.md as fallback guidance and report the missing contract."
 fi
 
 if [ -d packages ]; then
@@ -111,7 +111,7 @@ if [ -d packages ]; then
       error "$wrapper" "Generated wrapper appears to contain business logic or direct DB/server code. Move logic to the editable module."
     fi
     if grep -Eq '^#--param[[:space:]]+(OPS_USER|OPS_PASSWORD|OPS_APIHOST|OPS_REPO|OPS_SKILLS)([[:space:]]|$)' "$wrapper"; then
-      error "$wrapper" "Trustable-managed runtime variables must not be bound into actions. OPS_APIHOST is for Trustable/ops ide orchestration; browser code uses relative /api/my URLs and actions use generated service bindings. Regenerate the wrapper with the OpenServerless MCP tools."
+      error "$wrapper" "Trustant-managed runtime variables must not be bound into actions. OPS_APIHOST is for Trustant/ops ide orchestration; browser code uses relative /api/my URLs and actions use generated service bindings. Regenerate the wrapper with the OpenServerless MCP tools."
     fi
   done < <(find packages -mindepth 3 -maxdepth 3 -type f -name __main__.py 2>/dev/null | sort)
 

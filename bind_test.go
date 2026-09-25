@@ -140,7 +140,7 @@ func bindTestApp(t *testing.T, dev map[string]string, pool map[string]string, di
 			t.Fatalf("write .env.dist: %s", err)
 		}
 	}
-	if err := saveWorkspaceConfig(&trustableConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"demo": {Password: "p", Development: dev}},
 		PredefinedEnv: pool,
 	}); err != nil {
@@ -420,7 +420,7 @@ func TestImportsEndpointRoundTrip(t *testing.T) {
 
 	wb := filepath.Join(WorkbenchDir, "demoapp")
 	os.MkdirAll(wb, 0755)
-	saveWorkspaceConfig(&trustableConfig{
+	saveWorkspaceConfig(&trustantConfig{
 		Apps: map[string]*AppConfig{"demoapp": {Password: "p", Development: map[string]string{}}},
 		PredefinedEnv: map[string]string{
 			"APPSUITE__POSTGRESDB": "postgres://appsuite",

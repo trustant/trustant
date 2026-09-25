@@ -39,7 +39,7 @@
   <path d="M184 130 H224" class="arrow"/><path d="M389 130 H429" class="arrow"/><path d="M609 130 H649" class="arrow"/><path d="M784 130 H824" class="arrow"/>
   <rect x="224" y="226" width="560" height="64" class="ok"/>
   <text x="504" y="252" text-anchor="middle" class="label">Durable guardrail state</text>
-  <text x="504" y="274" text-anchor="middle" class="small">~/.local/share/opencode/trustable-guardrails; prudent migration from legacy cache</text>
+  <text x="504" y="274" text-anchor="middle" class="small">~/.local/share/opencode/trustant-guardrails; prudent migration from legacy cache</text>
   <path d="M307 182 V226" class="arrow"/>
   <path d="M504 226 V182" class="arrow"/>
   <rect x="224" y="322" width="560" height="82" class="box"/>

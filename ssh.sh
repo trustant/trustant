@@ -21,10 +21,10 @@ Usage: ./ssh.sh [-p|-d|-i] [command...]
 
   -d   development access — log in as your own user ($USER) into your
        development files, starting in the current directory
-  -p   production access — log in as 'trustable', with access to the
-       Trustable folder
-  -i   image access — enter the VM, then the running trustable container
-       (sudo k3s kubectl -n openserverless exec trustable-0 -c trustable)
+  -p   production access — log in as 'trustant', with access to the
+       Trustant folder
+  -i   image access — enter the VM, then the running trustant container
+       (sudo k3s kubectl -n openserverless exec trustant-0 -c trustant)
   -h   show this help
 
 With no arguments at all this help is shown. Any extra arguments are run
@@ -44,26 +44,26 @@ case "$1" in
   -h|--help) usage ; exit 0 ;;
 esac
 
-if ! test -e  ~/Library/Application\ Support/Trustable/id_ed25519
-then echo "ensure you are on a Mac and you have Trustable installed" ; exit 1
+if ! test -e  ~/Library/Application\ Support/Trustant/id_ed25519
+then echo "ensure you are on a Mac and you have Trustant installed" ; exit 1
 fi
 
-ID=~/Library/Application\ Support/Trustable/id_ed25519
-IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
+ID=~/Library/Application\ Support/Trustant/id_ed25519
+IP="$(cat ~/Library/Application\ Support/Trustant/current.ip)"
 
-KUBECTL="sudo k3s kubectl -n openserverless exec -ti trustable-0 -c trustable --"
+KUBECTL="sudo k3s kubectl -n openserverless exec -ti trustant-0 -c trustant --"
 
 case "$MODE" in
   prod)
     if test $# -gt 0
-    then ssh -i "$ID" -t trustable@$IP "$@"
-    else ssh -i "$ID" -t trustable@$IP
+    then ssh -i "$ID" -t trustant@$IP "$@"
+    else ssh -i "$ID" -t trustant@$IP
     fi
     ;;
   image)
     if test $# -gt 0
-    then ssh -i "$ID" -t trustable@$IP "$KUBECTL $*"
-    else ssh -i "$ID" -t trustable@$IP "$KUBECTL bash"
+    then ssh -i "$ID" -t trustant@$IP "$KUBECTL $*"
+    else ssh -i "$ID" -t trustant@$IP "$KUBECTL bash"
     fi
     ;;
   *)

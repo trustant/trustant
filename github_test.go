@@ -33,8 +33,8 @@ func installFakeGitHubCLI(t *testing.T) {
 	script := `#!/bin/sh
 case "$1:$2" in
   api:user)
-    if [ "${TRUSTABLE_GH_UNAUTH:-}" = "1" ]; then
-      if [ -z "${TRUSTABLE_GH_AUTH_MARKER:-}" ] || [ ! -f "$TRUSTABLE_GH_AUTH_MARKER" ]; then exit 1; fi
+    if [ "${TRUSTANT_GH_UNAUTH:-}" = "1" ]; then
+      if [ -z "${TRUSTANT_GH_AUTH_MARKER:-}" ] || [ ! -f "$TRUSTANT_GH_AUTH_MARKER" ]; then exit 1; fi
     fi
     printf '{"login":"alice"}\n'
     ;;
@@ -47,13 +47,13 @@ case "$1:$2" in
   auth:login)
     printf 'First copy your one-time code: ABCD-EFGH\n' >&2
     printf 'Open https://github.com/login/device\n' >&2
-    sleep "${TRUSTABLE_GH_LOGIN_SLEEP:-0}"
-    if [ -n "${TRUSTABLE_GH_AUTH_MARKER:-}" ]; then : > "$TRUSTABLE_GH_AUTH_MARKER"; fi
-    if [ -n "${TRUSTABLE_GH_LOGIN_EXIT:-}" ]; then exit "$TRUSTABLE_GH_LOGIN_EXIT"; fi
+    sleep "${TRUSTANT_GH_LOGIN_SLEEP:-0}"
+    if [ -n "${TRUSTANT_GH_AUTH_MARKER:-}" ]; then : > "$TRUSTANT_GH_AUTH_MARKER"; fi
+    if [ -n "${TRUSTANT_GH_LOGIN_EXIT:-}" ]; then exit "$TRUSTANT_GH_LOGIN_EXIT"; fi
     ;;
   auth:setup-git)
-    if [ -n "${TRUSTABLE_GH_SETUP_FAIL_ONCE:-}" ] && [ ! -f "$TRUSTABLE_GH_SETUP_FAIL_ONCE" ]; then
-      : > "$TRUSTABLE_GH_SETUP_FAIL_ONCE"
+    if [ -n "${TRUSTANT_GH_SETUP_FAIL_ONCE:-}" ] && [ ! -f "$TRUSTANT_GH_SETUP_FAIL_ONCE" ]; then
+      : > "$TRUSTANT_GH_SETUP_FAIL_ONCE"
       exit 1
     fi
     cat > "$GIT_CONFIG_GLOBAL" <<EOF
@@ -161,8 +161,8 @@ func TestGitHubStatusAndRepositoryListAreSanitized(t *testing.T) {
 func TestGitHubLoginRejectsConcurrentProcessAndCanCancel(t *testing.T) {
 	setManagedGitHubTestWorkspace(t)
 	installFakeGitHubCLI(t)
-	t.Setenv("TRUSTABLE_GH_UNAUTH", "1")
-	t.Setenv("TRUSTABLE_GH_LOGIN_SLEEP", "5")
+	t.Setenv("TRUSTANT_GH_UNAUTH", "1")
+	t.Setenv("TRUSTANT_GH_LOGIN_SLEEP", "5")
 
 	first, err := managedGitHubLogin.start()
 	if err != nil || first.State != "connecting" {
@@ -213,9 +213,9 @@ func TestGitHubLoginCompletesCredentialSetupAfterNonzeroExit(t *testing.T) {
 	setManagedGitHubTestWorkspace(t)
 	installFakeGitHubCLI(t)
 	marker := filepath.Join(t.TempDir(), "authenticated")
-	t.Setenv("TRUSTABLE_GH_UNAUTH", "1")
-	t.Setenv("TRUSTABLE_GH_AUTH_MARKER", marker)
-	t.Setenv("TRUSTABLE_GH_LOGIN_EXIT", "1")
+	t.Setenv("TRUSTANT_GH_UNAUTH", "1")
+	t.Setenv("TRUSTANT_GH_AUTH_MARKER", marker)
+	t.Setenv("TRUSTANT_GH_LOGIN_EXIT", "1")
 
 	first, err := managedGitHubLogin.start()
 	if err != nil || first.State != "connecting" {
@@ -246,7 +246,7 @@ func TestManagedGitHubRemoteUsesAuthenticatedHTTPS(t *testing.T) {
 	setManagedGitHubTestWorkspace(t)
 	installFakeGitHubCLI(t)
 	setupMarker := filepath.Join(t.TempDir(), "setup-attempted")
-	t.Setenv("TRUSTABLE_GH_SETUP_FAIL_ONCE", setupMarker)
+	t.Setenv("TRUSTANT_GH_SETUP_FAIL_ONCE", setupMarker)
 	remote, managed, err := managedGitHubRemoteURL("alice/private-app")
 	if err != nil {
 		t.Fatal(err)

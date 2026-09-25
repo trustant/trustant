@@ -1,6 +1,6 @@
 # Embedded `openserverless-instructions.md`
 
-> **HISTORICAL RECORD.** Trustable no longer launches OpenCode and no longer
+> **HISTORICAL RECORD.** Trustant no longer launches OpenCode and no longer
 > generates `opencode.json` or a project-local `opencode.md`. The still-relevant
 > application guidance is now folded into the managed `AGENTS.md` and
 > `CLAUDE.md` files used by TruACP/Pi. References below to the OpenCode runtime,
@@ -26,7 +26,7 @@
 > polling of `packages/**/*.zip`.
 
 This file specifies the `openserverless-instructions.md` guidance embedded into
-the Trustable binary. It is not written into apps as a file of its own: launch
+the Trustant binary. It is not written into apps as a file of its own: launch
 folds it into the managed `AGENTS.md` block (see [4-launch.md](4-launch.md)).
 
 Historically it was named `opencode.md` and was written into every launched app
@@ -35,9 +35,9 @@ referenced that project-local file in its `instructions` array, after the
 generated `<workbenchdir>/<app>/.openserverless-contract.md` critical contract.
 The old name survives in `git.go` and `.gitignore`, which must keep listing it
 so repositories created before the migration still pull and save cleanly.
-Trustable also writes an app-local `AGENTS.md` guard file that OpenCode uses as
+Trustant also writes an app-local `AGENTS.md` guard file that OpenCode uses as
 the project rules entrypoint. `AGENTS.md`, `.openserverless-contract.md`,
-`opencode.md`, and `opencode.json` are the authoritative Trustable instruction
+`opencode.md`, and `opencode.json` are the authoritative Trustant instruction
 sources.
 
 The embedded guidance is for coding assistants working inside user-created
@@ -56,16 +56,16 @@ short deterministic statement of the still-pending gate instead of replacing
 the entire response with an instruction loop.
 When a normal turn stops at a diagnostic or completion
 gate, the plugin must replace the premature answer with synthetic internal
-feedback and request another provider turn. Trustable Code persists this
+feedback and request another provider turn. Trustant Code persists this
 feedback for the model, hides it from the session UI, and keeps the active user
 request running. The user sees only the final verified answer or an explicitly
 requested status response, never control-plane gate instructions.
 
 ## Purpose
 
-The embedded `openserverless-instructions.md` must teach the assistant the Trustable serverless
+The embedded `openserverless-instructions.md` must teach the assistant the Trustant serverless
 mental model before listing detailed rules. The first substantive section must
-make clear that a Trustable app is not a conventional backend server and not a
+make clear that a Trustant app is not a conventional backend server and not a
 set of free-form Python modules:
 
 - frontend code lives in `src/` and calls public actions through
@@ -87,9 +87,9 @@ in clarity and directness to a `SKILL.md`, not as a broad project README.
 
 It may start with `SKILL.md`-style YAML frontmatter containing only `name` and
 `description`. The description must explain that the guidance is for building
-and fixing user-created Trustable apps with React frontend code, Python
+and fixing user-created Trustant apps with React frontend code, Python
 OpenServerless actions, setup actions, services, MCP checks, and runtime
-debugging inside a Trustable workbench.
+debugging inside a Trustant workbench.
 
 It must then contain these sections, in this order:
 
@@ -119,8 +119,8 @@ The embedded guidance must have an early section named
 
 It must say:
 
-- Trustable generates `AGENTS.md` in the app root as the mandatory app-local
-  entrypoint, so Claude Code compatibility files cannot override Trustable
+- Trustant generates `AGENTS.md` in the app root as the mandatory app-local
+  entrypoint, so Claude Code compatibility files cannot override Trustant
   rules;
 - assistants must treat `AGENTS.md`, `.openserverless-contract.md`,
   `opencode.md`, and `opencode.json` as the authoritative instruction set;
@@ -128,13 +128,13 @@ It must say:
   `.cursor/rules/*`, `.github/copilot-instructions.md`, and generated
   `rules.md` files as mandatory instructions. They may inspect those files only
   when the user explicitly asks or when they are useful legacy/template context,
-  and they must never override Trustable action, MCP, deploy, shell, or host
+  and they must never override Trustant action, MCP, deploy, shell, or host
   rules;
 - before touching actions, databases, setup, seed data, deploys, or service
   state, assistants must read `.openserverless-contract.md` if it exists;
 - `.openserverless-contract.md` is the short recovery contract and takes
   priority for OpenServerless workflow details;
-- Trustable installs `check_openserverless_actions.sh` once in the user PATH;
+- Trustant installs `check_openserverless_actions.sh` once in the user PATH;
   assistants must run `timeout 60 check_openserverless_actions.sh .` after
   deploy and before completion when the checker is available;
 - the checker analyzes application action sources, but must prune generated or
@@ -146,35 +146,35 @@ It must say:
 - if the contract is missing or the checker is unavailable in PATH, assistants
   must report that and fall back to `opencode.md`;
 - after compaction, assistants must not continue from memory. The generated
-  Trustable plugin must automatically inject a bounded recovery packet with the
+  Trustant plugin must automatically inject a bounded recovery packet with the
   exact active real user request, `opencode.md`,
   `.openserverless-contract.md`, sanitized `opencode.json`, git status, and a
   bounded project map before tools run;
 - the plugin must block source/action/deploy mutations while that automatic
-  recovery is pending. `trustable_context_recover` remains a fallback only
+  recovery is pending. `trustant_context_recover` remains a fallback only
   when the automatic gate explicitly remains active;
 - guardrail state must live under the OpenCode durable data root,
-  `$XDG_DATA_HOME/opencode/trustable-guardrails` or
-  `~/.local/share/opencode/trustable-guardrails`, not under an expendable cache.
-  Existing state under `~/.cache/trustable/opencode-guardrails` must be read and
+  `$XDG_DATA_HOME/opencode/trustant-guardrails` or
+  `~/.local/share/opencode/trustant-guardrails`, not under an expendable cache.
+  Existing state under `~/.cache/trustant/opencode-guardrails` must be read and
   migrated when the durable file is absent. If durable state is corrupt, the
   plugin must fail closed and require recovery; if durable writes fail, it may
   conservatively fall back to the legacy location;
 - reported bugs must be reproduced before source changes.
-  `trustable_diagnostic_checkpoint` records explicit reproduction evidence.
+  `trustant_diagnostic_checkpoint` records explicit reproduction evidence.
   The completion tool runs at most once for
   each source revision and at most three times for one real user request. A
   repeated call must return concise guidance without rerunning checks; changing
   placeholder tests solely to reset the revision is forbidden;
-- with the integrated Trustable Code runtime, task classification and
+- with the integrated Trustant Code runtime, task classification and
   diagnostic transitions belong to the core agent state machine rather than
   the plugin. Feature requests containing labels such as `Problems` or
   `Errors` must not activate diagnostic mode. Pending diagnostics remove
   no longer hide or reject mutation tools. The integrated runtime must not
   repeatedly replace a normal final answer with automatic completion recovery.
   When source changed and no completion check ran, it may request exactly one
-  internal turn to call `trustable_completion_check`. If the provider stops without text,
-  Trustable renders a concise visible status instead of leaving an empty
+  internal turn to call `trustant_completion_check`. If the provider stops without text,
+  Trustant renders a concise visible status instead of leaving an empty
   assistant message. Stricter recovery behavior remains limited to legacy
   non-integrated OpenCode runtimes;
 - the manual checkpoint must bind the latest valid evidence deterministically
@@ -191,7 +191,7 @@ It must say:
   the request has completed; such views need an explicit loading state;
 - the frontend checker must reject localStorage user/profile data used as
   authoritative authentication without a backend `me`/session validation;
-- after source changes, `trustable_completion_check` must pass the action and
+- after source changes, `trustant_completion_check` must pass the action and
   frontend checkers, `git diff --check`, the project typecheck, and the
   available frontend build before the assistant claims completion. When no
   `typecheck` script exists but a local TypeScript compiler and `tsconfig.json`
@@ -206,22 +206,22 @@ The embedded guidance must include these rules:
 - Never create or edit generated `__main__.py` wrappers.
 - If OpenCode denies an edit to `packages/**/__main__.py`, `packages/**/*.zip`,
   or a raw shell command matching `ops action` / `ops action *`, assistants must
-  treat that as a Trustable guardrail and use the OpenServerless MCP action
+  treat that as a Trustant guardrail and use the OpenServerless MCP action
   tools plus `ops ide deploy/setup` instead of trying to bypass it.
 - Never run foreground dev servers or unbounded watchers such as
   `npm run dev`, `vite`, or `ops ide devel`.
-- Never kill, restart, or replace Trustable-managed OpenCode/Vite processes;
+- Never kill, restart, or replace Trustant-managed OpenCode/Vite processes;
   the plugin must reject kill/pkill/killall and manual dev-server starts.
 - Never mask deploy, setup, login, checker, or frontend-build failures with
   `|| true`, `|| echo`, or `head`/`tail` pipelines; the generated plugin must
   reject those commands before execution.
 - Assistants must not ask the user to run shell commands from inside the
-  Trustable pod when the assistant has shell access. They must run bounded
+  Trustant pod when the assistant has shell access. They must run bounded
   checks themselves, including `ops ide deploy`, `curl`, `npm run build`,
   `python3 -m compileall`, and `git diff --check`. They may ask the user only
   when shell/tool access is missing or the task requires credentials or
   physical access only the user has.
-- Never build or deploy the whole product manually; Trustable manages the
+- Never build or deploy the whole product manually; Trustant manages the
   long-running dev server. Use bounded checks and action deploy/setup commands
   only when needed for validation.
 - Put feature code, parsing fixes, auth checks, and business behavior in the
@@ -265,7 +265,7 @@ The embedded guidance must include these rules:
 
 ## Application Development Workflow
 
-The embedded guidance must describe the normal way to build a Trustable app:
+The embedded guidance must describe the normal way to build a Trustant app:
 
 1. Inspect existing `src/`, `packages/`, `public/`, `.agents/skills`, and
    available MCP servers before changing files.
@@ -324,13 +324,13 @@ The guidance must tell assistants how to choose the backend shape:
 
 ## OpenServerless Action Tools
 
-The embedded guidance must tell assistants to use the Trustable/OpenServerless
+The embedded guidance must tell assistants to use the Trustant/OpenServerless
 MCP action tools instead of manually creating platform scaffolding.
 
 The `openserverless` MCP server is always generated in `opencode.json`. It
 exposes the action tools, replacing the old embedded `tools/` plugin files.
 Depending on the client, tool names may appear with hyphens or underscores; the
-instructions should name the Trustable concepts and tell the assistant to use
+instructions should name the Trustant concepts and tell the assistant to use
 the matching exposed tool:
 
 - `action-new` / `action_new`: create public or private actions and generated
@@ -385,9 +385,9 @@ them.
 
 ## Action Endpoint Grammar
 
-The embedded guidance must explain the Trustable/OpenWhisk endpoint grammar.
+The embedded guidance must explain the Trustant/OpenWhisk endpoint grammar.
 OpenWhisk action names are namespace/package/action, so the action endpoint
-accepted by the Trustable action tools must be only:
+accepted by the Trustant action tools must be only:
 
 - `action`;
 - `package/action`.
@@ -422,7 +422,7 @@ clearer, names must remain flat and hyphenated, such as `v1/contacts-list` or
 
 The guidance must explicitly forbid creating nested directories under
 `packages/<package>/<group>/<action>` to simulate routes, because they are not
-valid Trustable/OpenServerless endpoints.
+valid Trustant/OpenServerless endpoints.
 
 ## MCP Servers And Service Access
 
@@ -433,7 +433,7 @@ wrappers instead of inventing connection details.
 Required MCP/service guidance:
 
 - `openserverless` is always present and exposes action-management tools.
-- `react` is always present and runs `trustable-react-mcp`. It resolves only
+- `react` is always present and runs `trustant-react-mcp`. It resolves only
   the manifest-selected workbench and exposes read-only project inspection,
   route/auth validation, and aggregate TypeScript/React validation. After
   frontend mutations, assistants must resolve aggregate `react_validate`
@@ -443,7 +443,7 @@ Required MCP/service guidance:
   executable config code; it is an HTTP MCP server at
   `http://localhost:5173/mcp`. Comments, strings, wrong packages, and the
   obsolete `AgentiReact()` spelling do not enable it. Adding the plugin while
-  an app is running requires relaunching the app so Trustable regenerates
+  an app is running requires relaunching the app so Trustant regenerates
   `.mcp.json`.
 - `s3` is present only when S3 is configured. The companion CLI wrapper is
   `rclone`.
@@ -524,7 +524,7 @@ tables/views in a schema, use `postgres_list_objects`. It must explicitly forbid
 generic invented names such as `list_schemas`.
 
 The embedded guidance must declare application `.env` and `.env.production`
-immutable to agents and MCP servers. Only the user-facing Trustable
+immutable to agents and MCP servers. Only the user-facing Trustant
 configuration interface may change their source values. Assistants must not
 read, create, edit, import, synchronize, regenerate, or automatically populate
 those files; they report a missing variable to the user.
@@ -564,17 +564,17 @@ implementation.
 ## Runtime Host Rules
 
 The embedded guidance must classify runtime hosts from OpenCode's point of
-view inside the Trustable pod:
+view inside the Trustant pod:
 
 - `localhost:5173` is the pod-local app dev server started by `ops ide devel`
   and is the default target for app HTTP validation from OpenCode's shell;
 - `localhost:4096` is the pod-local OpenCode server;
-- `trustable.<domain>` is the browser-visible Trustable UI/API host;
-- `vite.<domain>` is the browser-visible app host through Trustable
+- `trustant.<domain>` is the browser-visible Trustant UI/API host;
+- `vite.<domain>` is the browser-visible app host through Trustant
   proxy/ingress and must be used only after `ops ide deploy` succeeds and only
   when external browser or ingress routing is in scope;
 - `opencode.<domain>` is the browser-visible OpenCode host;
-- `OPS_APIHOST` is the configured OpenServerless API host used by Trustable and
+- `OPS_APIHOST` is the configured OpenServerless API host used by Trustant and
   `ops ide` for login, deploy, and development proxy orchestration. It is not
   an application secret or action parameter. The guidance and checker must
   forbid `#--param OPS_APIHOST "$OPS_APIHOST"`, `ctx.OPS_APIHOST`, and action
@@ -649,7 +649,7 @@ web action semantics as used by OpenServerless:
   and OPTIONS, and method-based CRUD actions should use `__ow_method`;
 - requests cannot override reserved `__ow_*` metadata names.
 
-For Trustable-generated Python actions, the instructions must be defensive:
+For Trustant-generated Python actions, the instructions must be defensive:
 some wrappers or clients may also provide `args["body"]` as a dict or JSON
 string. Modules must merge both shapes and let top-level fields win, because a
 generated wrapper or previous edit can create an empty `body = {}` while the
@@ -711,10 +711,10 @@ curl -X DELETE http://localhost:5173/api/my/v1/<resource>/<id> ...
 ## Web Action Response Rules
 
 The embedded guidance must distinguish OpenWhisk web action envelopes from
-Trustable-generated wrappers.
+Trustant-generated wrappers.
 
 OpenWhisk web actions can use top-level `headers`, `statusCode`, and `body` as
-HTTP response instructions. However, generated Trustable Python wrappers call
+HTTP response instructions. However, generated Trustant Python wrappers call
 the editable module and commonly return `{ "body": <module>.main(...) }`.
 Because of that, a module return value such as
 `{"statusCode": 401, "body": {"error": "Token non fornito"}}` can reach the
@@ -770,11 +770,11 @@ When an app has login or registration, the embedded guidance must say:
 - login/register are the only public UI flows;
 - starter placeholder screens must be replaced. The root route must redirect to
   login, render login, or render the authenticated app based on session state;
-  it must not keep the Trustable starter/welcome template;
+  it must not keep the Trustant starter/welcome template;
 - before marking auth UI complete, assistants must inspect the router and the
   component used by `/` or `#/`, and must remove or replace generated starter
   content such as `Welcome`, `Try the following prompts to start`, `Powered by
-  Trustable`, `trustant.png`, or sample prompt lists. A protected app is
+  Trustant`, `trustant.png`, or sample prompt lists. A protected app is
   incomplete if the browser-visible home page still shows the starter screen;
 - protected navigation items such as dashboards, contacts, orders, settings,
   admin, or profile must be hidden until the user is authenticated;
@@ -870,7 +870,7 @@ The embedded guidance must say:
   action/service tool, not by manually editing generated wrapper code or
   hardcoding credentials.
 - `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
-  Trustable-managed orchestration variables and must be rejected by generic
+  Trustant-managed orchestration variables and must be rejected by generic
   secret tools rather than bound into action wrappers.
 
 ## Data And Service Restrictions
@@ -946,9 +946,9 @@ runtime generation details live in:
 - `spec/opencode-guardrail-flow.svg`: flow diagram for contract, checker,
   deploy, and runtime verification.
 
-## Trustable Code Core Workflow
+## Trustant Code Core Workflow
 
-When `TRUSTABLE_RUNTIME_CONFIG` is active, Trustable Code owns the execution
+When `TRUSTANT_RUNTIME_CONFIG` is active, Trustant Code owns the execution
 workflow independently of generated prompt files. Every real user message
 updates the persisted active task. Source and deployment mutation tools remain
 available immediately: no `todowrite` call is a prerequisite for writing code.
@@ -970,7 +970,7 @@ interrupted mutation bodies and unsigned historical reasoning are omitted from
 future model history. The session resumes by rereading current source and
 continuing the current plan.
 
-While a turn is busy, the Trustable Code UI derives visible progress from real
+While a turn is busy, the Trustant Code UI derives visible progress from real
 tool events and displays planning, exploration, editing, verification, or
 context-preparation activity with elapsed time. It must not show private
 reasoning or control-plane gate text as progress.
@@ -980,17 +980,17 @@ dock remains hidden until the current turn writes its own plan, preventing stale
 tasks from being presented as current work.
 
 The integrated runtime never injects a hidden completion-recovery turn after a
-normal final answer. `trustable_completion_check` is used near the end of
+normal final answer. `trustant_completion_check` is used near the end of
 substantial implementation, once per source revision and no more than three
 times per real request. Failures are reported concretely and must not cause
 placeholder-test churn. Read-only inspection of a checker path is distinct from
 executing and masking that checker's exit status.
 
-Generated Trustable configurations cap the primary `build` agent at 128
+Generated Trustant configurations cap the primary `build` agent at 128
 provider steps and the `plan` agent at 64 provider steps per user turn. On the
-last step Trustable Code must remove ordinary tools from the provider request
+last step Trustant Code must remove ordinary tools from the provider request
 and end the loop even if the provider still emits a tool call. A maximum-step
-instruction without enforcement is not a valid loop guard. Trustable Code must
+instruction without enforcement is not a valid loop guard. Trustant Code must
 also count identical repaired `invalid`
 tool calls across separate provider steps. Three consecutive calls with the
 same requested tool and normalized error must end the turn immediately with a
@@ -1012,13 +1012,13 @@ server, such as S3, must be skipped before reaching that server and return a
 successful explanatory result listing the resource-capable servers. Capability
 mismatches must not appear as MCP connection failures or start a retry loop.
 
-Errors generated by Trustable's internal guards are agent control-plane input
+Errors generated by Trustant's internal guards are agent control-plane input
 and must not appear as tool-error rows in the user timeline. Provider
 self-repair attempts such as unavailable tools, schema-invalid inputs, and
 rejected endpoint names are also hidden while remaining available in model
 history. Application and ordinary tool failures remain visible.
 
-Trustable Code sanitizes final assistant text before persistence and the app
+Trustant Code sanitizes final assistant text before persistence and the app
 sanitizes it again while rendering. Internal completion checks, gates,
 guardrails, circuit breakers, checkpoints, and continuation state must never be
 shown to the user; useful result and limitation text remains visible. When a
@@ -1026,5 +1026,5 @@ provider text block contains only control-plane narration, it is suppressed
 instead of being replaced with a misleading failure message while the turn is
 still running.
 
-Scheduled application activities are not yet part of the implemented Trustable
+Scheduled application activities are not yet part of the implemented Trustant
 Code contract. Their approved requirements are tracked in `spec/backlog.md`.

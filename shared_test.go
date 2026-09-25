@@ -327,7 +327,7 @@ func TestEveryOpsLoginClearsTheGlobalConfigFirst(t *testing.T) {
 
 func TestFoldIntoSharedPoolOverwritesAppProducedAndKeepsHandTyped(t *testing.T) {
 	apps := map[string]*AppConfig{"appsuite": {}}
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{
 		"APPSUITE__DB": "stale",
 		"MY_API_KEY":   "typed by the user",
 	}}
@@ -350,7 +350,7 @@ func TestFoldIntoSharedPoolOverwritesAppProducedAndKeepsHandTyped(t *testing.T) 
 
 func TestFoldIntoSharedPoolRespectsTheLimit(t *testing.T) {
 	apps := map[string]*AppConfig{}
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{}}
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{}}
 	for i := 0; i < maxPredefinedEnvVars; i++ {
 		cfg.PredefinedEnv[string(rune('A'+i%26))+strings.Repeat("x", i/26+1)] = "v"
 	}
@@ -363,7 +363,7 @@ func TestFoldIntoSharedPoolRespectsTheLimit(t *testing.T) {
 
 func TestFoldIntoProductionPoolKeepsValuesPerHost(t *testing.T) {
 	apps := map[string]*AppConfig{"appsuite": {}}
-	cfg := &trustableConfig{}
+	cfg := &trustantConfig{}
 
 	foldIntoProductionPool(cfg, "https://api.nuvolaris.io/", map[string]string{"APPSUITE__DB": "nuvolaris"}, apps)
 	foldIntoProductionPool(cfg, "openserverless.dev", map[string]string{"APPSUITE__DB": "openserverless"}, apps)
@@ -382,7 +382,7 @@ func TestFoldIntoProductionPoolKeepsAHandTypedHostValue(t *testing.T) {
 	// A value typed by hand is the escape hatch for a producer that lives on
 	// another installation; a later publish must not silently replace it.
 	apps := map[string]*AppConfig{}
-	cfg := &trustableConfig{PredefinedEnvProduction: map[string]map[string]string{
+	cfg := &trustantConfig{PredefinedEnvProduction: map[string]map[string]string{
 		"api.nuvolaris.io": {"ELSEWHERE__DB": "typed by hand"},
 	}}
 	foldIntoProductionPool(cfg, "api.nuvolaris.io", map[string]string{"ELSEWHERE__DB": "resolved"}, apps)
@@ -392,10 +392,10 @@ func TestFoldIntoProductionPoolKeepsAHandTypedHostValue(t *testing.T) {
 }
 
 func TestPredefinedEnvProductionSurvivesMergeConfigs(t *testing.T) {
-	base := &trustableConfig{PredefinedEnvProduction: map[string]map[string]string{
+	base := &trustantConfig{PredefinedEnvProduction: map[string]map[string]string{
 		"api.nuvolaris.io": {"BASE__A": "1"},
 	}}
-	ws := &trustableConfig{PredefinedEnvProduction: map[string]map[string]string{
+	ws := &trustantConfig{PredefinedEnvProduction: map[string]map[string]string{
 		"api.nuvolaris.io":   {"WS__B": "2"},
 		"openserverless.dev": {"WS__C": "3"},
 	}}
@@ -417,7 +417,7 @@ func TestGeneratedEnvFillsDeclaredEmptyNamesFromThePool(t *testing.T) {
 	isolateSharedWorkspace(t)
 	workbench := makeWorkbench(t, "consumer")
 
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Apps: map[string]*AppConfig{
 			"consumer": {Development: map[string]string{"APPSUITE__DB": "", "OWN": "kept"}},
 		},
@@ -454,7 +454,7 @@ func TestGeneratedEnvNeverOverwritesATypedValue(t *testing.T) {
 	isolateSharedWorkspace(t)
 	workbench := makeWorkbench(t, "consumer")
 
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Apps:          map[string]*AppConfig{"consumer": {Development: map[string]string{"APPSUITE__DB": "mine"}}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "from the pool"},
 	}
@@ -474,7 +474,7 @@ func TestGeneratedProductionEnvUsesTheAppsOwnHostPool(t *testing.T) {
 	isolateSharedWorkspace(t)
 	workbench := makeWorkbench(t, "consumer")
 
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Apps: map[string]*AppConfig{"consumer": {Production: map[string]string{
 			"OPS_APIHOST":  "https://openserverless.dev",
 			"APPSUITE__DB": "",
@@ -506,7 +506,7 @@ func TestGeneratedEnvDoesNotUseTheDevelopmentPoolForProduction(t *testing.T) {
 	isolateSharedWorkspace(t)
 	workbench := makeWorkbench(t, "consumer")
 
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Apps: map[string]*AppConfig{"consumer": {Production: map[string]string{
 			"OPS_APIHOST":  "https://openserverless.dev",
 			"APPSUITE__DB": "",
@@ -530,7 +530,7 @@ func TestGeneratedEnvDoesNotUseTheDevelopmentPoolForProduction(t *testing.T) {
 // --- the publish gate -----------------------------------------------------
 
 func TestMissingProductionSharedBlocksAndNamesTheProducer(t *testing.T) {
-	cfg := &trustableConfig{Apps: map[string]*AppConfig{
+	cfg := &trustantConfig{Apps: map[string]*AppConfig{
 		"appsuite": {},
 		"consumer": {Production: map[string]string{"APPSUITE__DB": ""}},
 	}}
@@ -547,7 +547,7 @@ func TestMissingProductionSharedBlocksAndNamesTheProducer(t *testing.T) {
 }
 
 func TestMissingProductionSharedIsSatisfiedByTheHostPool(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Apps: map[string]*AppConfig{
 			"appsuite": {},
 			"consumer": {Production: map[string]string{"APPSUITE__DB": ""}},
@@ -567,7 +567,7 @@ func TestMissingProductionSharedIsSatisfiedByTheHostPool(t *testing.T) {
 
 func TestMissingProductionSharedIsSatisfiedByAHandTypedValue(t *testing.T) {
 	// The escape hatch for a producer on another installation.
-	cfg := &trustableConfig{Apps: map[string]*AppConfig{
+	cfg := &trustantConfig{Apps: map[string]*AppConfig{
 		"appsuite": {},
 		"consumer": {Production: map[string]string{"APPSUITE__DB": "typed by hand"}},
 	}}
@@ -578,7 +578,7 @@ func TestMissingProductionSharedIsSatisfiedByAHandTypedValue(t *testing.T) {
 
 func TestAnAppNeverBlocksOnAVariableItProducesItself(t *testing.T) {
 	// Its own publish resolves it in the same request.
-	cfg := &trustableConfig{Apps: map[string]*AppConfig{
+	cfg := &trustantConfig{Apps: map[string]*AppConfig{
 		"appsuite": {Production: map[string]string{"APPSUITE__DB": ""}},
 	}}
 	if missing := missingProductionShared("appsuite", "openserverless.dev", cfg); len(missing) != 0 {
@@ -588,7 +588,7 @@ func TestAnAppNeverBlocksOnAVariableItProducesItself(t *testing.T) {
 
 func TestOrdinaryProductionVariablesDoNotBlockPublish(t *testing.T) {
 	// An empty production value that no app produces is the user's business.
-	cfg := &trustableConfig{Apps: map[string]*AppConfig{
+	cfg := &trustantConfig{Apps: map[string]*AppConfig{
 		"consumer": {Production: map[string]string{"SOME_KEY": ""}},
 	}}
 	if missing := missingProductionShared("consumer", "openserverless.dev", cfg); len(missing) != 0 {
@@ -686,7 +686,7 @@ func TestSharedListReportsTheProducingApp(t *testing.T) {
 	if err := saveSharedEnv("appsuite", map[string]string{"<app>__DB": "<.postgres.url>"}); err != nil {
 		t.Fatalf("save: %s", err)
 	}
-	if err := saveWorkspaceConfig(&trustableConfig{Apps: map[string]*AppConfig{"appsuite": {}}}); err != nil {
+	if err := saveWorkspaceConfig(&trustantConfig{Apps: map[string]*AppConfig{"appsuite": {}}}); err != nil {
 		t.Fatalf("save config: %s", err)
 	}
 
@@ -708,7 +708,7 @@ func TestSharedListReportsTheProducingApp(t *testing.T) {
 
 func TestPredefinedEnvPostCannotAlterAnAppProducedKey(t *testing.T) {
 	isolateSharedWorkspace(t)
-	if err := saveWorkspaceConfig(&trustableConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "resolved", "MINE": "typed"},
 	}); err != nil {
@@ -743,7 +743,7 @@ func TestPredefinedEnvPostCannotAlterAnAppProducedKey(t *testing.T) {
 
 func TestGetPredefinedEnvMarksAppProducedRows(t *testing.T) {
 	isolateSharedWorkspace(t)
-	if err := saveWorkspaceConfig(&trustableConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "resolved", "MINE": "typed"},
 		PredefinedEnvProduction: map[string]map[string]string{

@@ -124,7 +124,7 @@ func loadEnv() error {
 }
 
 // safeEnvLogValue prevents server-side credentials from being copied into the
-// Trustable/Air/pod log. NOTEBOOK_GITHUB_TOKEN is covered by TOKEN; the broader
+// Trustant/Air/pod log. NOTEBOOK_GITHUB_TOKEN is covered by TOKEN; the broader
 // rule also fixes the same exposure for provider keys and service passwords.
 func safeEnvLogValue(key, value string) string {
 	upper := strings.ToUpper(key)
@@ -229,7 +229,7 @@ func mapsEqual(a, b map[string]string) bool {
 
 // stateDirName is the workspace directory holding server-side state that must
 // survive a pod restart: the persistent ssh key, GitHub auth, secrets and the
-// Pi agent config. A pre-rebrand .trustable/ directory is deliberately ignored
+// Pi agent config. A pre-rebrand .trustant/ directory is deliberately ignored
 // rather than migrated: it is left in place and its contents are regenerated
 // under the new name.
 const stateDirName = ".trustant"
@@ -455,7 +455,7 @@ func checkSSHKey() {
 			}
 		} else {
 			log.Printf("  - SSH key not found, generating persistent ed25519 keypair at %s", persistentKeyPath)
-			cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "trustable", "-f", persistentKeyPath)
+			cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "trustant", "-f", persistentKeyPath)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				log.Printf("  - Warning: ssh-keygen failed: %v: %s", err, strings.TrimSpace(string(out)))
 				sshKeyAvailable = false

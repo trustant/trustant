@@ -104,7 +104,7 @@ OPENAI_API_KEY=dummy
 OLLAMA_ENDPOINT=http://localhost:11434
 AIP_REGISTER_URL=https://api.nuvolaris.io/_register
 AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
-GIT_USER=TrustableUser
+GIT_USER=TrustantUser
 GIT_EMAIL=noreply@example.com
 ENV
   ok "created .env"
@@ -135,8 +135,8 @@ mkdir -p "${WORKBENCH_DIR_EXPANDED}"
 [[ -d "${WORKBENCH_DIR_EXPANDED}" ]] || fail "WORKBENCH_DIR '${WORKBENCH_DIR}' could not be created"
 ok "WORKBENCH_DIR exists: ${WORKBENCH_DIR_EXPANDED}"
 
-# --- 2. Check ops is in PATH and resolves the Trustable task source ---
-# ops may already be present from the VM's trustable package.
+# --- 2. Check ops is in PATH and resolves the Trustant task source ---
+# ops may already be present from the VM's trustant package.
 #
 # The task source is wired into the binary: n7s.co/get-ops-tru pins
 # trustable-ai/openserverless-task, so nothing needs to declare it. OPS_REPO and
@@ -178,10 +178,10 @@ OPS_SOURCE_ACTUAL=$(ops_info_value OPS_REPO)
 if [[ "$OPS_SOURCE_ACTUAL" != "$OPS_SOURCE_EXPECTED" ]]; then
   warn "ops resolves its task source from '${OPS_SOURCE_ACTUAL:-<unset>}'"
   warn "expected '${OPS_SOURCE_EXPECTED}'"
-  warn "Reinstall the Trustable ops: curl -sL n7s.co/get-ops-tru | bash"
+  warn "Reinstall the Trustant ops: curl -sL n7s.co/get-ops-tru | bash"
   fail "ops task source mismatch"
 fi
-ok "ops resolves the Trustable task source ($OPS_SOURCE_EXPECTED)"
+ok "ops resolves the Trustant task source ($OPS_SOURCE_EXPECTED)"
 
 # --- 3. Add ~/.ops/linux-<arch>/bin to PATH and ensure uv ---
 echo "--- Checking ops bin dir and uv ---"
@@ -327,8 +327,8 @@ if [[ -n "${OPS_APIHOST:-}" ]]; then
   APIHOST="$OPS_APIHOST"
 elif [[ -n "${APIHOST:-}" ]]; then
   APIHOST="$APIHOST"
-elif [[ -n "${TRUSTABLE_DEFAULT_APIHOST:-}" ]]; then
-  APIHOST="$TRUSTABLE_DEFAULT_APIHOST"
+elif [[ -n "${TRUSTANT_DEFAULT_APIHOST:-}" ]]; then
+  APIHOST="$TRUSTANT_DEFAULT_APIHOST"
 else
   APIHOST="http://miniops.me"
 fi
@@ -611,13 +611,13 @@ grep -qF 'secret-unbind' "$NPM_GLOBAL_PREFIX/lib/node_modules/openserverless-mcp
 [[ -f react-mcp/package.json ]] || fail "react-mcp source is missing"
 REACT_MCP_PACK_DIR=$(mktemp -d)
 ( cd react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
-  || fail "packing trustable-react-mcp failed"
-REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustable-react-mcp-*.tgz' -print -quit)
-[[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustable-react-mcp package was not created"
+  || fail "packing trustant-react-mcp failed"
+REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustant-react-mcp-*.tgz' -print -quit)
+[[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustant-react-mcp package was not created"
 ( cd "$HOME" && npm install -g --prefix "$NPM_GLOBAL_PREFIX" tsx "$REACT_MCP_PACKAGE" ) \
-  || fail "installing trustable-react-mcp failed"
+  || fail "installing trustant-react-mcp failed"
 rm -rf "$REACT_MCP_PACK_DIR"
-command -v trustable-react-mcp &>/dev/null || fail "trustable-react-mcp is not in PATH"
+command -v trustant-react-mcp &>/dev/null || fail "trustant-react-mcp is not in PATH"
 
 # s3 MCP: the txn2/mcp-s3 release binary behind the repo's Python wrapper (as the
 # Dockerfile does): release -> mcp-s3-real, wrapper (image/mcp-s3) -> mcp-s3. The
@@ -630,8 +630,8 @@ if [[ ! -x "$MCP_BIN/mcp-s3-real" ]]; then
   mv "$MCP_BIN/mcp-s3" "$MCP_BIN/mcp-s3-real" || fail "renaming mcp-s3 -> mcp-s3-real failed"
 fi
 install -m 0755 image/mcp-s3 "$MCP_BIN/mcp-s3" || fail "installing mcp-s3 wrapper failed"
-install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp" \
-  || fail "installing Trustable Redis MCP wrapper failed"
+install -m 0755 image/redis-mcp "$MCP_BIN/trustant-redis-mcp" \
+  || fail "installing Trustant Redis MCP wrapper failed"
 
 # Smoke-check the uv-installed Python MCP servers. WHY: a broken transitive pin
 # (see the mcp<2 note above) makes these die at *import*, long before any
@@ -653,7 +653,7 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 
 # --- 13. Build and install truacp (the ACP server that fronts `pi`) ---
 # truacp serves its own React UI on :4096 and spawns the `pi` coding agent over
-# stdio via the `pi-acp` adapter. Trustable launches it as
+# stdio via the `pi-acp` adapter. Trustant launches it as
 # `truacp --port <n> --dir <workbench>` (see spec/4-launch.md,
 # acp/SPEC.md §10a). Its setup.sh bundles the server + embedded web UI,
 # then installs the launcher at ~/.local/bin/truacp. Development setup builds
@@ -662,7 +662,7 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 #
 # acp/setup.sh owns this step: it (re)installs the pinned agents and
 # integrity-verified upstream Pi packages from pi.version, builds the nested
-# Trustable pi-acp fork, then,
+# Trustant pi-acp fork, then,
 # because a package.json is present in the working directory, builds and installs
 # the ~/.local/bin/truacp launcher. It MUST be run from inside acp/:
 # the build/install phases key off a package.json in the *current* directory, so

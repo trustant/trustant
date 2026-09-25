@@ -59,7 +59,7 @@ func readPredefinedEnvFromDisk(t *testing.T) map[string]string {
 	if err != nil {
 		t.Fatalf("read workspace config: %s", err)
 	}
-	var cfg trustableConfig
+	var cfg trustantConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse workspace config: %s", err)
 	}
@@ -228,7 +228,7 @@ func TestPredefinedEnvIsNotAppliedToApplications(t *testing.T) {
   "apps": {"demo": {"password": "pw", "development": {"DECLARED": ""}, "production": {}}}
 }`)
 
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		t.Fatalf("load merged config: %s", err)
 	}
@@ -318,7 +318,7 @@ func TestMissingEnvScreenOffersSharedValues(t *testing.T) {
 // the user set on the Configure page.
 
 // withPredefinedEnvImportDir puts the process in a temp working directory
-// holding a base trustant.json, because loadBaseConfig, loadTrustableConfig
+// holding a base trustant.json, because loadBaseConfig, loadTrustantConfig
 // and the .env.default lookup are all CWD-relative.
 func withPredefinedEnvImportDir(t *testing.T, baseJSON, workspaceJSON, defaultEnv string) {
 	t.Helper()

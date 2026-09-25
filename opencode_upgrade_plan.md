@@ -6,7 +6,7 @@ Related but separate plan: `improvement_plan_issue98.md`
 
 ## Goal
 
-Evaluate upgrading Trustable's pinned OpenCode version from `1.16.2` to the
+Evaluate upgrading Trustant's pinned OpenCode version from `1.16.2` to the
 latest verified candidate, currently `1.17.13`, without mixing the version bump
 into the issue-98 guardrail PR.
 
@@ -16,8 +16,8 @@ primary fix for OpenServerless workflow drift.
 
 ## Current and candidate versions
 
-- Previous Trustable image ARG: `OPENCODE_VERSION=1.16.2`.
-- Updated Trustable image ARG: `OPENCODE_VERSION=1.17.13`.
+- Previous Trustant image ARG: `OPENCODE_VERSION=1.16.2`.
+- Updated Trustant image ARG: `OPENCODE_VERSION=1.17.13`.
 - Latest upstream/npm checked on 2026-07-02: `1.17.13`.
 - `opencode-ai` npm: `1.17.13`.
 - `@opencode-ai/plugin` npm: `1.17.13`.
@@ -30,7 +30,7 @@ Sources:
 
 ## Potentially useful improvements since 1.16.2
 
-Recent OpenCode releases include changes that look relevant to Trustable:
+Recent OpenCode releases include changes that look relevant to Trustant:
 
 - sessions can recover once from provider context-overflow errors;
 - large v2 tool outputs are bounded and expose retained output paths for
@@ -63,9 +63,9 @@ Make this a separate improvement PR after, or parallel to, the guardrail PR:
 1. Bump `OPENCODE_VERSION` in the image build to `1.17.13`.
 2. Ensure the installed `@opencode-ai/plugin` version still matches
    `/usr/local/bin/opencode --version`.
-3. Rebuild the Trustable image.
+3. Rebuild the Trustant image.
 4. Run launch/config/MCP tests.
-5. Validate a live app workflow inside `trustable-0`.
+5. Validate a live app workflow inside `trustant-0`.
 
 ## Local validation results
 
@@ -75,10 +75,10 @@ Checked on 2026-07-02 with local image
 - `go test ./...` passed.
 - `git diff --check` passed.
 - Local image build completed for `linux/arm64`.
-- `trustable-0` rolled out successfully with the local image.
+- `trustant-0` rolled out successfully with the local image.
 - Inside the pod, `/usr/local/bin/opencode --version` returned `1.17.13`.
 - Inside the pod, `@opencode-ai/plugin` was installed at `1.17.13`.
-- `supervisorctl status` showed `ollama`, `sshd`, and `trustable` running.
+- `supervisorctl status` showed `ollama`, `sshd`, and `trustant` running.
 - `GET /api/launch/trutestdb2` succeeded and created an OpenCode session.
 - Pod-local `http://localhost:4096/` returned HTTP 200.
 - Pod-local `http://localhost:5173/` returned HTTP 200.
@@ -107,7 +107,7 @@ opencode --version
 npm ls -g @opencode-ai/plugin || true
 ```
 
-Trustable launch:
+Trustant launch:
 
 1. launch an existing app workbench;
 2. verify generated `opencode.json`;
@@ -121,14 +121,14 @@ App workflow:
 1. create or edit a simple public action through the OpenServerless MCP tool;
 2. run `ops ide deploy`;
 3. verify through `curl http://localhost:5173/api/my/<package>/<action>`;
-4. run redeploy from Trustable UI/API;
+4. run redeploy from Trustant UI/API;
 5. verify `localhost:5173` still responds;
 6. optionally verify `vite.<domain>` only after deploy and only as an
    external/browser route check.
 
 Regression watch:
 
-- session creation via Trustable launch still works;
+- session creation via Trustant launch still works;
 - `X-Opencode-Directory` session bootstrap still resolves the right project;
 - OpenCode does not assume the wrong localhost/port;
 - MCP tool names remain compatible with `opencode.md`;
@@ -142,5 +142,5 @@ Merge the upgrade only if:
 - launch, redeploy, MCP, and local verification pass;
 - OpenCode remains stable in server mode;
 - plugin installation remains version-aligned;
-- no Trustable routing assumptions change;
+- no Trustant routing assumptions change;
 - any behavior differences are reflected in specs where needed.

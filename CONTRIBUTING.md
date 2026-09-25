@@ -1,15 +1,15 @@
 # Contributing
 
-Thanks for your interest in contributing to Trustable.
+Thanks for your interest in contributing to Trustant.
 
 ## A Contributor Agreement is required
 
 **We cannot accept a pull request until a signed Contributor License Agreement
 (CLA) is on file for its author.** This applies to every contribution of any
-size, and to every repository in the Trustable project, including the
-`skills`, `oplugins-truinst`, and `trustable-acp` submodules.
+size, and to every repository in the Trustant project, including the
+`skills`, `oplugins-truinst`, and `trustant-acp` submodules.
 
-Trustable is released under the GNU Affero General Public License, version 3 or
+Trustant is released under the GNU Affero General Public License, version 3 or
 later (see [LICENSE](LICENSE)). Nuvolaris Inc also offers the software under
 separate commercial terms. The CLA is what allows us to keep doing both: it
 grants Nuvolaris Inc the rights needed to distribute your contribution under
@@ -36,7 +36,7 @@ license-eye header fix     # add it to any file that lacks one
 
 Run it from the directory whose files you changed. license-eye discovers files
 with `git ls-files`, which does not descend into submodules, so each
-Trustable-owned submodule carries its own `.licenserc.yaml` and must be checked
+Trustant-owned submodule carries its own `.licenserc.yaml` and must be checked
 from inside it.
 
 The `oplugins` and `mcp` submodules are upstream Apache-2.0 projects with their

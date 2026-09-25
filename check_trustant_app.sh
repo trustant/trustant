@@ -36,8 +36,8 @@ run_check check_openserverless_actions.sh
 run_check check_trustant_frontend.sh
 
 if [ "$STATUS" -ne 0 ]; then
-  echo "Trustable app completion check failed."
+  echo "Trustant app completion check failed."
   exit 1
 fi
 
-echo "Trustable app completion check passed."
+echo "Trustant app completion check passed."

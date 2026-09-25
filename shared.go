@@ -332,7 +332,7 @@ func refreshSharedFrom(app string, production bool) (map[string]string, error) {
 
 // sharedProducingApps lists the apps that declare anything, sorted so the
 // refresh order — and therefore the log — is deterministic.
-func sharedProducingApps(cfg *trustableConfig) []string {
+func sharedProducingApps(cfg *trustantConfig) []string {
 	var apps []string
 	for app := range cfg.Apps {
 		if len(loadSharedEnv(app)) > 0 {
@@ -349,7 +349,7 @@ func sharedProducingApps(cfg *trustableConfig) []string {
 // refresh that could not update it would serve a stale credential forever. A
 // name the user typed by hand is KEPT: the palette is theirs. Ownership comes
 // from the name, so no bookkeeping records it.
-func foldIntoSharedPool(wsCfg *trustableConfig, resolved map[string]string, apps map[string]*AppConfig) []string {
+func foldIntoSharedPool(wsCfg *trustantConfig, resolved map[string]string, apps map[string]*AppConfig) []string {
 	if len(resolved) == 0 {
 		return nil
 	}
@@ -386,7 +386,7 @@ func foldIntoSharedPool(wsCfg *trustableConfig, resolved map[string]string, apps
 // foldIntoProductionPool is the same for one apihost. Production values are
 // kept per host: the same variable name means a different secret on a different
 // cluster, and one flat map would hand an app the wrong one.
-func foldIntoProductionPool(wsCfg *trustableConfig, host string, resolved map[string]string, apps map[string]*AppConfig) []string {
+func foldIntoProductionPool(wsCfg *trustantConfig, host string, resolved map[string]string, apps map[string]*AppConfig) []string {
 	host = sharedHostKey(host)
 	if host == "" || len(resolved) == 0 {
 		return nil
@@ -439,7 +439,7 @@ func foldIntoProductionPool(wsCfg *trustableConfig, host string, resolved map[st
 // because at the point of deletion the app may already be gone from cfg.Apps —
 // which would make sharedProducerOf report "not app-produced" for exactly the
 // keys being pruned.
-func pruneSharedPool(wsCfg *trustableConfig, app string) int {
+func pruneSharedPool(wsCfg *trustantConfig, app string) int {
 	app = strings.TrimSpace(app)
 	if wsCfg == nil || app == "" {
 		return 0
@@ -490,7 +490,7 @@ func pruneSharedPool(wsCfg *trustableConfig, app string) int {
 // live export — which is why handlePostPredefinedEnv carries app-produced
 // entries over. A request naming one key states its intent unambiguously and
 // cannot be issued by accident.
-func removeSharedPoolVar(wsCfg *trustableConfig, name string) int {
+func removeSharedPoolVar(wsCfg *trustantConfig, name string) int {
 	name = strings.TrimSpace(name)
 	if wsCfg == nil || name == "" {
 		return 0
@@ -530,7 +530,7 @@ func removeSharedPoolVar(wsCfg *trustableConfig, name string) int {
 // consumer a stale secret and the failure would look like an application bug.
 // Caller must hold the runtime lifecycle lock.
 func refreshSharedPool(restoreApp string) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		log.Printf("Warning: failed to load config for shared refresh: %s", err)
 		return
@@ -590,7 +590,7 @@ func refreshSharedForApp(app string) ([]string, error) {
 	if len(resolved) == 0 {
 		return nil, nil
 	}
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -644,7 +644,7 @@ func resolveProductionShared(app, host string) ([]string, error) {
 	if len(resolved) == 0 {
 		return nil, nil
 	}
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -678,7 +678,7 @@ type missingShared struct {
 // value costs a broken dev server, a publish with one deploys an app pointed at
 // nothing. A value the user typed for the app, or one already in that host's
 // pool, satisfies it.
-func missingProductionShared(appName, host string, cfg *trustableConfig) []missingShared {
+func missingProductionShared(appName, host string, cfg *trustantConfig) []missingShared {
 	appCfg := cfg.Apps[appName]
 	if appCfg == nil || len(appCfg.Production) == 0 {
 		return nil
@@ -737,7 +737,7 @@ func commitSharedEnv(workbenchPath string) {
 		return
 	}
 
-	commitCmd := exec.Command("git", "commit", "-m", "trustable: update "+sharedEnvFileName, "--", sharedEnvFileName)
+	commitCmd := exec.Command("git", "commit", "-m", "trustant: update "+sharedEnvFileName, "--", sharedEnvFileName)
 	commitCmd.Dir = workbenchPath
 	if output, err := commitCmd.CombinedOutput(); err != nil {
 		log.Printf("Warning: failed to commit %s: %s (%s)", sharedEnvFileName, err, strings.TrimSpace(string(output)))
@@ -937,7 +937,7 @@ type sharedListEntry struct {
 
 // handleSharedList returns every app-produced variable across the workspace.
 func handleSharedList(w http.ResponseWriter, r *http.Request) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return

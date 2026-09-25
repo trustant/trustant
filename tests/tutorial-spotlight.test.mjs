@@ -207,7 +207,7 @@ function makeEnv({ pathname = '/app.html', cookie = 'LEFT=http://opencode.test; 
 /** Post a bridge report the way the real frame would. */
 function report(window, { targets = {}, state = null, version = 2, origin = 'http://opencode.test' } = {}) {
     (window.listeners.message || []).forEach((fn) =>
-        fn({ origin, data: { source: 'trustable-tour-frame', type: 'frame', version, targets, state } })
+        fn({ origin, data: { source: 'trustant-tour-frame', type: 'frame', version, targets, state } })
     );
 }
 
@@ -340,7 +340,7 @@ test('a step with a target leaves a hole and covers everything else', () => {
     const dom = appPage(body);
     // The Toolbar tour's Commit step spotlights #saveBtn at (700,20)-(800,50).
     sandbox.sessionStorage.setItem(
-        'trustable.tutorial',
+        'trustant.tutorial',
         JSON.stringify({ tour: 'toolbar', step: 2, data: {} })
     );
     sandbox.Tutorial.resume();
@@ -391,7 +391,7 @@ test('keys inside the spotlight are not swallowed', () => {
     const dom = appPage(body);
     // The Commit step of the Toolbar tour spotlights #saveBtn.
     sandbox.sessionStorage.setItem(
-        'trustable.tutorial',
+        'trustant.tutorial',
         JSON.stringify({ tour: 'toolbar', step: 2, data: {} })
     );
     sandbox.Tutorial.resume();
@@ -412,7 +412,7 @@ test('an explanation step keeps its Next button even when the control is disable
     appPage(body);
 
     sandbox.sessionStorage.setItem(
-        'trustable.tutorial',
+        'trustant.tutorial',
         JSON.stringify({ tour: 'notebook', step: 7, data: {} }) // run-next
     );
     sandbox.Tutorial.resume();
@@ -433,7 +433,7 @@ test('a stale frame never reads as a false condition', () => {
     // "Close the notebook list" advances when panelOpen is false. With no
     // report at all that must NOT count as closed.
     sandbox.sessionStorage.setItem(
-        'trustable.tutorial',
+        'trustant.tutorial',
         JSON.stringify({ tour: 'notebook', step: 4, data: {} })
     );
     sandbox.Tutorial.resume();
@@ -501,7 +501,7 @@ test('the catalog entry is chosen by label, not by position', () => {
     const { sandbox, window, document, body } = makeEnv();
     appPage(body);
     sandbox.sessionStorage.setItem(
-        'trustable.tutorial',
+        'trustant.tutorial',
         JSON.stringify({ tour: 'notebook', step: 3, data: {} }) // select
     );
     sandbox.Tutorial.resume();
@@ -525,10 +525,10 @@ test('Escape ends the tutorial and forgets it', () => {
     const { sandbox, document, body } = makeEnv();
     appPage(body);
     sandbox.Tutorial.start('toolbar');
-    assert.ok(sandbox.sessionStorage.getItem('trustable.tutorial'));
+    assert.ok(sandbox.sessionStorage.getItem('trustant.tutorial'));
 
     document.listeners.keydown[0]({ key: 'Escape', target: body, preventDefault: () => {}, stopPropagation: () => {} });
-    assert.equal(sandbox.sessionStorage.getItem('trustable.tutorial'), null);
+    assert.equal(sandbox.sessionStorage.getItem('trustant.tutorial'), null);
     assert.equal(overlay(document).classList.contains('active'), false);
 });
 
@@ -644,8 +644,8 @@ test('a step keeps its number when the user goes back to it', () => {
 
     // Returning to a step already numbered must not spend a new number on it.
     sandbox.sessionStorage.setItem(
-        'trustable.tutorial',
-        JSON.stringify({ ...JSON.parse(sandbox.sessionStorage.getItem('trustable.tutorial')), step: 0 })
+        'trustant.tutorial',
+        JSON.stringify({ ...JSON.parse(sandbox.sessionStorage.getItem('trustant.tutorial')), step: 0 })
     );
     sandbox.Tutorial.resume();
     sandbox.Tutorial.tickForTest();

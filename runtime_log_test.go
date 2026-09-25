@@ -24,8 +24,8 @@ import (
 
 func TestOpsDevelLogIsPrivateAndOutsideWorkbench(t *testing.T) {
 	root := t.TempDir()
-	trustableRuntimeLogRootOverride = filepath.Join(root, "runtime")
-	t.Cleanup(func() { trustableRuntimeLogRootOverride = "" })
+	trustantRuntimeLogRootOverride = filepath.Join(root, "runtime")
+	t.Cleanup(func() { trustantRuntimeLogRootOverride = "" })
 
 	path, err := opsDevelLogPath("example")
 	if err != nil {

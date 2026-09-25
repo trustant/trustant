@@ -126,7 +126,7 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 	// Load config and optionally save repo
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
-		wsCfg = &trustableConfig{}
+		wsCfg = &trustantConfig{}
 	}
 	if wsCfg.Apps == nil {
 		wsCfg.Apps = make(map[string]*AppConfig)
@@ -307,7 +307,7 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	// Load config and optionally save production values
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
-		wsCfg = &trustableConfig{}
+		wsCfg = &trustantConfig{}
 	}
 	if wsCfg.Apps == nil {
 		wsCfg.Apps = make(map[string]*AppConfig)
@@ -359,7 +359,7 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 	// in by hand for it.
 	// The MERGED config: the production pool can come from either layer, and the
 	// gate must not block on a value the base layer already supplies.
-	mergedCfg, err := loadTrustableConfig()
+	mergedCfg, err := loadTrustantConfig()
 	if err != nil {
 		mergedCfg = wsCfg
 	}

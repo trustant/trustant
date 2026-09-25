@@ -22,7 +22,7 @@ import (
 	"testing"
 )
 
-// The managed GitHub account is the primary way Trustable authenticates against
+// The managed GitHub account is the primary way Trustant authenticates against
 // a repository: the backend pushes and clones over HTTPS with it and only falls
 // back to the dedicated SSH key when no account is connected
 // (see spec/github.md). Every flow that needs repo access must therefore offer

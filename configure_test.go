@@ -92,23 +92,23 @@ func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 
 func TestModelAllowedForPiHonorsCatalogMetadata(t *testing.T) {
 	disabled := false
-	if ok, reason := modelAllowedForPi("trustable", "qwen3.6-27b", &ModelLimits{
+	if ok, reason := modelAllowedForPi("trustant", "qwen3.6-27b", &ModelLimits{
 		Enabled: &disabled,
 		Reason:  "temporarily unavailable",
 	}); ok || reason != "temporarily unavailable" {
 		t.Fatalf("disabled catalog model should be blocked with reason, ok=%v reason=%q", ok, reason)
 	}
 
-	if ok, reason := modelAllowedForPi("trustable", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
+	if ok, reason := modelAllowedForPi("trustant", "custom-safe-model", &ModelLimits{Roles: []string{"coding"}}); !ok {
 		t.Fatalf("coding role should allow model, reason=%q", reason)
 	}
-	if ok, reason := modelAllowedForPi("trustable", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
+	if ok, reason := modelAllowedForPi("trustant", "custom-vector-model", &ModelLimits{Roles: []string{"embedding"}}); ok || reason == "" {
 		t.Fatalf("embedding role should block model, ok=%v reason=%q", ok, reason)
 	}
 }
 
 func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Provider: "private",
 		Models: map[string]*ModelLimits{
 			"myhost/embedding:952mb": {MaxInput: 8192},
@@ -123,7 +123,7 @@ func TestValidatePiModelSelectionRejectsDisallowedSelectedModel(t *testing.T) {
 }
 
 func TestValidatePiModelSelectionAllowsDeferredDiscovery(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Provider: "private",
 		Models:   map[string]*ModelLimits{},
 		Pi:       &piConfig{Default: ""},
@@ -141,7 +141,7 @@ func TestValidatePiModelSelectionAllowsPrivateDeferredDefault(t *testing.T) {
 		"qwen3-coder:30b": {MaxToken: 131072, MaxOutput: 32768},
 	}
 
-	if err := validatePiModelSelection(&trustableConfig{
+	if err := validatePiModelSelection(&trustantConfig{
 		Provider: "private",
 		Models:   models,
 		Pi:       &piConfig{Default: ""},
@@ -149,7 +149,7 @@ func TestValidatePiModelSelectionAllowsPrivateDeferredDefault(t *testing.T) {
 		t.Fatalf("private endpoint must save before the default is chosen: %s", err)
 	}
 
-	if err := validatePiModelSelection(&trustableConfig{
+	if err := validatePiModelSelection(&trustantConfig{
 		Provider: "private",
 		Models:   models,
 		Pi:       &piConfig{Default: "qwen3-coder:30b"},
@@ -157,7 +157,7 @@ func TestValidatePiModelSelectionAllowsPrivateDeferredDefault(t *testing.T) {
 		t.Fatalf("private endpoint must save once the default is chosen: %s", err)
 	}
 
-	if err := validatePiModelSelection(&trustableConfig{
+	if err := validatePiModelSelection(&trustantConfig{
 		Provider: "ollama",
 		Models:   models,
 		Pi:       &piConfig{Default: ""},
@@ -166,23 +166,23 @@ func TestValidatePiModelSelectionAllowsPrivateDeferredDefault(t *testing.T) {
 	}
 }
 
-func TestValidatePiModelSelectionRejectsIncompleteTrustableCatalog(t *testing.T) {
+func TestValidatePiModelSelectionRejectsIncompleteTrustantCatalog(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  *trustableConfig
+		cfg  *trustantConfig
 	}{
 		{
 			name: "empty catalog and selection",
-			cfg: &trustableConfig{
-				Provider: "trustable",
+			cfg: &trustantConfig{
+				Provider: "trustant",
 				Models:   map[string]*ModelLimits{},
 				Pi:       &piConfig{Default: ""},
 			},
 		},
 		{
 			name: "catalog without selection",
-			cfg: &trustableConfig{
-				Provider: "trustable",
+			cfg: &trustantConfig{
+				Provider: "trustant",
 				Models: map[string]*ModelLimits{
 					"qwen3-coder-next": {MaxToken: 131072},
 				},
@@ -192,18 +192,18 @@ func TestValidatePiModelSelectionRejectsIncompleteTrustableCatalog(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := validatePiModelSelection(tt.cfg); err == nil {
-				t.Fatal("incomplete Trustable catalog must be rejected before it reaches testmodel")
+				t.Fatal("incomplete Trustant catalog must be rejected before it reaches testmodel")
 			}
 		})
 	}
 }
 
-func TestTrustableConfigDoesNotMigrateLegacyOpenCodeSelection(t *testing.T) {
+func TestTrustantConfigDoesNotMigrateLegacyOpenCodeSelection(t *testing.T) {
 	// Issue #51 requires an explicit first-run Pi selection; accepting this old
 	// object would hide the cutover and could silently choose the wrong model.
-	var cfg trustableConfig
+	var cfg trustantConfig
 	if err := json.Unmarshal([]byte(`{
-		"provider": "trustable",
+		"provider": "trustant",
 		"opencode": {"default": "legacy-default", "small": "legacy-small"}
 	}`), &cfg); err != nil {
 		t.Fatalf("unmarshal legacy configuration: %s", err)
@@ -270,7 +270,7 @@ func configureOllamaPullFixture(t *testing.T, tags string, tagsStatus int, model
 	for _, m := range models {
 		limits[m] = &ModelLimits{MaxToken: 131072, MaxOutput: 32768}
 	}
-	if err := saveWorkspaceConfig(&trustableConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{
 		Provider: "ollama",
 		BaseURL:  "http://localhost:11434/v1",
 		APIKey:   "dummy",
@@ -345,8 +345,8 @@ func TestRunTestModelRequiresTheModelToConfirm(t *testing.T) {
 			}))
 			defer server.Close()
 
-			res := runTestModel(&trustableConfig{
-				Provider: "trustable",
+			res := runTestModel(&trustantConfig{
+				Provider: "trustant",
 				BaseURL:  server.URL + "/v1",
 				APIKey:   "key",
 				Pi:       &piConfig{Default: "model"},
@@ -377,7 +377,7 @@ func TestRunTestModelKeepsAuthRequiredPrecedence(t *testing.T) {
 	OllamaEndpoint = server.URL
 	t.Cleanup(func() { OllamaEndpoint = originalEndpoint })
 
-	res := runTestModel(&trustableConfig{
+	res := runTestModel(&trustantConfig{
 		Provider: "ollama",
 		BaseURL:  "http://localhost:11434/v1",
 		APIKey:   "dummy",
@@ -412,7 +412,7 @@ func TestConfigureStreamsOllamaAuthenticationBeforeWritingPiConfig(t *testing.T)
 	t.Cleanup(func() {
 		WorkspaceDir, OllamaEndpoint = originalWorkspace, originalEndpoint
 	})
-	if err := saveWorkspaceConfig(&trustableConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{
 		Provider: "ollama",
 		BaseURL:  "http://localhost:11434/v1",
 		APIKey:   "dummy",
@@ -484,10 +484,10 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 	}
 
 	redis := mcp["redis"].(map[string]interface{})
-	// Per spec/4-launch.md the Redis MCP runs behind the Trustable namespace
+	// Per spec/4-launch.md the Redis MCP runs behind the Trustant namespace
 	// wrapper and receives the same prefix as the generated redis-cli.
 	wantRedisCmd := []string{
-		"trustable-redis-mcp",
+		"trustant-redis-mcp",
 		"--host", "redis",
 		"--port", "6379",
 		"--username", "app",
@@ -502,7 +502,7 @@ func TestBuildLaunchMCPFromOpsConfig(t *testing.T) {
 		"REDIS_HOST":             "redis",
 		"REDIS_PORT":             "6379",
 		"REDIS_PWD":              "pw",
-		"TRUSTABLE_REDIS_PREFIX": "app:",
+		"TRUSTANT_REDIS_PREFIX": "app:",
 	}
 	if !reflect.DeepEqual(redisEnv, wantRedisEnv) {
 		t.Fatalf("unexpected redis environment: %#v", redisEnv)
@@ -553,7 +553,7 @@ func TestBuildLaunchMCPMongoDBFromOfficialConfigOnly(t *testing.T) {
 	}
 }
 
-func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
+func TestGeneratedAppEnvUsesOnlyTrustantConfiguration(t *testing.T) {
 	origWorkspace := WorkspaceDir
 	origWorkbench := WorkbenchDir
 	t.Cleanup(func() {
@@ -603,7 +603,7 @@ func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
 	}
 	// WHY: older builds created this durable MCP-owned store. Env generation
 	// must ignore it so an agent cannot mutate application configuration behind
-	// the user-facing Trustable editor.
+	// the user-facing Trustant editor.
 	legacySecretPath := filepath.Join(WorkspaceDir, ".trustant", "secrets", "truapp.env")
 	if err := os.MkdirAll(filepath.Dir(legacySecretPath), 0700); err != nil {
 		t.Fatalf("mkdir legacy app secret store: %s", err)
@@ -626,7 +626,7 @@ func TestGeneratedAppEnvUsesOnlyTrustableConfiguration(t *testing.T) {
 		t.Fatalf("legacy MCP secret store must not feed generated app env, got %q", got)
 	}
 	if got := env["OPS_PASSWORD"]; got != "secret" {
-		t.Fatalf("expected Trustable-managed OPS_PASSWORD, got %q", got)
+		t.Fatalf("expected Trustant-managed OPS_PASSWORD, got %q", got)
 	}
 
 	runtimeEnv := appServiceRuntimeEnv([]string{"BASE=1"})
@@ -692,10 +692,10 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 		t.Fatalf("AGENTS.md not written to project dir: %s", err)
 	}
 	agents := string(agentsData)
-	if !strings.Contains(agents, "TRUSTABLE-MANAGED-AGENTS-BEGIN") ||
+	if !strings.Contains(agents, "TRUSTANT-MANAGED-AGENTS-BEGIN") ||
 		!strings.Contains(agents, "`CLAUDE.md` is a symlink") ||
 		!strings.Contains(agents, ".openserverless-contract.md") {
-		t.Fatalf("AGENTS.md missing Trustable managed guardrails: %s", agents)
+		t.Fatalf("AGENTS.md missing Trustant managed guardrails: %s", agents)
 	}
 	if _, err := os.Stat(wantContract); err != nil {
 		t.Fatalf(".openserverless-contract.md not written to project dir: %s", err)
@@ -718,10 +718,10 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 	for _, path := range []string{frontendCheckerInstallPathOverride, appCheckerInstallPathOverride} {
 		info, err := os.Stat(path)
 		if err != nil {
-			t.Fatalf("Trustable checker not installed at %s: %s", path, err)
+			t.Fatalf("Trustant checker not installed at %s: %s", path, err)
 		}
 		if info.Mode()&0111 == 0 {
-			t.Fatalf("Trustable checker should be executable at %s, mode=%s", path, info.Mode())
+			t.Fatalf("Trustant checker should be executable at %s, mode=%s", path, info.Mode())
 		}
 	}
 	// The shared .mcp.json is the sole project-local MCP configuration.
@@ -755,7 +755,7 @@ func TestGenerateProjectAssetsInProjectDir(t *testing.T) {
 
 func TestManagedAppAgentsPreservesExistingNotesWithoutDuplication(t *testing.T) {
 	first := mergeManagedAppAgents("Existing template guidance\n")
-	if !strings.Contains(first, trustableAgentsBegin) ||
+	if !strings.Contains(first, trustantAgentsBegin) ||
 		!strings.Contains(first, "## App-local notes\n\nExisting template guidance") {
 		t.Fatalf("managed AGENTS.md should prepend guard and preserve notes: %s", first)
 	}
@@ -764,7 +764,7 @@ func TestManagedAppAgentsPreservesExistingNotesWithoutDuplication(t *testing.T) 
 	if strings.Count(second, "## App-local notes") != 1 {
 		t.Fatalf("managed AGENTS.md should not duplicate App-local notes: %s", second)
 	}
-	if strings.Count(second, trustableAgentsBegin) != 1 {
+	if strings.Count(second, trustantAgentsBegin) != 1 {
 		t.Fatalf("managed AGENTS.md should replace, not duplicate, managed block: %s", second)
 	}
 }
@@ -949,9 +949,9 @@ import stack_status
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		t.Fatalf("checker should reject Trustable-managed action parameters, output=%s", strings.TrimSpace(string(out)))
+		t.Fatalf("checker should reject Trustant-managed action parameters, output=%s", strings.TrimSpace(string(out)))
 	}
-	if !strings.Contains(string(out), "Trustable-managed runtime variables must not be bound into actions") {
+	if !strings.Contains(string(out), "Trustant-managed runtime variables must not be bound into actions") {
 		t.Fatalf("unexpected checker output: %s", strings.TrimSpace(string(out)))
 	}
 }
@@ -1331,8 +1331,8 @@ def init_s3(args, ctx):
 		t.Fatalf("write wrapper: %s", err)
 	}
 	module := `def main(args, ctx=None):
-    expected = b"trustable-s3-ok"
-    key = "trustable-check/unique.txt"
+    expected = b"trustant-s3-ok"
+    key = "trustant-check/unique.txt"
     try:
         ctx.S3_CLIENT.put_object(Bucket=ctx.S3_DATA, Key=key, Body=expected)
         actual = ctx.S3_CLIENT.get_object(Bucket=ctx.S3_DATA, Key=key)["Body"].read()
@@ -1634,7 +1634,7 @@ func TestOpenServerlessCheckerManagedLiveModeIgnoresDeployArchiveState(t *testin
 	}
 
 	cmd := exec.Command("bash", "check_openserverless_actions.sh", dir)
-	cmd.Env = append(os.Environ(), "TRUSTABLE_MANAGED_RUNTIME=1")
+	cmd.Env = append(os.Environ(), "TRUSTANT_MANAGED_RUNTIME=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("managed live checker should validate source without ZIP freshness, err=%s output=%s", err, strings.TrimSpace(string(out)))
@@ -1986,8 +1986,8 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", dir)
 
-	cfg := &trustableConfig{
-		Provider: "trustable",
+	cfg := &trustantConfig{
+		Provider: "trustant",
 		BaseURL:  "https://api.example.test/v1",
 		APIKey:   "aip_secret",
 		Models: map[string]*ModelLimits{
@@ -2021,7 +2021,7 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	if err := json.Unmarshal(data, &models); err != nil {
 		t.Fatalf("parse models.json: %s", err)
 	}
-	provider := models.Providers[piTrustableProviderName]
+	provider := models.Providers[piTrustantProviderName]
 	if provider.BaseURL != cfg.BaseURL || provider.API != "openai-completions" || provider.APIKey != piAPIKeyRef {
 		t.Fatalf("unexpected Pi provider: %#v", provider)
 	}
@@ -2032,7 +2032,7 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 		t.Fatalf("unexpected model limits: %#v", provider.Models[0])
 	}
 	if !provider.Models[0].Reasoning {
-		t.Fatalf("Trustable Cloud coding model did not receive the high-effort baseline: %#v", provider.Models[0])
+		t.Fatalf("Trustant Cloud coding model did not receive the high-effort baseline: %#v", provider.Models[0])
 	}
 	if provider.Models[0].ThinkingLevelMap != nil {
 		t.Fatalf("xhigh must remain opt-in when the catalog has no level map: %#v", provider.Models[0])
@@ -2052,19 +2052,19 @@ func TestWritePiGlobalConfigWritesNativeFiles(t *testing.T) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatalf("parse settings.json: %s", err)
 	}
-	if settings["defaultProvider"] != piTrustableProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
+	if settings["defaultProvider"] != piTrustantProviderName || settings["defaultModel"] != "qwen3-coder:480b" {
 		t.Fatalf("unexpected Pi settings: %#v", settings)
 	}
 	enabledModels, ok := settings["enabledModels"].([]interface{})
-	if !ok || len(enabledModels) != 1 || enabledModels[0] != piTrustableProviderName+"/*" {
-		t.Fatalf("Pi model scope must contain only Trustable models: %#v", settings)
+	if !ok || len(enabledModels) != 1 || enabledModels[0] != piTrustantProviderName+"/*" {
+		t.Fatalf("Pi model scope must contain only Trustant models: %#v", settings)
 	}
 	var auth map[string]map[string]string
 	data, _ = os.ReadFile(filepath.Join(dir, "auth.json"))
 	if err := json.Unmarshal(data, &auth); err != nil {
 		t.Fatalf("parse auth.json: %s", err)
 	}
-	if auth[piTrustableProviderName]["key"] != cfg.APIKey {
+	if auth[piTrustantProviderName]["key"] != cfg.APIKey {
 		t.Fatalf("Pi auth key was not written")
 	}
 }
@@ -2075,8 +2075,8 @@ func TestPiGlobalConfigSurvivesPodHomeReplacement(t *testing.T) {
 	WorkspaceDir = filepath.Join(root, "workspace")
 	t.Cleanup(func() { WorkspaceDir = origWorkspace })
 
-	cfg := &trustableConfig{
-		Provider: "trustable",
+	cfg := &trustantConfig{
+		Provider: "trustant",
 		BaseURL:  "https://api.example.test/v1",
 		APIKey:   "aip_persistent_secret",
 		Models: map[string]*ModelLimits{
@@ -2129,7 +2129,7 @@ func TestPiGlobalConfigSurvivesPodHomeReplacement(t *testing.T) {
 	}
 
 	settings := readPiJSONFile(filepath.Join(secondHome, "settings.json"))
-	if settings["defaultProvider"] != piTrustableProviderName || settings["defaultModel"] != "qwen3-coder-next" {
+	if settings["defaultProvider"] != piTrustantProviderName || settings["defaultModel"] != "qwen3-coder-next" {
 		t.Fatalf("managed Pi selection was not restored: %#v", settings)
 	}
 	if settings["theme"] != "user-choice" || settings["runtimeOnly"] != true {
@@ -2140,7 +2140,7 @@ func TestPiGlobalConfigSurvivesPodHomeReplacement(t *testing.T) {
 		t.Fatalf("replacement image package registry must win: %#v", settings["packages"])
 	}
 	auth := readPiJSONFile(filepath.Join(secondHome, "auth.json"))
-	providerAuth, ok := auth[piTrustableProviderName].(map[string]interface{})
+	providerAuth, ok := auth[piTrustantProviderName].(map[string]interface{})
 	if !ok || providerAuth["key"] != cfg.APIKey {
 		t.Fatal("provider credential was not restored into the replacement home")
 	}
@@ -2155,8 +2155,8 @@ func TestPiGlobalConfigBootstrapsSnapshotForExistingWorkspace(t *testing.T) {
 	WorkspaceDir = filepath.Join(root, "workspace")
 	t.Cleanup(func() { WorkspaceDir = origWorkspace })
 
-	cfg := &trustableConfig{
-		Provider: "trustable",
+	cfg := &trustantConfig{
+		Provider: "trustant",
 		BaseURL:  "https://api.example.test/v1",
 		APIKey:   "aip_existing_workspace",
 		Models: map[string]*ModelLimits{
@@ -2193,7 +2193,7 @@ func TestBuildPiModelsPreservesExplicitReasoningCapabilities(t *testing.T) {
 	enabled := true
 	disabled := false
 	xhigh := "xhigh"
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Provider: "ollama",
 		Models: map[string]*ModelLimits{
 			"custom-reasoning-model": {
@@ -2246,28 +2246,28 @@ func TestBuildPiModelsPreservesExplicitReasoningCapabilities(t *testing.T) {
 func TestPiProviderNameForConfigMatchesEndpointOrigin(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  *trustableConfig
+		cfg  *trustantConfig
 		want string
 	}{
 		{name: "missing config", cfg: nil, want: piLocalProviderName},
 		{
-			name: "trustable status catalog",
-			cfg:  &trustableConfig{Provider: "trustable"},
-			want: piTrustableProviderName,
+			name: "trustant status catalog",
+			cfg:  &trustantConfig{Provider: "trustant"},
+			want: piTrustantProviderName,
 		},
 		{
 			name: "embedded ollama status catalog",
-			cfg:  &trustableConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1"},
+			cfg:  &trustantConfig{Provider: "ollama", BaseURL: "http://localhost:11434/v1"},
 			want: piOllamaProviderName,
 		},
 		{
 			name: "user supplied ollama host",
-			cfg:  &trustableConfig{Provider: "ollama", BaseURL: "http://192.168.1.50:11434/v1"},
+			cfg:  &trustantConfig{Provider: "ollama", BaseURL: "http://192.168.1.50:11434/v1"},
 			want: piLocalProviderName,
 		},
 		{
 			name: "private user-supplied endpoint",
-			cfg:  &trustableConfig{Provider: "private", BaseURL: "http://my-gpu:11434/v1"},
+			cfg:  &trustantConfig{Provider: "private", BaseURL: "http://my-gpu:11434/v1"},
 			want: piLocalProviderName,
 		},
 	}
@@ -2300,7 +2300,7 @@ func TestPostConfigurationWritesPiConfigOnlyAfterSuccessfulProbe(t *testing.T) {
 
 	post := func() *httptest.ResponseRecorder {
 		body := fmt.Sprintf(`{
-			"provider": "trustable",
+			"provider": "trustant",
 			"base_url": %q,
 			"api_key": "aip_secret",
 			"models": {"qwen3-coder:480b": {"maxToken": 131072, "maxOutput": 32768}},
@@ -2354,7 +2354,7 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 		}
 	}
 	agents, _ := os.ReadFile(filepath.Join(projectDir, "AGENTS.md"))
-	if !strings.Contains(string(agents), trustableAgentsBegin) {
+	if !strings.Contains(string(agents), trustantAgentsBegin) {
 		t.Fatal("managed AGENTS.md is missing its managed block")
 	}
 	// Alignment is now structural rather than a copy: ensureAgentConfigLinks
@@ -2416,7 +2416,7 @@ func TestGenerateProjectAssetsForTruACP(t *testing.T) {
 		}
 	}
 	if config.Servers["openserverless"]["command"] != "openserverless-mcp" ||
-		config.Servers["react"]["command"] != "trustable-react-mcp" {
+		config.Servers["react"]["command"] != "trustant-react-mcp" {
 		t.Fatalf("unexpected managed MCP commands: %#v", config.Servers)
 	}
 }
@@ -2434,24 +2434,24 @@ func TestApihostFilePathFor(t *testing.T) {
 		{
 			name: "darwin uses the macOS app support dir",
 			goos: "darwin", home: home,
-			want: filepath.Join(home, "Library", "Application Support", "Trustable", "apihost"),
+			want: filepath.Join(home, "Library", "Application Support", "Trustant", "apihost"),
 		},
 		{
 			name: "windows uses APPDATA",
 			goos: "windows", appData: `C:\Users\dev\AppData\Roaming`,
-			want: filepath.Join(`C:\Users\dev\AppData\Roaming`, "Trustable", "apihost"),
+			want: filepath.Join(`C:\Users\dev\AppData\Roaming`, "Trustant", "apihost"),
 		},
 		{
 			// start.sh writes this file natively on Linux; an empty result here
 			// would make the server silently fall back to http://miniops.me.
 			name: "linux defaults to ~/.config",
 			goos: "linux", home: home,
-			want: filepath.Join(home, ".config", "trustable", "apihost"),
+			want: filepath.Join(home, ".config", "trustant", "apihost"),
 		},
 		{
 			name: "linux honours XDG_CONFIG_HOME",
 			goos: "linux", home: home, xdgConfigHome: "/custom/config",
-			want: filepath.Join("/custom/config", "trustable", "apihost"),
+			want: filepath.Join("/custom/config", "trustant", "apihost"),
 		},
 		{
 			name: "linux without a resolvable home has no location",
@@ -2484,7 +2484,7 @@ func TestApihostFilePathFor(t *testing.T) {
 // is asserted alongside it because both used to come from one literal, and
 // raising the context must not drag the output up with it.
 func TestBuildPiModelsDefaultsContextWithoutMovingMaxOutput(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Provider: "private",
 		Models: map[string]*ModelLimits{
 			"no-limits-model": {Roles: []string{"coding"}},
@@ -2546,7 +2546,7 @@ func TestBuildPiModelsResolvesLimitsInPrecedenceOrder(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &trustableConfig{
+			cfg := &trustantConfig{
 				Provider: "private",
 				Models:   map[string]*ModelLimits{"model": tc.limits},
 				Pi:       &piConfig{Default: "model"},
@@ -2588,7 +2588,7 @@ func TestModelLimitsUnmarshalsLegacyStringContextSize(t *testing.T) {
 		t.Fatalf("MaxToken via map = %d, want 262144", parsed["legacy-model"].MaxToken)
 	}
 
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		Provider: "private",
 		Models:   map[string]*ModelLimits{"legacy": {MaxToken: limits.MaxToken, Roles: []string{"coding"}}},
 		Pi:       &piConfig{Default: "legacy"},

@@ -6,7 +6,7 @@ configures nginx as a host-rewriting reverse proxy in front of the Go app.
 ## Why it exists
 
 [middleware.go](../middleware.go) routes by the **first label** of the request
-hostname -- `trustable.`, `opencode.`, `vite.` -- and rejects every other prefix
+hostname -- `trustant.`, `opencode.`, `vite.` -- and rejects every other prefix
 with a 400 that names the corrected URL (see
 [0-preflight.md](0-preflight.md)). The rest of the hostname is not free: the app
 expects the canonical `miniops.me` form, so reaching it under a LAN address, a
@@ -44,14 +44,14 @@ owns directly and on which `run.sh` kills leftover processes at startup.
 Two managed files, both regenerated in full on every run and both carrying a
 header saying so:
 
-- `/etc/nginx/sites-available/trustable-proxy`, symlinked into
+- `/etc/nginx/sites-available/trustant-proxy`, symlinked into
   `sites-enabled/` -- the `map` that extracts the label, and the `server` block.
-- `/etc/nginx/conf.d/trustable-upgrade.conf` -- the `$connection_upgrade` map.
+- `/etc/nginx/conf.d/trustant-upgrade.conf` -- the `$connection_upgrade` map.
   It lives in `conf.d` because nginx only defines that variable if mapped, and
   the map must sit in the `http{}` context alongside the site includes.
 
 The label is extracted from `$host` with `~^(?<label>[^.:]+)\.`, and a `default`
-branch of `trustable` covers a request whose host has no dot -- a bare
+branch of `trustant` covers a request whose host has no dot -- a bare
 `localhost` still reaches the app rather than dead-ending. Excluding `:` from
 the character class keeps an explicit port in the `Host` header from leaking
 into the rewritten value.
@@ -79,11 +79,11 @@ invocation where systemd is unavailable (a container).
 The rewrite is observable end to end, and this is the check to run:
 
 ```
-curl -s -H 'Host: trustable.example.com' http://127.0.0.1:8911/api/version
+curl -s -H 'Host: trustant.example.com' http://127.0.0.1:8911/api/version
 ```
 
 Against an echoing upstream, the mapping holds for every shape:
-`trustable.example.com`, `vite.<ip>.nip.io`, and a multi-label
+`trustant.example.com`, `vite.<ip>.nip.io`, and a multi-label
 `opencode.foo.bar.baz` all arrive as `<label>.miniops.me`, a bare `localhost`
-arrives as `trustable.miniops.me`, and an explicit `:8911` in the request's
+arrives as `trustant.miniops.me`, and an explicit `:8911` in the request's
 `Host` is stripped rather than carried through.

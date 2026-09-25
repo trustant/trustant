@@ -15,37 +15,37 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-ID=~/Library/Application\ Support/Trustable/id_ed25519
-IP="$(cat ~/Library/Application\ Support/Trustable/current.ip)"
-IT=~/Library/Application\ Support/Trustable/id_trustable
+ID=~/Library/Application\ Support/Trustant/id_ed25519
+IP="$(cat ~/Library/Application\ Support/Trustant/current.ip)"
+IT=~/Library/Application\ Support/Trustant/id_trustant
 test -e "$IT" || ssh-keygen -t ed25519 -N "" -f "$IT"
 
-#ssh -i "$ID" trustable@$IP  "mkdir -p ~/.ssh && chmod 0700 ~/.ssh"
-#cat "$IT" | ssh -i "$ID" trustable@$IP "tee ~/.ssh/id_trustable"
+#ssh -i "$ID" trustant@$IP  "mkdir -p ~/.ssh && chmod 0700 ~/.ssh"
+#cat "$IT" | ssh -i "$ID" trustant@$IP "tee ~/.ssh/id_trustant"
 #>dev/null
-#ssh -i "$ID" trustable@$IP  "chmod 0600 ~/.ssh/id_trustable"
-#ssh -tt -i "$ID" trustable@$IP ssh -t  -i .ssh/id_trustable trustable@localhost -p 30222
+#ssh -i "$ID" trustant@$IP  "chmod 0600 ~/.ssh/id_trustant"
+#ssh -tt -i "$ID" trustant@$IP ssh -t  -i .ssh/id_trustant trustant@localhost -p 30222
 
 echo "Expected: Warning: AND Unable to use a TTY"
-cat "$IT".pub  |  ssh -i "$ID" trustable@$IP sudo k3s kubectl -n openserverless exec -ti trustable-0 -c trustable -- tee /home/trustable/.ssh/authorized_keys
+cat "$IT".pub  |  ssh -i "$ID" trustant@$IP sudo k3s kubectl -n openserverless exec -ti trustant-0 -c trustant -- tee /home/trustant/.ssh/authorized_keys
 
 #>/dev/null
 
-sed -i.bak -e '/^Host trustable/,/End trustable$/d' ~/.ssh/config
+sed -i.bak -e '/^Host trustant/,/End trustant$/d' ~/.ssh/config
 
 cat <<EOF >>~/.ssh/config
-Host trustable
+Host trustant
     Hostname localhost
     Port 30222
-    User trustable
+    User trustant
     IdentityFile "$IT"
-    ProxyJump trustable-vm
+    ProxyJump trustant-vm
 
-Host trustable-vm
+Host trustant-vm
     Hostname $IP
-    User trustable
+    User trustant
     IdentityFile "$ID"
-# End trustable
+# End trustant
 EOF
 
-echo "you can now 'ssh trustable' and 'ssh trustable-vm'"
+echo "you can now 'ssh trustant' and 'ssh trustant-vm'"

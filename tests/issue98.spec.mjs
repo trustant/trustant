@@ -21,15 +21,15 @@ import { descendantSessionIDs, mergeChronologicalMessages } from "./issue98-sess
 
 const env = process.env;
 
-const namespace = env.TRUSTABLE_E2E_NAMESPACE || "nuvolaris";
-const pod = env.TRUSTABLE_E2E_POD || "trustable-0";
-const container = env.TRUSTABLE_E2E_CONTAINER || "trustable";
-const domain = env.TRUSTABLE_E2E_DOMAIN || "miniops.me";
-const trustableURL = env.TRUSTABLE_E2E_TRUSTABLE_URL || `http://trustable.${domain}`;
-const opencodeURL = env.TRUSTABLE_E2E_OPENCODE_URL || `http://opencode.${domain}`;
-const viteURL = env.TRUSTABLE_E2E_VITE_URL || `http://vite.${domain}`;
-const authURL = env.TRUSTABLE_E2E_AUTH_URL || viteURL;
-const localRuntime = env.TRUSTABLE_E2E_LOCAL === "1";
+const namespace = env.TRUSTANT_E2E_NAMESPACE || "nuvolaris";
+const pod = env.TRUSTANT_E2E_POD || "trustant-0";
+const container = env.TRUSTANT_E2E_CONTAINER || "trustant";
+const domain = env.TRUSTANT_E2E_DOMAIN || "miniops.me";
+const trustantURL = env.TRUSTANT_E2E_TRUSTANT_URL || `http://trustant.${domain}`;
+const opencodeURL = env.TRUSTANT_E2E_OPENCODE_URL || `http://opencode.${domain}`;
+const viteURL = env.TRUSTANT_E2E_VITE_URL || `http://vite.${domain}`;
+const authURL = env.TRUSTANT_E2E_AUTH_URL || viteURL;
+const localRuntime = env.TRUSTANT_E2E_LOCAL === "1";
 const defaultPrompt = [
   "Issue98 E2E check: do not modify files.",
   "You must use the bash tool now. Do not answer from memory or from previous session results.",
@@ -81,7 +81,7 @@ function uniqueAppName() {
 }
 
 async function api(request, method, path, body, options = {}) {
-  const response = await request.fetch(`${trustableURL}${path}`, {
+  const response = await request.fetch(`${trustantURL}${path}`, {
     method,
     data: body,
     timeout: options.timeout || 300_000,
@@ -96,13 +96,13 @@ async function api(request, method, path, body, options = {}) {
   return { response, text, json };
 }
 
-async function waitForTrustableReady(request) {
-  const deadline = Date.now() + Number(env.TRUSTABLE_E2E_READY_TIMEOUT_MS || 60_000);
+async function waitForTrustantReady(request) {
+  const deadline = Date.now() + Number(env.TRUSTANT_E2E_READY_TIMEOUT_MS || 60_000);
   let lastStatus = 0;
   let lastText = "";
   while (Date.now() < deadline) {
     try {
-      const response = await request.get(`${trustableURL}/applist.html`, { timeout: 5_000 });
+      const response = await request.get(`${trustantURL}/applist.html`, { timeout: 5_000 });
       lastStatus = response.status();
       lastText = await response.text();
       if (response.ok()) return;
@@ -111,24 +111,24 @@ async function waitForTrustableReady(request) {
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  throw new Error(`Trustable did not become ready: HTTP ${lastStatus} ${lastText.slice(0, 500)}`);
+  throw new Error(`Trustant did not become ready: HTTP ${lastStatus} ${lastText.slice(0, 500)}`);
 }
 
 async function ensureApp(request) {
-  const configured = env.TRUSTABLE_E2E_APP;
+  const configured = env.TRUSTANT_E2E_APP;
   if (configured) {
     return { app: configured, created: false };
   }
 
-  const repo = env.TRUSTABLE_E2E_REPO;
+  const repo = env.TRUSTANT_E2E_REPO;
   if (!repo) {
     throw new Error(
-      "Set TRUSTABLE_E2E_APP=<existing-app> or TRUSTABLE_E2E_REPO=<org/repo> to create a fresh app.",
+      "Set TRUSTANT_E2E_APP=<existing-app> or TRUSTANT_E2E_REPO=<org/repo> to create a fresh app.",
     );
   }
 
-  const app = env.TRUSTABLE_E2E_NEW_APP || uniqueAppName();
-  const password = env.TRUSTABLE_E2E_PASSWORD || `E2e${Date.now()}!`;
+  const app = env.TRUSTANT_E2E_NEW_APP || uniqueAppName();
+  const password = env.TRUSTANT_E2E_PASSWORD || `E2e${Date.now()}!`;
   const result = await api(request, "POST", "/api/repo", { name: app, repo, password }, {
     timeout: 300_000,
   });
@@ -219,7 +219,7 @@ async function replyToPermission(request, workbenchDir, requestID, reply) {
 }
 
 async function waitForPromptIdle(request, sessionID, workbenchDir, baselineMessageIDs) {
-  const timeoutMs = Number(env.TRUSTABLE_E2E_PROMPT_TIMEOUT_MS || 10 * 60 * 1000);
+  const timeoutMs = Number(env.TRUSTANT_E2E_PROMPT_TIMEOUT_MS || 10 * 60 * 1000);
   const deadline = Date.now() + timeoutMs;
   let stableIdleSince = 0;
   let lastMessages = [];
@@ -227,7 +227,7 @@ async function waitForPromptIdle(request, sessionID, workbenchDir, baselineMessa
   while (Date.now() < deadline) {
     const permissions = await pendingSessionPermissions(request, sessionID, workbenchDir);
     if (permissions.length > 0) {
-      if (env.TRUSTABLE_E2E_AUTO_APPROVE === "1") {
+      if (env.TRUSTANT_E2E_AUTO_APPROVE === "1") {
         for (const permission of permissions) {
           await replyToPermission(request, workbenchDir, permission.id, "once");
         }
@@ -296,13 +296,13 @@ function unwrappedShellSegments(command) {
 function assertPromptToolSafety(messages) {
   const parts = flattenMessageParts(messages);
   const toolParts = parts.filter((part) => part.type === "tool");
-  if (env.TRUSTABLE_E2E_PROMPT_EXPECT_TOOLS !== "0") {
+  if (env.TRUSTANT_E2E_PROMPT_EXPECT_TOOLS !== "0") {
     expect(toolParts.length, JSON.stringify(parts)).toBeGreaterThan(0);
   }
 
   const failedTools = toolParts.filter((part) => part.state?.status === "error");
   const hardFailedTools = failedTools.filter((part) => !isBenignPromptToolError(part, toolParts));
-  if (env.TRUSTABLE_E2E_PROMPT_ALLOW_TOOL_ERRORS !== "1") {
+  if (env.TRUSTANT_E2E_PROMPT_ALLOW_TOOL_ERRORS !== "1") {
     expect(hardFailedTools, JSON.stringify(failedTools)).toEqual([]);
   }
 
@@ -325,7 +325,7 @@ function assertPromptToolSafety(messages) {
   const maskedCritical = toolParts.filter((part) => {
     if (part.tool !== "bash" || part.state?.status !== "completed") return false;
     const command = part.state?.input?.command || "";
-    return /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh|npm\s+run\s+build)/i.test(command) && /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i.test(command);
+    return /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustant_app|trustant_frontend)\.sh|npm\s+run\s+build)/i.test(command) && /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i.test(command);
   });
   expect(maskedCritical, JSON.stringify(maskedCritical)).toEqual([]);
 
@@ -336,7 +336,7 @@ function assertPromptToolSafety(messages) {
   });
   expect(managedProcessCommands, JSON.stringify(managedProcessCommands)).toEqual([]);
 
-  if (env.TRUSTABLE_E2E_EXPECT_OPENSERVERLESS_TOOL === "1") {
+  if (env.TRUSTANT_E2E_EXPECT_OPENSERVERLESS_TOOL === "1") {
     const usedOpenServerless = toolParts.some((part) => /^(?:openserverless_)?action[-_]/.test(part.tool || ""));
     expect(usedOpenServerless, JSON.stringify(toolParts.map((part) => part.tool))).toBeTruthy();
   }
@@ -389,7 +389,7 @@ function assertActionWorkflow(messages) {
     if (["edit", "write", "patch"].includes(tool) && /(^|\/)packages\/.*\.zip$/i.test(path)) {
       manualZip.push(position());
     }
-    if (tool === "trustable_completion_check") completions.push(position());
+    if (tool === "trustant_completion_check") completions.push(position());
   });
 
   expect(manualZip, JSON.stringify(manualZip)).toEqual([]);
@@ -411,7 +411,7 @@ function assertActionWorkflow(messages) {
   expect(compareTracePosition(finalMutation, finalDeploy)).toBeLessThan(0);
   expect(compareTracePosition(finalDeploy, finalCompletion)).toBeLessThan(0);
 
-  if (env.TRUSTABLE_E2E_EXPECT_SETUP === "1") {
+  if (env.TRUSTANT_E2E_EXPECT_SETUP === "1") {
     expect(setups.length, JSON.stringify(toolParts)).toBeGreaterThan(0);
     const setupAfterDeploy = setups.find((setup) => compareTracePosition(finalDeploy, setup) < 0);
     expect(setupAfterDeploy, `No setup follows final deploy in ${JSON.stringify(toolParts)}`).toBeTruthy();
@@ -441,26 +441,26 @@ function isBenignPromptToolError(part, toolParts = []) {
   const failedIndex = toolParts.indexOf(part);
   const later = toolParts.slice(failedIndex + 1);
   if (part.tool === "bash" && /do not mask critical command failures/i.test(state.error || "")) {
-    const critical = /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustable_app|trustable_frontend)\.sh|npm\s+run\s+build)/i;
+    const critical = /(?:ops\s+ide\s+(?:login|deploy|setup)|check_(?:openserverless_actions|trustant_app|trustant_frontend)\.sh|npm\s+run\s+build)/i;
     const masked = /(?:\|\|\s*(?:true|echo\b)|\|\s*(?:head|tail)\b)/i;
     return later.some((candidate) => {
       const command = String(candidate.state?.input?.command || "");
       return candidate.tool === "bash" && candidate.state?.status === "completed" && critical.test(command) && !masked.test(command);
     });
   }
-  if (/session context was compacted.*trustable_context_recover/i.test(state.error || "")) {
-    return later.some((candidate) => candidate.tool === "trustable_context_recover" && candidate.state?.status === "completed");
+  if (/session context was compacted.*trustant_context_recover/i.test(state.error || "")) {
+    return later.some((candidate) => candidate.tool === "trustant_context_recover" && candidate.state?.status === "completed");
   }
   if (part.tool === "read" && /File not found:/i.test(state.error || "")) {
     const path = state.input?.filePath || state.input?.path || "";
     const parent = path.replace(/\/[^/]+$/, "");
-    const parentRelative = parent.replace(/^\/home\/trustable\/workspace\/workbench\/[^/]+\//, "");
+    const parentRelative = parent.replace(/^\/home\/trustant\/workspace\/workbench\/[^/]+\//, "");
     const inspectedParent = later.some((candidate) => {
       const input = JSON.stringify(candidate.state?.input || {});
       return ["list", "glob", "bash"].includes(candidate.tool) && (input.includes(parent) || input.includes(parentRelative)) && candidate.state?.status === "completed";
     });
     const readSibling = later.some((candidate) => candidate.tool === "read" && (candidate.state?.input?.filePath || candidate.state?.input?.path || "").startsWith(`${parent}/`) && candidate.state?.status === "completed");
-    return path.startsWith("/home/trustable/workspace/workbench/") && inspectedParent && readSibling;
+    return path.startsWith("/home/trustant/workspace/workbench/") && inspectedParent && readSibling;
   }
   if (["edit", "write"].includes(part.tool) && /(?:oldString.*not found|Could not find oldString|No changes to apply|oldString == newString)/i.test(state.error || "")) {
     const path = state.input?.filePath || state.input?.path || "";
@@ -488,7 +488,7 @@ function isBenignPromptToolError(part, toolParts = []) {
   const inputPath = state.input?.path || "";
   const error = state.error || "";
   return (
-    inputPath.startsWith("/home/trustable/workspace/workbench/") &&
+    inputPath.startsWith("/home/trustant/workspace/workbench/") &&
     error.includes("ENOENT: no such file or directory")
   );
 }
@@ -497,15 +497,15 @@ async function runPromptStep(request, app, launch) {
   const workbenchDir = launch.encdir;
   const sessionID = launch.session_id;
   const promptNonce = `issue98-${Date.now().toString(36)}`;
-  const prompt = (env.TRUSTABLE_E2E_PROMPT || defaultPrompt).replace("{nonce}", promptNonce);
+  const prompt = (env.TRUSTANT_E2E_PROMPT || defaultPrompt).replace("{nonce}", promptNonce);
   const { messages, promptMessages, beforeStatus } = await sendPromptAndWait(request, app, launch, prompt);
 
   assertPromptToolSafety(promptMessages);
   assertFinalAssistantResponse(promptMessages);
-  if (env.TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW === "1") {
+  if (env.TRUSTANT_E2E_EXPECT_ACTION_WORKFLOW === "1") {
     assertActionWorkflow(promptMessages);
   }
-  if (!env.TRUSTABLE_E2E_PROMPT) {
+  if (!env.TRUSTANT_E2E_PROMPT) {
     const promptParts = flattenMessageParts(promptMessages);
     const toolContainsNonce = promptParts.some((part) => {
       return part.type === "tool" && JSON.stringify(part).includes(promptNonce);
@@ -517,10 +517,10 @@ async function runPromptStep(request, app, launch) {
     `cd ${shellQuote(workbenchDir)} && timeout 120 check_trustant_app.sh .`,
     { timeout: 150_000 },
   );
-  expect(checkerOutput).toContain("Trustable app completion check passed");
+  expect(checkerOutput).toContain("Trustant app completion check passed");
 
   const afterStatus = workbenchGitStatus(workbenchDir);
-  if (env.TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES === "1") {
+  if (env.TRUSTANT_E2E_PROMPT_EXPECT_CHANGES === "1") {
     expect(afterStatus, `No new worktree changes detected for ${app}`).not.toBe(beforeStatus);
   }
 
@@ -532,14 +532,14 @@ async function validateExistingPromptStep(request, app, launch) {
   expect(messages.some((message) => message.info?.role === "user"), JSON.stringify(messages)).toBeTruthy();
   assertPromptToolSafety(messages);
   assertFinalAssistantResponse(messages);
-  if (env.TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW === "1") assertActionWorkflow(messages);
+  if (env.TRUSTANT_E2E_EXPECT_ACTION_WORKFLOW === "1") assertActionWorkflow(messages);
 
   const checkerOutput = podShell(
     `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustant_app.sh .`,
     { timeout: 150_000 },
   );
-  expect(checkerOutput).toContain("Trustable app completion check passed");
-  if (env.TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES === "1") {
+  expect(checkerOutput).toContain("Trustant app completion check passed");
+  if (env.TRUSTANT_E2E_PROMPT_EXPECT_CHANGES === "1") {
     expect(workbenchGitStatus(launch.encdir), `No worktree changes found for retained app ${app}`).not.toBe("");
   }
 }
@@ -557,7 +557,7 @@ async function sendPromptAndWait(request, app, launch, prompt) {
     `${opencodeURL}/session/${sessionID}/prompt_async?directory=${encodeURIComponent(workbenchDir)}`,
     {
       data: {
-        agent: env.TRUSTABLE_E2E_PROMPT_AGENT || "build",
+        agent: env.TRUSTANT_E2E_PROMPT_AGENT || "build",
         parts: [{ type: "text", text: prompt }],
       },
       timeout: 30_000,
@@ -593,14 +593,14 @@ function assertCompactionRecovery(messages, state, marker) {
   expect(parts.some((part) => part.type === "compaction"), JSON.stringify(parts)).toBeTruthy();
   const tools = parts.filter((part) => part.type === "tool");
   expect(
-    tools.some((part) => part.tool === "trustable_context_recover" && part.state?.status === "completed"),
+    tools.some((part) => part.tool === "trustant_context_recover" && part.state?.status === "completed"),
     JSON.stringify(tools.map((part) => [part.tool, part.state?.status])),
   ).toBeFalsy();
   const firstMutation = tools.findIndex(isTraceMutation);
   expect(firstMutation, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThanOrEqual(0);
   let completionIndex = -1;
   tools.forEach((part, index) => {
-    if (part.tool === "trustable_completion_check" && part.state?.status === "completed") completionIndex = index;
+    if (part.tool === "trustant_completion_check" && part.state?.status === "completed") completionIndex = index;
   });
   expect(completionIndex, JSON.stringify(tools.map((part) => part.tool))).toBeGreaterThan(firstMutation);
   expect(state.needsRecovery).toBeFalsy();
@@ -661,7 +661,7 @@ async function compactOpenCodeSession(request, launch) {
 
 async function cleanupCreatedApp(request, app, created) {
   await api(request, "DELETE", "/api/launch", undefined, { timeout: 60_000 }).catch(() => {});
-  if (!created || env.TRUSTABLE_E2E_KEEP_APP === "1") {
+  if (!created || env.TRUSTANT_E2E_KEEP_APP === "1") {
     return;
   }
   await api(request, "DELETE", "/api/repo", { name: app }, { timeout: 300_000 }).catch(() => {});
@@ -674,9 +674,9 @@ test.describe("issue98 guardrail E2E", () => {
     let created = false;
 
     try {
-      await test.step("Trustable UI is reachable through FQDN", async () => {
-        await page.goto(`${trustableURL}/applist.html`, { waitUntil: "domcontentloaded" });
-        await expect(page.locator("h1")).toContainText("Trustable");
+      await test.step("Trustant UI is reachable through FQDN", async () => {
+        await page.goto(`${trustantURL}/applist.html`, { waitUntil: "domcontentloaded" });
+        await expect(page.locator("h1")).toContainText("Trustant");
       });
 
       const appInfo = await test.step("select or create app", async () => ensureApp(request));
@@ -707,7 +707,7 @@ test.describe("issue98 guardrail E2E", () => {
         expect(JSON.stringify(body)).toContain(workbenchDir);
       });
 
-      await test.step("Trustable session picker shows persistent OpenCode history", async () => {
+      await test.step("Trustant session picker shows persistent OpenCode history", async () => {
         const historyTitle = `Issue98 history ${Date.now().toString(36)}`;
         const created = await request.post(
           `${opencodeURL}/session?directory=${encodeURIComponent(workbenchDir)}`,
@@ -721,7 +721,7 @@ test.describe("issue98 guardrail E2E", () => {
         const historySession = await created.json();
 
         try {
-          const history = await request.get(`${trustableURL}/api/opencode/sessions/${app}`, {
+          const history = await request.get(`${trustantURL}/api/opencode/sessions/${app}`, {
             timeout: 30_000,
           });
           expect(history.ok(), await history.text()).toBeTruthy();
@@ -730,14 +730,14 @@ test.describe("issue98 guardrail E2E", () => {
           expect(sessions.map((session) => session.id)).toContain(historySession.id);
 
           await page.context().addCookies([
-            { name: "LEFT", value: opencodeURL, url: trustableURL },
-            { name: "RIGHT", value: viteURL, url: trustableURL },
-            { name: "NAME", value: app, url: trustableURL },
-            { name: "URLDIR", value: workbenchDir, url: trustableURL },
-            { name: "B64DIR", value: launch.b64dir, url: trustableURL },
-            { name: "SESSIONID", value: launch.session_id, url: trustableURL },
+            { name: "LEFT", value: opencodeURL, url: trustantURL },
+            { name: "RIGHT", value: viteURL, url: trustantURL },
+            { name: "NAME", value: app, url: trustantURL },
+            { name: "URLDIR", value: workbenchDir, url: trustantURL },
+            { name: "B64DIR", value: launch.b64dir, url: trustantURL },
+            { name: "SESSIONID", value: launch.session_id, url: trustantURL },
           ]);
-          await page.goto(`${trustableURL}/app.html`, { waitUntil: "domcontentloaded" });
+          await page.goto(`${trustantURL}/app.html`, { waitUntil: "domcontentloaded" });
           const picker = page.getByRole("button", { name: /Sessions/ });
           await expect(picker).toContainText(/\(\d+\)/);
           await picker.click();
@@ -767,7 +767,7 @@ test.describe("issue98 guardrail E2E", () => {
         const configRaw = podShell(`cat ${JSON.stringify(`${workbenchDir}/opencode.json`)}`);
         const config = JSON.parse(configRaw);
         const agents = podShell(`cat ${JSON.stringify(`${workbenchDir}/AGENTS.md`)}`);
-        expect(agents).toContain("TRUSTABLE-MANAGED-AGENTS-BEGIN");
+        expect(agents).toContain("TRUSTANT-MANAGED-AGENTS-BEGIN");
         expect(agents).toContain("Ignore `CLAUDE.md`");
         expect(agents).toContain(".openserverless-contract.md");
         expect(config.instructions).toEqual([
@@ -783,7 +783,7 @@ test.describe("issue98 guardrail E2E", () => {
         expect(config.permission.edit["packages/**/*.zip"]).toBe("deny");
         expect(config.permission.bash["ops action"]).toBe("deny");
         expect(config.permission.bash["ops action *"]).toBe("deny");
-        const guardrailPlugin = podShell("test -f ~/.config/opencode/plugins/trustable-guardrails.js && echo present");
+        const guardrailPlugin = podShell("test -f ~/.config/opencode/plugins/trustant-guardrails.js && echo present");
         expect(guardrailPlugin).toBe("present");
       });
 
@@ -792,7 +792,7 @@ test.describe("issue98 guardrail E2E", () => {
           `cd ${JSON.stringify(workbenchDir)} && timeout 120 check_trustant_app.sh .`,
           { timeout: 150_000 },
         );
-        expect(output).toContain("Trustable app completion check passed");
+        expect(output).toContain("Trustant app completion check passed");
       });
 
       await test.step("pod-local Vite/dev server responds", async () => {
@@ -814,8 +814,8 @@ test.describe("issue98 guardrail E2E", () => {
   });
 
   test("can drive an OpenCode prompt and enforce issue98 safety", async ({ request }) => {
-    test.skip(env.TRUSTABLE_E2E_RUN_PROMPT !== "1", "Set TRUSTABLE_E2E_RUN_PROMPT=1 to run the model-driven prompt step.");
-    test.setTimeout(Number(env.TRUSTABLE_E2E_PROMPT_TEST_TIMEOUT_MS || 15 * 60 * 1000));
+    test.skip(env.TRUSTANT_E2E_RUN_PROMPT !== "1", "Set TRUSTANT_E2E_RUN_PROMPT=1 to run the model-driven prompt step.");
+    test.setTimeout(Number(env.TRUSTANT_E2E_PROMPT_TEST_TIMEOUT_MS || 15 * 60 * 1000));
 
     let app = "";
     let created = false;
@@ -837,8 +837,8 @@ test.describe("issue98 guardrail E2E", () => {
   });
 
   test("recovers mandatory context after real compaction and preserves the session", async ({ request }) => {
-    test.skip(env.TRUSTABLE_E2E_COMPACTION !== "1", "Set TRUSTABLE_E2E_COMPACTION=1 to run the long-session compaction test.");
-    test.setTimeout(Number(env.TRUSTABLE_E2E_COMPACTION_TEST_TIMEOUT_MS || 30 * 60 * 1000));
+    test.skip(env.TRUSTANT_E2E_COMPACTION !== "1", "Set TRUSTANT_E2E_COMPACTION=1 to run the long-session compaction test.");
+    test.setTimeout(Number(env.TRUSTANT_E2E_COMPACTION_TEST_TIMEOUT_MS || 30 * 60 * 1000));
 
     let app = "";
     let created = false;
@@ -876,14 +876,14 @@ test.describe("issue98 guardrail E2E", () => {
       });
       assertPromptToolSafety(followup.promptMessages);
       const stateName = launch.session_id.replace(/[^a-zA-Z0-9_.-]/g, "_");
-      const guardrailState = JSON.parse(podShell(`cat ~/.local/share/opencode/trustable-guardrails/${shellQuote(stateName)}.json`));
+      const guardrailState = JSON.parse(podShell(`cat ~/.local/share/opencode/trustant-guardrails/${shellQuote(stateName)}.json`));
       assertCompactionRecovery([...compactMessages, ...followup.promptMessages], guardrailState, marker);
 
       const checkerOutput = podShell(
         `cd ${shellQuote(launch.encdir)} && timeout 120 check_trustant_app.sh .`,
         { timeout: 150_000 },
       );
-      expect(checkerOutput).toContain("Trustable app completion check passed");
+      expect(checkerOutput).toContain("Trustant app completion check passed");
 
       await api(request, "DELETE", "/api/launch", undefined, { timeout: 60_000 });
       const relaunched = await launchApp(request, app);
@@ -896,23 +896,23 @@ test.describe("issue98 guardrail E2E", () => {
   });
 
   test("validates the generated authentication flow in a real browser", async ({ browser, page, request }, testInfo) => {
-    test.skip(env.TRUSTABLE_E2E_AUTH !== "1", "Set TRUSTABLE_E2E_AUTH=1 to run the generated-app authentication flow.");
-    test.setTimeout(Number(env.TRUSTABLE_E2E_AUTH_TIMEOUT_MS || 10 * 60 * 1000));
+    test.skip(env.TRUSTANT_E2E_AUTH !== "1", "Set TRUSTANT_E2E_AUTH=1 to run the generated-app authentication flow.");
+    test.setTimeout(Number(env.TRUSTANT_E2E_AUTH_TIMEOUT_MS || 10 * 60 * 1000));
 
     let app = "";
     let created = false;
     try {
-      await waitForTrustableReady(request);
+      await waitForTrustantReady(request);
       const appInfo = await ensureApp(request);
       app = appInfo.app;
       created = appInfo.created;
       const launch = await launchApp(request, app);
 
-      if (env.TRUSTABLE_E2E_RUN_PROMPT === "1") {
+      if (env.TRUSTANT_E2E_RUN_PROMPT === "1") {
         await test.step("build and verify authentication in this app", async () => {
           await runPromptStep(request, app, launch);
         });
-      } else if (env.TRUSTABLE_E2E_VALIDATE_EXISTING_PROMPT === "1") {
+      } else if (env.TRUSTANT_E2E_VALIDATE_EXISTING_PROMPT === "1") {
         await test.step("revalidate the persisted OpenCode trace", async () => {
           await validateExistingPromptStep(request, app, launch);
         });
@@ -920,8 +920,8 @@ test.describe("issue98 guardrail E2E", () => {
 
       const suffix = Date.now().toString(36);
       const username = `Tester ${suffix}`;
-      const email = `trustable-e2e-${suffix}@example.test`;
-      const password = `Trustable-${suffix}-A1!`;
+      const email = `trustant-e2e-${suffix}@example.test`;
+      const password = `Trustant-${suffix}-A1!`;
       const loginName = /accedi|login|sign in|entra/i;
       const registerName = /crea account|registrati|register|sign up/i;
       const submitRegisterName = /crea|registrati|register|sign up|continua/i;

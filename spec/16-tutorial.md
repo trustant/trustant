@@ -13,7 +13,7 @@ It contains, in this order:
 
 1. **Templates** — starts the templates walkthrough. The tour key stays
    `notebook`, and so do the `data-tour` names below: renaming those is a
-   cross-repo protocol change with the `trustable-acp` bridge, while the label
+   cross-repo protocol change with the `trustant-acp` bridge, while the label
    is only what the user reads.
 2. **Menus** — starts the walkthrough of the Config and Utils pulldowns.
 3. **Toolbar** — starts the walkthrough of the top bar's controls.
@@ -114,7 +114,7 @@ A tutorial guides one action at a time:
 
 The current tutorial and step — and `seen`, the numbers already handed out —
 are kept in `sessionStorage` under
-`trustable.tutorial`, so a tutorial that crosses from `app.html` to
+`trustant.tutorial`, so a tutorial that crosses from `app.html` to
 `applist.html` resumes on the next page. Arriving on the page a later step
 belongs to counts as completing the navigation steps in between. If the user
 goes somewhere else, the overlay stays up and says where to return to.
@@ -132,9 +132,9 @@ so the observer does not feed itself.
 Steps of the Templates tutorial point at controls inside the left iframe, which
 is served from `opencode.<domain>` — a different origin, so the page cannot
 read that DOM. The TruACP UI ships a tour bridge (`web/tour-bridge.ts` in the
-`trustable-acp` submodule):
+`trustant-acp` submodule):
 
-- While a tutorial runs, the page posts `{source: "trustable-tour-host", type:
+- While a tutorial runs, the page posts `{source: "trustant-tour-host", type:
   "start"}` to the iframe, and `"stop"` when it ends. The request is repeated
   whenever reports dry up, so the bridge reconnects after the frame reloads.
 - The frame answers every 200 ms with `{version, targets, state}`. `targets`

@@ -1,9 +1,9 @@
 # Build Scripts
 
-`build.sh` is the entrypoint for building the full Trustable image, on both the
-macOS Trustable VM and the Linux k3s server. There is no separate server script:
+`build.sh` is the entrypoint for building the full Trustant image, on both the
+macOS Trustant VM and the Linux k3s server. There is no separate server script:
 the host is detected from the presence of
-`~/Library/Application Support/Trustable/id_ed25519` and `current.ip`.
+`~/Library/Application Support/Trustant/id_ed25519` and `current.ip`.
 `hotfix.sh` is the fast path for changes that do not need the expensive image
 stages rebuilt — see [Hotfix builds](#hotfix-builds).
 
@@ -14,14 +14,14 @@ accident:
 | Mode | `build.sh` | `hotfix.sh` |
 |---|---|---|
 | *(no args)* | help, plus the current tag and a `git push --tags` hint | same, keyed on the `-<n>` tag shape |
-| `--build [--no-deploy]` | full image, ship, `ops truinst trustable redeploy` | thin layer, ship, StatefulSet patch + rollout |
+| `--build [--no-deploy]` | full image, ship, `ops truinst trustant redeploy` | thin layer, ship, StatefulSet patch + rollout |
 | `--buildx` | both arches, multiarch build, push to the registry (CI) | same, thin layer |
 | `--tag` | tag + `opsroot.json` + commit; builds nothing | tag only; builds nothing |
 
 `--no-deploy` is an optional **second** argument to `--build`: build the image
 and stop, shipping nothing and deploying nothing. It is rejected with a usage
 error on `--tag` (which builds nothing) and `--buildx` (which never deploys)
-rather than silently ignored. `TRUSTABLE_BUILD_SKIP_DEPLOY=1` remains honoured
+rather than silently ignored. `TRUSTANT_BUILD_SKIP_DEPLOY=1` remains honoured
 for compatibility but is no longer the documented form.
 
 `build.sh --build`, on every host:
@@ -34,17 +34,17 @@ for compatibility but is no longer the documented form.
    never uses the other binary; `--buildx` is where both are built)
 4. builds the container image through `image/image.sh`
 5. makes the image reachable by the cluster
-6. deploys with `ops truinst trustable redeploy`
+6. deploys with `ops truinst trustant redeploy`
 
 Only step 5 differs by host. On the macOS VM the cluster lives inside the VM
 and cannot see the local image store, so the image is exported and piped over
-ssh into the VM's containerd (preceded by `ops truinst trustable undeploy` and
+ssh into the VM's containerd (preceded by `ops truinst trustant undeploy` and
 `k3s ctr images prune --all`, which frees the old image so the VM's small disk
 can reclaim it). On the k3s server, an image built by nerdctl is already in the
 `k8s.io` namespace the kubelet reads and nothing is done; if Docker built it,
 it is imported with `save ... | sudo -n k3s ctr images import -`.
 
-Deployment is always `ops truinst trustable redeploy`, which is `undeploy` +
+Deployment is always `ops truinst trustant redeploy`, which is `undeploy` +
 `deploy`; `deploy` reads the image from `opsroot.json`. The StatefulSet is
 never patched directly with `kubectl set image`.
 
@@ -72,9 +72,9 @@ runtime once so both scripts agree on binary, socket and namespace. Docker
 is preferred when installed; otherwise `nerdctl` is used, addressed at k3s'
 containerd socket (`/run/k3s/containerd/containerd.sock`) in the `k8s.io`
 namespace, starting `buildkit.service` if its socket is missing. Override with
-`TRUSTABLE_CONTAINER_RUNTIME=docker|nerdctl`; the socket and namespace are
-overridable with `TRUSTABLE_CONTAINERD_ADDRESS` and
-`TRUSTABLE_CONTAINERD_NAMESPACE`. Multi-platform builds use `docker buildx`,
+`TRUSTANT_CONTAINER_RUNTIME=docker|nerdctl`; the socket and namespace are
+overridable with `TRUSTANT_CONTAINERD_ADDRESS` and
+`TRUSTANT_CONTAINERD_NAMESPACE`. Multi-platform builds use `docker buildx`,
 while nerdctl takes `--platform` on plain `build`.
 
 `image/image.sh` builds the whole of `image/Dockerfile` in a single pass. There
@@ -89,7 +89,7 @@ It stages `openserverless-mcp` from the pinned
 `mcp` submodule, the local deterministic React MCP source, and the
 TruACP runtime artifacts:
 `setup.sh`, `pi.version`, `dist-bin/truacp.cjs`,
-`pi-acp-package.tgz`, and `extensions/trustable-runtime.ts`. Before staging, it
+`pi-acp-package.tgz`, and `extensions/trustant-runtime.ts`. Before staging, it
 recursively initializes TruACP's pinned
 `pi-acp` fork, runs its tests/build/package step, and builds the TruACP bundle.
 The complete sources and `node_modules` must never enter the Docker build context
@@ -100,17 +100,17 @@ rebuilds the affected stages.
 
 The issue #57 extension is a separately loaded, versioned runtime artifact. It
 must be staged beside the matching TruACP bundle and pinned `pi-acp` package.
-The image must not restore the former `trustable-guardrails.ts` placeholder or
+The image must not restore the former `trustant-guardrails.ts` placeholder or
 claim policy capabilities beyond those documented in
 [trustant-pi-runtime.md](trustant-pi-runtime.md).
 
-`trustable-acp` is tracked as a Git submodule from
-`https://github.com/trustable-ai/trustable-acp.git`, following `main` while the
-parent repository pins the exact commit. Trustable builds must consume that
+`trustant-acp` is tracked as a Git submodule from
+`https://github.com/trustable-ai/trustant-acp.git`, following `main` while the
+parent repository pins the exact commit. Trustant builds must consume that
 checked-out revision and must not download a floating TruACP source archive or
 depend on another developer worktree. The host build produces the portable
 JavaScript bundle; the Docker build runs the staged `setup.sh` to install that
-bundle and the Pi packages pinned by `trustable-acp/pi.version`. OpenCode is not
+bundle and the Pi packages pinned by `trustant-acp/pi.version`. OpenCode is not
 built or installed.
 
 The Lima `setup.sh` development path mirrors the image: it builds the checked-out
@@ -139,8 +139,8 @@ for amd64 and arm64; both the image and repository-root setup verify the
 matching checksum before installing `/usr/local/bin/gh`. Builds never resolve a
 floating GitHub CLI release or copy a host developer's GitHub configuration.
 
-Both environments install the same Trustable-owned Redis MCP stdio wrapper:
-`image/redis-mcp` becomes `trustable-redis-mcp`, while the pinned upstream
+Both environments install the same Trustant-owned Redis MCP stdio wrapper:
+`image/redis-mcp` becomes `trustant-redis-mcp`, while the pinned upstream
 `redis-mcp-server==0.5.0` remains its child process. The wrapper is part of the
 image source context and clean VM setup payload; no build may substitute a
 cached developer copy or bypass its fail-closed per-application namespace
@@ -151,7 +151,7 @@ Managed account state is runtime data under
 durable workspace mount in the pod and in `trudev`, so authentication survives
 supported restarts while remaining isolated from the normal host account.
 
-For the macOS Lima flow, `start.sh` initializes `mcp`, `trustable-acp`, and its
+For the macOS Lima flow, `start.sh` initializes `mcp`, `trustant-acp`, and its
 nested `pi-acp` fork recursively on the host before starting the guest. It checks
 the nested leaf even when the outer submodule was already populated. A
 worktree's `.git` file may point outside the single mounted directory, so
@@ -164,7 +164,7 @@ build, while repository-only lifecycle hooks such as Husky are neither needed
 nor allowed to follow host-only worktree administration paths.
 
 New `trudev` instances use a 60 GiB virtual disk. The local k3s service stack,
-containerd snapshots, and repeated Trustable image imports exceed the safe
+containerd snapshots, and repeated Trustant image imports exceed the safe
 kubelet eviction margin of the former 40 GiB disk during normal development.
 Existing instances may be enlarged further in place and are not reduced by
 `start.sh`; recreating one must not regress to the smaller allocation.
@@ -181,7 +181,7 @@ instead of `101 Switching Protocols`.
 `start.sh` also installs the pinned official Linux `kubefwd` archive in
 `trudev`, selecting amd64 or arm64 and verifying a checked-in SHA-256 before
 placing it at `/usr/local/bin/kubefwd`. Repository-root `run.sh` owns exactly
-one namespace-wide forwarder for `openserverless`, excludes `trustable-svc`, waits
+one namespace-wide forwarder for `openserverless`, excludes `trustant-svc`, waits
 for bounded readiness, and cleans it with the normal development process trap.
 This is a VM-host process only: production pods use native Kubernetes Service
 DNS and never start `kubefwd`.
@@ -189,7 +189,7 @@ DNS and never start `kubefwd`.
 `run.sh` must also work from a fresh worktree where the ignored `_build.txt`
 does not exist. Before starting Air it writes local development build metadata;
 the macOS wrapper records the real host worktree branch, while direct Linux/WSL
-runs use `TRUSTABLE_BUILD_BRANCH` when supplied and otherwise report the
+runs use `TRUSTANT_BUILD_BRANCH` when supplied and otherwise report the
 `development` fallback. It skips that regeneration only when HEAD is exactly on
 a tag whose name already appears in `_build.txt`, so a run from the tagged
 commit keeps -- and reports -- the release metadata it was built with (see
@@ -233,23 +233,23 @@ release markers.
 
 Build environment:
 
-- `TRUSTABLE_IMAGE`: image repository, default
+- `TRUSTANT_IMAGE`: image repository, default
   `ghcr.io/trustant/trustant`.
-- `TRUSTABLE_BUILD_TAG`: explicit image tag. If omitted, the tag is
+- `TRUSTANT_BUILD_TAG`: explicit image tag. If omitted, the tag is
   `<key>_<version>_<yy.jjj.HHMM>`.
-- `TRUSTABLE_HOTFIX_TAG`: explicit hotfix tag for `hotfix.sh --buildx`,
+- `TRUSTANT_HOTFIX_TAG`: explicit hotfix tag for `hotfix.sh --buildx`,
   overriding `GITHUB_REF`.
-- `TRUSTABLE_BUILD_SKIP_DEPLOY=1`: legacy equivalent of `--no-deploy`, still
+- `TRUSTANT_BUILD_SKIP_DEPLOY=1`: legacy equivalent of `--no-deploy`, still
   honoured but no longer the documented form.
-- `TRUSTABLE_MAC_SUPPORT_DIR`: location of the macOS Trustable VM credentials,
-  default `~/Library/Application Support/Trustable`. Its presence is what
+- `TRUSTANT_MAC_SUPPORT_DIR`: location of the macOS Trustant VM credentials,
+  default `~/Library/Application Support/Trustant`. Its presence is what
   selects the VM shipping path.
 
 Publishing environment:
 
-- `TRUSTABLE_PUBLISH_BRANCH`: branch ref updated by `publish.sh`, defaulting to
+- `TRUSTANT_PUBLISH_BRANCH`: branch ref updated by `publish.sh`, defaulting to
   the current branch. Release branches can publish to `main` with
-  `TRUSTABLE_PUBLISH_BRANCH=main ./publish.sh`.
+  `TRUSTANT_PUBLISH_BRANCH=main ./publish.sh`.
   After image CI succeeds, `publish.sh` may push `oplugins-truinst`, but any push
   to `oplugins`, `oplugins-truinst`, or another plugin repo
   requires explicit user authorization first. If there are no local changes in
@@ -265,20 +265,20 @@ local; publishing it is a separate, authorization-gated push of the submodule.
 
 | Source (context `image/`) | Destination | Owner |
 |---|---|---|
-| `bin/trustable-$TARGETARCH` | `/usr/local/bin/trustable` | root |
+| `bin/trustant-$TARGETARCH` | `/usr/local/bin/trustant` | root |
 | `start.sh` | `/usr/local/bin/start.sh` | root |
-| `env` | `/home/trustable/.env` | `trustable:trustable` |
-| `trustant.json` | `/home/trustable/trustant.json` | `trustable:trustable` |
+| `env` | `/home/trustant/.env` | `trustant:trustant` |
+| `trustant.json` | `/home/trustant/trustant.json` | `trustant:trustant` |
 
 That set covers a Go change, a container entrypoint fix, a flag flip in `.env`
 (`ENABLE_LICENSE`, `ENABLE_REGOLO`) and a base-config change — none of which
 need the MCP/TruACP stages rebuilt. Everything `image/image.sh` does before its
 first `docker build` line (submodule init, `npm install`/`build` for
-trustable-acp, `npm ci`/`test`/`build`/`pack` for the nested pi-acp fork, three
+trustant-acp, `npm ci`/`test`/`build`/`pack` for the nested pi-acp fork, three
 staged MCP context dirs, ~20 minutes) is skipped.
 
 The ownership split mirrors `image/Dockerfile` and is not cosmetic: root-owned
-files in `/home/trustable` break the running app, which writes there.
+files in `/home/trustant` break the running app, which writes there.
 Destinations are absolute because `WORKDIR` is set after the COPYs.
 `image/trustant.json` is gitignored and generated, so the build stages it with
 `cp trustant.json image/trustant.json` first; `image/env` and `image/start.sh`
@@ -289,7 +289,7 @@ the next clean-tree check. It is removed on every exit path by a trap.
 
 `ARG TARGETARCH` is redeclared in the generated file because ARGs are
 stage-scoped; BuildKit populates it per platform, which is what selects
-`trustable-amd64` vs `trustable-arm64` from a single context. `ENTRYPOINT
+`trustant-amd64` vs `trustant-arm64` from a single context. `ENTRYPOINT
 ["tini", "--"]` is inherited from the base image and must not be redeclared.
 
 ### Hotfix tags
@@ -325,22 +325,22 @@ tree.
 `hotfix.sh` **never writes `opsroot.json` and never commits.** opsroot therefore
 keeps pointing at the base, which is what lets the next hotfix chain off it —
 and it is also why the rollout cannot go through the deployment plugin:
-`ops truinst trustable redeploy` resolves the image from `opsroot.json` and would
+`ops truinst trustant redeploy` resolves the image from `opsroot.json` and would
 roll out the *base*, not the hotfix. Making redeploy work would mean dirtying the
 `oplugins-truinst` submodule on every hotfix.
 
 So `--build` patches the StatefulSet directly:
 
 ```bash
-kubectl -n openserverless set image statefulset/trustable trustable="$IMAGE:$TAG"
-kubectl -n openserverless rollout status statefulset/trustable --timeout=600s
+kubectl -n openserverless set image statefulset/trustant trustant="$IMAGE:$TAG"
+kubectl -n openserverless rollout status statefulset/trustant --timeout=600s
 ```
 
 This is a **scoped exception** to the rule above that the StatefulSet is never
 patched directly with `kubectl set image`. That rule governs the release path and
 stays true there.
 
-**The patch is not durable.** The next `ops truinst trustable redeploy`, or any
+**The patch is not durable.** The next `ops truinst trustant redeploy`, or any
 `deploy` from the plugin, reverts the StatefulSet to the opsroot image. A hotfix
 is a live patch, not a release; shipping one for real is still `build.sh --build`
 plus an authorized `oplugins-truinst` push. `hotfix.sh` says so in its own output.

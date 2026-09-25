@@ -1,7 +1,7 @@
 # Files (read-only viewer)
 
 Read-only browser for the files of the currently-launched application, so the
-user can inspect what the assistant generated without leaving Trustable.
+user can inspect what the assistant generated without leaving Trustant.
 
 Backend code lives in `files.go`, frontend in the Files modal of `app.html`.
 
@@ -84,7 +84,7 @@ The **Files** entry sits in the Utils pulldown of the workbench toolbar, between
 *Debug* and *Upload* (see [3-app.md](3-app.md)). Utils holds the inspection
 actions; the Config pulldown is for configuration.
 
-Selecting it opens a modal built from the shared Trustable primitives, sized
+Selecting it opens a modal built from the shared Trustant primitives, sized
 `max-w-5xl max-h-[80vh]`, with two panes:
 
 - **Left (~1/3, scrollable)** — the file tree, built from the flat list by

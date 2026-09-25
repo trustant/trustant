@@ -1,22 +1,22 @@
-# Trustable runtime architectures — draft for validation
+# Trustant runtime architectures — draft for validation
 
 > Status: draft di lavoro, non ancora integrato nelle specifiche normative o
-> nelle istruzioni di Trustable Code.
+> nelle istruzioni di Trustant Code.
 
 Il termine **produzione** in questo documento indica come viene installato ed
-eseguito Trustable. Non indica necessariamente che l'applicazione creata
+eseguito Trustant. Non indica necessariamente che l'applicazione creata
 dall'utente sia già stata pubblicata.
 
 ## Invarianti comuni
 
 In tutte e tre le modalità:
 
-- Trustable espone:
+- Trustant espone:
   - UI e API sulla porta `8910`;
-  - Trustable Code/OpenCode sulla porta `4096`;
+  - Trustant Code/OpenCode sulla porta `4096`;
   - Vite, avviato tramite `ops ide devel`, sulla porta `5173`.
 - Le action OpenServerless vengono eseguite in pod separati dal runtime
-  Trustable.
+  Trustant.
 - `localhost` dentro una action indica esclusivamente il container della
   action.
 - Le action accedono a Redis, MongoDB, Postgres e S3 tramite i binding generati
@@ -25,18 +25,18 @@ In tutte e tre le modalità:
 - Una action non deve chiamare action sorelle tramite `miniops.me`,
   `vite.<domain>` o altri host browser-facing.
 
-## 1. Sviluppo: Trustable come processo dentro la VM
+## 1. Sviluppo: Trustant come processo dentro la VM
 
 Nome proposto: `vm-development`.
 
 ```text
 Browser macOS
     |
-    | trustable.<VM-IP>.nip.io:8910
+    | trustant.<VM-IP>.nip.io:8910
     v
 Lima VM
-    |-- trustable/air :8910
-    |-- trustable-code :4096
+    |-- trustant/air :8910
+    |-- trustant-code :4096
     |-- ops ide devel / Vite :5173
     `-- k3s
          |-- Nuvolaris/OpenServerless
@@ -46,26 +46,26 @@ Lima VM
 
 Caratteristiche:
 
-- `run.sh` avvia il binario Trustable direttamente nel sistema operativo della
+- `run.sh` avvia il binario Trustant direttamente nel sistema operativo della
   VM.
-- Trustable Code e Vite sono processi figli nella stessa VM, non pod.
+- Trustant Code e Vite sono processi figli nella stessa VM, non pod.
 - `localhost:4096` e `localhost:5173` sono quindi porte della VM.
-- k3s gira nella stessa VM, ma Trustable è esterno al cluster.
-- Trustable raggiunge l'API k3s tramite kubeconfig. I processi VM-host
+- k3s gira nella stessa VM, ma Trustant è esterno al cluster.
+- Trustant raggiunge l'API k3s tramite kubeconfig. I processi VM-host
   raggiungono i Service del namespace `nuvolaris` tramite un unico `kubefwd`
   avviato da `run.sh`, senza modificare il resolver permanente.
 - Dentro la VM `miniops.me` può raggiungere l'ingress locale.
 - Dal browser macOS `miniops.me` non è affidabile perché risolve al loopback del
   Mac. Si usano:
-  - `trustable.<VM-IP>.nip.io:8910`;
+  - `trustant.<VM-IP>.nip.io:8910`;
   - `opencode.<VM-IP>.nip.io:8910`;
   - `vite.<VM-IP>.nip.io:8910`;
   - `<app>.<VM-IP>.nip.io:8910`.
-- Trustable riscrive gli host verso i corrispondenti host canonici del cluster.
+- Trustant riscrive gli host verso i corrispondenti host canonici del cluster.
 - Workspace e workbench sono directory configurate nella VM, eventualmente
   collocate sul mount VirtioFS del repository.
 
-## 2. Produzione desktop: Trustable come pod nel k3s della VM
+## 2. Produzione desktop: Trustant come pod nel k3s della VM
 
 Nome proposto: `vm-pod-production`.
 
@@ -79,11 +79,11 @@ Gateway/proxy della VM
 Ingress k3s nella VM
     |
     v
-trustable-svc
-    `-- Pod trustable
-         |-- container trustable
+trustant-svc
+    `-- Pod trustant
+         |-- container trustant
          |    |-- server :8910
-         |    |-- trustable-code :4096
+         |    |-- trustant-code :4096
          |    `-- Vite :5173
          `-- reverse-proxy sidecar :80
 
@@ -95,28 +95,28 @@ Altri pod:
 
 Caratteristiche:
 
-- Trustable gira nello StatefulSet `trustable-0`.
-- Trustable Code e Vite sono processi nel container Trustable.
-- Il service `trustable-svc` espone internamente `8910`, `4096` e `5173`.
+- Trustant gira nello StatefulSet `trustant-0`.
+- Trustant Code e Vite sono processi nel container Trustant.
+- Il service `trustant-svc` espone internamente `8910`, `4096` e `5173`.
 - Gli ingress instradano:
-  - `trustable.<domain>` verso `8910`;
+  - `trustant.<domain>` verso `8910`;
   - `opencode.<domain>` verso `4096`;
   - `vite.<domain>` verso `5173`.
 - Il pod contiene un reverse-proxy sidecar sulla porta `80`.
-- Nel pod Trustable, `miniops.me -> 127.0.0.1` funziona perché il sidecar
+- Nel pod Trustant, `miniops.me -> 127.0.0.1` funziona perché il sidecar
   intercetta la richiesta e la inoltra all'ingress.
 - Nei pod delle action lo stesso `miniops.me -> 127.0.0.1` non funziona, perché
   non esiste il sidecar. Questa è la causa dell'errore osservato nella action
   `stack-status`.
 - Lo storage persistente è montato dal filesystem della VM. Attualmente il
-  manifest usa `hostPath /home/trustable/workspace`.
-- `/home/trustable/workbench` viene ricondotto allo storage persistente sotto
+  manifest usa `hostPath /home/trustant/workspace`.
+- `/home/trustant/workbench` viene ricondotto allo storage persistente sotto
   `workspace/workbench`.
 
 Il browser deve entrare attraverso il gateway fornito dall'installazione
 desktop, non raggiungere direttamente IP o porte dei pod.
 
-## 3. Produzione nativa: Trustable come pod in k3s
+## 3. Produzione nativa: Trustant come pod in k3s
 
 Nome proposto: `k3s-production`.
 
@@ -130,10 +130,10 @@ DNS + LoadBalancer/Node IP
 Ingress k3s
     |
     v
-trustable-svc
-    `-- Pod trustable
-         |-- trustable :8910
-         |-- trustable-code :4096
+trustant-svc
+    `-- Pod trustant
+         |-- trustant :8910
+         |-- trustant-code :4096
          |-- Vite :5173
          `-- reverse-proxy sidecar :80
 
@@ -141,7 +141,7 @@ Cluster k3s
     |-- OpenServerless
     |-- servizi Nuvolaris
     |-- pod delle action
-    `-- volume persistente Trustable
+    `-- volume persistente Trustant
 ```
 
 La topologia interna è quasi uguale alla modalità 2. Cambiano il substrato e
@@ -156,15 +156,15 @@ l'ingresso:
   `hostPath`, adeguato al k3s mononodo; per un cluster multinodo servirebbe un
   PVC o un vincolo esplicito al nodo.
 
-## Regola fondamentale per Trustable Code
+## Regola fondamentale per Trustant Code
 
 La matrice che l'assistente deve conoscere è:
 
 | Chiamante | Significato di `localhost` | Host browser-facing | Accesso ai servizi dati |
 |---|---|---|---|
 | Browser | computer dell'utente | sì | mai direttamente |
-| Trustable in sviluppo VM | VM | tramite proxy Trustable | configurazione e `kubefwd` |
-| Trustable nel pod | pod Trustable | ingress o sidecar | DNS e binding |
+| Trustant in sviluppo VM | VM | tramite proxy Trustant | configurazione e `kubefwd` |
+| Trustant nel pod | pod Trustant | ingress o sidecar | DNS e binding |
 | Action OpenServerless | pod della action | non usare per composizione | `ctx.REDIS`, `ctx.MONGODB`, `ctx.POSTGRESQL`, `ctx.S3_CLIENT` |
 
 Per lo Stack Nuvolaris la soluzione corretta è quindi una delle seguenti:
@@ -194,7 +194,7 @@ action stack-status
 - `run.sh`: ciclo di sviluppo dentro la VM.
 - `start.sh`: provisioning e gateway della VM di sviluppo.
 - `setup.sh`: toolchain e accesso al k3s locale.
-- `olaris-bestia/trustable/sts.yaml`: StatefulSet, service, sidecar e storage.
-- `olaris-bestia/trustable/nginx.conf`: proxy pod-local verso l'ingress.
-- `olaris-bestia/trustable/nginx.yaml` e `traefik.yaml`: ingress Trustable,
+- `olaris-bestia/trustant/sts.yaml`: StatefulSet, service, sidecar e storage.
+- `olaris-bestia/trustant/nginx.conf`: proxy pod-local verso l'ingress.
+- `olaris-bestia/trustant/nginx.yaml` e `traefik.yaml`: ingress Trustant,
   OpenCode e Vite.

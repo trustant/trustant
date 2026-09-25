@@ -177,9 +177,9 @@ if [ "${#python_files[@]}" -gt 0 ] &&
 fi
 
 if [ "$ERRORS" -gt 0 ]; then
-  echo "Trustable frontend contract check failed: $ERRORS error(s), $WARNINGS warning(s)."
+  echo "Trustant frontend contract check failed: $ERRORS error(s), $WARNINGS warning(s)."
   exit 1
 fi
 
-echo "Trustable frontend contract check passed: $WARNINGS warning(s)."
+echo "Trustant frontend contract check passed: $WARNINGS warning(s)."
 exit 0

@@ -1,12 +1,12 @@
 # Repository-root `start.sh`
 
 This specification defines the repository-root `start.sh`, which brings up a
-Trustable development environment. It supports two hosts, selected
+Trustant development environment. It supports two hosts, selected
 automatically by `uname -s`:
 
-- **macOS** — provisions a local Trustable VM with Lima and wires it up so the
+- **macOS** — provisions a local Trustant VM with Lima and wires it up so the
   rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
-  ~/Library/Application Support/Trustable/ — the same place the macOS app writes.
+  ~/Library/Application Support/Trustant/ — the same place the macOS app writes.
   This is the whole of the "macOS (Lima VM)" section below.
 - **native Ubuntu Linux** — there is nothing to virtualize, so VM creation is
   skipped entirely and only the environment initialization runs, directly on
@@ -78,8 +78,8 @@ Two separate version files, deliberately not conflated:
 
 - `openserverless.txt` — the **cluster package** version (`0.1.0+f1553b`). Selects
   what gets installed. Hard pin, no fallback.
-- `version.txt` — the **Trustable app** release identity in tagged form (`v0.4.0`),
-  the single source shared with `build.sh`/`hotfix.sh`/`run.sh`; `TRUSTABLE_VERSION`
+- `version.txt` — the **Trustant app** release identity in tagged form (`v0.4.0`),
+  the single source shared with `build.sh`/`hotfix.sh`/`run.sh`; `TRUSTANT_VERSION`
   strips the leading `v`. It must not hold a second, hand-maintained copy. It no
   longer names the cached deb, and a missing value only warns.
 
@@ -107,27 +107,27 @@ leaving lima0:80 open. Publish the lima0 (192.168.252.x) address as the apihost.
 
 ## Authorize ssh
 
-ssh.sh connects as trustable@<ip> with the Lima identity, but the package creates
-the 'trustable' user without any authorized_keys. Append the Lima pubkey(s) to
-/home/trustable/.ssh/authorized_keys during install.
+ssh.sh connects as trustant@<ip> with the Lima identity, but the package creates
+the 'trustant' user without any authorized_keys. Append the Lima pubkey(s) to
+/home/trustant/.ssh/authorized_keys during install.
 
 ### ssh.sh has three access modes
 
 `ssh.sh` is the single user-facing entry point into the VM, and it takes a mode
 flag because there are three distinct places to land: your own development
-files, the `trustable` user's installation, and the container running inside it.
+files, the `trustant` user's installation, and the container running inside it.
 
 - `-d` — **development access**. Logs in as the mirrored guest user (`$USER`)
   and `cd`s to `$PWD`, so the shell opens on your development files at the same
   path as on the host.
-- `-p` — **production access**. Logs in as `trustable`, the user that owns the
-  Trustable folder and the deployed installation. No `cd`; you land in that
+- `-p` — **production access**. Logs in as `trustant`, the user that owns the
+  Trustant folder and the deployed installation. No `cd`; you land in that
   user's home.
-- `-i` — **image access**. Logs in as `trustable` and immediately hops one level
+- `-i` — **image access**. Logs in as `trustant` and immediately hops one level
   further in, into the running container:
-  `sudo k3s kubectl -n openserverless exec -ti trustable-0 -c trustable -- bash`.
+  `sudo k3s kubectl -n openserverless exec -ti trustant-0 -c trustant -- bash`.
   This is the shell for inspecting the deployed image itself — the
-  `supervisord`-managed processes, `/usr/local/bin/trustable`, the packaged
+  `supervisord`-managed processes, `/usr/local/bin/trustant`, the packaged
   toolchain — as opposed to the VM hosting it.
 - `-h` — prints the usage above.
 
@@ -169,10 +169,10 @@ Same path host-and-guest so absolute paths line up on both sides.
 Also create a guest account matching the current macOS user (`id -un`) with the
 same UID (`id -u`), so files under the virtiofs mount keep the host's ownership
 inside the VM. Give them passwordless sudo (`/etc/sudoers.d/90-<user>`) and copy
-trustable's authorized_keys across so `ssh <user>@<ip>` works too.
+trustant's authorized_keys across so `ssh <user>@<ip>` works too.
 
 Idempotent and re-run on every start (not only fresh installs), since an existing
-VM may predate the user. Skip when the host user is already `trustable` or `root`;
+VM may predate the user. Skip when the host user is already `trustant` or `root`;
 only pin the UID when it isn't already taken by another account.
 
 ## k3s API cert (tls-san)
@@ -189,9 +189,9 @@ already covers the IP. No change is needed in setup.sh.
 
 Read the host-reachable ip (the lima0 / 192.168.252.x address from hostname -I) and write:
 
-- ~/Library/Application Support/Trustable/current.ip   -> <ip>
-- ~/Library/Application Support/Trustable/apihost      -> http://<ip>.nip.io:8080
-- ~/Library/Application Support/Trustable/id_ed25519   -> copy of the limactl key (~/.lima/_config/user)
+- ~/Library/Application Support/Trustant/current.ip   -> <ip>
+- ~/Library/Application Support/Trustant/apihost      -> http://<ip>.nip.io:8080
+- ~/Library/Application Support/Trustant/id_ed25519   -> copy of the limactl key (~/.lima/_config/user)
 
 The apihost points through the host-rewrite proxy (see above), NOT bare <ip>:80 —
 a plain http://<ip>/api/info sends Host: <ip>, which traefik does not match (404).
@@ -205,7 +205,7 @@ Success check: curl http://<ip>.nip.io:8080/api/info returns .description == "Op
 The final "VM ready" summary must print the actual resolved apihost — the real
 lima0 IP substituted in (e.g. http://192.168.252.3.nip.io:8080) — never the
 literal 127.0.0.1 or an unexpanded <ip> placeholder. It's the value written to
-~/Library/Application Support/Trustable/apihost, so echo that same string.
+~/Library/Application Support/Trustant/apihost, so echo that same string.
 
 ## Host-rewrite reverse proxy (in k3s)
 
@@ -300,8 +300,8 @@ leftover export silently points `ops` at the wrong fork. They must not be set �
 not in `image/Dockerfile`, not in `/etc/environment`, not in a user shell.
 
 Earlier versions of `start.sh` wrote a delimited managed block
-(`# >>> trustable ops env >>>` … `# <<< trustable ops env <<<`) into
-`~/.profile` and `~/.bashrc` of both the mirrored dev user and the `trustable`
+(`# >>> trustant ops env >>>` … `# <<< trustant ops env <<<`) into
+`~/.profile` and `~/.bashrc` of both the mirrored dev user and the `trustant`
 account. That block is what pinned machines to the old `nuvolaris/bestia` fork.
 
 `start.sh` therefore **strips that block** from both rc files of both accounts,
@@ -499,7 +499,7 @@ The macOS path is unaffected by all of this.
 If `dpkg -l openserverless` does not report `ii`, download and cache the `.deb`
 and install it on this machine. The installed-package check names the package
 actually being installed (`openserverless`); a host still carrying the older
-`trustable` package is therefore treated as uninstalled and gets the new one.
+`trustant` package is therefore treated as uninstalled and gets the new one.
 
 The package must match the host architecture. On Linux, detect it with
 `dpkg --print-architecture` — that is what governs whether `apt-get install`
@@ -524,7 +524,7 @@ Two deliberate differences from the in-VM install:
   the package's :80/:443/:6443 firewall DROP between the Mac and k3s. A native
   host has no such split — its real default route is the correct one to protect,
   which is what the package's postinst already selects.
-- **No authorized_keys grafting** for the package-created `trustable` user. That
+- **No authorized_keys grafting** for the package-created `trustant` user. That
   exists so `ssh.sh` can reach the VM; nobody ssh's into the machine they are
   sitting at.
 
@@ -548,7 +548,7 @@ probed with, so the failure is diagnosable.
 
 Resolve the host-reachable address as the source address of the default route
 (`ip -4 route get`), falling back to `127.0.0.1` on a host with no default route.
-Write, under `${XDG_CONFIG_HOME:-$HOME/.config}/trustable/`:
+Write, under `${XDG_CONFIG_HOME:-$HOME/.config}/trustant/`:
 
 - `current.ip` -> `<ip>`
 - `apihost`    -> `http://<ip>.nip.io:8080`
@@ -780,7 +780,7 @@ Before anything is provisioned, after the `wsl --version` gate and after the
 - **A distribution left behind by the old default is reported, never touched.**
   If `Ubuntu-24.04` is registered and `-Distro` is still the `trudev` default,
   the script warns that earlier versions of `start.ps1` used that name for the
-  Trustable dev distro and prints `.\start.ps1 -k -Distro Ubuntu-24.04` as the
+  Trustant dev distro and prints `.\start.ps1 -k -Distro Ubuntu-24.04` as the
   way to remove it. There is no detection heuristic, no migration and no
   automatic deletion: the script must never unregister a distribution the user
   did not name.

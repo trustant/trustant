@@ -14,7 +14,7 @@ and execute the command `git <command>`.
 If the command is `checkout .`, also run `git clean -fd` to remove untracked files, then run `ops ide clean` followed by `ops ide deploy` (both in `<workbenchdir>/<name>`).
 Return the output.
 
-`git clean` here must **never** be given `-x`. Trustable's generated runtime
+`git clean` here must **never** be given `-x`. Trustant's generated runtime
 state — `.mcp.json`, `.acp-data/`, `.env`, and the `CLAUDE.md`/`.claude` links —
 is deliberately ignored by the managed `.gitignore`
 (see [13-gitignore.md](13-gitignore.md)) precisely so it outlives a revert.
@@ -58,7 +58,7 @@ Execute the following git commands in sequence:
    stage all app-owned changes with `git add -A`, excluding the launch-generated
    `.mcp.json`, `.openserverless-contract.md`, `opencode.md`, and
    `opencode.json` files, plus `AGENTS.md` when it contains only the
-   Trustable-managed block. These files are regenerated on launch and must
+   Trustant-managed block. These files are regenerated on launch and must
    never be committed; `.mcp.json` can contain runtime service credentials.
    Most of them are also ignored by the managed `.gitignore`
    (see [13-gitignore.md](13-gitignore.md)), so `git add -A` already skips
@@ -78,7 +78,7 @@ Execute the following git commands in sequence:
    there are app-owned changes to commit. Excluded generated files may remain
    in the worktree and do not make this check dirty.
    - If no staged changes remain, return `{"message": "nothing to save"}`
-3. `git commit -m "save from trustable"` to commit all changes
+3. `git commit -m "save from trustant"` to commit all changes
 4. `git push origin` to push changes back to workspace/<name>
    (the origin remote points to workspace/<name> because workbench was cloned from it)
 
@@ -94,12 +94,12 @@ If successful, return `{"message": "saved successfully"}`.
    "name": <name>
 }`
 
-Synchronize the app from a remote repository into Trustable's local git state.
+Synchronize the app from a remote repository into Trustant's local git state.
 When the app has production `OPS_REPO` configured, pull from that same
 repository used by the app-list Git Push action. Otherwise pull from the
 workspace bare repository's original `origin` remote.
 
-Trustable keeps two git locations for an app:
+Trustant keeps two git locations for an app:
 
 - `$WORKSPACE_DIR/workspace/<name>`: bare durable repository. Its `origin`
   remote points to the original GitHub repository used when the app was added.
@@ -107,11 +107,11 @@ Trustable keeps two git locations for an app:
 - `$WORKBENCH_DIR/<name>`: active checkout. Its `origin` remote points to the
   local bare workspace repository.
 
-Trustable-managed Git commands receive the isolated environment from
+Trustant-managed Git commands receive the isolated environment from
 [github.md](github.md). This makes HTTPS remotes use the managed `gh`
 credential helper without placing credentials in the process-wide environment,
 Pi/TruACP, MCP configuration, or application files. SSH remotes continue to use
-the dedicated Trustable key.
+the dedicated Trustant key.
 
 The pull operation is intentionally fast-forward only and follows the bare
 workspace repository's symbolic default branch instead of assuming `main`:
@@ -120,7 +120,7 @@ workspace repository's symbolic default branch instead of assuming `main`:
 2. if the workbench checkout exists, inspect `git status --porcelain`;
 3. if the status contains app/user changes, fail and return only those dirty
    lines in `output`;
-4. if the status contains only Trustable-generated launch files
+4. if the status contains only Trustant-generated launch files
    (`.mcp.json`, `.openserverless-contract.md`, `opencode.md`,
    `opencode.json`, or a generated-only `AGENTS.md` with no app-local notes),
    clean those generated files before continuing because they are regenerated

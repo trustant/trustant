@@ -19,12 +19,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # One build path for both hosts. The only difference is how the built image
-# reaches the cluster: on a Mac the cluster lives in the Trustable VM, so the
+# reaches the cluster: on a Mac the cluster lives in the Trustant VM, so the
 # image is shipped over ssh; on the k3s server the build already wrote it into
 # the local containerd. Everything else -- tag, _build.txt, opsroot.json and the
 # redeploy -- is identical, so the deployment plugin always records the image
 # that was actually built.
-MAC_DIR="${TRUSTABLE_MAC_SUPPORT_DIR:-$HOME/Library/Application Support/Trustable}"
+MAC_DIR="${TRUSTANT_MAC_SUPPORT_DIR:-$HOME/Library/Application Support/Trustant}"
 MAC_ID="$MAC_DIR/id_ed25519"
 MAC_IP="$MAC_DIR/current.ip"
 
@@ -35,10 +35,10 @@ if [ -e "$MAC_ID" ] && [ -e "$MAC_IP" ]; then
     IP="$(cat "$MAC_IP")"
 fi
 
-KEY=trustable
+KEY=trustant
 VERSION="$(cat version.txt)"
 EXPIRY="$(cat expiry.txt)"
-IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustant/trustant}"
+IMAGE="${TRUSTANT_IMAGE:-ghcr.io/trustant/trustant}"
 OPSROOT="./oplugins-truinst/opsroot.json"
 
 host_arch() {
@@ -58,10 +58,10 @@ host_arch() {
 # on newlines and -r skips the call when there are none; same form image.sh
 # already uses.
 make_tag() {
-    TAG="${TRUSTABLE_BUILD_TAG:-${KEY}_${VERSION}_$(date +%y.%j.%H%M)}"
-    BRANCH="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+    TAG="${TRUSTANT_BUILD_TAG:-${KEY}_${VERSION}_$(date +%y.%j.%H%M)}"
+    BRANCH="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     BRANCH="${BRANCH:-detached}"
-    STREAM="${TRUSTABLE_BUILD_STREAM:-$BRANCH}"
+    STREAM="${TRUSTANT_BUILD_STREAM:-$BRANCH}"
     echo "New Tag: $TAG"
 
     git tag -l | xargs -r git tag -d
@@ -82,9 +82,9 @@ make_tag() {
 # back to the mounted repo's branch.
 write_build_txt() {
     local tag="$1" branch stream
-    branch="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+    branch="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     branch="${branch:-detached}"
-    stream="${TRUSTABLE_BUILD_STREAM:-$branch}"
+    stream="${TRUSTANT_BUILD_STREAM:-$branch}"
     printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n" \
         "$VERSION" "$tag" "$branch" "$stream" "$EXPIRY" >_build.txt
 }
@@ -95,12 +95,12 @@ usage() {
     cat <<'USAGE'
 Usage: ./build.sh <mode> [--no-deploy]
 
-Builds the full Trustable image (~20 minutes: submodules, TruACP/pi-acp and the
+Builds the full Trustant image (~20 minutes: submodules, TruACP/pi-acp and the
 MCP stages). For a binary-only change see ./hotfix.sh, which layers onto the
 existing image in a minute or two.
 
   --build [--no-deploy]   tag, compile the host arch, build the image, ship it
-                          to the cluster and `ops truinst trustable redeploy`.
+                          to the cluster and `ops truinst trustant redeploy`.
                           --no-deploy stops after the image is built.
   --buildx                build both arches from the current tag and push the
                           multiarch manifest to the registry (used by CI).
@@ -127,7 +127,7 @@ elif [ -n "$SECOND" ]; then
     exit 1
 fi
 # Kept working for compatibility; --no-deploy is the documented form.
-if [ "${TRUSTABLE_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
+if [ "${TRUSTANT_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
     NO_DEPLOY=true
 fi
 
@@ -158,17 +158,17 @@ case "$MODE" in
 --buildx)
     # CI path: the tag already exists and is pushed. Never tags, never commits,
     # no opsroot write -- CI runs on a detached checkout of that tag.
-    TAG="${TRUSTABLE_BUILD_TAG:-${GITHUB_REF#refs/tags/}}"
+    TAG="${TRUSTANT_BUILD_TAG:-${GITHUB_REF#refs/tags/}}"
     if [ -z "$TAG" ] || [ "$TAG" = "${GITHUB_REF:-}" ]; then
-        echo "--buildx needs a tag: set TRUSTABLE_BUILD_TAG or run from a tag ref" >&2
+        echo "--buildx needs a tag: set TRUSTANT_BUILD_TAG or run from a tag ref" >&2
         exit 1
     fi
     echo "Building $IMAGE:$TAG"
 
     write_build_txt "$TAG"
     mkdir -p image/bin
-    env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
-    env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
+    env GOOS=linux GOARCH=amd64 go build -o image/bin/trustant-amd64
+    env GOOS=linux GOARCH=arm64 go build -o image/bin/trustant-arm64
     cp -v trustant.json image/trustant.json
 
     image/image.sh "$TAG" --push
@@ -197,7 +197,7 @@ make_tag
 ARCH="$(host_arch)"
 mkdir -p image/bin
 # Host arch only: a single-arch local image never uses the other binary.
-env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustable-$ARCH"
+env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustant-$ARCH"
 cp -v trustant.json image/trustant.json
 
 image/image.sh "$TAG"
@@ -210,14 +210,14 @@ fi
 if $MAC_VM; then
     # The VM cluster cannot see the local image store, so export and import.
     # Prune first: the VM disk is small and old images accumulate.
-    ops truinst trustable undeploy
-    ssh -i "$ID" trustable@"$IP" sudo k3s ctr images prune --all
+    ops truinst trustant undeploy
+    ssh -i "$ID" trustant@"$IP" sudo k3s ctr images prune --all
 
     echo "Saving $IMAGE:$TAG"
-    "${RUNTIME_CMD[@]}" save "$IMAGE:$TAG" | ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
+    "${RUNTIME_CMD[@]}" save "$IMAGE:$TAG" | ssh -i "$ID" trustant@"$IP" sudo k3s ctr images import -
 
     echo "Listing Images"
-    ssh -i "$ID" trustable@"$IP" sudo k3s ctr images list | grep trustable
+    ssh -i "$ID" trustant@"$IP" sudo k3s ctr images list | grep trustant
 elif [ "$RUNTIME_LOADS_K3S" != "1" ]; then
     # Docker on the k3s server: the build landed in Docker's own store, so the
     # image still has to be handed to containerd.
@@ -227,4 +227,4 @@ else
     echo "Image $IMAGE:$TAG already in local k3s (built via $RUNTIME)"
 fi
 
-ops truinst trustable redeploy
+ops truinst trustant redeploy

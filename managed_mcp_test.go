@@ -30,7 +30,7 @@ func TestManagedMCPConfigsKeepCredentialsOutsideWorkbench(t *testing.T) {
 		t.Fatal(err)
 	}
 	privatePath := filepath.Join(root, "runtime", "example", "mcp.json")
-	launcherPath := filepath.Join(root, "bin", "trustable-mcp-launch")
+	launcherPath := filepath.Join(root, "bin", "trustant-mcp-launch")
 	managedMCPConfigPathOverride = privatePath
 	managedMCPLauncherInstallPathOverride = launcherPath
 	t.Cleanup(func() {
@@ -73,7 +73,7 @@ func TestManagedMCPConfigsKeepCredentialsOutsideWorkbench(t *testing.T) {
 	if err := json.Unmarshal(publicData, &publicConfig); err != nil {
 		t.Fatal(err)
 	}
-	if publicConfig.MCPServers["redis"]["command"] != "trustable-mcp-launch" {
+	if publicConfig.MCPServers["redis"]["command"] != "trustant-mcp-launch" {
 		t.Fatalf("credential-bearing server did not use managed launcher: %#v", publicConfig.MCPServers["redis"])
 	}
 

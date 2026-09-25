@@ -18,12 +18,12 @@
 set -euo pipefail
 
 E2E_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-E2E_RESULTS_ROOT="${TRUSTABLE_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
-E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
-E2E_POD="${TRUSTABLE_E2E_POD:-trustable-0}"
-E2E_CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
-E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustant.json}"
-E2E_LOCK_DIR="${TMPDIR:-/tmp}/trustable-e2e-provider.lock"
+E2E_RESULTS_ROOT="${TRUSTANT_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
+E2E_NAMESPACE="${TRUSTANT_E2E_NAMESPACE:-openserverless}"
+E2E_POD="${TRUSTANT_E2E_POD:-trustant-0}"
+E2E_CONTAINER="${TRUSTANT_E2E_CONTAINER:-trustant}"
+E2E_CONFIG_PATH="${TRUSTANT_E2E_CONFIG_PATH:-/home/trustant/workspace/trustant.json}"
+E2E_LOCK_DIR="${TMPDIR:-/tmp}/trustant-e2e-provider.lock"
 E2E_CONFIG_BACKUP=""
 E2E_CONFIG_STAGED=""
 E2E_LOCK_HELD=0
@@ -42,14 +42,14 @@ e2e_need() {
 }
 
 e2e_load_env() {
-  local env_file="${TRUSTABLE_E2E_ENV_FILE:-$E2E_ROOT/.env.e2e}"
+  local env_file="${TRUSTANT_E2E_ENV_FILE:-$E2E_ROOT/.env.e2e}"
   if [ -f "$env_file" ]; then
     # The file is local, git-ignored test configuration and is trusted like any sourced shell env file.
     set -a
     # shellcheck disable=SC1090
     . "$env_file"
     set +a
-  elif [ -n "${TRUSTABLE_E2E_ENV_FILE:-}" ]; then
+  elif [ -n "${TRUSTANT_E2E_ENV_FILE:-}" ]; then
     e2e_error "test env file does not exist: $env_file"
     return 1
   fi
@@ -64,7 +64,7 @@ e2e_require_value() {
     return 0
   fi
   if [ ! -t 0 ]; then
-    e2e_error "$name is required in non-interactive mode; export it or put it in ${TRUSTABLE_E2E_ENV_FILE:-$E2E_ROOT/.env.e2e}"
+    e2e_error "$name is required in non-interactive mode; export it or put it in ${TRUSTANT_E2E_ENV_FILE:-$E2E_ROOT/.env.e2e}"
     return 1
   fi
   if [ "$secret" = "1" ]; then
@@ -83,39 +83,39 @@ e2e_require_value() {
 
 e2e_resolve_profile() {
   local mode="$1"
-  e2e_require_value TRUSTABLE_E2E_MODEL "Model name"
-  E2E_MODEL="$TRUSTABLE_E2E_MODEL"
-  E2E_MAX_TOKEN="${TRUSTABLE_E2E_MAX_TOKEN:-131072}"
-  E2E_MAX_OUTPUT="${TRUSTABLE_E2E_MAX_OUTPUT:-32768}"
+  e2e_require_value TRUSTANT_E2E_MODEL "Model name"
+  E2E_MODEL="$TRUSTANT_E2E_MODEL"
+  E2E_MAX_TOKEN="${TRUSTANT_E2E_MAX_TOKEN:-131072}"
+  E2E_MAX_OUTPUT="${TRUSTANT_E2E_MAX_OUTPUT:-32768}"
 
   case "$mode" in
     private)
       # A user-supplied endpoint has no canonical host, so require the base URL
       # rather than guessing one.
-      e2e_require_value TRUSTABLE_E2E_BASE_URL "Private AI base URL" 0
+      e2e_require_value TRUSTANT_E2E_BASE_URL "Private AI base URL" 0
       E2E_PROVIDER="private"
-      E2E_BASE_URL="$TRUSTABLE_E2E_BASE_URL"
+      E2E_BASE_URL="$TRUSTANT_E2E_BASE_URL"
       E2E_API_KEY=""
       E2E_CREDENTIAL_REQUIRED=false
       ;;
     ollama-cloud)
-      if [ -z "${TRUSTABLE_E2E_OLLAMA_API_KEY:-}" ] && [ -n "${OLLAMA_API_KEY:-}" ]; then
-        TRUSTABLE_E2E_OLLAMA_API_KEY="$OLLAMA_API_KEY"
+      if [ -z "${TRUSTANT_E2E_OLLAMA_API_KEY:-}" ] && [ -n "${OLLAMA_API_KEY:-}" ]; then
+        TRUSTANT_E2E_OLLAMA_API_KEY="$OLLAMA_API_KEY"
       fi
-      e2e_require_value TRUSTABLE_E2E_OLLAMA_API_KEY "Ollama Cloud API key" 1
+      e2e_require_value TRUSTANT_E2E_OLLAMA_API_KEY "Ollama Cloud API key" 1
       E2E_PROVIDER="ollama"
-      E2E_BASE_URL="${TRUSTABLE_E2E_BASE_URL:-http://localhost:11434/v1}"
-      E2E_API_KEY="$TRUSTABLE_E2E_OLLAMA_API_KEY"
+      E2E_BASE_URL="${TRUSTANT_E2E_BASE_URL:-http://localhost:11434/v1}"
+      E2E_API_KEY="$TRUSTANT_E2E_OLLAMA_API_KEY"
       E2E_CREDENTIAL_REQUIRED=true
       ;;
     regolo)
-      if [ -z "${TRUSTABLE_E2E_API_KEY:-}" ] && [ -n "${API_KEY:-}" ]; then
-        TRUSTABLE_E2E_API_KEY="$API_KEY"
+      if [ -z "${TRUSTANT_E2E_API_KEY:-}" ] && [ -n "${API_KEY:-}" ]; then
+        TRUSTANT_E2E_API_KEY="$API_KEY"
       fi
-      e2e_require_value TRUSTABLE_E2E_API_KEY "Regolo API key" 1
-      E2E_PROVIDER="trustable"
-      E2E_BASE_URL="${TRUSTABLE_E2E_BASE_URL:-https://api.nuvolaris.io/v1}"
-      E2E_API_KEY="$TRUSTABLE_E2E_API_KEY"
+      e2e_require_value TRUSTANT_E2E_API_KEY "Regolo API key" 1
+      E2E_PROVIDER="trustant"
+      E2E_BASE_URL="${TRUSTANT_E2E_BASE_URL:-https://api.nuvolaris.io/v1}"
+      E2E_API_KEY="$TRUSTANT_E2E_API_KEY"
       E2E_CREDENTIAL_REQUIRED=true
       ;;
     *)
@@ -177,7 +177,7 @@ e2e_apply_profile() {
   trap 'exit 143' TERM
 
   local backup
-  backup="$(mktemp "${TMPDIR:-/tmp}/trustable-e2e-config.XXXXXX")"
+  backup="$(mktemp "${TMPDIR:-/tmp}/trustant-e2e-config.XXXXXX")"
   chmod 600 "$backup"
   if ! kubectl -n "$E2E_NAMESPACE" exec "$E2E_POD" -c "$E2E_CONTAINER" -- \
     cat "$E2E_CONFIG_PATH" >"$backup"; then
@@ -191,7 +191,7 @@ e2e_apply_profile() {
     return 1
   fi
   E2E_CONFIG_BACKUP="$backup"
-  E2E_CONFIG_STAGED="$(mktemp "${TMPDIR:-/tmp}/trustable-e2e-staged.XXXXXX")"
+  E2E_CONFIG_STAGED="$(mktemp "${TMPDIR:-/tmp}/trustant-e2e-staged.XXXXXX")"
   chmod 600 "$E2E_CONFIG_STAGED"
   jq \
     --arg provider "$E2E_PROVIDER" \
@@ -245,7 +245,7 @@ e2e_write_report() {
   local outcome="failed"
   [ "$exit_code" = "0" ] && outcome="passed"
   jq -n \
-    --arg schema "trustable-e2e-benchmark/v1" \
+    --arg schema "trustant-e2e-benchmark/v1" \
     --arg run_id "$run_id" \
     --arg provider_mode "$mode" \
     --arg provider "$E2E_PROVIDER" \
@@ -257,8 +257,8 @@ e2e_write_report() {
     --argjson duration_seconds "$duration" \
     --arg outcome "$outcome" \
     --argjson exit_code "$exit_code" \
-    --arg app "${TRUSTABLE_E2E_APP:-}" \
-    --arg repo "${TRUSTABLE_E2E_REPO:-trustable-ai/trureact}" \
+    --arg app "${TRUSTANT_E2E_APP:-}" \
+    --arg repo "${TRUSTANT_E2E_REPO:-trustable-ai/trureact}" \
     --arg log_path "$log_path" \
     --arg artifact_path "$artifact_path" \
     '{schema: $schema, run_id: $run_id, provider_mode: $provider_mode,
@@ -274,7 +274,7 @@ e2e_write_report() {
         {name: "openserverless_action_workflow", result: $outcome},
         {name: "deploy_setup_completion_order", result: $outcome},
         {name: "stack_read_write_request", result: $outcome},
-        {name: "trustable_completion_checker", result: $outcome}
+        {name: "trustant_completion_checker", result: $outcome}
       ]}' >"$report"
 }
 
@@ -282,11 +282,11 @@ e2e_provider_main() {
   local mode="$1"
   shift
   e2e_load_env
-  E2E_RESULTS_ROOT="${TRUSTABLE_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
-  E2E_NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
-  E2E_POD="${TRUSTABLE_E2E_POD:-trustable-0}"
-  E2E_CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
-  E2E_CONFIG_PATH="${TRUSTABLE_E2E_CONFIG_PATH:-/home/trustable/workspace/trustant.json}"
+  E2E_RESULTS_ROOT="${TRUSTANT_E2E_RESULTS_DIR:-$E2E_ROOT/benchmark-results}"
+  E2E_NAMESPACE="${TRUSTANT_E2E_NAMESPACE:-openserverless}"
+  E2E_POD="${TRUSTANT_E2E_POD:-trustant-0}"
+  E2E_CONTAINER="${TRUSTANT_E2E_CONTAINER:-trustant}"
+  E2E_CONFIG_PATH="${TRUSTANT_E2E_CONFIG_PATH:-/home/trustant/workspace/trustant.json}"
   e2e_need jq
   e2e_need kubectl
   e2e_need npm
@@ -304,21 +304,21 @@ e2e_provider_main() {
   e2e_apply_profile
   # Provider credentials now live only in the temporary managed configuration;
   # do not expose them to Playwright, OpenCode, shell tools, or generated apps.
-  unset TRUSTABLE_E2E_API_KEY TRUSTABLE_E2E_OLLAMA_API_KEY OLLAMA_API_KEY API_KEY
+  unset TRUSTANT_E2E_API_KEY TRUSTANT_E2E_OLLAMA_API_KEY OLLAMA_API_KEY API_KEY
 
-  export TRUSTABLE_E2E_RUN_PROMPT=1
-  export TRUSTABLE_E2E_EXPECT_ACTION_WORKFLOW=1
-  export TRUSTABLE_E2E_EXPECT_SETUP=1
-  export TRUSTABLE_E2E_EXPECT_OPENSERVERLESS_TOOL=1
-  export TRUSTABLE_E2E_PROMPT_EXPECT_CHANGES=1
-  export TRUSTABLE_E2E_PROMPT_TIMEOUT_MS="${TRUSTABLE_E2E_PROMPT_TIMEOUT_MS:-2400000}"
-  export TRUSTABLE_E2E_PROMPT_TEST_TIMEOUT_MS="${TRUSTABLE_E2E_PROMPT_TEST_TIMEOUT_MS:-2700000}"
-  export TRUSTABLE_E2E_PROMPT="${TRUSTABLE_E2E_PROMPT:-Vorrei una pagina Stack Nuvolaris che mostri in modo semplice se Redis, MongoDB, PostgreSQL e S3 funzionano davvero. Per ogni servizio esegui una vera prova di scrittura e rilettura dello stesso valore e mostra il valore verificato. Prepara automaticamente quanto serve, controlla tutto tu e non chiedermi di usare la shell.}"
-  if [ -z "${TRUSTABLE_E2E_APP:-}" ] && [ -z "${TRUSTABLE_E2E_REPO:-}" ]; then
-    export TRUSTABLE_E2E_REPO=trustable-ai/trureact
+  export TRUSTANT_E2E_RUN_PROMPT=1
+  export TRUSTANT_E2E_EXPECT_ACTION_WORKFLOW=1
+  export TRUSTANT_E2E_EXPECT_SETUP=1
+  export TRUSTANT_E2E_EXPECT_OPENSERVERLESS_TOOL=1
+  export TRUSTANT_E2E_PROMPT_EXPECT_CHANGES=1
+  export TRUSTANT_E2E_PROMPT_TIMEOUT_MS="${TRUSTANT_E2E_PROMPT_TIMEOUT_MS:-2400000}"
+  export TRUSTANT_E2E_PROMPT_TEST_TIMEOUT_MS="${TRUSTANT_E2E_PROMPT_TEST_TIMEOUT_MS:-2700000}"
+  export TRUSTANT_E2E_PROMPT="${TRUSTANT_E2E_PROMPT:-Vorrei una pagina Stack Nuvolaris che mostri in modo semplice se Redis, MongoDB, PostgreSQL e S3 funzionano davvero. Per ogni servizio esegui una vera prova di scrittura e rilettura dello stesso valore e mostra il valore verificato. Prepara automaticamente quanto serve, controlla tutto tu e non chiedermi di usare la shell.}"
+  if [ -z "${TRUSTANT_E2E_APP:-}" ] && [ -z "${TRUSTANT_E2E_REPO:-}" ]; then
+    export TRUSTANT_E2E_REPO=trustable-ai/trureact
   fi
 
-  echo "Trustable provider benchmark"
+  echo "Trustant provider benchmark"
   echo "  mode:       $mode"
   echo "  provider:   $E2E_PROVIDER"
   echo "  model:      $E2E_MODEL"
@@ -354,7 +354,7 @@ e2e_provider_main() {
   return "$status"
 }
 
-if [ "${TRUSTABLE_E2E_COMMON_LIBRARY:-0}" != "1" ]; then
+if [ "${TRUSTANT_E2E_COMMON_LIBRARY:-0}" != "1" ]; then
   e2e_error "run one of tests/e2e_private_app.sh, tests/e2e_ollama_cloud_app.sh, or tests/e2e_regolo_app.sh"
   exit 2
 fi

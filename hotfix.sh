@@ -27,8 +27,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-IMAGE="${TRUSTABLE_IMAGE:-ghcr.io/trustant/trustant}"
-KEY=trustable
+IMAGE="${TRUSTANT_IMAGE:-ghcr.io/trustant/trustant}"
+KEY=trustant
 OPSROOT="./oplugins-truinst/opsroot.json"
 DOCKERFILE="Dockerfile.hotfix"
 
@@ -86,7 +86,7 @@ make_tag() {
 # Resolve the tag for a build: explicit override, then CI's ref, then the single
 # local tag. Must already carry the -<n> suffix.
 resolve_tag() {
-    local tag="${TRUSTABLE_HOTFIX_TAG:-}"
+    local tag="${TRUSTANT_HOTFIX_TAG:-}"
     if [ -z "$tag" ] && [ -n "${GITHUB_REF:-}" ]; then
         tag="${GITHUB_REF#refs/tags/}"
     fi
@@ -111,9 +111,9 @@ write_build_txt() {
     local tag="$1" version expiry branch stream
     version="$(cat version.txt)"
     expiry="$(cat expiry.txt)"
-    branch="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+    branch="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     branch="${branch:-detached}"
-    stream="${TRUSTABLE_BUILD_STREAM:-$branch}"
+    stream="${TRUSTANT_BUILD_STREAM:-$branch}"
     # Five lines, matching build.sh: parseVersion reads Branch and Stream, and
     # without them the UI falls back to the mounted repo's branch.
     printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n" \
@@ -145,9 +145,9 @@ FROM $IMAGE:$base
 # BuildKit populates it per platform, which is what selects the right binary.
 ARG TARGETARCH
 USER root
-COPY bin/trustable-\$TARGETARCH /usr/local/bin/trustable
+COPY bin/trustant-\$TARGETARCH /usr/local/bin/trustant
 COPY start.sh /usr/local/bin/start.sh
-RUN chmod 0755 /usr/local/bin/trustable /usr/local/bin/start.sh
+RUN chmod 0755 /usr/local/bin/trustant /usr/local/bin/start.sh
 COPY --chown=trustant:trustant env /home/trustant/.env
 COPY --chown=trustant:trustant trustant.json /home/trustant/trustant.json
 CMD ["/usr/local/bin/start.sh"]
@@ -172,7 +172,7 @@ stage_config() {
 # Mac the cluster lives in the VM, so everything goes over ssh.
 kube() {
     if $MAC_VM; then
-        ssh -i "$ID" trustable@"$IP" sudo k3s kubectl "$@"
+        ssh -i "$ID" trustant@"$IP" sudo k3s kubectl "$@"
     else
         "${KUBECTL_CMD[@]}" "$@"
     fi
@@ -212,7 +212,7 @@ image recorded in oplugins-truinst/opsroot.json -- a minute or two instead of th
   --tag                   generate the hotfix tag only; build nothing.
 
 A hotfix patches the running StatefulSet directly and is NOT durable: the next
-`ops truinst trustable redeploy` reverts it to the image in opsroot.json.
+`ops truinst trustant redeploy` reverts it to the image in opsroot.json.
 USAGE
     echo
     if [[ "$tag" =~ ^.*_.*_.*-[0-9]+$ ]]; then
@@ -239,7 +239,7 @@ elif [ -n "$SECOND" ]; then
     exit 1
 fi
 # Kept working for compatibility; --no-deploy is the documented form.
-if [ "${TRUSTABLE_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
+if [ "${TRUSTANT_BUILD_SKIP_DEPLOY:-}" = "1" ]; then
     NO_DEPLOY=true
 fi
 
@@ -276,8 +276,8 @@ case "$MODE" in
 
     write_build_txt "$TAG"
     mkdir -p image/bin
-    env GOOS=linux GOARCH=amd64 go build -o image/bin/trustable-amd64
-    env GOOS=linux GOARCH=arm64 go build -o image/bin/trustable-arm64
+    env GOOS=linux GOARCH=amd64 go build -o image/bin/trustant-amd64
+    env GOOS=linux GOARCH=arm64 go build -o image/bin/trustant-arm64
     stage_config
 
     # shellcheck source=image/runtime.sh
@@ -308,7 +308,7 @@ case "$MODE" in
     BASE="$(base_tag)"
     echo "Hotfix $TAG on top of $BASE"
 
-    MAC_DIR="${TRUSTABLE_MAC_SUPPORT_DIR:-$HOME/Library/Application Support/Trustable}"
+    MAC_DIR="${TRUSTANT_MAC_SUPPORT_DIR:-$HOME/Library/Application Support/Trustant}"
     MAC_ID="$MAC_DIR/id_ed25519"
     MAC_IP="$MAC_DIR/current.ip"
     MAC_VM=false
@@ -322,7 +322,7 @@ case "$MODE" in
     ARCH="$(host_arch)"
     mkdir -p image/bin
     # Host arch only: the other binary is never copied into a single-arch image.
-    env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustable-$ARCH"
+    env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustant-$ARCH"
     stage_config
 
     # shellcheck source=image/runtime.sh
@@ -355,7 +355,7 @@ case "$MODE" in
     if $MAC_VM; then
         echo "Importing $IMAGE:$TAG into the VM"
         "${RUNTIME_CMD[@]}" save "$IMAGE:$TAG" |
-            ssh -i "$ID" trustable@"$IP" sudo k3s ctr images import -
+            ssh -i "$ID" trustant@"$IP" sudo k3s ctr images import -
     elif [ "$RUNTIME_LOADS_K3S" != "1" ]; then
         echo "Importing $IMAGE:$TAG into local k3s"
         "${RUNTIME_CMD[@]}" save "$IMAGE:$TAG" | sudo -n k3s ctr images import -
@@ -370,25 +370,25 @@ case "$MODE" in
         exit 0
     fi
 
-    OLD="$(kube -n openserverless get statefulset/trustable \
-        -o jsonpath='{.spec.template.spec.containers[?(@.name=="trustable")].image}' 2>/dev/null || true)"
+    OLD="$(kube -n openserverless get statefulset/trustant \
+        -o jsonpath='{.spec.template.spec.containers[?(@.name=="trustant")].image}' 2>/dev/null || true)"
     echo "Current image: ${OLD:-unknown}"
     echo "New image:     $IMAGE:$TAG"
 
-    kube -n openserverless set image statefulset/trustable "trustable=$IMAGE:$TAG"
+    kube -n openserverless set image statefulset/trustant "trustant=$IMAGE:$TAG"
     echo "StatefulSet patched, waiting for rollout..."
-    kube -n openserverless rollout status statefulset/trustable --timeout=600s
+    kube -n openserverless rollout status statefulset/trustant --timeout=600s
 
-    RUNNING="$(kube -n openserverless get pod trustable-0 \
-        -o jsonpath='{.spec.containers[?(@.name=="trustable")].image}' 2>/dev/null || true)"
-    echo "Pod trustable-0 now running: ${RUNNING:-unknown}"
+    RUNNING="$(kube -n openserverless get pod trustant-0 \
+        -o jsonpath='{.spec.containers[?(@.name=="trustant")].image}' 2>/dev/null || true)"
+    echo "Pod trustant-0 now running: ${RUNNING:-unknown}"
     # _build.txt is embedded in the binary, not shipped as a file, so the live
     # build string comes from what the server logs at startup (repo.go).
-    kube -n openserverless logs trustable-0 -c trustable --tail=200 2>/dev/null |
+    kube -n openserverless logs trustant-0 -c trustant --tail=200 2>/dev/null |
         grep -m1 'Build:' || true
     echo
     echo "Rolled out $IMAGE:$TAG"
-    echo "NOTE: this patch is not durable -- the next 'ops truinst trustable"
+    echo "NOTE: this patch is not durable -- the next 'ops truinst trustant"
     echo "redeploy' reverts to the image recorded in opsroot.json."
     ;;
 

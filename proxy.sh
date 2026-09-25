@@ -22,7 +22,7 @@
 # 127.0.0.1 with the Host header rewritten to <host>.miniops.me.
 #
 # Why the rewrite: middleware.go routes by the FIRST label of the hostname
-# (trustable./opencode./vite.) and rejects everything else with a 400. This lets
+# (trustant./opencode./vite.) and rejects everything else with a 400. This lets
 # the app be reached under any domain (a LAN IP's nip.io name, a public DNS
 # name, a tunnel) while the backend keeps seeing the canonical miniops.me form
 # it expects. Only the first label is preserved; the rest of the name is
@@ -34,7 +34,7 @@ LISTEN_PORT="${LISTEN_PORT:-8911}"
 UPSTREAM_HOST="${UPSTREAM_HOST:-127.0.0.1}"
 UPSTREAM_PORT="${UPSTREAM_PORT:-80}"
 TARGET_DOMAIN="${TARGET_DOMAIN:-miniops.me}"
-SITE_NAME="trustable-proxy"
+SITE_NAME="trustant-proxy"
 
 if [[ $EUID -ne 0 ]]; then
     if command -v sudo >/dev/null 2>&1; then
@@ -60,12 +60,12 @@ $SUDO apt-get install -y -qq nginx
 echo "==> Writing /etc/nginx/sites-available/$SITE_NAME"
 # The map extracts the first label of the requested host, stripping any :port
 # the client may have sent. A request with no dot (bare "localhost") yields an
-# empty label, which we fall back to "trustable" for so the app still answers.
+# empty label, which we fall back to "trustant" for so the app still answers.
 $SUDO tee "/etc/nginx/sites-available/$SITE_NAME" >/dev/null <<EOF
 # Managed by proxy.sh — regenerated on every run, do not edit by hand.
 
-map \$host \$trustable_label {
-    default                 "trustable";
+map \$host \$trustant_label {
+    default                 "trustant";
     "~^(?<label>[^.:]+)\\."  \$label;
 }
 
@@ -84,7 +84,7 @@ server {
         proxy_pass http://${UPSTREAM_HOST}:${UPSTREAM_PORT};
 
         # The whole point: <host>.<anything> becomes <host>.${TARGET_DOMAIN}.
-        proxy_set_header Host              \$trustable_label.${TARGET_DOMAIN};
+        proxy_set_header Host              \$trustant_label.${TARGET_DOMAIN};
         proxy_set_header X-Real-IP         \$remote_addr;
         proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
@@ -103,7 +103,7 @@ EOF
 
 # nginx only defines \$connection_upgrade if we map it; keep it in conf.d so it
 # lives in the http{} context alongside the default site includes.
-$SUDO tee /etc/nginx/conf.d/trustable-upgrade.conf >/dev/null <<'EOF'
+$SUDO tee /etc/nginx/conf.d/trustant-upgrade.conf >/dev/null <<'EOF'
 # Managed by proxy.sh — regenerated on every run, do not edit by hand.
 map $http_upgrade $connection_upgrade {
     default upgrade;

@@ -23,12 +23,12 @@ the *route* but not the *tab*: form input, open modals, scroll position, and
 anything the app keeps in tab storage — auth included — are all absent from a
 fresh browser. The recording showed a page the user had never seen.
 
-An earlier design, in the Trustable UI, rejected `getDisplayMedia` for reasons
+An earlier design, in the Trustant UI, rejected `getDisplayMedia` for reasons
 that were correct **there** and do not apply **here**. That reasoning is easy to
 re-derive and get wrong, so both halves are recorded:
 
-- *In the Trustable UI*: the preview iframe is served from `vite.<domain>` while
-  the UI is on `trustable.<domain>`, so the page cannot rasterize the frame
+- *In the Trustant UI*: the preview iframe is served from `vite.<domain>` while
+  the UI is on `trustant.<domain>`, so the page cannot rasterize the frame
   itself — a cross-origin document is unreachable from script and drawing it
   taints the canvas. `getDisplayMedia` works around that, but requires a secure
   context, and a plain-HTTP `nip.io` dev host is not one.
@@ -38,7 +38,7 @@ re-derive and get wrong, so both halves are recorded:
 
 **Which tab you record in therefore matters, and it is the one thing users get
 wrong.** The localhost exception is what makes this work, so the app must be open
-on `http://localhost:5173` directly. Reaching the same app through the Trustable
+on `http://localhost:5173` directly. Reaching the same app through the Trustant
 UI serves it from `http://vite.<ip>.nip.io:8910` — plain HTTP on a non-localhost
 host, which is *not* a secure context. The shutter still renders there (the
 plugin is served either way), but `navigator.mediaDevices` is `undefined`, so
@@ -155,7 +155,7 @@ point and was dropped: it added a second thing to keep in sync, and the encoder
 then in use silently merged identical consecutive frames, so it disagreed with
 the APNG whenever the app had not changed between captures.
 
-Nothing in the managed `.gitignore` block (`trustableGitignoreEntries` in
+Nothing in the managed `.gitignore` block (`trustantGitignoreEntries` in
 `gitignore.go`, spec [13-gitignore.md](13-gitignore.md)) matches `*.png` or
 `screenshot/`, so the app's copy is tracked and committed normally. The root
 preview copy is excluded by the repo's own `.gitignore`.
@@ -299,7 +299,7 @@ produce a bare trailing slash.
 that `launch.go` declares. It is reached directly rather than through
 `vite.<domain>`, which would add an ingress hop and the auth middleware for no
 benefit when the tool already runs in the VM. Override with
-`TRUSTABLE_SCREENSHOT_URL`.
+`TRUSTANT_SCREENSHOT_URL`.
 
 A `curl -fsS --max-time 5` liveness check runs first, so an app that is not
 serving fails immediately instead of after a fruitless retrieval.
@@ -313,7 +313,7 @@ It no longer controls what the app renders — the app renders at whatever size 
 user's window happens to be. A window the shutter opened is resized to the canvas
 before each grab; whatever arrives is then fitted by width onto a fixed 600×800
 canvas, so every frame is always the same size. Override with
-`TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT`.
+`TRUSTANT_SCREENSHOT_WIDTH` / `_HEIGHT`.
 
 The size is also requested from the capture itself, as
 `video: { width: { ideal: W }, height: { ideal: H } }`, so the browser's own
@@ -401,7 +401,7 @@ matched nothing at all. Verified against a live app: the toolkit's corner drops
 from 1417 distinct colours to 15 (flat background), with each mechanism working
 independently of the other.
 
-**The same rule carries `[data-trustable-shutter]`, so the button hides itself.**
+**The same rule carries `[data-trustant-shutter]`, so the button hides itself.**
 It sits on the very page it is capturing; without this it is in every frame. The
 rule uses `visibility:hidden` rather than `display:none` so geometry stays stable
 and nothing reflows mid-capture. `!important` in a `<head>` stylesheet reaches
@@ -446,14 +446,14 @@ current app changes. The plugin does two things: it renders the button, and it
 mounts the endpoint the button uploads to.
 
 ```ts
-// >>> trustable-screenshot shutter — injected by screenshot.sh, removed on quit
-const trustableScreenshotShutter = () => ({
-  name: 'trustable-screenshot-shutter',
+// >>> trustant-screenshot shutter — injected by screenshot.sh, removed on quit
+const trustantScreenshotShutter = () => ({
+  name: 'trustant-screenshot-shutter',
   apply: 'serve',
-  configureServer(server) { /* mounts /__trustable_shot */ },
+  configureServer(server) { /* mounts /__trustant_shot */ },
   transformIndexHtml() { /* injects the client script */ },
 });
-// <<< trustable-screenshot shutter
+// <<< trustant-screenshot shutter
 ```
 
 `transformIndexHtml` means the script is added when the page is **served** — the
@@ -510,7 +510,7 @@ and removing byte-exactly.
 > `cleanup_reporter`, and the markers still use `REPORTER_BEGIN`/`REPORTER_END`.
 > Those names are historical — this began as a route reporter — and were kept
 > because the injection *mechanism* is unchanged. The factory name
-> `trustableScreenshotShutter` appears in **both** the injection and
+> `trustantScreenshotShutter` appears in **both** the injection and
 > `remove_reporter`'s replace string; if they ever drift, removal silently
 > no-ops and leaves a call to an undefined plugin in the user's config. A guard
 > in `screenshot_script_test.go` counts the occurrences for exactly this reason.
@@ -518,7 +518,7 @@ and removing byte-exactly.
 ## The button
 
 A `<button>` appended to `document.body`, `position:fixed`, **top right**, 36px,
-carrying `data-trustable-shutter` and the id `__trustable_shutter__`.
+carrying `data-trustant-shutter` and the id `__trustant_shutter__`.
 
 - **Top right**, because the `@agentic-react` launcher is bottom-right and 58px —
   no geometric overlap.
@@ -583,7 +583,7 @@ matters.
 
 The capture is stored **durably first and uploaded second**:
 
-1. the normalized PNG is `put` into IndexedDB (db `trustable-shots`, store
+1. the normalized PNG is `put` into IndexedDB (db `trustant-shots`, store
    `frames`, `autoIncrement`);
 2. `drain()` POSTs each pending record to the endpoint and deletes it on a 204.
 
@@ -601,7 +601,7 @@ literal first statement of the handler.
 
 ## The endpoint
 
-`configureServer` mounts `/__trustable_shot` on the dev server:
+`configureServer` mounts `/__trustant_shot` on the dev server:
 
 | Method | Behaviour |
 |---|---|
@@ -617,7 +617,7 @@ is capped to the same number so it cannot spin.
 
 The middleware is mounted **synchronously in the `configureServer` body, not by
 returning a function.** A returned function installs after Vite's own
-middlewares, and the SPA fallback would then answer `/__trustable_shot` with
+middlewares, and the SPA fallback would then answer `/__trustant_shot` with
 `index.html`. That is the difference between a working endpoint and one that
 returns HTML to `curl` — and it is why `fetch_frame` verifies the PNG magic
 number `89504e470d0a1a0a` before accepting a frame. Without that check the HTML
@@ -802,8 +802,8 @@ folder and commit.
 
 | Variable | Meaning |
 |---|---|
-| `TRUSTABLE_SCREENSHOT_URL` | app origin, default `http://localhost:5173` |
-| `TRUSTABLE_SCREENSHOT_WIDTH` / `_HEIGHT` | output canvas, default `600` / `800` |
+| `TRUSTANT_SCREENSHOT_URL` | app origin, default `http://localhost:5173` |
+| `TRUSTANT_SCREENSHOT_WIDTH` / `_HEIGHT` | output canvas, default `600` / `800` |
 
 # What can go wrong
 
@@ -829,7 +829,7 @@ Pressing Enter promptly after clicking is the practical mitigation.
 
 **HMR runs.** `transformIndexHtml` is not re-run for a hot update, and the button
 — a `document.body` child — survives it. A *full* reload does re-run the script,
-which is why it guards on `window.__trustableShutter` before mounting a second
+which is why it guards on `window.__trustantShutter` before mounting a second
 button, and why `drain()` runs at load.
 
 **The app has no `plugins: [` array.** One is added — see "Configs with no

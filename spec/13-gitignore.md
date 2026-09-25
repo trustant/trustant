@@ -23,7 +23,7 @@ never shows up in a commit.
 `<workbenchdir>/<app>/.gitignore`:
 
 ```
-# >>> trustable managed — do not edit <<<
+# >>> trustant managed — do not edit <<<
 .acp-data/
 .env
 .env.production
@@ -35,7 +35,7 @@ CLAUDE.md.removed
 .claude
 .claude.removed
 .openserverless-contract.md
-# >>> end trustable managed <<<
+# >>> end trustant managed <<<
 ```
 
 Rules:
@@ -133,7 +133,7 @@ ignore file, reusing `ensureGitIdentity`:
 
 ```
 git add .gitignore
-git commit -m "trustable: manage generated files"
+git commit -m "trustant: manage generated files"
 ```
 
 Best-effort and non-fatal: a failure is logged and launch continues, consistent
@@ -157,7 +157,7 @@ final state (after the links are created):
   `git checkout .` on revert deletes it outright instead of restoring a correct
   managed block.
 
-The commit is `trustable: update project files`, reuses `ensureGitIdentity`, is
+The commit is `trustant: update project files`, reuses `ensureGitIdentity`, is
 best-effort and non-fatal, and does not push. It is skipped when neither file
 differs from `HEAD`, so a relaunch adds no empty commit. Both the staging and
 the commit are scoped to these paths, so work the user staged by hand is left

@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trustable</title>
+    <title>Trustant</title>
     <script src="tailwind.js"></script>
     <script src="trustant-auth.js"></script>
     <script src="js/envtable.js"></script>
@@ -38,17 +38,17 @@
     <header class="nu-topbar">
         <div class="nu-shell-full px-3 md:px-5 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div class="flex items-center gap-4">
-                <img src="trustant-logo.svg" alt="Trustable Logo" class="w-16 h-16">
+                <img src="trustant-logo.svg" alt="Trustant Logo" class="w-16 h-16">
                 <div>
                     <p class="nu-mono text-xs uppercase text-[color:var(--nu-muted)]">Private AI workbench</p>
-                    <h1 class="text-3xl md:text-4xl font-light text-[color:var(--nu-ink)]">Trustable</h1>
+                    <h1 class="text-3xl md:text-4xl font-light text-[color:var(--nu-ink)]">Trustant</h1>
                     <div class="flex flex-wrap items-center gap-2 mt-1">
                         <span id="releaseTag" class="nu-status-pill px-2 py-1" title="Build information">Version loading...</span>
                     </div>
                 </div>
             </div>
             <div class="flex flex-wrap gap-2 md:justify-end">
-                <button type="button" data-trustable-logout onclick="TrustableAuth.logout()" title="Sign out of Trustable"
+                <button type="button" data-trustant-logout onclick="TrustantAuth.logout()" title="Sign out of Trustant"
                     class="hidden nu-btn nu-btn-secondary">
                     Logout
                 </button>
@@ -210,7 +210,7 @@
                     <input type="text" id="appRepo" required list="githubRepoOptions"
                         placeholder="org/repo"
                         pattern="[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+"
-                        title="Format: org/repo (e.g., nuvolaris/trustable-workspace)"
+                        title="Format: org/repo (e.g., nuvolaris/trustant-workspace)"
                         class="nu-input w-full px-3 py-2">
                     <datalist id="githubRepoOptions"></datalist>
                     <p class="text-xs text-[color:var(--nu-muted)] mt-1">Format: org/repo</p>
@@ -272,10 +272,10 @@
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
                 If you use your own starter, it must be derived by a standard application
                 starter or be compatible with
-                <a href="https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable"
-                    target="_blank" rel="noopener" class="nu-link">Trustable Conventions</a>.
+                <a href="https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustant"
+                    target="_blank" rel="noopener" class="nu-link">Trustant Conventions</a>.
                 The repo must exist. Connect your GitHub account below to access it;
-                Trustable reads and pushes over HTTPS with the connected account.
+                Trustant reads and pushes over HTTPS with the connected account.
                 If you use a standard template you can save in your repo later.
             </p>
             <!-- Connecting here is what grants access to the user's own private
@@ -441,7 +441,7 @@
                          installations that never connect one. -->
                     <div id="gitPushGithubNotice" class="nu-banner p-3 hidden">
                         <p class="text-sm mb-2">
-                            Connect your GitHub account to push. Trustable pushes over HTTPS with the
+                            Connect your GitHub account to push. Trustant pushes over HTTPS with the
                             connected account — no SSH key needed.
                         </p>
                         <div id="gitPushGithubPanel"></div>
@@ -767,7 +767,7 @@
                 title.textContent = 'License required';
                 body.textContent = detail
                     ? detail.replace(/^.*?License required:\s*/, 'Publishing requires a valid license — ')
-                    : 'Publishing requires a valid Trustable license.';
+                    : 'Publishing requires a valid Trustant license.';
             }
 
             const feedback = document.getElementById('licenseModalFeedback');
@@ -1328,7 +1328,7 @@
             return key;
         }
 
-        // Trustable is served over plain http on a nip.io host, which is not a
+        // Trustant is served over plain http on a nip.io host, which is not a
         // secure context, so `navigator.clipboard` is undefined here — reading
         // `.writeText` off it throws rather than rejecting. The textarea path is
         // what actually copies in practice; the modern API is tried first for
@@ -2846,13 +2846,13 @@
                     if (term) term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
                 };
 
-                if (!term._trustableWired) {
+                if (!term._trustantWired) {
                     term.onData((data) => {
                         if (socket && socket.readyState === WebSocket.OPEN) {
                             socket.send(new TextEncoder().encode(data));
                         }
                     });
-                    term._trustableWired = true;
+                    term._trustantWired = true;
                 }
             }
 
@@ -3116,7 +3116,7 @@
                     return;
                 }
                 const releaseTag = document.getElementById('releaseTag');
-                const shortVersion = String(data.version || '').replace(/^Trustable\s+/, '');
+                const shortVersion = String(data.version || '').replace(/^Trustant\s+/, '');
                 const stream = data.stream || data.branch || '';
                 if (shortVersion || stream) {
                     releaseTag.textContent = [shortVersion, stream].filter(Boolean).join(' \u00b7 ');

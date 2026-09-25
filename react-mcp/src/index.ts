@@ -27,10 +27,10 @@ import {
 } from "./analyzer.ts"
 
 const root = resolveManagedReactRoot()
-const server = new McpServer({ name: "trustable-react-mcp", version: "0.1.0" })
+const server = new McpServer({ name: "trustant-react-mcp", version: "0.1.0" })
 
 // WHY: keep the tool surface read-only and rootless from the model's point of
-// view. Every operation analyzes the single workbench selected by Trustable's
+// view. Every operation analyzes the single workbench selected by Trustant's
 // host-owned manifest, so it cannot drift to another mounted application.
 function text(value: unknown) {
   return {
@@ -42,12 +42,12 @@ function text(value: unknown) {
 }
 
 server.registerTool("react_project_inspect", {
-  description: "Inspect the current Trustable React/Vite project, router kind, source count, and declared scripts without modifying files.",
+  description: "Inspect the current Trustant React/Vite project, router kind, source count, and declared scripts without modifying files.",
   inputSchema: {},
 }, async () => text(inspectReactProject(root)))
 
 server.registerTool("react_validate_routes", {
-  description: "AST-validate React Router usage for the current Trustable app. In particular, HashRouter APIs must receive logical paths and internal anchors must not reload the document.",
+  description: "AST-validate React Router usage for the current Trustant app. In particular, HashRouter APIs must receive logical paths and internal anchors must not reload the document.",
   inputSchema: {},
 }, async () => text({ findings: validateReactRoutes(root) }))
 
@@ -57,7 +57,7 @@ server.registerTool("react_validate_auth_flow", {
 }, async () => text({ findings: validateReactAuthFlow(root) }))
 
 server.registerTool("react_validate", {
-  description: "Run the bounded TypeScript, React route, and authentication validation suite for the current Trustable workbench. This is read-only and returns structured findings.",
+  description: "Run the bounded TypeScript, React route, and authentication validation suite for the current Trustant workbench. This is read-only and returns structured findings.",
   inputSchema: {},
 }, async () => text(validateReactProject(root)))
 

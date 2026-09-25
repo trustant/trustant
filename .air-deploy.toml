@@ -17,7 +17,7 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "sed -i '' 's/^Build: .*/Build: dev_'$(date +%y.%j.%H%M)'/' version.txt && env GOOS=linux GOARCH=arm64 go build -o ./tmp/trustable . && kubectl -n nuvolaris cp -c trustable ./tmp/trustable trustable-0:/usr/local/bin/trustable && kubectl -n nuvolaris exec -c trustable trustable-0 -- supervisorctl restart trustable"
+  cmd = "sed -i '' 's/^Build: .*/Build: dev_'$(date +%y.%j.%H%M)'/' version.txt && env GOOS=linux GOARCH=arm64 go build -o ./tmp/trustant . && kubectl -n nuvolaris cp -c trustant ./tmp/trustant trustant-0:/usr/local/bin/trustant && kubectl -n nuvolaris exec -c trustant trustant-0 -- supervisorctl restart trustant"
   bin = "/usr/bin/true"
   delay = 1000
   exclude_dir = ["tmp", "workspace", "workbench", "web", "node_modules", "image", "trureact", "truchat"]

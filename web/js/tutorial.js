@@ -34,7 +34,7 @@
  * the action completed (the notebook panel really opened, the commit really
  * succeeded), which is polled on a timer so the tour follows the app rather
  * than replaying a fixed slideshow. Notebook state lives in the TruACP frame on
- * another origin and arrives through the tour bridge (trustable-acp
+ * another origin and arrives through the tour bridge (trustant-acp
  * web/tour-bridge.ts).
  *
  * The engine's first duty is never to trap the user. Every step can be skipped
@@ -50,7 +50,7 @@
 (function () {
     'use strict';
 
-    const STORAGE_KEY = 'trustable.tutorial';
+    const STORAGE_KEY = 'trustant.tutorial';
     const TICK_MS = 150;
     // Frame reports arrive every 200ms; anything older means the frame went
     // away (navigation, reload, hidden panel) and its targets are unusable.
@@ -108,12 +108,12 @@
         const win = frameWindow();
         const origin = frameOrigin();
         if (!win || !origin) return;
-        win.postMessage(Object.assign({ source: 'trustable-tour-host' }, message), origin);
+        win.postMessage(Object.assign({ source: 'trustant-tour-host' }, message), origin);
     }
 
     window.addEventListener('message', (event) => {
         const data = event.data;
-        if (!data || data.source !== 'trustable-tour-frame' || data.type !== 'frame') return;
+        if (!data || data.source !== 'trustant-tour-frame' || data.type !== 'frame') return;
         // Fail closed. With no parsable LEFT cookie there is no origin to trust,
         // and the right-hand preview iframe runs user application code that
         // could otherwise steer the spotlight onto arbitrary coordinates.

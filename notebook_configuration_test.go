@@ -41,7 +41,7 @@ func TestNotebookConfigurationKeepsTokenPrivate(t *testing.T) {
 		t.Fatalf("token mode = %o, want 600", info.Mode().Perm())
 	}
 
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestNotebookRuntimeEnvironmentUsesStarterTemplates(t *testing.T) {
 		WorkspaceDir = previousWorkspace
 	})
 
-	if err := saveWorkspaceConfig(&trustableConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{
 		Apps: map[string]*AppConfig{
 			"fromstarter": {Templates: "trustable-ai/vue-templates"},
 			"plainapp":    {},

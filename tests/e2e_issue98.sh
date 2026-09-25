@@ -18,9 +18,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NAMESPACE="${TRUSTABLE_E2E_NAMESPACE:-openserverless}"
-POD="${TRUSTABLE_E2E_POD:-trustable-0}"
-CONTAINER="${TRUSTABLE_E2E_CONTAINER:-trustable}"
+NAMESPACE="${TRUSTANT_E2E_NAMESPACE:-openserverless}"
+POD="${TRUSTANT_E2E_POD:-trustant-0}"
+CONTAINER="${TRUSTANT_E2E_CONTAINER:-trustant}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -30,15 +30,15 @@ need() {
 }
 
 detect_domain() {
-  if [ "${TRUSTABLE_E2E_DOMAIN:-}" != "" ]; then
-    echo "$TRUSTABLE_E2E_DOMAIN"
+  if [ "${TRUSTANT_E2E_DOMAIN:-}" != "" ]; then
+    echo "$TRUSTANT_E2E_DOMAIN"
     return
   fi
 
   local host
-  host="$(kubectl -n "$NAMESPACE" get ingress trustable-ing -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
+  host="$(kubectl -n "$NAMESPACE" get ingress trustant-ing -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
   if [ "$host" != "" ]; then
-    echo "${host#trustable.}"
+    echo "${host#trustant.}"
     return
   fi
 
@@ -58,7 +58,7 @@ detect_domain() {
 need npm
 need node
 
-if [ "${TRUSTABLE_E2E_LOCAL:-0}" != "1" ]; then
+if [ "${TRUSTANT_E2E_LOCAL:-0}" != "1" ]; then
   need kubectl
   kubectl -n "$NAMESPACE" get pod "$POD" >/dev/null
 else
@@ -75,30 +75,30 @@ else
   KUBEFWD_ARGS="$(ps -p "${KUBEFWD_PIDS[0]}" -o args=)"
   if [[ "$KUBEFWD_ARGS" != *"svc"* ||
         "$KUBEFWD_ARGS" != *"-n openserverless"* ||
-        "$KUBEFWD_ARGS" != *"metadata.name!=trustable-svc"* ]]; then
+        "$KUBEFWD_ARGS" != *"metadata.name!=trustant-svc"* ]]; then
     echo "ERROR local kubefwd does not match the run.sh namespace/exclusion contract" >&2
     exit 1
   fi
 fi
 
-export TRUSTABLE_E2E_NAMESPACE="$NAMESPACE"
-export TRUSTABLE_E2E_POD="$POD"
-export TRUSTABLE_E2E_CONTAINER="$CONTAINER"
-export TRUSTABLE_E2E_DOMAIN="$(detect_domain)"
+export TRUSTANT_E2E_NAMESPACE="$NAMESPACE"
+export TRUSTANT_E2E_POD="$POD"
+export TRUSTANT_E2E_CONTAINER="$CONTAINER"
+export TRUSTANT_E2E_DOMAIN="$(detect_domain)"
 
-echo "Trustable issue98 E2E"
-echo "  runtime:    $([ "${TRUSTABLE_E2E_LOCAL:-0}" = "1" ] && echo local || echo kubernetes)"
-echo "  domain:     $TRUSTABLE_E2E_DOMAIN"
-echo "  namespace:  $TRUSTABLE_E2E_NAMESPACE"
-echo "  pod:        $TRUSTABLE_E2E_POD"
-echo "  app:        ${TRUSTABLE_E2E_APP:-<create if TRUSTABLE_E2E_REPO is set>}"
+echo "Trustant issue98 E2E"
+echo "  runtime:    $([ "${TRUSTANT_E2E_LOCAL:-0}" = "1" ] && echo local || echo kubernetes)"
+echo "  domain:     $TRUSTANT_E2E_DOMAIN"
+echo "  namespace:  $TRUSTANT_E2E_NAMESPACE"
+echo "  pod:        $TRUSTANT_E2E_POD"
+echo "  app:        ${TRUSTANT_E2E_APP:-<create if TRUSTANT_E2E_REPO is set>}"
 echo
 
 if [ ! -d "$ROOT/node_modules/@playwright/test" ]; then
   (cd "$ROOT" && npm install --no-audit --no-fund)
 fi
 
-if [ "${TRUSTABLE_E2E_SKIP_BROWSER_INSTALL:-}" != "1" ]; then
+if [ "${TRUSTANT_E2E_SKIP_BROWSER_INSTALL:-}" != "1" ]; then
   (cd "$ROOT" && npx playwright install chromium)
 fi
 

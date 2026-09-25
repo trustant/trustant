@@ -1,11 +1,11 @@
-# Trustable local administrator authentication
+# Trustant local administrator authentication
 
 ## Scope
 
-Trustable authentication is disabled unless `TRUSTABLE_AUTH_MODE=local` is
+Trustant authentication is disabled unless `TRUSTANT_AUTH_MODE=local` is
 set. Disabled mode preserves the existing UI, routes and API behaviour.
 
-Local mode protects first-party pages and APIs served by the Trustable host on
+Local mode protects first-party pages and APIs served by the Trustant host on
 port `8910`. It is independent from:
 
 - generated application authentication;
@@ -27,9 +27,9 @@ or through the corresponding `_FILE` variable. `_FILE` takes precedence.
 
 | Value | Direct environment | File environment |
 | --- | --- | --- |
-| Username | `TRUSTABLE_AUTH_USERNAME` | `TRUSTABLE_AUTH_USERNAME_FILE` |
-| Password hash | `TRUSTABLE_AUTH_PASSWORD_HASH` | `TRUSTABLE_AUTH_PASSWORD_HASH_FILE` |
-| Session key | `TRUSTABLE_AUTH_SESSION_KEY` | `TRUSTABLE_AUTH_SESSION_KEY_FILE` |
+| Username | `TRUSTANT_AUTH_USERNAME` | `TRUSTANT_AUTH_USERNAME_FILE` |
+| Password hash | `TRUSTANT_AUTH_PASSWORD_HASH` | `TRUSTANT_AUTH_PASSWORD_HASH_FILE` |
+| Session key | `TRUSTANT_AUTH_SESSION_KEY` | `TRUSTANT_AUTH_SESSION_KEY_FILE` |
 
 The password hash format is:
 
@@ -69,7 +69,7 @@ HTTPS. Sessions are stored only in memory, expire after eight hours, are
 bounded to 256 entries, and are invalidated by a server restart.
 
 `web/trustant-auth.js` wraps first-party `fetch` calls and adds
-`X-Trustable-CSRF` to mutating and effectful requests. The server requires both
+`X-Trustant-CSRF` to mutating and effectful requests. The server requires both
 the session CSRF value and same-origin request evidence (`Origin`, or `Referer`
 when browsers omit `Origin` on a same-origin GET) for:
 
@@ -107,7 +107,7 @@ authentication, CSRF on normal mutations and effectful GET routes, and logout.
 
 Authentication must be a deployment choice, not an implicit dependency of an
 image or Git branch. A development deployment must be able to run with
-`TRUSTABLE_AUTH_MODE=disabled` without a reachable Keycloak, OIDC discovery,
+`TRUSTANT_AUTH_MODE=disabled` without a reachable Keycloak, OIDC discovery,
 OIDC Secret, or auth-specific volume. Switching between `main`, `devel`, and a
 local image must preserve the explicitly selected mode and must not leave an
 incompatible mode from a previous image active.
@@ -120,7 +120,7 @@ Implementation phases:
 2. Render only the environment variables, Secret mounts, and volumes required
    by the selected mode. Changing to `disabled` removes stale OIDC deployment
    configuration but does not delete the operator-owned Kubernetes Secret.
-3. Expose the same setting in the Trustable configuration UI after the
+3. Expose the same setting in the Trustant configuration UI after the
    deployment API can apply it safely. Enabling `oidc` requires validated
    Keycloak configuration before rollout; disabling it requires explicit user
    confirmation because it changes the access boundary.
@@ -130,7 +130,7 @@ Implementation phases:
 
 The current local cluster demonstrated the required compatibility behavior:
 the public `main` image predates OIDC and failed to start while the StatefulSet
-still supplied `TRUSTABLE_AUTH_MODE=oidc`. Setting the deployment explicitly to
+still supplied `TRUSTANT_AUTH_MODE=oidc`. Setting the deployment explicitly to
 `disabled` restored the server without changing the image or requiring
 Keycloak. The final implementation must make this transition a supported,
 idempotent product operation rather than a manual `kubectl set env` command.

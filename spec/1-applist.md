@@ -16,7 +16,7 @@ After the provider guard passes, fetch `GET /api/status` and apply the same per-
 
 # App List Page
 
-The page shows the Trustable logo (`trustant-logo.svg`), product name, and the
+The page shows the Trustant logo (`trustant-logo.svg`), product name, and the
 version returned by the version API as a compact release tag.
 
 The release tag shows `<version> · <stream>`.
@@ -24,7 +24,7 @@ The tag tooltip reports the source branch and exact build label. This lets local
 development, feature-stream, and release images remain distinguishable without
 hardcoding labels in the page.
 
-Immediately **after the title** (below the version line, above the Applications card), show a **Credits box** — but only when the merged configuration's `provider` field equals `"trustable"`. For any other provider the box is not rendered. See "Credits" below.
+Immediately **after the title** (below the version line, above the Applications card), show a **Credits box** — but only when the merged configuration's `provider` field equals `"trustant"`. For any other provider the box is not rendered. See "Credits" below.
 
 Show also in smaller font at the end of the page "Expiration date: <date>"
 
@@ -75,10 +75,10 @@ style, while generic table body values preserve their original casing; the app
 list is the explicit exception where the full list view uses uppercase as a
 visual transform.
 
-# Shared Trustable visual system
+# Shared Trustant visual system
 
-`applist.html` is the source of truth for the Trustable first-party visual
-system. Apply the same Nuvolaris-style graphic language to these Trustable
+`applist.html` is the source of truth for the Trustant first-party visual
+system. Apply the same Nuvolaris-style graphic language to these Trustant
 pages as they are migrated:
 
 - `web/index.html` — splash, provider choice, sign-in/configuration modals.
@@ -90,7 +90,7 @@ pages as they are migrated:
 
 Do not include `web/template.html` in this rollout. It is embedded as a
 generated application placeholder (see [4-launch.md](4-launch.md)), not a
-first-party Trustable page.
+first-party Trustant page.
 
 Shared primitives:
 
@@ -112,7 +112,7 @@ Shared primitives:
   Shared visual primitives live in `web/trustant-ui.css`; pages should link
   that stylesheet rather than reintroducing page-local copies of the same
   palette, typography, button, panel, table, and input rules.
-- **Never copy to the clipboard through `navigator.clipboard` alone.** Trustable
+- **Never copy to the clipboard through `navigator.clipboard` alone.** Trustant
   is served over plain `http` on a `nip.io` host, which browsers do not treat as
   a secure context, so `navigator.clipboard` is **undefined** — reading
   `.writeText` off it throws rather than rejecting, and a copy button written
@@ -143,14 +143,14 @@ list view has enough width for the full action row without squeezing the Applica
 and Repository columns. Other pages keep the default `nu-shell`.
 
 The Development link points to `<protocol>://<name>.<domain>` by replacing the
-first label of the current Trustable host. For example, from
-`http://trustable.<node-ip>.nip.io:8910` it points to
+first label of the current Trustant host. For example, from
+`http://trustant.<node-ip>.nip.io:8910` it points to
 `http://<name>.<node-ip>.nip.io:8910`, and from
-`https://trustable.<base-domain>` it points to
+`https://trustant.<base-domain>` it points to
 `https://<name>.<base-domain>`.
 
 In the `run.sh` Lima development environment the app-specific nip.io request
-reaches the Trustable server on port 8910, not the k3s ingress directly. For a
+reaches the Trustant server on port 8910, not the k3s ingress directly. For a
 host prefix that matches an existing application, the hostname middleware must
 reverse-proxy the request to `<name>.<development OPS_APIHOST>` inside the VM
 (for example `trutest1.miniops.me`) and rewrite the upstream `Host` header so
@@ -162,7 +162,7 @@ The Production link is shown when both `OPS_APIHOST` and `OPS_USER` are defined 
 The Repository link is shown when `OPS_REPO` is defined in `.env.production`. It points to `https://github.com/<opsrepo>` where `<opsrepo>` is the value of OPS_REPO.
 
 You can
-- configure (general) — opens `index.html?choose=1`, which forces the **Provider Choice** modal so the user can switch between Ollama (internal or own-host) and Trustable Cloud (see [1-index.md](1-index.md)). It does **not** open `configure.html` directly.
+- configure (general) — opens `index.html?choose=1`, which forces the **Provider Choice** modal so the user can switch between Ollama (internal or own-host) and Trustant Cloud (see [1-index.md](1-index.md)). It does **not** open `configure.html` directly.
 - add applications
 - remove applications — this also removes the ops user, the bare repo, the
   workbench checkout, the `apps.<name>` config entry **and every variable the
@@ -184,7 +184,7 @@ Avoid assigning a different saturated color to every action. Destructive
 actions may keep a red text/border treatment, but should not use a solid red
 background in the normal state.
 
-Feedback UI on the app list uses the shared Trustable primitives from
+Feedback UI on the app list uses the shared Trustant primitives from
 `web/trustant-ui.css`: status banners, progress masks, confirmation dialogs,
 result blocks, and error/success/warning messages are rendered as `nu-modal`,
 `nu-btn`, `nu-input`, and `nu-feedback` surfaces. Destructive confirmations such
@@ -320,8 +320,8 @@ Selecting **"My Application Starter"** opens a warning dialog:
 
 > Warning: if you use your own starter, it must be derived by a standard
 > application starter or be compatible with
-> [Trustable Conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustable).
-> The repo must exist. Connect your GitHub account below to access it; Trustable
+> [Trustant Conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustant).
+> The repo must exist. Connect your GitHub account below to access it; Trustant
 > reads and pushes over HTTPS with the connected account. If you use a standard
 > template you can save in your repo later.
 
@@ -421,7 +421,7 @@ Show a waiting modal until the api call completes. Once completed the modal shou
 # Edit application
 
 Calculate LEFT and RIGHT url from the location.
-Expect a domain in format `<protocol>://trustable.<domain>[:<port>]`,
+Expect a domain in format `<protocol>://trustant.<domain>[:<port>]`,
 show an error if it is not in this format. Let:
 - LEFT is `<protocol>://opencode.<domain>:<port>`
 - RIGHT is `<protocol>://vite.<domain>:<port>`
@@ -463,7 +463,7 @@ If the backend returns `{"needs_config": true}`, show a popup asking for:
 - The production repository in org/repo format
 - The shared **GitHub account form** ([github.md](github.md)), when no account is
   connected, above the repository field, introduced by "Connect your GitHub
-  account to push. Trustable pushes over HTTPS with the connected account — no
+  account to push. Trustant pushes over HTTPS with the connected account — no
   SSH key needed." Connecting inside the popup replaces the form with a line
   naming the account, so the user completes the push without reopening it.
 - The SSH key fallback, offered only while no account is connected and only if
@@ -490,11 +490,11 @@ Each app card has a "Git Pull" button. Clicking it calls
 The backend pulls from the configured production repository (`OPS_REPO`) when
 available, matching the Git Push target. If no production repository is
 configured, it pulls from the app's original `origin` repository. The operation
-updates Trustable's bare workspace repository and fast-forwards the active
+updates Trustant's bare workspace repository and fast-forwards the active
 workbench checkout when it exists.
 
 The backend does not merge, rebase, hard reset, or overwrite unsaved workbench
-changes. Trustable-generated launch files may be cleaned by the backend before
+changes. Trustant-generated launch files may be cleaned by the backend before
 the pull because they are regenerated on app launch; app/user changes and
 `AGENTS.md` with app-local notes remain blocking. If local changes or divergent
 commits exist, show the backend error in the same modal/result style used by Git
@@ -588,7 +588,7 @@ empty Production values. Read-only Development fields remain unchanged.
 
 The Import `.env.production` button lets the user select a local `.env` or
 `.env.production` file and imports those values into the Production column on
-Trustable. It updates matching Production values and adds missing keys as custom
+Trustant. It updates matching Production values and adds missing keys as custom
 variables with empty Development values. Imported values are not saved until the
 user clicks Save/Commit.
 
@@ -597,7 +597,7 @@ The Close will come back, warning if there are unsaved changes.
 
 # Credits
 
-A compact **Credits box** is shown on this page right after the title (below the version, above the Applications card), but **only when the merged configuration's `provider` field equals `"trustable"`**. For Ollama (or any other provider) the box is not rendered.
+A compact **Credits box** is shown on this page right after the title (below the version, above the Applications card), but **only when the merged configuration's `provider` field equals `"trustant"`**. For Ollama (or any other provider) the box is not rendered.
 
 The box is a rounded pill (light background, border) showing the label `Credits:` followed by the current credit value (e.g. `Credits: 873`). While the value has not yet been fetched, show `Credits: …`. On error, show `Credits: —` and put the error text in the element's `title` attribute (tooltip).
 

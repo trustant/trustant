@@ -1,7 +1,7 @@
 # Application test completion gate
 
 > **REMOVED — historical record only.** This entire gate was implemented by the
-> OpenCode session-enforcement plugin (`trustable_completion_check` and its
+> OpenCode session-enforcement plugin (`trustant_completion_check` and its
 > siblings). The plugin is gone and has no Pi replacement: Pi is reached through
 > `pi-acp`, which passes no tool flags, so no tool call can be intercepted or
 > blocked. Nothing below is enforced today. See "No tool-permission guardrail" in
@@ -16,7 +16,7 @@
 
 ## Goal
 
-`trustable_completion_check` must run application tests that already exist
+`trustant_completion_check` must run application tests that already exist
 before OpenCode can claim that a change is complete. The gate is automatic and
 must never ask the application user to run shell commands.
 
@@ -85,7 +85,7 @@ After coverage is established, the bounded runner executes the suite and its
 failure remains blocking. A successful completion clears the persisted endpoint
 list; a failed completion retains it.
 
-Integrated Trustable Code does not force an internal completion-recovery turn
+Integrated Trustant Code does not force an internal completion-recovery turn
 after a final answer. If the provider stops without text, the session shows a
 concise visible status. Inspecting a checker file with a read-only
 `cat ... | head` command is not classified as masked checker execution;
@@ -100,7 +100,7 @@ framework requirement.
 
 ## Completion behavior
 
-Application tests run after git validation, Trustable contract checks, required
+Application tests run after git validation, Trustant contract checks, required
 action deploy/setup, and any frontend typecheck and build. The gate uses the
 project `typecheck` script when present; otherwise it runs the installed local
 TypeScript compiler with `tsc -b --noEmit --incremental false` when
@@ -114,9 +114,9 @@ the agent must continue the requested implementation or report the concrete
 failure, never add placeholder tests merely to satisfy or reset the gate.
 
 Legacy non-integrated OpenCode may still replace an unverified final response
-with one bounded recovery turn. Integrated Trustable Code may request exactly
+with one bounded recovery turn. Integrated Trustant Code may request exactly
 one internal continuation when source changed but the model never called
-`trustable_completion_check`; a second final response is never intercepted for
+`trustant_completion_check`; a second final response is never intercepted for
 the same request.
 Fallback status text emitted directly by the plugin is English, consistent
 with the rest of its control-plane messages; model-authored responses may still
@@ -140,7 +140,7 @@ the OpenServerless MCP for action mutation, inspection, and invocation, and
 
 ## Managed login lifecycle
 
-Trustable launch already runs `ops ide login`, configures the application, and
+Trustant launch already runs `ops ide login`, configures the application, and
 starts the managed development server with the resulting environment. OpenCode
 must not run `ops ide login` again during the session: doing so can change the
 workspace credentials and bindings while the running server still uses its
@@ -149,7 +149,7 @@ previous launch environment.
 The process guard rejects `ops ide login` before shell execution, including
 commands prefixed by `timeout`, `env`, inline environment assignments, `sudo`,
 or `command`, and login commands appearing in a concatenated shell segment.
-The diagnostic states that Trustable already authenticated and configured the
+The diagnostic states that Trustant already authenticated and configured the
 application. The agent must not retry login or replace/restart the managed dev
 server. `ops ide deploy` and `ops ide setup` remain allowed where their existing
 action lifecycle guards require them.

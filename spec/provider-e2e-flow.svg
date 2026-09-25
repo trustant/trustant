@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="640" viewBox="0 0 1100 640" role="img" aria-labelledby="title desc">
-  <title id="title">Trustable multi-provider E2E benchmark flow</title>
+  <title id="title">Trustant multi-provider E2E benchmark flow</title>
   <desc id="desc">Three provider entrypoints build isolated temporary profiles, verify the effective provider identity and configuration, run the guarded Stack application test across parent and delegated OpenCode sessions, restore configuration, and report normalized checks and artifacts.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">

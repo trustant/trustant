@@ -29,7 +29,7 @@ import (
 )
 
 // masterKeyPub is the trusted Ed25519 public key, produced by `trulicense keygen`
-// from the "MasterKey Trustable" 1Password vault item. Verification is fully
+// from the "MasterKey Trustant" 1Password vault item. Verification is fully
 // offline: the server never talks to 1Password. See spec/14-license.md.
 //
 //go:embed master_key_pub
@@ -108,7 +108,7 @@ func parseLicense(token string, pub ed25519.PublicKey) (*licensePayload, error) 
 		return nil, fmt.Errorf("signature has wrong size %d (want %d)", len(sig), ed25519.SignatureSize)
 	}
 	if !ed25519.Verify(pub, payloadBytes, sig) {
-		return nil, fmt.Errorf("signature does not verify against the Trustable master key")
+		return nil, fmt.Errorf("signature does not verify against the Trustant master key")
 	}
 	var payload licensePayload
 	if err := json.Unmarshal(payloadBytes, &payload); err != nil {

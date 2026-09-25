@@ -25,7 +25,7 @@ import (
 	"testing"
 )
 
-func TestBrowserVisibleDevelopmentURLUsesCallingTrustableOrigin(t *testing.T) {
+func TestBrowserVisibleDevelopmentURLUsesCallingTrustantOrigin(t *testing.T) {
 	request := httptest.NewRequest("GET", "http://trustant.invalid/api/launch/example", nil)
 	request.Host = "trustant.192.168.64.9.nip.io:8910"
 
@@ -53,11 +53,11 @@ func TestBrowserVisibleDevelopmentURLRejectsUnrelatedHost(t *testing.T) {
 	request := httptest.NewRequest("GET", "http://localhost/api/launch/example", nil)
 	request.Host = "localhost:8910"
 	if _, err := browserVisibleDevelopmentURL(request); err == nil {
-		t.Fatal("expected a non-Trustable request host to fail closed")
+		t.Fatal("expected a non-Trustant request host to fail closed")
 	}
 }
 
-func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
+func TestWriteTrustantPiRuntimeManifest(t *testing.T) {
 	root := t.TempDir()
 	projectDir := filepath.Join(root, "workbench", "example")
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
@@ -83,8 +83,8 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 	}
 
 	manifestPath := filepath.Join(root, "config", "pi-runtime.json")
-	trustablePiRuntimeManifestPathOverride = manifestPath
-	t.Cleanup(func() { trustablePiRuntimeManifestPathOverride = "" })
+	trustantPiRuntimeManifestPathOverride = manifestPath
+	t.Cleanup(func() { trustantPiRuntimeManifestPathOverride = "" })
 	watcherLog := filepath.Join(root, "runtime", "example", "ops-ide-devel.log")
 	logWriter, err := openRotatingRuntimeLog(watcherLog)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	written, err := writeTrustablePiRuntimeManifest(
+	written, err := writeTrustantPiRuntimeManifest(
 		"example",
 		projectDir,
 		"http://vite.192.168.64.9.nip.io:8910",
@@ -110,7 +110,7 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifest trustablePiRuntimeManifest
+	var manifest trustantPiRuntimeManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +118,9 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := trustablePiRuntimeManifest{
-		Version: trustablePiRuntimeManifestVersion,
-		Workbenches: []trustablePiRuntimeWorkbench{{
+	want := trustantPiRuntimeManifest{
+		Version: trustantPiRuntimeManifestVersion,
+		Workbenches: []trustantPiRuntimeWorkbench{{
 			App:                "example",
 			Workspace:          canonical,
 			DevelopmentURL:     "http://localhost:5173",
@@ -142,11 +142,11 @@ func TestWriteTrustablePiRuntimeManifest(t *testing.T) {
 	}
 }
 
-func TestWriteTrustablePiRuntimeManifestRequiresGeneratedMCPConfig(t *testing.T) {
-	trustablePiRuntimeManifestPathOverride = filepath.Join(t.TempDir(), "pi-runtime.json")
-	t.Cleanup(func() { trustablePiRuntimeManifestPathOverride = "" })
+func TestWriteTrustantPiRuntimeManifestRequiresGeneratedMCPConfig(t *testing.T) {
+	trustantPiRuntimeManifestPathOverride = filepath.Join(t.TempDir(), "pi-runtime.json")
+	t.Cleanup(func() { trustantPiRuntimeManifestPathOverride = "" })
 
-	if _, err := writeTrustablePiRuntimeManifest(
+	if _, err := writeTrustantPiRuntimeManifest(
 		"example",
 		t.TempDir(),
 		"http://vite.example.test",
@@ -156,10 +156,10 @@ func TestWriteTrustablePiRuntimeManifestRequiresGeneratedMCPConfig(t *testing.T)
 	}
 }
 
-func TestTrustablePiExtensionPathFailsClosedWhenArtifactIsMissing(t *testing.T) {
-	trustablePiExtensionPathOverride = ""
+func TestTrustantPiExtensionPathFailsClosedWhenArtifactIsMissing(t *testing.T) {
+	trustantPiExtensionPathOverride = ""
 	t.Setenv("HOME", t.TempDir())
-	if _, err := trustablePiExtensionPath(); err == nil {
+	if _, err := trustantPiExtensionPath(); err == nil {
 		t.Fatal("expected a missing managed extension to fail closed")
 	}
 }

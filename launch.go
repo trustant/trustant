@@ -202,7 +202,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 		mcp["redis"] = map[string]interface{}{
 			"type": "local",
 			"command": []string{
-				"trustable-redis-mcp",
+				"trustant-redis-mcp",
 				"--host", cfg.Redis.Service,
 				"--port", fmt.Sprintf("%d", cfg.Redis.Port),
 				"--username", redisUsername(cfg),
@@ -213,7 +213,7 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 				"REDIS_HOST":             cfg.Redis.Service,
 				"REDIS_PORT":             fmt.Sprintf("%d", cfg.Redis.Port),
 				"REDIS_PWD":              cfg.Redis.Password,
-				"TRUSTABLE_REDIS_PREFIX": cfg.Redis.Prefix,
+				"TRUSTANT_REDIS_PREFIX": cfg.Redis.Prefix,
 			},
 			"enabled": true,
 			"timeout": 30000,
@@ -255,11 +255,11 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 	return mcp
 }
 
-// isTrustableManagedMCPServer reports whether an mcp server name is one this app
+// isTrustantManagedMCPServer reports whether an mcp server name is one this app
 // generates from ~/.ops/config.json. These belong in the LOCAL workbench
 // opencode.json, never the global one (see spec/4-launch.md); the global writer
 // uses this to drop any that leaked into a global config written by older code.
-func isTrustableManagedMCPServer(name string) bool {
+func isTrustantManagedMCPServer(name string) bool {
 	switch name {
 	case "s3", "postgres", "redis", "milvus", "mongodb", "openserverless", "react":
 		return true
@@ -331,15 +331,15 @@ func appendEnvironmentOverrides(base []string, overrides ...string) []string {
 	return append(filtered, overrides...)
 }
 
-const trustablePiRuntimeManifestVersion = 2
+const trustantPiRuntimeManifestVersion = 2
 
-var trustablePiRuntimeManifestPathOverride string
-var trustablePiExtensionPathOverride string
+var trustantPiRuntimeManifestPathOverride string
+var trustantPiExtensionPathOverride string
 
-// trustablePiRuntimeWorkbench is one credential-free, host-owned application
+// trustantPiRuntimeWorkbench is one credential-free, host-owned application
 // contract. Workspace deliberately names the active checkout, not the durable
 // bare repository under WORKSPACE_DIR.
-type trustablePiRuntimeWorkbench struct {
+type trustantPiRuntimeWorkbench struct {
 	App                string   `json:"app"`
 	Workspace          string   `json:"workspace"`
 	DevelopmentURL     string   `json:"developmentUrl"`
@@ -349,52 +349,52 @@ type trustablePiRuntimeWorkbench struct {
 	WatcherLog         string   `json:"watcherLog"`
 }
 
-// trustablePiRuntimeManifest retains the versioned workbenches envelope. WHY:
+// trustantPiRuntimeManifest retains the versioned workbenches envelope. WHY:
 // every consumer must validate one host contract instead of interpreting
-// incompatible files carried in the same TRUSTABLE_RUNTIME_CONFIG variable.
-type trustablePiRuntimeManifest struct {
+// incompatible files carried in the same TRUSTANT_RUNTIME_CONFIG variable.
+type trustantPiRuntimeManifest struct {
 	Version     int                           `json:"version"`
-	Workbenches []trustablePiRuntimeWorkbench `json:"workbenches"`
+	Workbenches []trustantPiRuntimeWorkbench `json:"workbenches"`
 }
 
-// trustablePiRuntimeManifestPath keeps the mutable host contract outside the
+// trustantPiRuntimeManifestPath keeps the mutable host contract outside the
 // application checkout. WHY: generated project files are model-editable input,
 // while the selected workbench boundary must remain host-owned.
-func trustablePiRuntimeManifestPath() (string, error) {
-	if trustablePiRuntimeManifestPathOverride != "" {
-		return trustablePiRuntimeManifestPathOverride, nil
+func trustantPiRuntimeManifestPath() (string, error) {
+	if trustantPiRuntimeManifestPathOverride != "" {
+		return trustantPiRuntimeManifestPathOverride, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve home for Trustable Pi runtime manifest: %w", err)
+		return "", fmt.Errorf("failed to resolve home for Trustant Pi runtime manifest: %w", err)
 	}
-	return filepath.Join(home, ".config", "trustable", "pi-runtime.json"), nil
+	return filepath.Join(home, ".config", "trustant", "pi-runtime.json"), nil
 }
 
-// trustablePiExtensionPath resolves the extension installed by acp's
+// trustantPiExtensionPath resolves the extension installed by acp's
 // setup.sh. WHY: managed mode must fail before starting a session when the
 // deterministic policy artifact is absent instead of silently running plain Pi.
-func trustablePiExtensionPath() (string, error) {
-	if trustablePiExtensionPathOverride != "" {
-		return trustablePiExtensionPathOverride, nil
+func trustantPiExtensionPath() (string, error) {
+	if trustantPiExtensionPathOverride != "" {
+		return trustantPiExtensionPathOverride, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve home for Trustable Pi extension: %w", err)
+		return "", fmt.Errorf("failed to resolve home for Trustant Pi extension: %w", err)
 	}
-	path := filepath.Join(home, ".local", "lib", "truacp", "extensions", "trustable-runtime.ts")
+	path := filepath.Join(home, ".local", "lib", "truacp", "extensions", "trustant-runtime.ts")
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("Trustable Pi extension is not installed at %s: %w", path, err)
+		return "", fmt.Errorf("Trustant Pi extension is not installed at %s: %w", path, err)
 	}
 	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("Trustable Pi extension is not a regular file: %s", path)
+		return "", fmt.Errorf("Trustant Pi extension is not a regular file: %s", path)
 	}
 	return path, nil
 }
 
 // browserVisibleDevelopmentURL derives Vite's public origin from the browser's
-// Trustable request. WHY: localhost and the configured OpenServerless API host
+// Trustant request. WHY: localhost and the configured OpenServerless API host
 // describe different network surfaces and cannot be substituted for the URL
 // the user can actually open.
 func browserVisibleDevelopmentURL(r *http.Request) (string, error) {
@@ -410,11 +410,11 @@ func browserVisibleDevelopmentURL(r *http.Request) (string, error) {
 
 	requestURL, err := url.Parse(scheme + "://" + r.Host)
 	if err != nil || requestURL.Hostname() == "" {
-		return "", fmt.Errorf("invalid Trustable request host %q", r.Host)
+		return "", fmt.Errorf("invalid Trustant request host %q", r.Host)
 	}
 	const trustantPrefix = "trustant."
 	if !strings.HasPrefix(requestURL.Hostname(), trustantPrefix) {
-		return "", fmt.Errorf("invalid Trustable request host %q: expected trustant.<domain>", r.Host)
+		return "", fmt.Errorf("invalid Trustant request host %q: expected trustant.<domain>", r.Host)
 	}
 	viteHost := "vite." + strings.TrimPrefix(requestURL.Hostname(), trustantPrefix)
 	if port := requestURL.Port(); port != "" {
@@ -423,17 +423,17 @@ func browserVisibleDevelopmentURL(r *http.Request) (string, error) {
 	return (&url.URL{Scheme: scheme, Host: viteHost}).String(), nil
 }
 
-// writeTrustablePiRuntimeManifest publishes an atomic, private manifest after
+// writeTrustantPiRuntimeManifest publishes an atomic, private manifest after
 // project MCP generation. WHY: the required server list must describe the exact
 // .mcp.json that Pi will consume, not a pre-login or inferred service set.
-func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog string) (string, error) {
+func writeTrustantPiRuntimeManifest(app, projectDir, browserURL, watcherLog string) (string, error) {
 	canonicalProjectDir, err := filepath.EvalSymlinks(projectDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve Trustable workbench %s: %w", projectDir, err)
+		return "", fmt.Errorf("failed to resolve Trustant workbench %s: %w", projectDir, err)
 	}
 	canonicalProjectDir, err = filepath.Abs(canonicalProjectDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to make Trustable workbench absolute: %w", err)
+		return "", fmt.Errorf("failed to make Trustant workbench absolute: %w", err)
 	}
 	parsedBrowserURL, err := url.Parse(browserURL)
 	if err != nil || parsedBrowserURL.Host == "" ||
@@ -515,9 +515,9 @@ func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog str
 		return "", errors.New("private MCP config server set does not match the credential-free config")
 	}
 
-	manifest := trustablePiRuntimeManifest{
-		Version: trustablePiRuntimeManifestVersion,
-		Workbenches: []trustablePiRuntimeWorkbench{{
+	manifest := trustantPiRuntimeManifest{
+		Version: trustantPiRuntimeManifestVersion,
+		Workbenches: []trustantPiRuntimeWorkbench{{
 			App:       app,
 			Workspace: canonicalProjectDir,
 			// WHY: verification runs beside the managed Vite process and must use
@@ -531,22 +531,22 @@ func writeTrustablePiRuntimeManifest(app, projectDir, browserURL, watcherLog str
 	}
 	encoded, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("failed to encode Trustable Pi runtime manifest: %w", err)
+		return "", fmt.Errorf("failed to encode Trustant Pi runtime manifest: %w", err)
 	}
-	manifestPath, err := trustablePiRuntimeManifestPath()
+	manifestPath, err := trustantPiRuntimeManifestPath()
 	if err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0700); err != nil {
-		return "", fmt.Errorf("failed to create Trustable Pi runtime config directory: %w", err)
+		return "", fmt.Errorf("failed to create Trustant Pi runtime config directory: %w", err)
 	}
 	temporaryPath := manifestPath + ".tmp"
 	defer os.Remove(temporaryPath)
 	if err := os.WriteFile(temporaryPath, encoded, 0600); err != nil {
-		return "", fmt.Errorf("failed to write Trustable Pi runtime manifest: %w", err)
+		return "", fmt.Errorf("failed to write Trustant Pi runtime manifest: %w", err)
 	}
 	if err := os.Rename(temporaryPath, manifestPath); err != nil {
-		return "", fmt.Errorf("failed to publish Trustable Pi runtime manifest: %w", err)
+		return "", fmt.Errorf("failed to publish Trustant Pi runtime manifest: %w", err)
 	}
 	return manifestPath, nil
 }
@@ -821,7 +821,7 @@ func processGroupAlive(pgid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// managedRuntimeHealthyForApp identifies only a Trustable-owned runtime: the
+// managedRuntimeHealthyForApp identifies only a Trustant-owned runtime: the
 // durable current/pgid markers must agree with the requested app, the process
 // group must still exist, and both shared listeners must answer. Port checks
 // alone are deliberately insufficient because an unrelated listener must be
@@ -839,7 +839,7 @@ func managedRuntimeHealthyForApp(app string, leftPort, rightPort int) bool {
 }
 
 // canonicalWorkbenchPath returns the path OpenCode uses to store project and
-// session state. In the pod /home/trustable/workbench may be a symlink into the
+// session state. In the pod /home/trustant/workbench may be a symlink into the
 // persistent workspace volume, so resolve the parent even before the app
 // checkout exists.
 func canonicalWorkbenchPath(app string) (string, error) {
@@ -1300,7 +1300,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	reportLaunchProgress(w, 2, "Checking application account...")
 	// Ensure the OpenWhisk user exists and password is in sync
 	log.Printf("Checking OpenWhisk user for %s...", app)
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to load config: %s", err)})
 		return
@@ -1481,23 +1481,23 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 	browserURL, err := browserVisibleDevelopmentURL(r)
 	if err != nil {
-		log.Printf("Trustable Pi development URL resolution failed: %s", err)
+		log.Printf("Trustant Pi development URL resolution failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": fmt.Sprintf("failed to resolve browser-visible development URL: %s", err),
 		})
 		return
 	}
-	extensionPath, err := trustablePiExtensionPath()
+	extensionPath, err := trustantPiExtensionPath()
 	if err != nil {
-		log.Printf("Trustable Pi extension validation failed: %s", err)
+		log.Printf("Trustant Pi extension validation failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("failed to validate Trustable Pi extension: %s", err),
+			"error": fmt.Sprintf("failed to validate Trustant Pi extension: %s", err),
 		})
 		return
 	}
 	watcherLogPath, err := opsDevelLogPath(app)
 	if err != nil {
-		log.Printf("Trustable watcher log path resolution failed: %s", err)
+		log.Printf("Trustant watcher log path resolution failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": fmt.Sprintf("failed to resolve ops ide devel log: %s", err),
 		})
@@ -1505,7 +1505,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 	initialWatcherLog, err := openRotatingRuntimeLog(watcherLogPath)
 	if err != nil {
-		log.Printf("Trustable watcher log initialization failed: %s", err)
+		log.Printf("Trustant watcher log initialization failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": fmt.Sprintf("failed to initialize ops ide devel log: %s", err),
 		})
@@ -1513,19 +1513,19 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 	// WHY: create and protect the host-owned log before Pi validates the
 	// manifest, so managed mode never starts with a declared but absent source.
-	fmt.Fprintf(initialWatcherLog, "\n[trustable] preparing ops ide devel for %s at %s\n", app, time.Now().Format(time.RFC3339))
+	fmt.Fprintf(initialWatcherLog, "\n[trustant] preparing ops ide devel for %s at %s\n", app, time.Now().Format(time.RFC3339))
 	initialWatcherLog.Close()
-	runtimeManifestPath, err := writeTrustablePiRuntimeManifest(app, workbenchPath, browserURL, watcherLogPath)
+	runtimeManifestPath, err := writeTrustantPiRuntimeManifest(app, workbenchPath, browserURL, watcherLogPath)
 	if err != nil {
-		log.Printf("Trustable Pi runtime manifest generation failed: %s", err)
+		log.Printf("Trustant Pi runtime manifest generation failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("failed to generate Trustable Pi runtime manifest: %s", err),
+			"error": fmt.Sprintf("failed to generate Trustant Pi runtime manifest: %s", err),
 		})
 		return
 	}
 	notebookEnv, err := notebookRuntimeEnvironment(app)
 	if err != nil {
-		log.Printf("Trustable notebook configuration failed: %s", err)
+		log.Printf("Trustant notebook configuration failed: %s", err)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": fmt.Sprintf("failed to prepare notebook configuration: %s", err),
 		})
@@ -1535,7 +1535,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	reportLaunchProgress(w, 7, "Starting coding services...")
 	// Start truacp. It serves its React UI on :4096 and owns the ACP session,
 	// spawning pi-acp (and therefore Pi) in the selected workbench directory.
-	// Trustable does not bootstrap or rewrite an agent session URL.
+	// Trustant does not bootstrap or rewrite an agent session URL.
 	log.Printf("Starting truacp for %s on port %d...", app, leftPort)
 	truacpCmd := exec.Command("truacp", "--port", strconv.Itoa(leftPort), "--dir", workbenchPath)
 	truacpCmd.Dir = workbenchPath
@@ -1555,11 +1555,11 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	// TruACP also supports standalone use, where its local endpoint form and Pi
 	// update notice are appropriate. Append these managed-runtime controls last
 	// so neither the inherited environment nor an application .env can override
-	// Trustable's ownership of configuration and dependency updates.
+	// Trustant's ownership of configuration and dependency updates.
 	managedEnv := []string{
-		"TRUSTABLE_MANAGED_RUNTIME=1",
-		"TRUSTABLE_RUNTIME_CONFIG=" + runtimeManifestPath,
-		"TRUSTABLE_PI_EXTENSION_PATH=" + extensionPath,
+		"TRUSTANT_MANAGED_RUNTIME=1",
+		"TRUSTANT_RUNTIME_CONFIG=" + runtimeManifestPath,
+		"TRUSTANT_PI_EXTENSION_PATH=" + extensionPath,
 		"PI_SKIP_VERSION_CHECK=1",
 	}
 	managedEnv = append(managedEnv, notebookEnv...)
@@ -1639,7 +1639,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Failed to open ops ide devel log: %s", err)})
 		return
 	}
-	fmt.Fprintf(develLog, "[trustable] starting managed watcher at %s\n", time.Now().Format(time.RFC3339))
+	fmt.Fprintf(develLog, "[trustant] starting managed watcher at %s\n", time.Now().Format(time.RFC3339))
 	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel", workbenchPath))
 	develOutput := io.MultiWriter(os.Stdout, develLog)
 	develCmd.Stdout = develOutput
@@ -1649,7 +1649,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	if err := develCmd.Start(); err != nil {
-		fmt.Fprintf(develLog, "[trustable] watcher failed to start: %s\n", err)
+		fmt.Fprintf(develLog, "[trustant] watcher failed to start: %s\n", err)
 		develLog.Close()
 		killPgid(pgid)
 		removePgidFile()
@@ -1661,7 +1661,7 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	develExited := make(chan error, 1)
 	go func() {
 		waitErr := develCmd.Wait()
-		fmt.Fprintf(develLog, "[trustable] watcher exited at %s: %v\n", time.Now().Format(time.RFC3339), waitErr)
+		fmt.Fprintf(develLog, "[trustant] watcher exited at %s: %v\n", time.Now().Format(time.RFC3339), waitErr)
 		develLog.Close()
 		develExited <- waitErr
 	}()
@@ -1918,7 +1918,7 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 		send("error", fmt.Sprintf("Failed to open ops ide devel log: %s", err))
 		return
 	}
-	fmt.Fprintf(develLog, "[trustable] restarting managed watcher with --fast at %s\n", time.Now().Format(time.RFC3339))
+	fmt.Fprintf(develLog, "[trustant] restarting managed watcher with --fast at %s\n", time.Now().Format(time.RFC3339))
 	develCmd := exec.Command("sh", "-c", fmt.Sprintf("cd %q && ops ide devel --fast", workbenchPath))
 	develOutput := io.MultiWriter(os.Stdout, develLog)
 	develCmd.Stdout = develOutput
@@ -1927,7 +1927,7 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 	develCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
 
 	if err := develCmd.Start(); err != nil {
-		fmt.Fprintf(develLog, "[trustable] watcher failed to restart: %s\n", err)
+		fmt.Fprintf(develLog, "[trustant] watcher failed to restart: %s\n", err)
 		develLog.Close()
 		send("error", fmt.Sprintf("Failed to start ops ide devel: %s", err))
 		return
@@ -1936,7 +1936,7 @@ func handleRedeploy(w http.ResponseWriter, r *http.Request) {
 	develExited := make(chan error, 1)
 	go func() {
 		waitErr := develCmd.Wait()
-		fmt.Fprintf(develLog, "[trustable] watcher exited at %s: %v\n", time.Now().Format(time.RFC3339), waitErr)
+		fmt.Fprintf(develLog, "[trustant] watcher exited at %s: %v\n", time.Now().Format(time.RFC3339), waitErr)
 		develLog.Close()
 		develExited <- waitErr
 	}()

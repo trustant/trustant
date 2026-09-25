@@ -17,7 +17,7 @@
 
 // Shared GitHub account connect form.
 //
-// Trustable pushes and clones over HTTPS with the managed personal GitHub
+// Trustant pushes and clones over HTTPS with the managed personal GitHub
 // account (see spec/github.md); the dedicated SSH key is only the fallback for
 // installations that never connect one. The connect form used to exist once, on
 // the Configure page, which meant every flow that actually needs repo access —
@@ -203,7 +203,7 @@
     };
 
     GitHubAccountForm.prototype.logout = async function () {
-        if (!confirm('Disconnect the managed GitHub account from Trustable?')) return;
+        if (!confirm('Disconnect the managed GitHub account from Trustant?')) return;
         const response = await fetch('/api/github/logout', { method: 'POST' });
         const data = await response.json();
         if (!response.ok) {
@@ -214,7 +214,7 @@
         await this.load();
     };
 
-    // Trustable is served over plain http on a nip.io host, which is not a
+    // Trustant is served over plain http on a nip.io host, which is not a
     // secure context, so `navigator.clipboard` is undefined here — reading
     // `.writeText` off it throws rather than rejecting. The selection path below
     // is what actually copies in practice; the modern API is tried first for the

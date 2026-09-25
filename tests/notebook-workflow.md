@@ -1,6 +1,6 @@
 # Template workflow end-to-end scenario
 
-1. Start Trustable through the normal FQDN route and launch an application.
+1. Start Trustant through the normal FQDN route and launch an application.
 2. Open TruACP, connect an agent, and open **Templates**.
 3. Confirm `trustable-ai/templates` and branch `main` load without
    `NOTEBOOK_GITHUB_TOKEN`.
@@ -35,7 +35,7 @@
     file fields are still shown.
 13. Try to select a different template. Confirm it asks before replacing the
     edited working copy, and that cancelling leaves `template.md` untouched.
-14. Configure a repository-scoped token in Trustable **Configure → Template
+14. Configure a repository-scoped token in Trustant **Configure → Template
     Repository**. Reopen the panel, change the name, and press **Save to
     GitHub**. Confirm the file and its `README.md` entry land in the configured
     repository under the new name, and that `template.md` now reads
@@ -56,7 +56,7 @@
     in the configured repository *and* indexed in `README.md`, and that
     `edited` clears — creation and update are the same path.
 20. Run `git status` in the workbench. Confirm `template.md` is staged but not
-    committed, then save the application in Trustable and confirm it is
+    committed, then save the application in Trustant and confirm it is
     committed and pushed with the user's other changes.
 21. Resume and fork the ACP session; confirm template nodes, outputs,
     selection, and provenance restore. Start an ordinary new chat without

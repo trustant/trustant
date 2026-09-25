@@ -37,7 +37,7 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 		t.Fatal("setup.sh must package the checked-out mcp submodule")
 	}
 	if !strings.Contains(setup, `secret-unbind`) {
-		t.Fatal("setup.sh must verify a Trustable-only MCP registration")
+		t.Fatal("setup.sh must verify a Trustant-only MCP registration")
 	}
 	if !strings.Contains(setup, `mongodb-mcp-server@1.9.0`) {
 		t.Fatal("setup.sh must install the MongoDB MCP version compatible with the pinned parser")
@@ -45,13 +45,13 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	// WHY: the browser MCP and its Playwright/Chromium runtime were removed.
 	// The e2e harness keeps its own @playwright/test dependency, which lives in
 	// the root package.json and must never be reintroduced here.
-	if strings.Contains(setup, "trustable-browser-mcp") ||
+	if strings.Contains(setup, "trustant-browser-mcp") ||
 		strings.Contains(setup, "playwright") ||
 		strings.Contains(setup, "chromium") {
 		t.Fatal("setup.sh must not install the removed browser MCP or a Chromium runtime")
 	}
-	if !strings.Contains(setup, `install -m 0755 image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
-		t.Fatal("setup.sh must install the Trustable Redis namespace wrapper")
+	if !strings.Contains(setup, `install -m 0755 image/redis-mcp "$MCP_BIN/trustant-redis-mcp"`) {
+		t.Fatal("setup.sh must install the Trustant Redis namespace wrapper")
 	}
 	if strings.Contains(setup, `git -C acp`) || strings.Contains(setup, `git -C mcp`) {
 		t.Fatal("setup.sh must consume mounted source without following host-only Git metadata")
@@ -70,10 +70,10 @@ func TestRedisMCPNamespaceWrapperIsInstalledInVMAndImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
-	if !strings.Contains(string(setupContent), `image/redis-mcp "$MCP_BIN/trustable-redis-mcp"`) {
+	if !strings.Contains(string(setupContent), `image/redis-mcp "$MCP_BIN/trustant-redis-mcp"`) {
 		t.Fatal("VM setup must install the Redis MCP namespace wrapper")
 	}
-	if !strings.Contains(string(dockerContent), `COPY redis-mcp /usr/local/bin/trustable-redis-mcp`) {
+	if !strings.Contains(string(dockerContent), `COPY redis-mcp /usr/local/bin/trustant-redis-mcp`) {
 		t.Fatal("production image must install the Redis MCP namespace wrapper")
 	}
 }
@@ -410,7 +410,7 @@ func TestStartAllocatesBuildCapableLimaDisk(t *testing.T) {
 	}
 	start := string(content)
 	if !strings.Contains(start, `disk: "60GiB"`) {
-		t.Fatal("start.sh must leave enough disk headroom for k3s and repeated Trustable image imports")
+		t.Fatal("start.sh must leave enough disk headroom for k3s and repeated Trustant image imports")
 	}
 	if strings.Contains(start, `disk: "40GiB"`) {
 		t.Fatal("start.sh must not recreate trudev with the DiskPressure-prone 40 GiB allocation")
@@ -445,7 +445,7 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	run := string(content)
 	for _, required := range []string{
 		`write_dev_build_metadata`,
-		`TRUSTABLE_BUILD_BRANCH`,
+		`TRUSTANT_BUILD_BRANCH`,
 		`> _build.txt`,
 	} {
 		if !strings.Contains(run, required) {
@@ -535,7 +535,7 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 		t.Fatalf("run.sh must start exactly one kubefwd process, found %d", got)
 	}
 	for _, required := range []string{
-		`-f 'metadata.name!=trustable-svc'`,
+		`-f 'metadata.name!=trustant-svc'`,
 		`--kubeconfig "$KUBECONFIG_FILE"`,
 		`-n openserverless`,
 		`getent ahostsv4 "$FORWARD_PROBE_SERVICE"`,
@@ -555,7 +555,7 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 	// A forwarder left by an earlier run holds the loopback addresses and
 	// /etc/hosts entries the new one needs, so the spawn below dies before its
 	// supervisor can record a child PID. Step 1's lsof sweep cannot catch it:
-	// kubefwd excludes trustable-svc precisely so it never binds 8910/5173/4096.
+	// kubefwd excludes trustant-svc precisely so it never binds 8910/5173/4096.
 	for _, required := range []string{
 		`reap_stale_kubefwd`,
 		`pgrep -x kubefwd`,
@@ -630,7 +630,7 @@ func TestSetupInstallsGlobalPinnedMilvusCli(t *testing.T) {
 	}
 }
 
-func TestMilvusMCPUsesPinnedTrustableFork(t *testing.T) {
+func TestMilvusMCPUsesPinnedTrustantFork(t *testing.T) {
 	setupData, err := os.ReadFile("setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
@@ -644,7 +644,7 @@ func TestMilvusMCPUsesPinnedTrustableFork(t *testing.T) {
 	const repository = "https://github.com/trustable-ai/mcp-server-milvus.git"
 	const revision = "a7e624f3057a0d739528bca3ed92504943224ceb"
 	if !strings.Contains(dockerfile, repository) || !strings.Contains(dockerfile, revision) {
-		t.Fatal("image/Dockerfile must own the pinned Trustable Milvus MCP fork")
+		t.Fatal("image/Dockerfile must own the pinned Trustant Milvus MCP fork")
 	}
 	for name, source := range map[string]string{"setup.sh": setup, "image/Dockerfile": dockerfile} {
 		if strings.Contains(source, "github.com/zilliztech/mcp-server-milvus") {
@@ -679,7 +679,7 @@ func TestLocalE2ERequiresRunKubefwd(t *testing.T) {
 		`pgrep -x kubefwd`,
 		`"${#KUBEFWD_PIDS[@]}" -ne 1`,
 		`"-n openserverless"`,
-		`metadata.name!=trustable-svc`,
+		`metadata.name!=trustant-svc`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("local E2E runner is missing kubefwd preflight %q", required)
@@ -712,7 +712,7 @@ func TestScriptSpecificationsLiveUnderSpec(t *testing.T) {
 // OPS_BRANCH are obsolete and STILL override the wired-in default, so a
 // reintroduced export silently points ops at the wrong fork with no visible
 // error — the failure mode that made this test necessary. See spec/start.md.
-func TestOpsInstallsFromTrustableSourceWithoutObsoleteEnvVars(t *testing.T) {
+func TestOpsInstallsFromTrustantSourceWithoutObsoleteEnvVars(t *testing.T) {
 	files := map[string]string{
 		"setup.sh":                           "",
 		filepath.Join("image", "Dockerfile"): "",
@@ -773,6 +773,6 @@ func TestOpsInstallsFromTrustableSourceWithoutObsoleteEnvVars(t *testing.T) {
 
 	// setup.sh asserts against the wired-in source, not a Dockerfile ARG.
 	if !strings.Contains(files["setup.sh"], "https://github.com/trustable-ai/openserverless-task") {
-		t.Fatal("setup.sh must assert ops resolves the Trustable task source")
+		t.Fatal("setup.sh must assert ops resolves the Trustant task source")
 	}
 }

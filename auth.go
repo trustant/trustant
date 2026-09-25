@@ -38,13 +38,13 @@ import (
 )
 
 const (
-	authModeEnv             = "TRUSTABLE_AUTH_MODE"
-	authUsernameEnv         = "TRUSTABLE_AUTH_USERNAME"
-	authPasswordHashEnv     = "TRUSTABLE_AUTH_PASSWORD_HASH"
-	authSessionKeyEnv       = "TRUSTABLE_AUTH_SESSION_KEY"
-	authSessionCookie       = "trustable_session"
-	authSecureSessionCookie = "__Host-trustable_session"
-	authCSRFHeader          = "X-Trustable-CSRF"
+	authModeEnv             = "TRUSTANT_AUTH_MODE"
+	authUsernameEnv         = "TRUSTANT_AUTH_USERNAME"
+	authPasswordHashEnv     = "TRUSTANT_AUTH_PASSWORD_HASH"
+	authSessionKeyEnv       = "TRUSTANT_AUTH_SESSION_KEY"
+	authSessionCookie       = "trustant_session"
+	authSecureSessionCookie = "__Host-trustant_session"
+	authCSRFHeader          = "X-Trustant-CSRF"
 	defaultAuthSessionTTL   = 8 * time.Hour
 	defaultAuthMaxSessions  = 256
 	defaultLoginMaxEntries  = 512

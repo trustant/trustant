@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="920" height="430" viewBox="0 0 920 430" role="img" aria-labelledby="title desc">
   <title id="title">Issue 98 end-to-end guardrail test flow</title>
-  <desc id="desc">Playwright drives Trustable, OpenCode, and Vite through FQDN hosts while kubectl exec performs pod-local guardrail checks and can optionally submit an OpenCode prompt.</desc>
+  <desc id="desc">Playwright drives Trustant, OpenCode, and Vite through FQDN hosts while kubectl exec performs pod-local guardrail checks and can optionally submit an OpenCode prompt.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
@@ -24,7 +24,7 @@
   <text x="82" y="145" class="text">browser + API client</text>
 
   <rect x="318" y="64" width="210" height="74" class="box"/>
-  <text x="345" y="94" class="title">trustable.&lt;domain&gt;</text>
+  <text x="345" y="94" class="title">trustant.&lt;domain&gt;</text>
   <text x="345" y="119" class="text">/applist.html, /api/launch</text>
 
   <rect x="318" y="162" width="210" height="74" class="box"/>
@@ -35,7 +35,7 @@
   <text x="345" y="290" class="title">vite.&lt;domain&gt;</text>
 
   <rect x="642" y="88" width="200" height="92" class="box"/>
-  <text x="670" y="118" class="title">trustable-0</text>
+  <text x="670" y="118" class="title">trustant-0</text>
   <text x="670" y="143" class="text">OpenCode :4096</text>
   <text x="670" y="162" class="text">ops ide devel :5173</text>
 
@@ -60,9 +60,9 @@
   <path d="M528 356 C570 356 602 356 642 356" class="dash"/>
 
   <text x="70" y="214" class="small">FQDN/browser-visible</text>
-  <text x="70" y="234" class="small">trustable/opencode/vite hosts</text>
+  <text x="70" y="234" class="small">trustant/opencode/vite hosts</text>
   <text x="70" y="274" class="small">kubectl exec is used only</text>
   <text x="70" y="294" class="small">for pod-local verification</text>
   <text x="70" y="354" class="small">Prompt step runs only with</text>
-  <text x="70" y="374" class="small">TRUSTABLE_E2E_RUN_PROMPT=1</text>
+  <text x="70" y="374" class="small">TRUSTANT_E2E_RUN_PROMPT=1</text>
 </svg>

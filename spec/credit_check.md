@@ -17,7 +17,7 @@ Two JSON endpoints, both authenticated with the bearer API key. Neither is gated
 | `GET`  | `/api/v2/credits` | Bearer API key | Read current balance. |
 | `POST` | `/api/v2/top-up`  | Bearer API key | Add credits (machine-to-machine). |
 
-Base URL is `PROXY_BASE_URL` as configured on the proxy — typically something like `https://ai.trustable.ai/v1`. The credits endpoints sit at the same origin (`https://ai.trustable.ai/api/v2/...`), **not** under `/v1`.
+Base URL is `PROXY_BASE_URL` as configured on the proxy — typically something like `https://ai.trustant.ai/v1`. The credits endpoints sit at the same origin (`https://ai.trustant.ai/api/v2/...`), **not** under `/v1`.
 
 ## Auth
 
@@ -39,7 +39,7 @@ The key is the same one the proxy issued at signup; clients typically already ha
 
 ```http
 GET /api/v2/credits HTTP/1.1
-Host: ai.trustable.ai
+Host: ai.trustant.ai
 Authorization: Bearer aip_<id>.<sig>
 ```
 
@@ -97,7 +97,7 @@ Machine-to-machine top-up. The bearer key identifies the user; the resulting `to
 
 ```http
 POST /api/v2/top-up HTTP/1.1
-Host: ai.trustable.ai
+Host: ai.trustant.ai
 Authorization: Bearer aip_<id>.<sig>
 Content-Type: application/json
 
@@ -167,7 +167,7 @@ Note the status is **`402`**, not `401` or `429`. Treat it as "transient, user-a
 
 ```bash
 KEY="aip_<id>.<sig>"
-BASE="https://ai.trustable.ai"
+BASE="https://ai.trustant.ai"
 
 # 1. Read balance.
 curl -s -H "Authorization: Bearer $KEY" "$BASE/api/v2/credits"

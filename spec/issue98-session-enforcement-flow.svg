@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="420" viewBox="0 0 980 420" role="img" aria-labelledby="title desc">
   <title id="title">Issue 98 session enforcement flow</title>
-  <desc id="desc">OpenCode compaction automatically restores the exact active request with bounded Trustable context; diagnostic failures activate evidence-bound circuit breakers and completion checks.</desc>
+  <desc id="desc">OpenCode compaction automatically restores the exact active request with bounded Trustant context; diagnostic failures activate evidence-bound circuit breakers and completion checks.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }
     .title { font-size: 22px; font-weight: 700; }

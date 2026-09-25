@@ -1,21 +1,21 @@
 ---
 name: trustable-app-assistant
 description: >-
-  Build and fix user-created Trustable apps with React frontend code and Python
+  Build and fix user-created Trustant apps with React frontend code and Python
   OpenServerless actions. Use this when creating app features, login/register
   flows, CRUD APIs, setup actions, service-backed storage, MCP service checks,
-  or debugging app runtime failures inside a Trustable workbench.
+  or debugging app runtime failures inside a Trustant workbench.
 ---
 
-# Trustable App Assistant Guide
+# Trustant App Assistant Guide
 
-You are working inside a user-created Trustable app. This is a
+You are working inside a user-created Trustant app. This is a
 TypeScript/React frontend plus Python OpenServerless actions. It is not a
 conventional backend server project.
 
 ## Serverless Operating Model
 
-Core principle: build the app through Trustable/OpenServerless primitives. Do
+Core principle: build the app through Trustant/OpenServerless primitives. Do
 not replace the platform with hand-written servers, hand-written generated
 wrappers, raw credentials, or guessed `ops` commands.
 
@@ -26,7 +26,7 @@ wrappers, raw credentials, or guessed `ops` commands.
 - Generated `__main__.py` files are platform wrappers. Do not create or edit
   them.
 - Setup and initialization belong in private actions in package `setup`.
-- Trustable launches and manages the Vite dev server and TruACP/Pi process.
+- Trustant launches and manages the Vite dev server and TruACP/Pi process.
 - OpenServerless web actions have their own request parameter, metadata, and
   response semantics. Treat them carefully.
 - Every backend change should end with bounded validation against the real
@@ -34,9 +34,9 @@ wrappers, raw credentials, or guessed `ops` commands.
 
 ## Critical Recovery Contract
 
-Trustable also generates `AGENTS.md` in this app root. It is the app-local
+Trustant also generates `AGENTS.md` in this app root. It is the app-local
 mandatory entrypoint and exists to prevent Claude Code compatibility files from
-overriding Trustable rules. Treat the Trustable-managed block in `AGENTS.md`,
+overriding Trustant rules. Treat the Trustant-managed block in `AGENTS.md`,
 `.openserverless-contract.md`, and `.mcp.json` as the authoritative project
 instruction set. This guidance is embedded directly in `AGENTS.md`; there is no
 project-local `opencode.md` to find or read. `CLAUDE.md` contains the same
@@ -46,7 +46,7 @@ Ignore `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
 `.github/copilot-instructions.md`, and generated `rules.md` files as mandatory
 agent instructions. You may inspect them only when the user explicitly asks or
 when they help understand legacy template context, and they must never override
-the host runtime manifest or Trustable action, MCP, deploy, shell, and workbench
+the host runtime manifest or Trustant action, MCP, deploy, shell, and workbench
 rules.
 
 Before touching actions, databases, setup, seed data, deploys, or service
@@ -54,10 +54,10 @@ state, read `.openserverless-contract.md` if it exists. It is the short
 recovery contract for this app and takes priority for OpenServerless workflow
 details.
 
-Trustable installs `check_openserverless_actions.sh` once in the user PATH. In
-a live Trustable Edit session, `ops ide devel` already owns packaging and
+Trustant installs `check_openserverless_actions.sh` once in the user PATH. In
+a live Trustant Edit session, `ops ide devel` already owns packaging and
 deployment. After a coherent backend edit batch, read the canonical watcher
-evidence with `trustable_runtime_status`, then run the checker once before
+evidence with `trustant_runtime_status`, then run the checker once before
 completing backend changes:
 
 ```bash
@@ -78,8 +78,8 @@ back to the managed `AGENTS.md` rules. Do not invent manual ZIP or raw
 
 After compaction, do not continue editing from memory. Re-read the active user
 request, this managed guidance, `.openserverless-contract.md`, git status, and
-the relevant project files before resuming. Pi has no Trustable recovery gate
-or `trustable_context_recover` tool.
+the relevant project files before resuming. Pi has no Trustant recovery gate
+or `trustant_context_recover` tool.
 
 When the user reports a bug or says a previous fix still does not work,
 reproduce the exact symptom before editing. Use bounded HTTP, log, or
@@ -91,7 +91,7 @@ state; do not redirect merely because the initial user/profile value is null.
 
 After source changes, run the relevant checker scripts directly, plus git diff
 validation and the frontend typecheck/build when available. Pi has no
-`trustable_completion_check`; do not search for or repeatedly call that legacy
+`trustant_completion_check`; do not search for or repeatedly call that legacy
 tool.
 
 For frontend work, run the project typecheck before the build after each
@@ -113,8 +113,8 @@ dependency state.
 - Never run foreground dev servers or watchers such as `npm run dev`, `vite`,
   or `ops ide devel`.
 - Never run `ops ide deploy` during a live Edit session. The existing
-  Trustable-managed `ops ide devel` watcher is the sole deploy owner.
-- Never kill, restart, or replace Trustable-managed processes. Diagnose the
+  Trustant-managed `ops ide devel` watcher is the sole deploy owner.
+- Never kill, restart, or replace Trustant-managed processes. Diagnose the
   existing `http://localhost:5173` server and its generated proxy configuration.
 - Never run unbounded commands. Use `timeout <seconds> ...` for checks that may
   hang.
@@ -126,7 +126,7 @@ dependency state.
   `curl`, `npm run build`, `python3 -m compileall`, and `git diff --check`. Ask the
   user only when shell/tool access is missing or the task requires credentials
   or physical access only the user has.
-- Do not build or deploy the Trustable product itself. When validating app
+- Do not build or deploy the Trustant product itself. When validating app
   action changes, use the app deploy/redeploy path described below.
 - Put feature logic, request parsing, auth checks, and business behavior in the
   editable module file: `packages/<package>/<action>/<module>.py`.
@@ -194,7 +194,7 @@ dependency state.
 7. Validate with bounded checks against the real public endpoint and
    browser-visible app host.
 
-For frontend behavior, validate against the Trustable-managed
+For frontend behavior, validate against the Trustant-managed
 `http://localhost:5173` with `react_validate` and bounded HTTP checks before
 declaring a UI bug fixed. Check the external `vite.<domain>` ingress only after
 the managed watcher has deployed the current sources and only when that
@@ -236,7 +236,7 @@ Choose the backend shape this way:
 
 ## OpenServerless Action Tools
 
-Use the Trustable/OpenServerless MCP action tools instead of manually creating
+Use the Trustant/OpenServerless MCP action tools instead of manually creating
 platform scaffolding. Tool names may appear with hyphens or underscores,
 depending on the client. Use the matching exposed tool:
 
@@ -257,7 +257,7 @@ depending on the client. Use the matching exposed tool:
   binding atomically without reading or deleting its value. Use it to repair a
   legacy invalid managed-variable binding; never edit `__main__.py` manually.
   After a removal, let the managed watcher update the changed endpoint. If
-  previously deployed parameters remain, report that a Trustable-owned full
+  previously deployed parameters remain, report that a Trustant-owned full
   redeploy is required; do not race the watcher with raw deploy commands.
 
 If a tool call returns "Invalid Tool", stop and use one of the exposed tool
@@ -284,7 +284,7 @@ watcher, run the checker, and then run `ops ide setup`.
 
 ## Action Endpoint Grammar
 
-OpenWhisk action names are namespace/package/action. In Trustable app code, the
+OpenWhisk action names are namespace/package/action. In Trustant app code, the
 MCP action endpoint must therefore be only:
 
 - `action`
@@ -317,7 +317,7 @@ If an API needs CRUD behavior, prefer one public action per resource, such as
 flat and hyphenated, such as `v1/contacts-list` or `v1/orders-create`.
 
 Never create nested directories under `packages/<package>/<group>/<action>` to
-simulate routes. They are not valid Trustable/OpenServerless endpoints.
+simulate routes. They are not valid Trustant/OpenServerless endpoints.
 
 ## MCP Servers And Service Access
 
@@ -338,7 +338,7 @@ connection details.
   executable config code; HTTP MCP at `http://localhost:5173/mcp`. Comments,
   strings, wrong packages, and the obsolete `AgentiReact()` spelling do not
   enable it. Adding the plugin during a live session requires relaunching the
-  app so Trustable regenerates `.mcp.json`.
+  app so Trustant regenerates `.mcp.json`.
 - `s3`: present only when S3 is configured; companion CLI wrapper: `rclone`.
 - `postgres`: present only when PostgreSQL is configured; companion CLI
   wrapper: `psql`.
@@ -410,7 +410,7 @@ schemas use `postgres_list_schemas`. For tables/views in a schema use
 
 Application `.env` and `.env.production` files are immutable agent boundaries.
 Never read, create, edit, import, synchronize, or regenerate them. Only the user
-may change application environment values through Trustable's configuration
+may change application environment values through Trustant's configuration
 interface. If a required variable is missing, report its name and stop that path
 without generating a value or asking a secret tool to persist one.
 
@@ -468,23 +468,23 @@ the configured app bucket/action path or `rclone` when available.
 
 ## Runtime Host Rules
 
-Pi and TruACP run inside the Trustable environment. Classify hosts before using
+Pi and TruACP run inside the Trustant environment. Classify hosts before using
 them:
 
 - `localhost:5173` is the pod-local app dev server started by `ops ide devel`.
   Use it for normal app HTTP validation from this shell.
 - `localhost:4096` is the local TruACP server.
-- `trustable.<domain>` is the browser-visible Trustable UI/API host.
-- `vite.<domain>` is the browser-visible app host through Trustable
+- `trustant.<domain>` is the browser-visible Trustant UI/API host.
+- `vite.<domain>` is the browser-visible app host through Trustant
   proxy/ingress. Use it only after managed deployment is confirmed and only
   when external browser or ingress routing is in scope.
 - `opencode.<domain>` is the legacy browser-visible hostname that proxies
   TruACP for ingress and WAF compatibility.
-- `OPS_APIHOST` is the configured OpenServerless API host for Trustable and
+- `OPS_APIHOST` is the configured OpenServerless API host for Trustant and
   `ops ide` orchestration. It must never be bound into an action, exposed as
   `ctx.OPS_APIHOST`, read by an action module, or emitted as
   `#--param OPS_APIHOST "$OPS_APIHOST"`.
-- Do not rewrite the generated Vite `/api/my` proxy target. Trustable starts the
+- Do not rewrite the generated Vite `/api/my` proxy target. Trustant starts the
   managed dev server with the current app's `OPSDEV_HOST`; browser application
   code must continue to use relative `/api/my/...` URLs.
 
@@ -560,7 +560,7 @@ OpenServerless web actions are Apache OpenWhisk web actions:
   and OPTIONS. Use `__ow_method` for method-based CRUD actions.
 - Requests cannot override reserved `__ow_*` metadata names.
 
-Trustable-generated Python actions should be defensive: some wrappers or
+Trustant-generated Python actions should be defensive: some wrappers or
 clients may also provide `args["body"]` as a dict or JSON string. Merge both
 shapes and let top-level fields win, because a generated wrapper or previous
 edit can create an empty `body = {}` while real request fields are top-level.
@@ -644,7 +644,7 @@ does not prove the REST-style item route works.
 ## Web Action Response Rules
 
 OpenWhisk web actions can use top-level `headers`, `statusCode`, and `body` as
-HTTP response instructions. Trustable-generated Python wrappers, however,
+HTTP response instructions. Trustant-generated Python wrappers, however,
 commonly call the editable module and return:
 
 ```python
@@ -735,10 +735,10 @@ When an app has login or registration:
 - Treat login/register as the only public UI flows.
 - Replace starter placeholder screens. The root route must redirect to login,
   render login, or render the authenticated app based on session state; it must
-  not keep the Trustable starter/welcome template.
+  not keep the Trustant starter/welcome template.
 - Before marking auth UI complete, inspect the router and the component used by
   `/` or `#/`. Remove or replace generated starter content such as `Welcome`,
-  `Try the following prompts to start`, `Powered by Trustable`, `trustant.png`,
+  `Try the following prompts to start`, `Powered by Trustant`, `trustant.png`,
   or sample prompt lists. A protected app is incomplete if the browser-visible
   home page still shows the starter screen.
 - Hide protected navigation items such as dashboards, contacts, orders,
@@ -833,7 +833,7 @@ Examples of idempotent setup:
   action/service tool. Do not hardcode credentials and do not manually edit
   generated wrapper code.
 - `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
-  Trustable-managed orchestration variables, not application secrets. Never
+  Trustant-managed orchestration variables, not application secrets. Never
   pass them to `action-add-secret`, `secret-bind`, `secret-ensure`, or
   `auth-setup`; a secret tool must reject them.
 

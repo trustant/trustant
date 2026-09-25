@@ -29,8 +29,8 @@ import (
 // from the AIP_BASE_URL env var) and is independent of cfg.base_url, which
 // is the user-facing OpenAI-compatible base used by OpenCode.
 //
-// Returns errProviderNotTrustable so the caller can map that to HTTP 404.
-var errProviderNotTrustable = fmt.Errorf("provider is not trustable")
+// Returns errProviderNotTrustant so the caller can map that to HTTP 404.
+var errProviderNotTrustant = fmt.Errorf("provider is not trustant")
 
 type aipURLs struct {
 	APIBase string // e.g. "http://localhost:8080/api/v2"
@@ -38,12 +38,12 @@ type aipURLs struct {
 }
 
 func aipURLsFromConfig() (aipURLs, error) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return aipURLs{}, fmt.Errorf("load config: %w", err)
 	}
-	if cfg.Provider != "trustable" {
-		return aipURLs{}, errProviderNotTrustable
+	if cfg.Provider != "trustant" {
+		return aipURLs{}, errProviderNotTrustant
 	}
 	if cfg.APIKey == "" {
 		return aipURLs{}, fmt.Errorf("api_key is empty")
@@ -56,7 +56,7 @@ func aipURLsFromConfig() (aipURLs, error) {
 
 // handleCredits proxies GET /api/credits to GET $AIP_BASE_URL/credits.
 // Per spec/3-app.md "Credits API":
-//   - 404 when provider != "trustable"
+//   - 404 when provider != "trustant"
 //   - on 2xx from the proxy: return the JSON body verbatim
 //   - on non-2xx from the proxy: 502 with {"error": "<status>: <body>"}
 func handleCredits(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +69,8 @@ func handleCredits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	aip, err := aipURLsFromConfig()
-	if err == errProviderNotTrustable {
-		http.Error(w, "not trustable", http.StatusNotFound)
+	if err == errProviderNotTrustant {
+		http.Error(w, "not trustant", http.StatusNotFound)
 		return
 	}
 	if err != nil {
@@ -121,7 +121,7 @@ var allowedTopUpAmounts = map[int64]bool{
 // handleTopUp proxies POST /api/topup to POST $AIP_BASE_URL/top-up.
 // Request body: {"amount": <int>}.
 // Per spec/3-app.md "Credits API":
-//   - 404 when provider != "trustable"
+//   - 404 when provider != "trustant"
 //   - 400 {"error": "invalid_amount"} when the amount is rejected (locally or by proxy)
 //   - 2xx: return the proxy body verbatim
 //   - other non-2xx: 502 with {"error": "<status>: <body>"}
@@ -147,8 +147,8 @@ func handleTopUp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	aip, err := aipURLsFromConfig()
-	if err == errProviderNotTrustable {
-		http.Error(w, "not trustable", http.StatusNotFound)
+	if err == errProviderNotTrustant {
+		http.Error(w, "not trustant", http.StatusNotFound)
 		return
 	}
 	if err != nil {

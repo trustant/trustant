@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trustable</title>
+    <title>Trustant</title>
     <script src="tailwind.js"></script>
     <script src="trustant-auth.js"></script>
     <link rel="stylesheet" href="trustant-ui.css">
@@ -28,8 +28,8 @@
 <body class="min-h-screen flex flex-col items-center justify-center p-4">
     <!-- Splash Screen -->
     <div id="splashContent" class="flex flex-col items-center text-center">
-        <img src="trustant-logo.svg" alt="Trustable Logo" class="w-32 h-32">
-        <h1 class="text-4xl font-light text-[color:var(--nu-ink)] mt-6">Trustable Cloud</h1>
+        <img src="trustant-logo.svg" alt="Trustant Logo" class="w-32 h-32">
+        <h1 class="text-4xl font-light text-[color:var(--nu-ink)] mt-6">Trustant Cloud</h1>
         <h2 id="versionText" class="text-xl font-medium text-[color:var(--nu-muted)] mt-3"></h2>
         <p id="expireText" class="text-sm text-[color:var(--nu-muted)] mt-2"></p>
         <p id="initText" class="text-sm text-[color:var(--nu-muted)] mt-4 hidden"></p>
@@ -52,7 +52,7 @@
 
                 <!-- Sovereign AI is only offered when ENABLE_REGOLO is set; the
                      boot code below removes this card otherwise. -->
-                <button id="providerTrustable" onclick="selectTrustable()"
+                <button id="providerTrustant" onclick="selectTrustant()"
                     class="nu-card flex flex-col h-full text-left p-5 transition-colors">
                     <div class="font-medium text-2xl mb-1">Sovereign AI</div>
                     <div class="text-sm text-[color:var(--nu-ink)]">Credit-based AI.</div>
@@ -102,11 +102,11 @@
         </div>
     </div>
 
-    <!-- Trustable Register Iframe Overlay -->
+    <!-- Trustant Register Iframe Overlay -->
     <div id="registerOverlay" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
         <div class="nu-modal flex flex-col" style="width:80%;height:80%;">
             <div class="flex items-center justify-between px-4 py-2 border-b border-[color:var(--nu-rule)]">
-                <span class="text-sm font-medium">Trustable Cloud sign-up</span>
+                <span class="text-sm font-medium">Trustant Cloud sign-up</span>
                 <button onclick="cancelRegister()"
                     class="nu-btn nu-btn-secondary nu-btn-compact">Cancel</button>
             </div>
@@ -217,7 +217,7 @@
         }
 
         // Cloud AI is always the internal Ollama server with the recommended
-        // cloud models. Pointing Trustable at a user-supplied Ollama host is
+        // cloud models. Pointing Trustant at a user-supplied Ollama host is
         // now covered by the Private AI card, so there is no mode sub-modal.
         async function selectOllama() {
             hideProviderModal();
@@ -250,7 +250,7 @@
             await saveAndRunConfiguration(cfg);
         }
 
-        async function selectTrustable() {
+        async function selectTrustant() {
             hideProviderModal();
             const url = (currentConfig && currentConfig.register_url) || '';
             if (!url) {
@@ -258,7 +258,7 @@
                 showProviderModal();
                 return;
             }
-            const catalogError = catalogSelectionError('Trustable', bootStatus && bootStatus.trustable);
+            const catalogError = catalogSelectionError('Trustant', bootStatus && bootStatus.trustant);
             if (catalogError) {
                 alert(catalogError);
                 showProviderModal();
@@ -399,7 +399,7 @@
                 && typeof data.api_key === 'string' && data.api_key.length > 0;
         }
 
-        let _trustableReauthResolve = null;
+        let _trustantReauthResolve = null;
 
         window.addEventListener('message', async (event) => {
             // Only react when the iframe overlay is open.
@@ -411,7 +411,7 @@
 
             // Reauth path: only refresh base_url/api_key, then resume the
             // health-check loop. No full Configuration re-run.
-            if (_trustableReauthResolve) {
+            if (_trustantReauthResolve) {
                 const cfg = Object.assign({}, currentConfig || {}, {
                     base_url: data.base_url,
                     api_key: data.api_key
@@ -426,24 +426,24 @@
                     const fresh = await fetch('/api/configuration');
                     currentConfig = await fresh.json();
                 } catch (e) {}
-                const resolve = _trustableReauthResolve;
-                _trustableReauthResolve = null;
+                const resolve = _trustantReauthResolve;
+                _trustantReauthResolve = null;
                 resolve(true);
                 return;
             }
 
-            if (!bootStatus || !bootStatus.trustable || !bootStatus.trustable.models) {
-                alert('Status response is not available. Cannot configure Trustable.');
+            if (!bootStatus || !bootStatus.trustant || !bootStatus.trustant.models) {
+                alert('Status response is not available. Cannot configure Trustant.');
                 hideRegisterOverlay();
                 showProviderModal();
                 return;
             }
 
-            const sec = bootStatus.trustable;
+            const sec = bootStatus.trustant;
             const statusPi = { default: sec.default || '' };
 
             const cfg = Object.assign({}, currentConfig || {}, {
-                provider: 'trustable',
+                provider: 'trustant',
                 models: sec.models,
                 base_url: data.base_url,
                 api_key: data.api_key
@@ -460,7 +460,7 @@
             };
             cfg.model_versions = Object.assign({}, (currentConfig && currentConfig.model_versions) || {});
             if (typeof sec.modelsVersion === 'number') {
-                cfg.model_versions.trustable = sec.modelsVersion;
+                cfg.model_versions.trustant = sec.modelsVersion;
             }
             // Drop legacy fields if present.
             delete cfg.opencode;
@@ -470,19 +470,19 @@
             await saveAndRunConfiguration(cfg);
         });
 
-        async function trustableReauth() {
+        async function trustantReauth() {
             const url = (currentConfig && currentConfig.register_url) || '';
             if (!url) return false;
             return await new Promise(resolve => {
-                _trustableReauthResolve = resolve;
+                _trustantReauthResolve = resolve;
                 const overlay = document.getElementById('registerOverlay');
                 // Patch cancelRegister for this reauth: pressing Cancel resolves false.
                 const prevCancel = window.cancelRegister;
                 window.cancelRegister = function() {
                     hideRegisterOverlay();
                     window.cancelRegister = prevCancel;
-                    const r = _trustableReauthResolve;
-                    _trustableReauthResolve = null;
+                    const r = _trustantReauthResolve;
+                    _trustantReauthResolve = null;
                     if (r) r(false);
                 };
                 showRegisterOverlay(url);
@@ -599,7 +599,7 @@
         }
 
         async function testOpenAIConnection() {
-            const isOllama = !currentConfig || currentConfig.provider !== 'trustable';
+            const isOllama = !currentConfig || currentConfig.provider !== 'trustant';
             while (true) {
                 let result;
                 try {
@@ -619,10 +619,10 @@
                     return result;
                 }
 
-                // Trustable: re-open the registration iframe so the user can
+                // Trustant: re-open the registration iframe so the user can
                 // sign in again. On postMessage we merge {base_url, api_key}
                 // into the workspace config and retry the health check.
-                const reauthed = await trustableReauth();
+                const reauthed = await trustantReauth();
                 if (!reauthed) return result;
             }
         }
@@ -780,7 +780,7 @@
                 // ENABLE_REGOLO off: drop the Sovereign AI card entirely and
                 // let the two remaining providers share the row.
                 if (!data.regolo) {
-                    document.getElementById('providerTrustable').remove();
+                    document.getElementById('providerTrustant').remove();
                     document.getElementById('providerGrid').classList.replace('md:grid-cols-3', 'md:grid-cols-2');
                 }
             } catch (e) {
@@ -818,7 +818,7 @@
             // Own-host Ollama is exempt from the reselect redirect: those
             // users discover their model list via /api/discover-models on
             // their own machine, so the proxy catalog can drift freely.
-            // Internal Ollama (localhost base_url) and Trustable both stay
+            // Internal Ollama (localhost base_url) and Trustant both stay
             // catalog-backed and DO redirect on a modelsVersion bump.
             const baseURL = String((currentConfig && currentConfig.base_url) || '').trim();
             const ownHostOllama = provider === 'ollama' && baseURL !== ''

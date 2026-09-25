@@ -33,7 +33,7 @@ write_dev_build_metadata() {
     local version expiry branch stream build worktree
     version="$(cat version.txt 2>/dev/null || printf 'dev')"
     expiry="$(cat expiry.txt 2>/dev/null || printf '2099/12/31')"
-    branch="${TRUSTABLE_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
+    branch="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     if [[ -z "$branch" ]]; then
         worktree="$(basename "$PWD")"
         case "$worktree" in
@@ -41,8 +41,8 @@ write_dev_build_metadata() {
             *) branch="development" ;;
         esac
     fi
-    stream="${TRUSTABLE_BUILD_STREAM:-$branch}"
-    build="${TRUSTABLE_BUILD_TAG:-local_$(date +%y.%j.%H%M)}"
+    stream="${TRUSTANT_BUILD_STREAM:-$branch}"
+    build="${TRUSTANT_BUILD_TAG:-local_$(date +%y.%j.%H%M)}"
     printf 'Version: %s\nBuild: %s\nBranch: %s\nStream: %s\nExpiry: %s\n' \
         "$version" "$build" "$branch" "$stream" "$expiry" > _build.txt
 }
@@ -92,7 +92,7 @@ if [[ ! -r /etc/os-release ]] || ! grep -Eq '^(ID|ID_LIKE)=.*ubuntu' /etc/os-rel
         Linux)
             distro="$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-$ID}")"
             echo "run.sh requires Ubuntu — this Linux is ${distro:-unsupported} and is not supported." >&2
-            echo "Use an Ubuntu 24.04 host, or run Trustable in the trudev VM (./start.sh on a supported host)." >&2
+            echo "Use an Ubuntu 24.04 host, or run Trustant in the trudev VM (./start.sh on a supported host)." >&2
             ;;
         *)
             echo "run.sh runs on Ubuntu only — this system ($(uname -s)) is not supported." >&2
@@ -229,16 +229,16 @@ fi
 
 # 2c. Start one forwarder for the complete namespace. WHY: separate kubefwd
 # processes each allocate their first service to the same loopback address and
-# race for ports; trustable-svc is excluded because it would steal 8910/4096/5173.
+# race for ports; trustant-svc is excluded because it would steal 8910/4096/5173.
 command -v kubefwd &>/dev/null \
     || { echo "kubefwd is missing — run ./start.sh (macOS or native Linux) or install the pinned version before run.sh" >&2; exit 1; }
 FORWARD_PROBE_SERVICE="$(
     kube -n openserverless get services \
         -o custom-columns=NAME:.metadata.name --no-headers 2>/dev/null \
-        | awk '$1 != "trustable-svc" { print $1; exit }'
+        | awk '$1 != "trustant-svc" { print $1; exit }'
 )"
 if [[ -z "$FORWARD_PROBE_SERVICE" ]]; then
-    echo "no openserverless service is available for kubefwd readiness (trustable-svc is intentionally excluded)" >&2
+    echo "no openserverless service is available for kubefwd readiness (trustant-svc is intentionally excluded)" >&2
     exit 1
 fi
 # WHY: kubefwd holds loopback addresses and /etc/hosts entries. A forwarder left
@@ -246,7 +246,7 @@ fi
 # trap was armed) makes the one spawned below exit within milliseconds, and its
 # sudo supervisor is then gone before it can record the child PID -- the
 # "kubefwd supervisor exited before recording its child PID" abort. Step 1's lsof
-# sweep cannot catch this: kubefwd excludes trustable-svc precisely so it never
+# sweep cannot catch this: kubefwd excludes trustant-svc precisely so it never
 # binds 8910/5173/4096.
 #
 # SIGINT, not SIGKILL: kubefwd restores /etc/hosts on INT. Killing it outright
@@ -281,7 +281,7 @@ reap_stale_kubefwd() {
 
 reap_stale_kubefwd
 
-KUBEFWD_RUNTIME_DIR="$(mktemp -d -t trustable-kubefwd.XXXXXX)"
+KUBEFWD_RUNTIME_DIR="$(mktemp -d -t trustant-kubefwd.XXXXXX)"
 KUBEFWD_LOG="$KUBEFWD_RUNTIME_DIR/kubefwd.log"
 KUBEFWD_PID_FILE="$KUBEFWD_RUNTIME_DIR/kubefwd.pid"
 : >"$KUBEFWD_LOG"
@@ -291,7 +291,7 @@ KUBEFWD_PID_FILE="$KUBEFWD_RUNTIME_DIR/kubefwd.pid"
 # writes to a user-created regular file directly under sticky /tmp.
 sudo -n sh -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' sh \
     "$KUBEFWD_PID_FILE" kubefwd svc \
-    -f 'metadata.name!=trustable-svc' \
+    -f 'metadata.name!=trustant-svc' \
     --kubeconfig "$KUBECONFIG_FILE" \
     -n openserverless >"$KUBEFWD_LOG" 2>&1 &
 KUBEFWD_SUDO_PID=$!
@@ -331,7 +331,7 @@ if [[ "$KUBEFWD_READY" != true ]]; then
     tail -n 80 "$KUBEFWD_LOG" >&2
     exit 1
 fi
-echo "kubefwd ready for namespace openserverless (excluding trustable-svc)"
+echo "kubefwd ready for namespace openserverless (excluding trustant-svc)"
 
 # 2d. ensure the local (CPU) ollama is serving on :11434 (OLLAMA_ENDPOINT).
 #     start.sh installs it in the VM (owned by another user), so probe the port
@@ -342,7 +342,7 @@ if ! ss -ltn 2>/dev/null | grep -q ':11434 '; then
     ollama serve &
 fi
 
-# Own the roots themselves so empty directories and hidden Trustable state are
+# Own the roots themselves so empty directories and hidden Trustant state are
 # handled without an unmatched `*` warning on the first clean run.
 sudo chown -Rf "$(id -u):$(id -g)" "$WORKSPACE_DIR" "$WORKBENCH_DIR"
 
@@ -350,8 +350,8 @@ sudo chown -Rf "$(id -u):$(id -g)" "$WORKSPACE_DIR" "$WORKBENCH_DIR"
 air &
 AIR_PID=$!
 
-# 5. Trustable handles Ollama Cloud sign-in from the web UI via
-#    /api/ollama-connect. Do not call `ops trustable signin` here: that helper
+# 5. Trustant handles Ollama Cloud sign-in from the web UI via
+#    /api/ollama-connect. Do not call `ops trustant signin` here: that helper
 #    can invoke legacy Docker-based Ollama commands that are not valid for Lima
 #    dev environments.
 #
@@ -361,7 +361,7 @@ AIR_PID=$!
 #   2. lima0, the host<->guest interface start.sh sets up in the VM, whose
 #      address is what the Mac browser can reach;
 #   3. 127.0.0.1, correct for a local-only browser.
-SUPPORT_IP_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/trustable/current.ip"
+SUPPORT_IP_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/trustant/current.ip"
 IP="$(cat "$SUPPORT_IP_FILE" 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$IP" ]] || IP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
 [[ -n "$IP" ]] || IP="127.0.0.1"
@@ -376,7 +376,7 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 echo ""
-echo "  Trustable is running — open this URL in your browser:"
+echo "  Trustant is running — open this URL in your browser:"
 echo "    $URL"
 echo ""
 echo "  Deployment:"

@@ -73,13 +73,13 @@ source ./.env
 WORKBENCH_DIR="$(eval echo "$WORKBENCH_DIR")"
 [[ -d "$WORKBENCH_DIR" ]] || fail "WORKBENCH_DIR does not exist: $WORKBENCH_DIR"
 
-URL="${TRUSTABLE_SCREENSHOT_URL:-http://localhost:5173}"
+URL="${TRUSTANT_SCREENSHOT_URL:-http://localhost:5173}"
 
 # The output canvas, baked into the injected plugin so the page and this script
 # can never disagree — a blank placeholder must match a real frame exactly, or
 # ffmpeg refuses to encode the sequence.
-SHOT_WIDTH="${TRUSTABLE_SCREENSHOT_WIDTH:-600}"
-SHOT_HEIGHT="${TRUSTABLE_SCREENSHOT_HEIGHT:-800}"
+SHOT_WIDTH="${TRUSTANT_SCREENSHOT_WIDTH:-600}"
+SHOT_HEIGHT="${TRUSTANT_SCREENSHOT_HEIGHT:-800}"
 
 # --- 3. Install what is missing ---
 #
@@ -153,10 +153,10 @@ frame_count() {
 # The REPORTER_* names are historical: this began as a route reporter. The
 # injection *mechanism* is unchanged, so the names stayed to keep that contract
 # (and its guards) stable.
-REPORTER_BEGIN="// >>> trustable-screenshot shutter — injected by screenshot.sh, removed on quit"
-REPORTER_END="// <<< trustable-screenshot shutter"
-SHUTTER_ID="__trustable_shutter__"
-SHOT_ENDPOINT="/__trustable_shot"
+REPORTER_BEGIN="// >>> trustant-screenshot shutter — injected by screenshot.sh, removed on quit"
+REPORTER_END="// <<< trustant-screenshot shutter"
+SHUTTER_ID="__trustant_shutter__"
+SHOT_ENDPOINT="/__trustant_shot"
 SHOT_URL="${URL%/}$SHOT_ENDPOINT"
 
 # Set by inject_reporter: 1 once the running dev server actually serves the
@@ -237,7 +237,7 @@ source = open(path).read()
 # No line inside this payload may start with '#'. screenshot_script_test.go
 # strips comment lines before asserting, and would strip such a line too.
 plugin = f"""{begin}
-const trustableScreenshotShutter = () => {{
+const trustantScreenshotShutter = () => {{
   // Newest last, in memory only: the recorder drains this over HTTP, and a dev
   // server restart is a new recording session anyway. Bounded, so a user who
   // clicks ten times while the recorder is not polling cannot grow the heap.
@@ -245,7 +245,7 @@ const trustableScreenshotShutter = () => {{
   const MAX_FRAMES = 16;
 
   return {{
-    name: 'trustable-screenshot-shutter',
+    name: 'trustant-screenshot-shutter',
     apply: 'serve',
 
     // Mounted synchronously, NOT by returning a function. A returned function
@@ -294,8 +294,8 @@ const trustableScreenshotShutter = () => {{
         children: [
           '(function () {{',
           // A full page reload re-runs this script; the button must not stack.
-          '  if (window.__trustableShutter) return;',
-          '  window.__trustableShutter = true;',
+          '  if (window.__trustantShutter) return;',
+          '  window.__trustantShutter = true;',
           '  var W = {width}, H = {height};',
           '  var ENDPOINT = "{endpoint}";',
 
@@ -307,7 +307,7 @@ const trustableScreenshotShutter = () => {{
           // handler, where an await before getDisplayMedia would consume the
           // transient user activation the call requires.
           '  var dbp = new Promise(function (resolve, reject) {{',
-          '    var rq = indexedDB.open("trustable-shots", 1);',
+          '    var rq = indexedDB.open("trustant-shots", 1);',
           '    rq.onupgradeneeded = function () {{',
           '      rq.result.createObjectStore("frames", {{ keyPath: "id", autoIncrement: true }});',
           '    }};',
@@ -364,7 +364,7 @@ const trustableScreenshotShutter = () => {{
           // button property would erase this button entirely.
           '  var btn = document.createElement("button");',
           '  btn.id = "{marker}";',
-          '  btn.setAttribute("data-trustable-shutter", "");',
+          '  btn.setAttribute("data-trustant-shutter", "");',
           '  btn.type = "button";',
           '  btn.title = "Capture a screenshot frame";',
           // A geometric glyph, not an emoji: this renders in the USER's browser,
@@ -404,7 +404,7 @@ const trustableScreenshotShutter = () => {{
           // more reliable than guessing which frameworks open modals how.
           '  if (typeof MutationObserver === "function") {{',
           '    new MutationObserver(function () {{',
-          '      if (document.querySelector("dialog[open],[popover]:popover-open:not([data-trustable-shutter])")) {{',
+          '      if (document.querySelector("dialog[open],[popover]:popover-open:not([data-trustant-shutter])")) {{',
           '        try {{ if (btn.matches(":popover-open")) btn.hidePopover(); }} catch (e) {{}}',
           '        raise();',
           '      }}',
@@ -432,7 +432,7 @@ const trustableScreenshotShutter = () => {{
           '      + "[data-agentic-react-selected-label],[data-agentic-react-selected-actions],"',
           '      + "[data-agentic-react-clear-all],[data-agentic-react-tuning-modal],"',
           '      + "[data-agentic-react-tuning-surface],[data-agentic-react-tuning-panel],"',
-          '      + "[data-trustable-shutter]{{visibility:hidden !important;}}";',
+          '      + "[data-trustant-shutter]{{visibility:hidden !important;}}";',
           '    document.head.appendChild(style);',
           // The visibility rule above already covers the button, top layer or
           // not. Leaving the top layer as well is belt-and-braces: a popover
@@ -548,7 +548,7 @@ const trustableScreenshotShutter = () => {{
           '    var stream = null, style = null;',
           '    try {{',
           // Screen capture exists only in a secure context. Opening the app
-          // through the Trustable UI puts it on http://vite.<ip>.nip.io, which
+          // through the Trustant UI puts it on http://vite.<ip>.nip.io, which
           // is plain HTTP and not localhost, so navigator.mediaDevices is
           // undefined and the click could only throw a TypeError the catch
           // below turns into a 1.2s tooltip — the "shutter does nothing"
@@ -583,7 +583,7 @@ const trustableScreenshotShutter = () => {{
           '        var vw = W, vh = H;',
           '        var cap = Math.min((screen.availWidth - 80) / vw, (screen.availHeight - 120) / vh, 1);',
           '        vw = Math.round(vw * cap); vh = Math.round(vh * cap);',
-          '        var win = window.open(target, "trustable-capture",',
+          '        var win = window.open(target, "trustant-capture",',
           '          "width=" + vw + ",height=" + vh + ",menubar=0,toolbar=0,location=0,status=0");',
           '        if (!win) {{',
           '          throw new Error("allow popups for this site, then click again");',
@@ -643,7 +643,7 @@ const trustableScreenshotShutter = () => {{
           // resizeTo/resizeBy only apply to a window this script opened, so a
           // normal tab is left alone and falls through to the width-first fit.
           '      try {{',
-          '        if (window.name === "trustable-capture") {{',
+          '        if (window.name === "trustant-capture") {{',
           '          for (var attempt = 0; attempt < 3; attempt++) {{',
           '            var dw = W - window.innerWidth, dh = H - window.innerHeight;',
           // A pixel or two of slop is not worth a resize round-trip, and
@@ -727,12 +727,12 @@ prelude = "\n" + plugin
 source = source[:at] + prelude + source[at:]
 
 if edit_at is None:
-    source = re.sub(r'plugins:\s*\[', 'plugins: [trustableScreenshotShutter(), ', source, count=1)
+    source = re.sub(r'plugins:\s*\[', 'plugins: [trustantScreenshotShutter(), ', source, count=1)
 else:
     # The splice above shifted everything after the insertion point.
     if edit_at >= at:
         edit_at += len(prelude)
-    source = source[:edit_at] + '\n' + indent + 'plugins: [trustableScreenshotShutter()],' + source[edit_at:]
+    source = source[:edit_at] + '\n' + indent + 'plugins: [trustantScreenshotShutter()],' + source[edit_at:]
 
 open(path, 'w').write(source)
 PY
@@ -801,10 +801,10 @@ source = re.sub(r'\n?' + re.escape(begin) + r'.*?' + re.escape(end) + r'\n?', ''
 # empty `plugins: [],` behind would not be byte-exact, and the file would keep
 # showing as modified in the user's git status. Ordered before the in-place
 # case so the more specific pattern wins.
-source = re.sub(r'(?m)^[ \t]*plugins: \[trustableScreenshotShutter\(\)\],\n', '', source)
+source = re.sub(r'(?m)^[ \t]*plugins: \[trustantScreenshotShutter\(\)\],\n', '', source)
 
 # The array already existed: take out only our call, leave theirs alone.
-source = source.replace('plugins: [trustableScreenshotShutter(), ', 'plugins: [')
+source = source.replace('plugins: [trustantScreenshotShutter(), ', 'plugins: [')
 
 source = re.sub(r'\n{3,}', '\n\n', source)
 open(path, 'w').write(source)
@@ -1198,7 +1198,7 @@ while true; do
       clear_app_links
       LAST_APP=""
     fi
-    PROMPT='no app launched — launch one from the Trustable UI  [q quits] '
+    PROMPT='no app launched — launch one from the Trustant UI  [q quits] '
   fi
 
   # Only redraw when the line actually changed. The read below times out every

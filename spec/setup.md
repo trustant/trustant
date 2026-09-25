@@ -18,7 +18,7 @@ virtiofs-mounted at its host path and is writable by this user.
 
 `start.sh` allocates 60 GiB to a new `trudev` instance. This is the minimum
 supported development capacity for the local k3s service images, containerd
-snapshots, and repeated Trustable image imports without the known 40 GiB
+snapshots, and repeated Trustant image imports without the known 40 GiB
 DiskPressure failure. Existing larger instances are left unchanged.
 
 On WSL, run `setup.sh` manually as the Linux development user. The repository
@@ -34,10 +34,10 @@ the TruACP launcher remain under `~/.local/bin` and
 `~/.local/lib/truacp`; Pi state remains under `~/.pi/agent`. The pinned
 upstream Milvus CLI is a system prerequisite under `/opt/uv/tools` with entry
 points in `/usr/local/bin`; `~/.local/bin/milvus_cli` belongs exclusively to
-Trustable's per-app wrapper. `sudo` is otherwise limited to system packages and
+Trustant's per-app wrapper. `sudo` is otherwise limited to system packages and
 system prerequisites (the guest user has passwordless sudo). npm global
 installation never uses `sudo`. This mirrors the Dockerfile's per-user
-(`trustable`) stages while keeping the wrapper boundary identical in Lima and
+(`trustant`) stages while keeping the wrapper boundary identical in Lima and
 the image.
 
 When I say add to the PATH, persist it for the bash login shell (the VM is
@@ -63,7 +63,7 @@ and set the env vars
 1. Ensure a proper .env exists, then load it.
 
 There are three env sources: `.env.dist` (the portable template), `image/env`
-(baked into the container image: HOME=/home/trustable, workspace under it, AIP at
+(baked into the container image: HOME=/home/trustant, workspace under it, AIP at
 api.nuvolaris.io), and the .env we generate here (the image layout, but rooted at
 the guest user's own $HOME).
 
@@ -81,7 +81,7 @@ the guest user's own $HOME).
     ai-proxy is not part of the local k3s cluster and nothing serves it on
     localhost:8080 in the VM. Both image/env and the repo's in-VM .env use
     api.nuvolaris.io. (A user running a local ai-proxy can override afterwards.)
-  - GIT_USER=TrustableUser
+  - GIT_USER=TrustantUser
   - GIT_EMAIL=noreply@example.com
 - If .env is PRESENT, do NOT overwrite it — validate it as before: every key in
   .env.dist must be set (no empty value, no leftover <placeholder>), warn/abort on
@@ -89,16 +89,16 @@ the guest user's own $HOME).
 - Then `mkdir -p "$WORKSPACE_DIR"` and `mkdir -p "$WORKBENCH_DIR"`, load .env with
   the bash loop, and confirm both dirs exist (they now will).
 
-2. check ops is in the path and that it resolves the Trustable task source
+2. check ops is in the path and that it resolves the Trustant task source
 
-ops may already be present from the VM's trustable package. If ops is missing,
+ops may already be present from the VM's trustant package. If ops is missing,
 install it and add ~/.ops/linux-<arch>/bin to the path:
 
 curl -sL n7s.co/get-ops-tru | bash
 
 Use `get-ops-tru`, NOT `get-ops`. They are different installers: `get-ops`
 resolves `apache/openserverless-task` and the Apache CLI build, while
-`get-ops-tru` resolves `trustable-ai/openserverless-task` and the Trustable CLI
+`get-ops-tru` resolves `trustable-ai/openserverless-task` and the Trustant CLI
 build. Installing the wrong one is how a machine ends up on the upstream fork.
 
 Do NOT export OPS_REPO or OPS_BRANCH around the install. The source is wired
@@ -163,7 +163,7 @@ After npm is available and before any global npm installation, repository-root
 
 An explicitly configured prefix that is relative, owned by another user, or
 not writable without privilege is incompatible and falls back with a warning to
-`$HOME/.npm-global`. `trustable-acp/setup.sh` consumes this exported/configured
+`$HOME/.npm-global`. `trustant-acp/setup.sh` consumes this exported/configured
 prefix; it does not own another persistent default in the repository-root flow.
 The image build remains reproducible: it invokes the same nested installer as
 the image build user and uses that build context's writable npm prefix.
@@ -176,7 +176,7 @@ are verified.
 
 locate the <apihost>:
 
-- first reading the env variables OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST if
+- first reading the env variables OPS_APIHOST/APIHOST/TRUSTANT_DEFAULT_APIHOST if
   defined (prefer whatever the in-VM ops is already configured with — the package
   may set OPS_APIHOST)
 - otherwise use http://miniops.me
@@ -192,7 +192,7 @@ LOCAL k3s (no ssh, no IP rewrite — `127.0.0.1` in k3s.yaml is already correct
 inside Lima or WSL).
 
 Prefer a standalone `kubectl` when present; otherwise use the client guaranteed
-by the Trustable package as `k3s kubectl`. Abort with a clear error if neither
+by the Trustant package as `k3s kubectl`. Abort with a clear error if neither
 exists. All subsequent commands must use that selected client with
 `KUBECONFIG=~/.ops/tmp/kubeconfig`; do not invoke an assumed standalone
 `kubectl` directly.
@@ -224,14 +224,14 @@ missing (apt via passwordless sudo, the pinned upstream Milvus CLI via uv):
 - psql       (postgresql-client-16)
 - redis-cli  (redis-tools)
 - rclone
-- lsof, required by Trustable's orphaned TruACP/Vite listener recovery
+- lsof, required by Trustant's orphaned TruACP/Vite listener recovery
 - milvus-cli 1.2.1, installed globally with its upstream entry points under
   `/usr/local/bin`
 - GitHub CLI 2.96.0, installed from the official Linux tarball under
   `/usr/local/bin/gh`
 
 (uv itself was ensured in step 3. There is no `/opt/homebrew` in the VM.
-`~/.local/bin/milvus_cli` is reserved for the configured Trustable wrapper
+`~/.local/bin/milvus_cli` is reserved for the configured Trustant wrapper
 generated at app launch; setup must not place the upstream executable there.)
 
 The GitHub CLI release is owned by `GH_VERSION`, `GH_SHA_AMD64`, and
@@ -243,7 +243,7 @@ an account and never reads a developer machine's normal `~/.config/gh`.
 
 11. Install the pinned Pi coding-agent toolchain.
 
-- Read literal npm install specifications from `trustable-acp/pi.version`,
+- Read literal npm install specifications from `trustant-acp/pi.version`,
   ignoring comments and blank lines.
 - Reject any entry without an explicit version separator; setup must never
   resolve a floating Pi CLI or extension.
@@ -252,7 +252,7 @@ an account and never reads a developer machine's normal `~/.config/gh`.
   `claude`, and `codex`) are on `PATH`.
 
 Do not install OpenCode, use `https://opencode.ai/install`, or replace the
-checked-in Trustable ACP adapter with a public unpinned package.
+checked-in Trustant ACP adapter with a public unpinned package.
 
 12. install in ~/.local/bin the mcp servers for openserverless, redis,
 milvus, postgres, mongodb, and s3 using the same procedure in image/Dockerfile
@@ -295,15 +295,15 @@ import-time break is otherwise invisible at setup time and only appears later as
 a reduced server count inside the agent runtime.
 
 Install the checked-in `image/redis-mcp` as
-`~/.local/bin/trustable-redis-mcp` after the pinned upstream Redis server.
-Launch selects this Trustable wrapper and passes the application prefix only
+`~/.local/bin/trustant-redis-mcp` after the pinned upstream Redis server.
+Launch selects this Trustant wrapper and passes the application prefix only
 through the private managed MCP environment. The wrapper must fail closed on
 an absent/invalid prefix or an unreviewed tool and must match the production
 image byte-for-byte.
 
 The Milvus MCP source and commit are declared by
 `MILVUS_MCP_REPO`/`MILVUS_MCP_REF` in `image/Dockerfile` and consumed by both
-the image and this development setup. Use the Trustable fork at the exact
+the image and this development setup. Use the Trustant fork at the exact
 checked-in commit; never install its floating `main` or fall back directly to
 the `zilliztech` upstream URL. On an existing VM, inspect uv's
 `mcp-server-milvus/uv-receipt.toml`; if either repository or revision differs,
@@ -321,7 +321,7 @@ npm install -g tsx "$pack_dir"/openserverless-mcp-*.tgz mongodb-mcp-server@1.9.0
 ```
 
 Do not install OpenServerless MCP directly from GitHub in development: that
-would overwrite Trustable's checked-out protocol-error, secret, and connector
+would overwrite Trustant's checked-out protocol-error, secret, and connector
 fixes whenever `run.sh` recreates the environment. Verify that the installed
 source contains the local `secret-unbind` registration.
 
@@ -334,7 +334,7 @@ The VM development packages also include `python3-pytest` and
 `python3-dotenv`, matching generated application tests without requiring the
 assistant to modify the system Python environment during a session.
 
-Pack `react-mcp/` and install the resulting `trustable-react-mcp` package
+Pack `react-mcp/` and install the resulting `trustant-react-mcp` package
 plus `tsx` under the selected npm prefix. The React MCP is a read-only deterministic
 validator and is separate from optional Agentic React. Setup must verify that the
 managed MCP command resolves on PATH before completing.
@@ -354,14 +354,14 @@ install -m 0755 image/mcp-s3 "$HOME/.local/bin/mcp-s3"
 ```
 
 The Go server writes each app's `.mcp.json` referencing these servers by command
-name (mcp-s3, postgres-mcp, trustable-redis-mcp, mcp-server-milvus,
+name (mcp-s3, postgres-mcp, trustant-redis-mcp, mcp-server-milvus,
 mongodb-mcp-server, openserverless-mcp), so "MCP ready" means all of them resolve
 on the guest's PATH.
 
-13. Build and install TruACP/Pi from the checked-out `trustable-acp` submodule.
+13. Build and install TruACP/Pi from the checked-out `trustant-acp` submodule.
 
-Every Pi package must be pinned in `trustable-acp/pi.version`. Run
-`trustable-acp/setup.sh` from inside that directory so it builds the bundled UI,
+Every Pi package must be pinned in `trustant-acp/pi.version`. Run
+`trustant-acp/setup.sh` from inside that directory so it builds the bundled UI,
 installs the pinned agents/adapters, and creates `~/.local/bin/truacp`. Verify
 that `pi`, `pi-acp`, and `truacp` resolve from the guest PATH. Do not install an
 OpenCode runtime or `@opencode-ai/plugin`: issue #51 is a hard Pi cutover.
@@ -372,8 +372,8 @@ source targets before writing, remain idempotent, reconnect and refresh
 tools/resources after an expired server session, and retry a tool call at most
 once. A version or source-layout mismatch is a setup failure.
 The same setup installs the reviewed issue #57 extension at
-`~/.local/lib/truacp/extensions/trustable-runtime.ts`. A missing extension is
-a setup failure because managed Trustable must not start an unguarded Pi
+`~/.local/lib/truacp/extensions/trustant-runtime.ts`. A missing extension is
+a setup failure because managed Trustant must not start an unguarded Pi
 session. Standalone TruACP does not load this extension unless the host selects
 it through the typed launch contract.
 
@@ -398,7 +398,7 @@ setup does nothing for these, but they are covered when an app is launched.
 
 This section supersedes earlier nested-Pi-build instructions. Clean `trudev`
 setup installs the exact upstream Pi `0.82.0` package set from
-`trustable-acp/pi.version` only after matching every entry in
-`trustable-acp/pi.integrity`. It must not initialize or build a Pi source fork,
+`trustant-acp/pi.version` only after matching every entry in
+`trustant-acp/pi.integrity`. It must not initialize or build a Pi source fork,
 consume locally staged Pi tarballs, or rely on host npm caches. The nested
-`trustable-acp/pi-acp` fork remains required and is built by the ACP installer.
+`trustant-acp/pi-acp` fork remains required and is built by the ACP installer.

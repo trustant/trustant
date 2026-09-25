@@ -1,4 +1,4 @@
-# Builds and pushes the Trustable image on a tag push.
+# Builds and pushes the Trustant image on a tag push.
 #
 # Compilation lives in ./build.sh and ./hotfix.sh, not here, so CI and a
 # developer machine produce the image exactly the same way. This workflow only

@@ -18,16 +18,16 @@ trustable-app
 appo/
 out.json
 image/Dockerfile.*
-trustable-doctor.txt
+trustant-doctor.txt
 opencode.json
 _build.txt
-Trustable
+Trustant
 /dist/
 /opencode.sh
 .ghtoken
 .1pw
-# A 1Password service token for the TrustableLicenses vault can still land here
-# when trulicense (now in trustable-installer) is run from this directory.
+# A 1Password service token for the TrustantLicenses vault can still land here
+# when trulicense (now in trustant-installer) is run from this directory.
 # Never commit it.
 .op.json
 *.lic

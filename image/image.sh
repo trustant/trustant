@@ -30,7 +30,7 @@ echo "Using container runtime: $RUNTIME"
 BUILDX_PREFIX=""
 [ "$RUNTIME" = "docker" ] && BUILDX_PREFIX="buildx"
 MCP_CONTEXT_DIR="openserverless-mcp"
-REACT_CONTEXT_DIR="trustable-react-mcp"
+REACT_CONTEXT_DIR="trustant-react-mcp"
 TRUACP_ARTIFACT_DIR="truacp-runtime"
 
 cleanup() {
@@ -122,7 +122,7 @@ TRUACP_REF="$(git -C ../acp rev-parse HEAD)"
 echo "Using acp submodule: $TRUACP_REF"
 # WHY: the managed runtime must package the issue #57 policy extension beside
 # the exact TruACP and pi-acp versions that negotiate its typed launch path.
-for required in setup.sh pi.version pi.integrity package-lock.json extensions/trustable-runtime.ts; do
+for required in setup.sh pi.version pi.integrity package-lock.json extensions/trustant-runtime.ts; do
     if [ ! -f "../acp/$required" ]; then
         echo "Error: ../acp/$required is missing." >&2
         exit 1
@@ -156,7 +156,7 @@ cp ../acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
 cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"
 cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
 mkdir -p "$TRUACP_ARTIFACT_DIR/extensions"
-cp ../acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"
+cp ../acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"
 TRUACP_ARTIFACT_ABS="$PWD/$TRUACP_ARTIFACT_DIR"
 (
     cd ../acp/pi-acp
@@ -183,7 +183,7 @@ rm -rf "$REACT_CONTEXT_DIR"
 mkdir -p "$REACT_CONTEXT_DIR"
 tar -C ../react-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$REACT_CONTEXT_DIR"
 REACT_HASH="$(find "$REACT_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
-echo "Using trustable-react-mcp source hash: $REACT_HASH"
+echo "Using trustant-react-mcp source hash: $REACT_HASH"
 
 # Build the whole Dockerfile in one pass.
 # WHY: this used to be split at a separator into a hash-tagged base image plus a

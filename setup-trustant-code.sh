@@ -15,12 +15,12 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-# Helpers shared by setup.sh and its regression tests. The Trustable Code
+# Helpers shared by setup.sh and its regression tests. The Trustant Code
 # checkout can be mounted into Lima without the host-side Git directory that a
 # nested submodule .git file references, so source fingerprinting must not
 # require Git metadata.
 
-trustable_sha256_stream() {
+trustant_sha256_stream() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum | awk '{print $1}'
     return
@@ -32,7 +32,7 @@ trustable_sha256_stream() {
   return 127
 }
 
-trustable_file_sha256() {
+trustant_file_sha256() {
   local file="$1"
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$file" | awk '{print $1}'
@@ -45,12 +45,12 @@ trustable_file_sha256() {
   return 127
 }
 
-trustable_file_mode() {
+trustant_file_mode() {
   local file="$1"
   stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null
 }
 
-trustable_code_source_hash() {
+trustant_code_source_hash() {
   local root="$1"
   local file relative mode digest
   [[ -d "$root" ]] || return 1
@@ -60,10 +60,10 @@ trustable_code_source_hash() {
       relative="${file#"$root"/}"
       if [[ -L "$file" ]]; then
         mode="symlink"
-        digest=$(printf '%s' "$(readlink "$file")" | trustable_sha256_stream) || exit 1
+        digest=$(printf '%s' "$(readlink "$file")" | trustant_sha256_stream) || exit 1
       else
-        mode=$(trustable_file_mode "$file") || exit 1
-        digest=$(trustable_file_sha256 "$file") || exit 1
+        mode=$(trustant_file_mode "$file") || exit 1
+        digest=$(trustant_file_sha256 "$file") || exit 1
       fi
       printf '%s\0%s\0%s\n' "$relative" "$mode" "$digest"
     done < <(
@@ -76,12 +76,12 @@ trustable_code_source_hash() {
         ! -path "$root/.opencode/package-lock.json" \
         -print0 | sort -z
     )
-  ) | trustable_sha256_stream
+  ) | trustant_sha256_stream
 }
 
-trustable_code_source_identity() {
+trustant_code_source_identity() {
   local root="$1"
-  local ref="${TRUSTABLE_CODE_SOURCE_REF:-}"
+  local ref="${TRUSTANT_CODE_SOURCE_REF:-}"
   local source_hash
 
   [[ -f "$root/packages/opencode/package.json" ]] || return 2
@@ -93,7 +93,7 @@ trustable_code_source_identity() {
     return 3
   fi
 
-  source_hash=$(trustable_code_source_hash "$root") || return 4
+  source_hash=$(trustant_code_source_hash "$root") || return 4
   [[ -n "$source_hash" ]] || return 4
   [[ -n "$ref" ]] || ref="source-${source_hash:0:12}"
 

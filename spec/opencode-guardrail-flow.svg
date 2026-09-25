@@ -15,7 +15,7 @@
   </defs>
   <rect x="30" y="50" width="160" height="80" class="box"/>
   <text x="110" y="82" text-anchor="middle" class="text">OpenCode</text>
-  <text x="110" y="105" text-anchor="middle" class="small">inside trustable-0</text>
+  <text x="110" y="105" text-anchor="middle" class="small">inside trustant-0</text>
   <rect x="250" y="40" width="190" height="100" class="box"/>
   <text x="345" y="72" text-anchor="middle" class="text">Read contract</text>
   <text x="345" y="96" text-anchor="middle" class="small">.openserverless-contract.md</text>

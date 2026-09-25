@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trustable - Configuration</title>
+    <title>Trustant - Configuration</title>
     <script src="tailwind.js"></script>
     <script src="trustant-auth.js"></script>
     <script src="js/github-account.js"></script>
@@ -30,9 +30,9 @@
     <header class="nu-topbar">
         <div class="nu-shell-narrow px-4 md:px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div class="flex items-center gap-4">
-                <img src="trustant-logo.svg" alt="Trustable Logo" class="w-14 h-14">
+                <img src="trustant-logo.svg" alt="Trustant Logo" class="w-14 h-14">
                 <div>
-                    <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)]">Trustable settings</p>
+                    <p class="text-xs uppercase font-medium text-[color:var(--nu-muted)]">Trustant settings</p>
                     <h1 class="text-3xl font-light text-[color:var(--nu-ink)]">Configuration</h1>
                 </div>
             </div>
@@ -76,7 +76,7 @@
                 </div>
                 <ul id="ollamaOwnHostHelp" class="text-xs text-[color:var(--nu-muted)] mt-3 list-disc list-inside space-y-1">
                     <li>Provide the IP of your local machine or intranet server (NOT 127.0.0.1).</li>
-                    <li>Enable network access on that machine so Trustable can reach it.</li>
+                    <li>Enable network access on that machine so Trustant can reach it.</li>
                     <li>It must be accessible via HTTP without authentication.</li>
                 </ul>
                 <p id="ollamaTestStatus" class="text-sm mt-3 hidden"></p>
@@ -90,7 +90,7 @@
                 Using your own endpoint at <span id="privateHostValue" class="nu-code"></span>
             </p>
             <p class="text-sm text-[color:var(--nu-muted)] mt-2">
-                To point Trustable at a different endpoint, use Change Provider and pick Private AI again.
+                To point Trustant at a different endpoint, use Change Provider and pick Private AI again.
             </p>
         </div>
 
@@ -188,7 +188,7 @@
                         class="nu-input w-full px-3 py-2 text-sm">
                     <p id="notebookTokenStatus" class="text-xs text-[color:var(--nu-muted)] mt-2"></p>
                     <p class="text-xs text-[color:var(--nu-muted)] mt-1">
-                        The token is write-only and is used only by Trustable. Public templates remain readable without it.
+                        The token is write-only and is used only by Trustant. Public templates remain readable without it.
                     </p>
                 </div>
                 <label class="flex items-center gap-2 text-sm text-[color:var(--nu-muted)]">
@@ -387,14 +387,14 @@
         }
 
         function providerLabel(name) {
-            if (name === 'trustable') return 'Trustable Cloud <br> powered by Regolo.AI';
+            if (name === 'trustant') return 'Trustant Cloud <br> powered by Regolo.AI';
             if (name === 'ollama') return 'Ollama';
             if (name === 'private') return 'Private AI';
             return 'not set';
         }
 
         function modelsHeading(name) {
-            if (name === 'trustable') return 'Trustable Models';
+            if (name === 'trustant') return 'Trustant Models';
             if (name === 'ollama') return 'Ollama Models';
             if (name === 'private') return 'Private AI Models';
             return 'Models';

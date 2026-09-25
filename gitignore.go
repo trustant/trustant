@@ -27,17 +27,17 @@ import (
 // The managed .gitignore block uses its own markers rather than the AGENTS.md
 // ones because '#' is the only comment form Git honours in an ignore file.
 const (
-	trustableGitignoreBegin = "# >>> trustable managed — do not edit <<<"
-	trustableGitignoreEnd   = "# >>> end trustable managed <<<"
+	trustantGitignoreBegin = "# >>> trustant managed — do not edit <<<"
+	trustantGitignoreEnd   = "# >>> end trustant managed <<<"
 )
 
-// trustableGitignoreEntries is everything launch regenerates or that is local
+// trustantGitignoreEntries is everything launch regenerates or that is local
 // runtime state. WHY these must be ignored rather than excluded per-callsite:
 // `git clean -fd` on revert deletes untracked-but-not-ignored files, which used
 // to destroy the app's MCP wiring and truacp's session store. Ignored paths
 // survive it. AGENTS.md and .agents/ are deliberately absent: they are real
 // committed content that revert should restore from HEAD.
-var trustableGitignoreEntries = []string{
+var trustantGitignoreEntries = []string{
 	".acp-data/",
 	".env",
 	".env.production",
@@ -51,12 +51,12 @@ var trustableGitignoreEntries = []string{
 	".openserverless-contract.md",
 }
 
-// trustableUntrackPaths are the managed entries that older workbenches committed
+// trustantUntrackPaths are the managed entries that older workbenches committed
 // before this block existed. Adding a path to .gitignore does nothing while Git
 // still tracks it, so launch untracks them once. Negations and the .removed
 // backups are excluded: the former is not a path, the latter never existed
 // before this change.
-var trustableUntrackPaths = []string{
+var trustantUntrackPaths = []string{
 	".acp-data",
 	".env",
 	".env.production",
@@ -67,19 +67,19 @@ var trustableUntrackPaths = []string{
 }
 
 func managedGitignoreBlock() string {
-	return trustableGitignoreBegin + "\n" +
-		strings.Join(trustableGitignoreEntries, "\n") + "\n" +
-		trustableGitignoreEnd + "\n"
+	return trustantGitignoreBegin + "\n" +
+		strings.Join(trustantGitignoreEntries, "\n") + "\n" +
+		trustantGitignoreEnd + "\n"
 }
 
 // mergeManagedGitignore replaces only the marked block so user-authored ignore
 // rules above and below it survive byte-for-byte.
 func mergeManagedGitignore(existing string) string {
 	managed := managedGitignoreBlock()
-	start := strings.Index(existing, trustableGitignoreBegin)
-	end := strings.Index(existing, trustableGitignoreEnd)
+	start := strings.Index(existing, trustantGitignoreBegin)
+	end := strings.Index(existing, trustantGitignoreEnd)
 	if start >= 0 && end >= start {
-		end += len(trustableGitignoreEnd)
+		end += len(trustantGitignoreEnd)
 		head := existing[:start]
 		tail := strings.TrimLeft(existing[end:], "\n")
 		if tail != "" && !strings.HasSuffix(tail, "\n") {
@@ -128,7 +128,7 @@ func gitPathIsTracked(workbenchPath, path string) bool {
 // .mcp.json. Idempotent: once untracked, later launches find nothing to do.
 func untrackManagedGeneratedFiles(workbenchPath string) []string {
 	var removed []string
-	for _, path := range trustableUntrackPaths {
+	for _, path := range trustantUntrackPaths {
 		if !gitPathIsTracked(workbenchPath, path) {
 			continue
 		}
@@ -167,7 +167,7 @@ func ensureWorkbenchGitignore(workbenchPath string) {
 		log.Printf("ensureWorkbenchGitignore: git add .gitignore failed: %s", strings.TrimSpace(string(output)))
 		return
 	}
-	commitCmd := exec.Command("git", "commit", "-m", "trustable: manage generated files")
+	commitCmd := exec.Command("git", "commit", "-m", "trustant: manage generated files")
 	commitCmd.Dir = workbenchPath
 	if output, err := commitCmd.CombinedOutput(); err != nil {
 		log.Printf("ensureWorkbenchGitignore: git commit failed: %s", strings.TrimSpace(string(output)))
@@ -215,7 +215,7 @@ func commitEnvDist(workbenchPath string) {
 		return
 	}
 
-	commitCmd := exec.Command("git", "commit", "-m", "trustable: update .env.dist", "--", ".env.dist")
+	commitCmd := exec.Command("git", "commit", "-m", "trustant: update .env.dist", "--", ".env.dist")
 	commitCmd.Dir = workbenchPath
 	if output, err := commitCmd.CombinedOutput(); err != nil {
 		log.Printf("commitEnvDist: git commit failed: %s", strings.TrimSpace(string(output)))
@@ -235,7 +235,7 @@ func rescueClaudeAppLocalNotes(workbenchPath string) {
 	if info, err := os.Lstat(claudePath); err != nil || info.Mode()&os.ModeSymlink != 0 {
 		return
 	}
-	if agentsHasOnlyTrustableManagedBlock(claudePath) {
+	if agentsHasOnlyTrustantManagedBlock(claudePath) {
 		return
 	}
 	data, err := os.ReadFile(claudePath)
@@ -277,8 +277,8 @@ func rescueClaudeAppLocalNotes(workbenchPath string) {
 // file: whatever follows the managed block, or the whole file when it has no
 // markers at all.
 func extractAppLocalNotes(content string) string {
-	if end := strings.Index(content, trustableAgentsEnd); end >= 0 {
-		content = content[end+len(trustableAgentsEnd):]
+	if end := strings.Index(content, trustantAgentsEnd); end >= 0 {
+		content = content[end+len(trustantAgentsEnd):]
 	}
 	content = strings.TrimSpace(content)
 	content = strings.TrimPrefix(content, "## App-local notes")
@@ -337,7 +337,7 @@ func commitLaunchProjectFiles(workbenchPath string) {
 	}
 	// Scoped to these paths so a launch never sweeps in unrelated work the user
 	// had staged; that belongs to their own Save.
-	commitArgs := append([]string{"commit", "-m", "trustable: update project files", "--"}, present...)
+	commitArgs := append([]string{"commit", "-m", "trustant: update project files", "--"}, present...)
 	commitCmd := exec.Command("git", commitArgs...)
 	commitCmd.Dir = workbenchPath
 	if output, err := commitCmd.CombinedOutput(); err != nil {

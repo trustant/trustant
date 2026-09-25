@@ -44,7 +44,7 @@ func envDistTestApp(t *testing.T, name string, dev, prod map[string]string) stri
 		t.Fatalf("create workbench: %s", err)
 	}
 
-	cfg := &trustableConfig{Apps: map[string]*AppConfig{
+	cfg := &trustantConfig{Apps: map[string]*AppConfig{
 		name: {Password: "secret-password", Development: dev, Production: prod},
 	}}
 	if err := saveWorkspaceConfig(cfg); err != nil {
@@ -57,8 +57,8 @@ func initEnvDistRepo(t *testing.T, dir string) {
 	t.Helper()
 	for _, args := range [][]string{
 		{"init"},
-		{"config", "user.name", "Trustable Test"},
-		{"config", "user.email", "trustable@example.test"},
+		{"config", "user.name", "Trustant Test"},
+		{"config", "user.email", "trustant@example.test"},
 		{"commit", "--allow-empty", "-m", "initial"},
 	} {
 		cmd := exec.Command("git", args...)
@@ -171,7 +171,7 @@ func TestGenerateAppEnvFilesSkipsMissingWorkbench(t *testing.T) {
 	if err := os.MkdirAll(WorkbenchDir, 0755); err != nil {
 		t.Fatalf("create workbench root: %s", err)
 	}
-	if err := saveWorkspaceConfig(&trustableConfig{Apps: map[string]*AppConfig{
+	if err := saveWorkspaceConfig(&trustantConfig{Apps: map[string]*AppConfig{
 		"truchat": {Password: "p", Development: map[string]string{"STRIPE_KEY": "sk"}},
 	}}); err != nil {
 		t.Fatalf("save config: %s", err)

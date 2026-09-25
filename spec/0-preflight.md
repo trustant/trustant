@@ -89,12 +89,12 @@ entrypoint ([image/start.sh](../image/start.sh)) removes whatever is at
 `$WORKBENCH_DIR` — including a symlink left by an older image, which is why it
 must be deleted rather than followed — and recreates it as an **empty real
 directory** on every container start. It MUST NOT be a link into the persistent
-`/home/trustable/workspace` volume: uncommitted work is meant to be lost on
+`/home/trustant/workspace` volume: uncommitted work is meant to be lost on
 restart, and committing is the user's responsibility.
 
 The entrypoint runs as **root**, so the directory it recreates is root-owned
-while the server runs as `trustable`. It must therefore `chown
-trustable:trustable "$HOME/workbench"` immediately after the `mkdir`, or the
+while the server runs as `trustant`. It must therefore `chown
+trustant:trustant "$HOME/workbench"` immediately after the `mkdir`, or the
 launch clone writes into a directory it does not own. The chown is
 **non-recursive** — the preceding `rm -rf` guarantees the directory is empty —
 and **synchronous**, unlike the workspace chown below: it is a single inode, and
@@ -104,17 +104,17 @@ workspace chown does not cover this path, by design; it walks
 
 The startup invariant the rest of the server relies on is therefore: after a
 restart, `$WORKBENCH_DIR` exists, is a real directory, is empty, and is **owned
-by `trustable`**. The
+by `trustant`**. The
 workbench restore described in [4-launch.md](4-launch.md) then clones each
 durable bare repo back from `<WorkspaceDir>/workspace/<name>`; that path is
 unaffected and stays on the volume. Any leftover
-`/home/trustable/workspace/workbench` from an older image is ignored — never
+`/home/trustant/workspace/workbench` from an older image is ignored — never
 migrated, read, or deleted.
 
 # startup ownership of the workspace
 
 `$HOME/workspace` is the only mounted `hostPath` volume
-([oplugins-truinst/trustable/sts.yaml](../oplugins-truinst/trustable/sts.yaml)), so it
+([oplugins-truinst/trustant/sts.yaml](../oplugins-truinst/trustant/sts.yaml)), so it
 is the only tree whose ownership can actually be wrong on a container start.
 The entrypoint ([image/start.sh](../image/start.sh)) therefore chowns **that
 path only**. It MUST NOT recursively chown bare `$HOME`: everything else in the
@@ -129,10 +129,10 @@ convention for server-side state, whose content is the running count of files
 processed. The count is rewritten periodically rather than per file, so the
 counter itself never becomes the bottleneck on a large volume.
 
-`.trustant/` was called `.trustable/` before the rebrand. A pre-rebrand
+`.trustant/` was called `.trustant/` before the rebrand. A pre-rebrand
 directory is **ignored, not migrated**: `.trustant/` is created fresh and its
 contents (the ssh key, GitHub auth, secrets and Pi agent config) are
-regenerated under the new name. Any old `.trustable/` is left in place on the
+regenerated under the new name. Any old `.trustant/` is left in place on the
 volume for an operator to remove. Go callers reach the directory through the
 `stateDir()` helper, which is its single definition.
 
@@ -142,8 +142,8 @@ Three properties are required of the lock:
    put in the background, otherwise the splash can poll, find no lock, and
    wrongly conclude initialization has already finished.
 2. **Readable by the server.** The entrypoint runs as `root` while the Go
-   server reads the lock as `trustable`, so the lock file and its directory are
-   given `trustable` ownership and read permission **at creation time** — not
+   server reads the lock as `trustant`, so the lock file and its directory are
+   given `trustant` ownership and read permission **at creation time** — not
    left for the background chown to reach. A lock that exists but cannot be
    read is indistinguishable from a stale one and would hang the splash.
 3. **Always removed.** The lock is removed explicitly **at the end of the init
@@ -200,7 +200,7 @@ Ensure a persistent ed25519 key exists under
 `$WORKSPACE_DIR/.trustant/ssh/id_ed25519`. If an old ephemeral
 `~/.ssh/id_ed25519` exists and the persistent key is missing, migrate it there.
 Otherwise generate a passphrase-less keypair at the persistent path
-(`ssh-keygen -t ed25519 -N "" -C "trustable" -f
+(`ssh-keygen -t ed25519 -N "" -C "trustant" -f
 $WORKSPACE_DIR/.trustant/ssh/id_ed25519`). Derive the matching `.pub` via
 `ssh-keygen -y` when missing, chmod private/public key files 600, and expose
 them at the compatibility paths `~/.ssh/id_ed25519` and
@@ -215,20 +215,20 @@ the application itself is a web server:
 - proxying ports according the host name
 - implementing apis described in the spec
 
-The web application requires you always access the application with a full fqdn like trustable.<domain>[:<port>]
+The web application requires you always access the application with a full fqdn like trustant.<domain>[:<port>]
 
-- if you detect localhost  redirect to trustable.127.0.0.1.nip.io:<port>,
-- if you detect an <ip> redirect to trustable.<ip>.nip.io:<port>
+- if you detect localhost  redirect to trustant.127.0.0.1.nip.io:<port>,
+- if you detect an <ip> redirect to trustant.<ip>.nip.io:<port>
 
 - if detect a fqdn like <host>.<domain> (no '.' in <host>, <domain> can include '.') do the following:
-- if <host> is 'trustable', serve the folder `web`
+- if <host> is 'trustant', serve the folder `web`
 - if <host> is 'opencode', proxy pass to the pod-local TruACP runtime at
   `127.0.0.1:4096`. The hostname keeps its historical `opencode` label so
   existing ingress, WAF rules and bookmarks stay valid; the runtime behind it is
   TruACP/Pi. In Kubernetes/browser deployments the `opencode.<domain>` ingress
-  must route to the Trustable app port 8910, not directly to service port 4096.
+  must route to the Trustant app port 8910, not directly to service port 4096.
   TruACP serves its own UI and owns its working directory and ACP session state
   internally, so the middleware performs no directory, session or project-route
   rewriting: requests are proxied through unchanged. App switching happens
-  through Trustable `/api/launch/<app>`.
+  through Trustant `/api/launch/<app>`.
 - if <host> is 'vite',  proxy pass to port 5173

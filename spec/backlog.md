@@ -1,4 +1,4 @@
-# Trustable development backlog
+# Trustant development backlog
 
 This file tracks approved improvements that are not implemented yet. Items in
 this file are not current product behavior until their status is changed and
@@ -8,7 +8,7 @@ the matching feature specification is updated.
 
 Status: backlog
 
-Trustable Code must recognize application requirements that imply background or
+Trustant Code must recognize application requirements that imply background or
 periodic work, including settings such as "run every N minutes". It must not
 implement only the settings UI or persist an interval without connecting it to
 a real OpenServerless scheduled action.
@@ -32,7 +32,7 @@ The implementation must distinguish two cases:
    whether work is due, and prevents duplicate concurrent execution.
 
 Before implementation, extend the OpenServerless MCP action tool with a bounded
-schedule/cron input. Trustable Code must not bypass the existing protection of
+schedule/cron input. Trustant Code must not bypass the existing protection of
 generated `__main__.py` files or create action ZIP files manually.
 
 Completion requirements:
@@ -53,28 +53,28 @@ Completion requirements:
 
 Status: backlog
 
-Trustable does not use the upstream `opencode github install` or
+Trustant does not use the upstream `opencode github install` or
 `opencode github run` automation, but the commands and their
 `https://api.opencode.ai` token-exchange and installation-check endpoints are
-still included in the Trustable Code source and compiled binary.
+still included in the Trustant Code source and compiled binary.
 
 The managed personal GitHub account implemented for trustable-app issue #62 is
-deliberately separate: it invokes the official `gh` CLI from the Trustable
+deliberately separate: it invokes the official `gh` CLI from the Trustant
 backend with isolated persistent state and never calls `api.opencode.ai`.
 Implementing #62 does not activate, retain, or justify the upstream OpenCode
 cloud integration described in this backlog item.
 
-Remove or explicitly disable this integration in the Trustable Code build so a
-normal Trustable installation cannot contact the OpenCode cloud endpoint. This
-must not remove Trustable's existing local repository operations such as
+Remove or explicitly disable this integration in the Trustant Code build so a
+normal Trustant installation cannot contact the OpenCode cloud endpoint. This
+must not remove Trustant's existing local repository operations such as
 commit, pull, and push.
 
 Completion requirements:
 
-- remove the unused GitHub command registration from the shipped Trustable Code
+- remove the unused GitHub command registration from the shipped Trustant Code
   CLI, or protect it behind an explicit opt-in that is disabled by default;
 - ensure `api.opencode.ai` is absent from the shipped binary unless an approved,
   configurable GitHub integration is deliberately enabled;
 - keep Edit, chat, application generation, commit, pull, and push working;
-- add a regression check proving that the default Trustable runtime makes no
+- add a regression check proving that the default Trustant runtime makes no
   request to `api.opencode.ai`.

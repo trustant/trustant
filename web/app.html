@@ -20,7 +20,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trustable App</title>
+    <title>Trustant App</title>
     <script src="tailwind.js"></script>
     <script src="trustant-auth.js"></script>
     <script src="js/envtable.js"></script>
@@ -44,7 +44,7 @@
     <div id="topBar" data-collapse class="h-[10%] nu-topbar flex items-center px-4 gap-3 relative">
         <!-- Left group: logo, app name, config pulldown, utils pulldown -->
         <div class="flex items-center gap-3 h-full shrink-0">
-            <img src="trustant-logo.svg" alt="Trustable Logo" class="h-[80%] w-auto">
+            <img src="trustant-logo.svg" alt="Trustant Logo" class="h-[80%] w-auto">
             <h1 id="appName" class="text-xl font-medium text-[color:var(--nu-ink)] whitespace-nowrap"></h1>
             <div id="creditsBox" class="hidden items-center gap-1 px-2 py-1 nu-status-pill text-xs">
                 <span class="font-medium">Credits:</span>
@@ -569,7 +569,7 @@
                 return;
             }
             const url = 'debug.html?app=' + encodeURIComponent(appName);
-            window.open(url, 'trustable-debug-' + appName, 'width=1000,height=720');
+            window.open(url, 'trustant-debug-' + appName, 'width=1000,height=720');
         }
 
         // Close pulldowns when clicking outside
@@ -598,7 +598,7 @@
 
         // Set app name in title bar
         document.getElementById('appName').textContent = appName || 'Unknown App';
-        document.title = `Trustable - ${appName || 'App'}`;
+        document.title = `Trustant - ${appName || 'App'}`;
 
         // Set route label
         document.getElementById('routeLabel').textContent = currentRoute;
@@ -842,7 +842,7 @@
             document.getElementById('uploadModal').classList.remove('flex');
         }
 
-        // Trustable is served over plain http on a nip.io host, which is not a
+        // Trustant is served over plain http on a nip.io host, which is not a
         // secure context, so `navigator.clipboard` is undefined here — reading
         // `.writeText` off it throws rather than rejecting. Anything that copies
         // must therefore go through this helper, which falls back to a detached
@@ -1136,7 +1136,7 @@
         // the full workbench width. The iframe is only hidden with CSS, never
         // unloaded, so the chat session survives. #rightPane is flex-1, so no
         // width math is needed; applyDevice() reruns via the ResizeObserver.
-        const SIDEBAR_HIDDEN_KEY = 'trustable.sidebarHidden';
+        const SIDEBAR_HIDDEN_KEY = 'trustant.sidebarHidden';
         let savedLeftWidth = '50%';
 
         function setSidebarHidden(hidden) {
@@ -1175,7 +1175,7 @@
         // See spec/12-terminal.md. Height persists; visibility does not, because
         // closing the pane terminates the shell.
         (function() {
-            const TERMINAL_HEIGHT_KEY = 'trustable.terminal.height';
+            const TERMINAL_HEIGHT_KEY = 'trustant.terminal.height';
             const pane = document.getElementById('terminalPane');
             const host = document.getElementById('terminalHost');
             const paneDivider = document.getElementById('terminalDivider');
@@ -1231,13 +1231,13 @@
                     if (term) term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n');
                 };
 
-                if (!term._trustableWired) {
+                if (!term._trustantWired) {
                     term.onData((data) => {
                         if (socket && socket.readyState === WebSocket.OPEN) {
                             socket.send(new TextEncoder().encode(data));
                         }
                     });
-                    term._trustableWired = true;
+                    term._trustantWired = true;
                 }
             }
 
@@ -2002,7 +2002,7 @@
                 return;
             }
 
-            if (cfg.provider === 'trustable') {
+            if (cfg.provider === 'trustant') {
                 initCredits(cfg.register_url);
             }
 

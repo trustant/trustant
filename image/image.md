@@ -16,14 +16,14 @@ Detects the architecture to build:
 
 Selects the container runtime by sourcing `runtime.sh`: Docker when installed,
 otherwise nerdctl against the k3s containerd socket in the `k8s.io` namespace,
-starting buildkit if needed. Override with `TRUSTABLE_CONTAINER_RUNTIME`.
+starting buildkit if needed. Override with `TRUSTANT_CONTAINER_RUNTIME`.
 
 Builds the whole Dockerfile in one pass, passing the target architecture. There
 is no base/current split: buildkit cannot resolve `FROM` against an image that
 was just loaded into containerd, and the builder's layer cache already avoids
 rebuilding unchanged base stages.
 
-Before splitting the Dockerfile, stage the pinned `mcp` and `trustable-acp`
+Before splitting the Dockerfile, stage the pinned `mcp` and `trustant-acp`
 submodules into the Docker context. Do not
 download a floating agent runtime while building.
 
@@ -31,5 +31,5 @@ Log the content hashes of the pinned OpenServerless MCP and TruACP
 revisions/content for build provenance.
 
 The base image builds TruACP for the target architecture and installs the Pi
-toolchain pinned by `trustable-acp/pi.version` under the `trustable` user's
+toolchain pinned by `trustant-acp/pi.version` under the `trustant` user's
 `~/.local/bin`. It does not compile or install OpenCode.

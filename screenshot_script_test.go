@@ -441,7 +441,7 @@ func TestScreenshotShutterNormalizesFrameSize(t *testing.T) {
 	// result padded. It cannot happen at window.open time — Chrome's "Sharing
 	// this tab" bar only steals viewport height once sharing has started, so
 	// the size is measured and fixed after the grant and before the grab.
-	if !strings.Contains(code, `window.name === "trustable-capture"`) {
+	if !strings.Contains(code, `window.name === "trustant-capture"`) {
 		t.Error("only a window the shutter opened may resize itself; a normal tab must be left alone")
 	}
 	if !strings.Contains(code, "var dw = W - window.innerWidth, dh = H - window.innerHeight") {
@@ -478,7 +478,7 @@ func TestScreenshotShutterNormalizesFrameSize(t *testing.T) {
 }
 
 // WHY: getDisplayMedia exists only in a secure context. Opening the app through
-// the Trustable UI serves it from http://vite.<ip>.nip.io — plain HTTP, not
+// the Trustant UI serves it from http://vite.<ip>.nip.io — plain HTTP, not
 // localhost — where navigator.mediaDevices is undefined, so the click throws a
 // bare TypeError that the catch renders as a 1.2s tooltip change. The reported
 // symptom was "the shutter does nothing". Rather than only explaining, the
@@ -493,7 +493,7 @@ func TestScreenshotShutterOpensASizedWindowOnTheCaptureOrigin(t *testing.T) {
 	if !strings.Contains(code, "!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia") {
 		t.Error("the payload must check for screen-capture support before calling it")
 	}
-	if !strings.Contains(code, `window.open(target, "trustable-capture"`) {
+	if !strings.Contains(code, `window.open(target, "trustant-capture"`) {
 		t.Error("a non-secure context must open the app on the capture origin, not just report")
 	}
 	// WHY: the popup exists to give the app a viewport already in the canvas
@@ -614,7 +614,7 @@ func TestScreenshotShutterHidesChromeIncludingItself(t *testing.T) {
 		t.Error("the call must be optional-chained: most apps have no such plugin")
 	}
 	// The button draws on the page it captures. Without this it is in every frame.
-	if !strings.Contains(code, "data-trustable-shutter") {
+	if !strings.Contains(code, "data-trustant-shutter") {
 		t.Error("the shutter must hide ITSELF, or it appears in every frame")
 	}
 	// Hiding the button is not enough while it is a popover: a popover left in
@@ -678,13 +678,13 @@ func TestScreenshotScriptInjectsTheShutter(t *testing.T) {
 		t.Error("the injected block needs begin/end markers for idempotent injection and exact removal")
 	}
 	// The route reporter is obsolete: the tab is already on the page to capture.
-	if strings.Contains(code, "__trustable_location__") {
+	if strings.Contains(code, "__trustant_location__") {
 		t.Error("the route reporter is obsolete — the page captures itself, so there is no route to report")
 	}
 	// The factory name appears in the injection AND in remove_reporter's replace
 	// string. If they drift, removal silently no-ops and the user's vite.config
 	// keeps a call to a plugin that is no longer defined.
-	if strings.Count(code, "trustableScreenshotShutter") < 3 {
+	if strings.Count(code, "trustantScreenshotShutter") < 3 {
 		t.Error("the factory name must match across injection and removal, or removal silently no-ops")
 	}
 }
@@ -714,7 +714,7 @@ func TestScreenshotScriptAddsAMissingPluginsArray(t *testing.T) {
 	}
 	// An added array must be removed whole; leaving `plugins: [],` behind is not
 	// byte-exact and keeps the file dirty in the user's git status.
-	if !strings.Contains(code, `plugins: \[trustableScreenshotShutter\(\)\],\n`) {
+	if !strings.Contains(code, `plugins: \[trustantScreenshotShutter\(\)\],\n`) {
 		t.Error("an array added by the injection must be removed entirely on cleanup")
 	}
 }

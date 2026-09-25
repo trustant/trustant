@@ -20,7 +20,7 @@ so a reused worktree never runs Air against stale metadata left by an earlier
 release or verification build. An empty tag must never be treated as a match:
 `grep ""` succeeds against any non-empty file, which would keep stale metadata
 on every untagged checkout. Branch/stream identity resolves in this
-order: `TRUSTABLE_BUILD_BRANCH` / `TRUSTABLE_BUILD_STREAM` overrides, the
+order: `TRUSTANT_BUILD_BRANCH` / `TRUSTANT_BUILD_STREAM` overrides, the
 current Git branch when available, the suffix of a mounted worktree named
 `trustable-app-<identity>`, then `development`. This makes the mounted
 `trustable-app-trucode-integration` worktree report `trucode-integration` even
@@ -71,8 +71,8 @@ what reports the real failure.
 
 Then start exactly one `kubefwd` for namespace `openserverless`, using
 `~/.ops/tmp/kubeconfig` and field selector
-`metadata.name!=trustable-svc`. Excluding `trustable-svc` prevents the forwarder
-from stealing Trustable's local ports 8910, 4096, and 5173. Wait for bounded
+`metadata.name!=trustant-svc`. Excluding `trustant-svc` prevents the forwarder
+from stealing Trustant's local ports 8910, 4096, and 5173. Wait for bounded
 readiness by proving that at least one forwarded Service name resolves to a
 loopback address. If the process exits or readiness times out, print its
 diagnostic log and abort. The same cleanup trap that owns Air must terminate
@@ -88,18 +88,18 @@ service and never modify resolver configuration.
 start.sh installs it in the VM, so only start one if nothing is listening.
 
 3. launch air in background (hot-reloads the Go binary on :8910). Air watches
-the root Go and JavaScript sources, but excludes the `trustable-code` subrepo:
+the root Go and JavaScript sources, but excludes the `trustant-code` subrepo:
 that subrepo is built by setup and can contain ignored Bun `.bun-build` marker
 files with mode `000`, which must not enter Air's checksum scan.
 
-4. print the browser URL as http://trustable.<ip>.nip.io:8910/ where <ip> is the
+4. print the browser URL as http://trustant.<ip>.nip.io:8910/ where <ip> is the
 host-reachable address, resolved in this order: the `current.ip` written by
-`start.sh` under `${XDG_CONFIG_HOME:-$HOME/.config}/trustable/` (on a native
+`start.sh` under `${XDG_CONFIG_HOME:-$HOME/.config}/trustant/` (on a native
 Linux host this is the LAN address, so the printed URL also works from another
 machine), then the lima0 address inside the VM, then 127.0.0.1;
-alongside it, print the deployment URL http://trustable.<ip>.nip.io/ — the same
+alongside it, print the deployment URL http://trustant.<ip>.nip.io/ — the same
 hostname without the :8910 port, i.e. the cluster ingress on port 80 — so it can
 be clicked to reach the deployment;
-Trustable handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
+Trustant handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
 
 5. wait until you press ^c and terminate everything

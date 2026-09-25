@@ -1,6 +1,6 @@
-# Trustable TL;DR
+# Trustant TL;DR
 
-Welcome to Trustable source code
+Welcome to Trustant source code
 
 How to run it from sources:
 
@@ -95,7 +95,7 @@ git pull origin main --recurse-submodules
 
 then you can execute `./run.sh` (inside the VM — from a Mac host use `./ssh.sh ./run.sh`) 
 
-# Trustable Introduction
+# Trustant Introduction
 
 ## What it does
 
@@ -142,12 +142,12 @@ Everything lives in `package main`. Rather than splitting into many packages, th
 
 The non-obvious core of the design: **a single listener on `:8910` serves three different surfaces**, distinguished entirely by the first label of the request hostname. [middleware.go](middleware.go) inspects the host and dispatches:
 
-- `trustable.<domain>` → static `web/` assets **+** the Go `/api/*` handlers
+- `trustant.<domain>` → static `web/` assets **+** the Go `/api/*` handlers
 - `opencode.<domain>` → reverse-proxy to `localhost:4096` (the opencode AI coding assistant)
 - `vite.<domain>` → reverse-proxy to `localhost:5173` (the user's running app under Vite)
 - Any other prefix → `400`, with a response pointing at the corrected URL
 
-Bare `localhost` or raw-IP requests are **`307`-redirected** to `trustable.<ip>.nip.io:<port>`, so the fully-qualified form is always used in practice. This matters for testing: **every test must target an FQDN** — hitting plain `localhost:8910` only gets the redirect, never the app.
+Bare `localhost` or raw-IP requests are **`307`-redirected** to `trustant.<ip>.nip.io:<port>`, so the fully-qualified form is always used in practice. This matters for testing: **every test must target an FQDN** — hitting plain `localhost:8910` only gets the redirect, never the app.
 
 ### Workspace vs. workbench
 
@@ -181,10 +181,10 @@ The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.j
 
 ## Prerequisites
 
-- For macOS development, a **running Trustable VM** on the local machine — the macOS app from [trustable.ai](https://trustable.ai) provisions a k3s VM and writes `id_ed25519`, `current.ip`, and `apihost` into `~/Library/Application Support/Trustable/`. `setup.sh` reads these to extract the VM's kubeconfig so `ops` can talk to k3s directly.
-- For Linux server development, local access to the Trustable k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` detects this host automatically. Windows development is this same flow inside WSL2 — see [spec/start.md](spec/start.md).
+- For macOS development, a **running Trustant VM** on the local machine — the macOS app from [trustant.ai](https://trustant.ai) provisions a k3s VM and writes `id_ed25519`, `current.ip`, and `apihost` into `~/Library/Application Support/Trustant/`. `setup.sh` reads these to extract the VM's kubeconfig so `ops` can talk to k3s directly.
+- For Linux server development, local access to the Trustant k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` detects this host automatically. Windows development is this same flow inside WSL2 — see [spec/start.md](spec/start.md).
 - A **GitHub token** in `.ghtoken` at the repo root (git-ignored). `start.sh` checks it as its second step and prompts when it is missing.
-- **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, Node, and the TruACP/Pi versions pinned by `trustable-acp/pi.version` — all installed and verified by `setup.sh`.
+- **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, Node, and the TruACP/Pi versions pinned by `trustant-acp/pi.version` — all installed and verified by `setup.sh`.
 - A populated **`.env`** (see below). Startup fails preflight if it is missing; `start.sh` seeds it from `.env.dist` on the first run.
 
 ## Getting started
@@ -207,7 +207,7 @@ on another Linux distribution it reports that the distribution is unsupported, a
 macOS or Windows it points you at `./start.sh` / `.\start.ps1`, which provide the Ubuntu
 VM or WSL2 distribution it needs.
 
-Ollama sign-in happens inside Trustable. `start.sh`/`setup.sh` are invoked for you; run
+Ollama sign-in happens inside Trustant. `start.sh`/`setup.sh` are invoked for you; run
 them directly only for a manual step (`./start.sh -k` to destroy the VM, `./setup.sh`
 inside the VM to re-verify the toolchain).
 
@@ -224,7 +224,7 @@ inside the VM to re-verify the toolchain).
 | `OPENAI_BASE_URL` | ✅ | Provider base URL (overwritten when the user picks a provider in the UI) |
 | `OPENAI_API_KEY` | ✅ | Provider API key |
 | `OLLAMA_ENDPOINT` | ✅ | Local Ollama endpoint for the Ollama provider |
-| `AIP_REGISTER_URL` | ✅ | ai-proxy registration UI base. The splash loads this in an iframe for Trustable Cloud sign-up; the top-up form lives at `<this>/top-up`. Dev: `http://localhost:8080/_register`; Prod: `https://api.nuvolaris.io/_register` |
+| `AIP_REGISTER_URL` | ✅ | ai-proxy registration UI base. The splash loads this in an iframe for Trustant Cloud sign-up; the top-up form lives at `<this>/top-up`. Dev: `http://localhost:8080/_register`; Prod: `https://api.nuvolaris.io/_register` |
 | `AIP_BASE_URL` | ✅ | ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL. Dev: `http://localhost:8080/api/v2/`; Prod: `https://api.nuvolaris.io/api/v2/` |
 | `GIT_USER` | ✅ | Author name for commits made on behalf of the user |
 | `GIT_EMAIL` | ✅ | Author email for commits made on behalf of the user |
@@ -240,7 +240,7 @@ inside the VM to re-verify the toolchain).
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
 ./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Push the latest git tag and watch CI; pushes oplugins-truinst only with explicit authorization (never for a hotfix)
-./ssh.sh         # SSH into the running Trustable VM; no args prints help, -d development (your files), -p production (trustable user), -i inside the container
+./ssh.sh         # SSH into the running Trustant VM; no args prints help, -d development (your files), -p production (trustant user), -i inside the container
 go test ./...    # Unit tests
 go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
 ```
@@ -249,9 +249,9 @@ go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
 
 `_build.txt` is generated by [build.sh](build.sh) from `version.txt` (currently `v0.4.0`) plus `expiry.txt` (currently `2026/08/31`). It holds the multi-line `Version:` / `Build:` / `Branch:` / `Stream:` / `Expiry:` block that `parseVersion` reads at startup. In local Air development, missing branch metadata falls back to the current mounted Git branch so the app-list badge identifies the code being served.
 
-`build.sh --build` and `build.sh --tag` **always** write the new image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host; it is `publish.sh` pushing the submodule that actually ships the new version to the deployment plugin. Deployment is always `ops truinst trustable redeploy`, which reads the tag from that file, so the cluster and the plugin never disagree.
+`build.sh --build` and `build.sh --tag` **always** write the new image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host; it is `publish.sh` pushing the submodule that actually ships the new version to the deployment plugin. Deployment is always `ops truinst trustant redeploy`, which reads the tag from that file, so the cluster and the plugin never disagree.
 
-[hotfix.sh](hotfix.sh) is the exception: it **never** writes `opsroot.json` and never commits, so it patches the running StatefulSet directly (`kubectl set image` + `rollout status`) rather than going through the plugin, which would resolve the base image and roll out the wrong thing. That patch is **not durable** — the next `ops truinst trustable redeploy` reverts it. A hotfix is a live patch, not a release; promoting one means a normal `./build.sh --build` plus an authorized `oplugins-truinst` push. Its tag is `<base>-<n>`, counted from the remote because `build.sh` deletes every local tag on each build.
+[hotfix.sh](hotfix.sh) is the exception: it **never** writes `opsroot.json` and never commits, so it patches the running StatefulSet directly (`kubectl set image` + `rollout status`) rather than going through the plugin, which would resolve the base image and roll out the wrong thing. That patch is **not durable** — the next `ops truinst trustant redeploy` reverts it. A hotfix is a live patch, not a release; promoting one means a normal `./build.sh --build` plus an authorized `oplugins-truinst` push. Its tag is `<base>-<n>`, counted from the remote because `build.sh` deletes every local tag on each build.
 
 Both scripts take an optional `--no-deploy` after `--build` to stop once the image is built.
 
@@ -291,13 +291,13 @@ An expired license is invalid outright, so git push stops too. The local apihost
 
 The frontend keys off the exact `"License required"` and `"Host not licensed"` prefixes to show a license modal instead of a raw error. **When changing this wording, keep the prefixes intact** — otherwise the frontend gate breaks.
 
-Licenses are issued with the `trulicense` CLI, which lives in the **trustable-installer** repo (run `./trulicense.sh` there). It keeps the Ed25519 signing key in 1Password (vault `TrustableLicenses`, item `MasterKey Trustable`) rather than on disk, and archives every issued license in the same vault. This repo only *verifies* licenses. See [spec/14-license.md](spec/14-license.md).
+Licenses are issued with the `trulicense` CLI, which lives in the **trustant-installer** repo (run `./trulicense.sh` there). It keeps the Ed25519 signing key in 1Password (vault `TrustantLicenses`, item `MasterKey Trustant`) rather than on disk, and archives every issued license in the same vault. This repo only *verifies* licenses. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 
-Five git submodules are declared in [.gitmodules](.gitmodules) — `mcp`, `trustable-acp`, `oplugins`, `oplugins-truinst`, and `skills`. The `mcp` submodule points to the Apache `openserverless-mcp` project and is used by the image build to install the `openserverless-mcp` command; `trustable-acp` carries the TruACP/Pi runtime sources and the `pi.version` pins; `oplugins` is the OpenServerless task plugin set and `oplugins-truinst` the Trustable installer plugin. As noted above, the build flow writes the new image tag into `oplugins-truinst/opsroot.json`; pushing **that** submodule is the step that actually ships a new version to the deployment plugin, and it requires explicit authorization.
+Five git submodules are declared in [.gitmodules](.gitmodules) — `mcp`, `trustant-acp`, `oplugins`, `oplugins-truinst`, and `skills`. The `mcp` submodule points to the Apache `openserverless-mcp` project and is used by the image build to install the `openserverless-mcp` command; `trustant-acp` carries the TruACP/Pi runtime sources and the `pi.version` pins; `oplugins` is the OpenServerless task plugin set and `oplugins-truinst` the Trustant installer plugin. As noted above, the build flow writes the new image tag into `oplugins-truinst/opsroot.json`; pushing **that** submodule is the step that actually ships a new version to the deployment plugin, and it requires explicit authorization.
 
-`start.sh` initializes `mcp` and `trustable-acp` by itself on every host, so a plain clone is enough to start. To initialize all of them:
+`start.sh` initializes `mcp` and `trustant-acp` by itself on every host, so a plain clone is enough to start. To initialize all of them:
 
 ```bash
 git submodule update --init --recursive

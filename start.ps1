@@ -1,4 +1,4 @@
-# start.ps1 - bring up the Trustable development environment on a Windows host.
+# start.ps1 - bring up the Trustant development environment on a Windows host.
 # Copyright 2025-2026 Nuvolaris Inc
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 # Windows and only the Linux environment lives in WSL.
 #
 # start.sh then takes over on its native-Linux path (uname -s = Linux): it
-# installs the Trustable .deb (k3s), ollama, kubefwd, gh, the host-rewrite proxy,
+# installs the Trustant .deb (k3s), ollama, kubefwd, gh, the host-rewrite proxy,
 # writes the support files and runs ./setup.sh. The .deb and the ollama build are
 # cached under dist\ on the Windows side of the mount, so destroying the distro
 # and re-running re-downloads neither. Nothing in start.sh is
@@ -68,12 +68,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# The Trustable VM sizing from start.sh's Lima config, reused for the WSL2 VM.
+# The Trustant VM sizing from start.sh's Lima config, reused for the WSL2 VM.
 $VM_CPUS = 4
 $VM_MEMORY = '8GB'
 $VM_SWAP = '8GB'
 # What start.sh's native path shells out to and the base image may not have.
-# zstd and unzip are needed to unpack what the flow downloads (the Trustable
+# zstd and unzip are needed to unpack what the flow downloads (the Trustant
 # .deb payload and the zipped release archives); iptables is what the package's
 # postinst installs its firewall dropin with. gh is here as belt and braces: the
 # bootstrap runs as root before start.sh is invoked at all, so the distro has
@@ -239,7 +239,7 @@ if (-not $DistroExists) {
 # distribution the user did not name.
 if ($Distro -eq 'trudev' -and (Test-DistroExists 'Ubuntu-24.04')) {
     Write-Warn "'Ubuntu-24.04' is registered. Earlier versions of start.ps1 used that name for the"
-    Write-Warn "Trustable dev distro. If it is ours and no longer wanted, remove it with:"
+    Write-Warn "Trustant dev distro. If it is ours and no longer wanted, remove it with:"
     Write-Warn "    .\start.ps1 -k -Distro Ubuntu-24.04"
 }
 
@@ -271,17 +271,17 @@ $WslConfig = Join-Path $env:USERPROFILE '.wslconfig'
 $WroteWslConfig = $false
 if (Test-Path $WslConfig) {
     # Only nag about the sizing when this is somebody else's .wslconfig; the one
-    # written below already carries the values Trustable wants.
+    # written below already carries the values Trustant wants.
     if ((Get-Content $WslConfig -Raw) -match 'trustable-app/(start|setup)\.ps1') {
         Write-Ok ".wslconfig already written by start.ps1 ($WslConfig)"
     } else {
         Write-Ok ".wslconfig already present at $WslConfig (left untouched)"
-        Write-Warn "Trustable wants at least: memory=$VM_MEMORY, processors=$VM_CPUS, swap=$VM_SWAP"
+        Write-Warn "Trustant wants at least: memory=$VM_MEMORY, processors=$VM_CPUS, swap=$VM_SWAP"
     }
 } else {
     Write-Step "Writing $WslConfig"
     $cfg = @"
-# Written by trustable-app/start.ps1. Trustable runs a full k3s stack inside
+# Written by trustable-app/start.ps1. Trustant runs a full k3s stack inside
 # WSL, so it needs the same headroom start.sh gives the Lima VM on macOS.
 [wsl2]
 memory=$VM_MEMORY
@@ -401,7 +401,7 @@ CONF
 echo "bootstrap complete"
 '@
 
-$tmpScript = Join-Path ([System.IO.Path]::GetTempPath()) 'trustable-wsl-bootstrap.sh'
+$tmpScript = Join-Path ([System.IO.Path]::GetTempPath()) 'trustant-wsl-bootstrap.sh'
 [System.IO.File]::WriteAllText($tmpScript, ($bootstrap -replace "`r`n", "`n"), (New-Object System.Text.UTF8Encoding($false)))
 
 function ConvertTo-WslPath {
@@ -539,13 +539,13 @@ if ($startExit -ne 0) {
 # --- take the final step ------------------------------------------------------
 if ($VSCode) {
     Open-VSCode
-    Show-NextSteps 'Trustable development environment ready' -InVSCode
+    Show-NextSteps 'Trustant development environment ready' -InVSCode
     Restore-Console
     exit 0
 }
 
 if ($NoRun) {
-    Show-NextSteps 'Trustable development environment ready'
+    Show-NextSteps 'Trustant development environment ready'
     Restore-Console
     exit 0
 }
@@ -560,6 +560,6 @@ Write-Step "Running ./run.sh in '$Distro' as '$User' (Ctrl-C to stop)"
 & wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./run.sh
 $runExit = $LASTEXITCODE
 
-Show-NextSteps 'Trustable development environment ready'
+Show-NextSteps 'Trustant development environment ready'
 Restore-Console
 exit $runExit

@@ -629,7 +629,7 @@ func handleGitHubLogout(w http.ResponseWriter, r *http.Request) {
 	managedGitHubLogin.reset()
 	if logoutFailed {
 		writeGitHubJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "GitHub logout did not complete, but Trustable-managed credentials were removed",
+			"error": "GitHub logout did not complete, but Trustant-managed credentials were removed",
 		})
 		return
 	}

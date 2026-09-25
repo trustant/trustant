@@ -63,19 +63,19 @@ function canonicalDirectory(value: string): string {
 }
 
 /**
- * Resolve the current project only from Trustable's host-owned manifest.
+ * Resolve the current project only from Trustant's host-owned manifest.
  *
  * WHY: a static-analysis server must not accept a model-selected root that
  * could inspect another application mounted in the same VM or pod.
  */
 export function resolveManagedReactRoot(
-  runtimeConfig = process.env.TRUSTABLE_RUNTIME_CONFIG || "",
+  runtimeConfig = process.env.TRUSTANT_RUNTIME_CONFIG || "",
   directory = process.cwd(),
 ): string {
-  if (!runtimeConfig) throw new Error("Trustable React MCP requires TRUSTABLE_RUNTIME_CONFIG")
+  if (!runtimeConfig) throw new Error("Trustant React MCP requires TRUSTANT_RUNTIME_CONFIG")
   const manifest = JSON.parse(readFileSync(resolve(runtimeConfig), "utf8")) as RuntimeManifest
   if (manifest.version !== 2 || !Array.isArray(manifest.workbenches)) {
-    throw new Error("Trustable React MCP received an invalid runtime manifest")
+    throw new Error("Trustant React MCP received an invalid runtime manifest")
   }
   const cwd = canonicalDirectory(directory)
   const matches = manifest.workbenches.filter((workbench) => {
@@ -83,7 +83,7 @@ export function resolveManagedReactRoot(
     return containsPath(canonicalDirectory(workbench.workspace), cwd)
   })
   if (matches.length !== 1) {
-    throw new Error(`Trustable React MCP expected one workbench for ${cwd}, found ${matches.length}`)
+    throw new Error(`Trustant React MCP expected one workbench for ${cwd}, found ${matches.length}`)
   }
   return canonicalDirectory(matches[0].workspace)
 }
@@ -289,7 +289,7 @@ export function validateReactAuthFlow(root: string): ReactFinding[] {
       message: "A persisted token exists without an observable backend me/session validation during auth bootstrap.",
     })
   }
-  // WHY: Trustable sessions are opaque Redis records. Decoding a JWT in the
+  // WHY: Trustant sessions are opaque Redis records. Decoding a JWT in the
   // browser makes cached claims authoritative and bypasses the required
   // backend me/session lookup after a reload.
   if (browserTokenDecoding) {

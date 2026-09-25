@@ -23,7 +23,7 @@ import test from "node:test"
 import { inspectReactProject, validateReactAuthFlow, validateReactRoutes } from "./analyzer.ts"
 
 function project(source: string): string {
-  const root = mkdtempSync(join(tmpdir(), "trustable-react-mcp-"))
+  const root = mkdtempSync(join(tmpdir(), "trustant-react-mcp-"))
   mkdirSync(join(root, "src"), { recursive: true })
   writeFileSync(join(root, "package.json"), JSON.stringify({
     dependencies: { react: "19.0.0", "react-router-dom": "7.0.0" },

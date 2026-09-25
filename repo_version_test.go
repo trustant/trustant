@@ -33,7 +33,7 @@ func TestVersionMetadata(t *testing.T) {
 		gitBranch = oldGitBranch
 	})
 
-	parseVersion("Version: v0.3.11\nBuild: local-42\nBranch: feature/runtime\nStream: trustable-code\nExpiry: 2099/08/31\n")
+	parseVersion("Version: v0.3.11\nBuild: local-42\nBranch: feature/runtime\nStream: trustant-code\nExpiry: 2099/08/31\n")
 
 	recorder := httptest.NewRecorder()
 	handleVersion(recorder, httptest.NewRequest("GET", "/api/version", nil))
@@ -43,10 +43,10 @@ func TestVersionMetadata(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	want := map[string]any{
-		"version": "Trustable v0.3.11",
+		"version": "Trustant v0.3.11",
 		"build":   "local-42",
 		"branch":  "feature/runtime",
-		"stream":  "trustable-code",
+		"stream":  "trustant-code",
 		"expire":  "2099/08/31",
 	}
 	for key, value := range want {
@@ -93,7 +93,7 @@ func TestVersionReportsFeatureFlags(t *testing.T) {
 // envFlag treats unset and empty as OFF: that is what keeps a plain .env
 // (which has neither variable) running without the license gate.
 func TestEnvFlag(t *testing.T) {
-	const key = "TRUSTABLE_TEST_FLAG"
+	const key = "TRUSTANT_TEST_FLAG"
 	for _, tc := range []struct {
 		value string
 		set   bool
@@ -124,16 +124,16 @@ func TestEnvFlag(t *testing.T) {
 
 func TestVersionMetadataFallsBackToDevelopmentBranch(t *testing.T) {
 	oldGitBranch := gitBranch
-	gitBranch = func() string { return "trustable-code" }
+	gitBranch = func() string { return "trustant-code" }
 	t.Cleanup(func() { gitBranch = oldGitBranch })
 
 	parseVersion("Version: v0.3.11\nBuild: local\nExpiry: 2099/08/31\n")
 
-	if appBranch != "trustable-code" {
-		t.Fatalf("branch = %q, want trustable-code", appBranch)
+	if appBranch != "trustant-code" {
+		t.Fatalf("branch = %q, want trustant-code", appBranch)
 	}
-	if appStream != "trustable-code" {
-		t.Fatalf("stream = %q, want trustable-code", appStream)
+	if appStream != "trustant-code" {
+		t.Fatalf("stream = %q, want trustant-code", appStream)
 	}
 }
 

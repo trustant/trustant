@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="520" viewBox="0 0 1120 520" role="img" aria-labelledby="title desc">
-  <title id="title">Trustable local administrator authentication flow</title>
-  <desc id="desc">A local administrator logs in with credentials verified against an explicit password hash. Trustable creates a bounded server-side session and requires a host-only cookie plus CSRF header for effectful routes.</desc>
+  <title id="title">Trustant local administrator authentication flow</title>
+  <desc id="desc">A local administrator logs in with credentials verified against an explicit password hash. Trustant creates a bounded server-side session and requires a host-only cookie plus CSRF header for effectful routes.</desc>
   <style>
     .box { fill: #fff; stroke: #d7dde2; stroke-width: 2; rx: 4; }
     .accent { fill: #edf8fc; stroke: #52a9c9; stroke-width: 2; rx: 4; }
@@ -14,7 +14,7 @@
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#34383b"/></marker>
   </defs>
 
-  <text x="40" y="42" class="title">Trustable local-admin authentication</text>
+  <text x="40" y="42" class="title">Trustant local-admin authentication</text>
 
   <rect x="40" y="82" width="220" height="110" class="box"/>
   <text x="62" y="112" class="title">Browser</text>
@@ -22,7 +22,7 @@
   <text x="62" y="164" class="small">Username + password</text>
 
   <rect x="330" y="82" width="280" height="110" class="accent"/>
-  <text x="352" y="112" class="title">Trustable auth middleware</text>
+  <text x="352" y="112" class="title">Trustant auth middleware</text>
   <text x="352" y="140" class="text">POST /api/auth/login</text>
   <text x="352" y="164" class="small">Origin check + bounded rate limit</text>
 
@@ -47,7 +47,7 @@
   <text x="62" y="356" class="small">Secure when request is HTTPS</text>
 
   <rect x="680" y="250" width="360" height="130" class="box"/>
-  <text x="702" y="280" class="title">Protected Trustable routes</text>
+  <text x="702" y="280" class="title">Protected Trustant routes</text>
   <text x="702" y="308" class="text">Authenticated session for UI and APIs</text>
   <text x="702" y="332" class="text">CSRF header for mutating/effectful routes</text>
   <text x="702" y="356" class="small">Includes GET launch, configure and redeploy</text>

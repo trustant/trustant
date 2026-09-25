@@ -25,21 +25,33 @@ When I ask to merge, merge all the submodules and the main module to the main br
 
 The product is **Trustant** and the website is [trustant.ai](https://trustant.ai). Use that name in all prose, UI text and new code.
 
-The rebrand is in progress under issue #1. Already renamed: the config file
-(`trustant.json`), the workspace state directory (`.trustant/`, with any
-pre-rebrand `.trustable/` **ignored, not migrated**), the hostname prefixes
-(`trustant.<domain>` and `truacp.<domain>`, with ingresses `trustant-ing` /
-`truacp-ing`), the container user and its home (`trustant`, `/home/trustant`),
-the k3s node name, the published image (`ghcr.io/trustant/trustant`), and every
-`trustable-*` / `check_trustable_*` file.
+The `trustable` -> `trustant` rebrand is complete (issue #1): config file,
+workspace state directory, hostname prefixes, k8s objects, the container user
+and its home, the k3s node name, the published image, and every identifier,
+filename and env var across all submodules.
 
-**Do not rename these** — they are genuinely still `trustable` and changing them
-breaks things:
+**The one exception is the `trustable-ai` GitHub org**, which must NOT be
+renamed. It still hosts `oplugins`, `skills`, the starter/template repos and
+this repo itself. Concretely, these stay literally `trustable`:
 
-- the `trustable-ai` GitHub org, which still hosts `oplugins`, `skills`, the starter/template repos and this repo itself (`trustable-ai/trustable-app`, which `publish.sh` watches for CI runs), plus the `TRUSTABLE_AI_REPO_ACCESS_TOKEN` secret
-- `trustable-svc` — the k8s Service excluded from `kubefwd` (Service rename is still pending)
-- `ops truinst trustable redeploy` — the deploy subcommand, named after the `oplugins-truinst/trustable/` directory (still pending)
-- `~/Library/Application Support/Trustable/` — the macOS credentials directory (still pending)
+- `github.com/trustable-ai/*` — including `trustable-ai/trustable-app` (the
+  repo `publish.sh` watches for CI runs) and `trustable-ai/templates` (the
+  default notebook source)
+- `module github.com/trustable-ai/trustable-app` in [go.mod](go.mod)
+- the `TRUSTABLE_AI_REPO_ACCESS_TOKEN` CI secret
+
+The published **image** is not part of that exception: it is
+`ghcr.io/trustant/trustant`.
+
+Two rebrand decisions worth knowing before touching upgrade paths:
+
+- A pre-rebrand `.trustable/` workspace state directory is **ignored, not
+  migrated** — `.trustant/` is created fresh and the ssh key and GitHub auth
+  inside it are regenerated. Same for `trustable.json`.
+- The **unix user** is the exception to that: `oplugins-truinst/trustant/opsfile.yml`
+  runs an idempotent `usermod -l trustant -d /home/trustant -m trustable`
+  before applying the StatefulSet, because `/home/trustable/workspace` is a
+  hostPath volume holding all user data.
 
 ## What this is
 
@@ -49,13 +61,13 @@ The binary embeds `web/`, `_build.txt`, and `openserverless-instructions.md` (se
 
 ## Prerequisites
 
-macOS development uses a **running Trustant VM** on the local machine — the start.sh or start.ps1 scripts  provisions a VM with k3s and writes its credentials (`id_ed25519`, `current.ip`, `apihost`) to `~/Library/Application Support/Trustable/` — that on-disk path still uses the old name and is **not** renamed by the rebrand.
+macOS development uses a **running Trustant VM** on the local machine — the start.sh or start.ps1 scripts  provisions a VM with k3s and writes its credentials (`id_ed25519`, `current.ip`, `apihost`) to `~/Library/Application Support/Trustant/`.
 
 Linux server development uses local access to the Trustant k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` is the single build entrypoint for both hosts and detects which one it is on.
 
 Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at the repo root) creates a `trudev` distribution (from the `Ubuntu-24.04` image, via `wsl --install --name`, mirroring Lima's `VM_NAME`) with systemd, mirrors the Windows user into it with passwordless sudo, and runs `./start.sh` there over the `/mnt/<drive>` mount — the worktree stays on Windows, only the environment lives in WSL. `start.sh` stays Windows-unaware; it just takes its native-Linux path. This is why the repo ships a `.gitattributes` forcing `eol=lf`: bash cannot run a CRLF script. See [spec/start.md](spec/start.md).
 
-`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustable-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
+`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustant-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
 
 ## Common commands
 
@@ -76,7 +88,7 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 **It watches the repo root and nothing else.** Every `.go` file is at the top level, so `exclude_dir` names *every* subdirectory — that is what prunes the walk, since `exclude_regex` filters files without stopping traversal and `include_dir` cannot express "root only". **Adding a top-level directory means adding it to `exclude_dir`**, or air will checksum its `node_modules` on every poll; leaving `apps/`, `packages/` and `react-mcp/` off the list once cost ~11,000 files per poll against the 64 that can trigger a rebuild. `include_ext` is `go` and `txt` only — a `web/` edit needs a browser reload, not a rebuild, because the running binary serves `web/` from disk and embeds it only at build time.
 
-`build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+`build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustant redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
 [hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
@@ -156,12 +168,12 @@ When a spec doc and a `.go` file disagree, **the spec is the source of truth** �
 
 [middleware.go](middleware.go) inspects the request hostname and routes by the first label:
 
-- `trustable.<domain>` → serves static `web/` + Go APIs (`http.DefaultServeMux`)
+- `trustant.<domain>` → serves static `web/` + Go APIs (`http.DefaultServeMux`)
 - `opencode.<domain>` → reverse-proxies to `localhost:4096` (the AI coding assistant)
 - `vite.<domain>` → reverse-proxies to `localhost:5173` (the running user app)
 - Any other prefix → 400 with the corrected URL
 
-Bare `localhost` or IP requests are 307-redirected to `trustable.<ip>.nip.io:<port>` so the FQDN form is always used. **Every test must be against an FQDN** — plain `localhost:8910` will redirect.
+Bare `localhost` or IP requests are 307-redirected to `trustant.<ip>.nip.io:<port>` so the FQDN form is always used. **Every test must be against an FQDN** — plain `localhost:8910` will redirect.
 
 ### Workspace vs. workbench (the other non-obvious bit)
 
@@ -210,7 +222,7 @@ An expired license invalidates everything, git push included. Local apihosts (`m
 
 The frontend recognizes the `"License required"` and `"Host not licensed"` prefixes and shows a license modal (see `showLicenseModal` in [web/applist.html](web/applist.html)). When changing the error wording, keep those prefixes intact or the frontend gate breaks.
 
-Licenses are issued by the `trulicense` CLI, which lives in the **trustant-installer** repo (run `./trulicense.sh` there). It keeps the signing key in 1Password (vault `TrustableLicenses`) and archives every license it issues. This repo only *verifies* licenses, offline, against the embedded `master_key_pub`. See [spec/14-license.md](spec/14-license.md).
+Licenses are issued by the `trulicense` CLI, which lives in the **trustant-installer** repo (run `./trulicense.sh` there). It keeps the signing key in 1Password (vault `TrustantLicenses`) and archives every license it issues. This repo only *verifies* licenses, offline, against the embedded `master_key_pub`. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 
@@ -225,10 +237,10 @@ Six git submodules in [.gitmodules](.gitmodules). The rebrand to Trustant is **p
 | `skills` | `trustable-ai/skills` | **still `trustable-ai`** |
 | `mcp` | `apache/openserverless-mcp` | upstream Apache |
 
-`acp` holds the TruACP/Pi runtime sources, checked out at path `acp`; it was formerly at path `trustable-acp`, a name much of the repo still uses — see below. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
+`acp` holds the TruACP/Pi runtime sources, checked out at path `acp`; it was formerly at path `trustant-acp`, a name much of the repo still uses — see below. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
 Never push to any plugin repository without explicit user authorization, including `oplugins`, `oplugins-truinst`, local plugin copies, submodules, and scripts that would push those repos.
 
-**The `acp` submodule was renamed from `trustable-acp` and the rename is incomplete.** `.gitmodules` declares `path = acp`, but most of the repo still refers to the old `trustable-acp` path: [setup.sh](setup.sh) (the `pi.version`/`pi.integrity` pins and the `(cd trustable-acp && ./setup.sh)` build step, which fails its own initialization check), [hotfix.sh](hotfix.sh), [launch.go](launch.go), [.air.toml](.air.toml) `exclude_dir`, `truacp_runtime_test.go`, [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Until those are updated, treat `trustable-acp` in those files as meaning the `acp` directory.
+The `acp` submodule is checked out at path `acp` (it was formerly `trustable-acp`; that rename is now complete throughout the repo).
 
 ## Tests
 

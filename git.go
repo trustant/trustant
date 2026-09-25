@@ -61,12 +61,12 @@ var gitSaveGeneratedFiles = []string{
 }
 
 // gitSaveExcludedFiles carries the one rule .gitignore cannot express: AGENTS.md
-// is committed content, but a copy holding nothing except the Trustable-managed
+// is committed content, but a copy holding nothing except the Trustant-managed
 // block is pure launch output and must not be saved. Everything else that launch
 // regenerates is ignored by Git itself, so `git add -A` already skips it.
 func gitSaveExcludedFiles(workbenchPath string) []string {
 	files := append([]string(nil), gitSaveGeneratedFiles...)
-	if agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
+	if agentsHasOnlyTrustantManagedBlock(filepath.Join(workbenchPath, "AGENTS.md")) {
 		files = append(files, "AGENTS.md")
 	}
 	return files
@@ -174,8 +174,8 @@ func handleGitStatus(w http.ResponseWriter, r *http.Request) {
 
 func ensureGitIdentity(workbenchPath string) error {
 	checks := map[string]string{
-		"user.email": "trustable@localhost",
-		"user.name":  "Trustable",
+		"user.email": "trustant@localhost",
+		"user.name":  "Trustant",
 	}
 	for key, fallback := range checks {
 		getCmd := exec.Command("git", "config", "--get", key)
@@ -322,23 +322,23 @@ func isGitPullGeneratedEntry(workbenchPath string, entry gitStatusEntry) bool {
 		return true
 	}
 	if entry.path == "AGENTS.md" {
-		return agentsHasOnlyTrustableManagedBlock(filepath.Join(workbenchPath, entry.path))
+		return agentsHasOnlyTrustantManagedBlock(filepath.Join(workbenchPath, entry.path))
 	}
 	return false
 }
 
-func agentsHasOnlyTrustableManagedBlock(path string) bool {
+func agentsHasOnlyTrustantManagedBlock(path string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	content := string(data)
-	start := strings.Index(content, trustableAgentsBegin)
-	end := strings.Index(content, trustableAgentsEnd)
+	start := strings.Index(content, trustantAgentsBegin)
+	end := strings.Index(content, trustantAgentsEnd)
 	if start < 0 || end < start {
 		return false
 	}
-	end += len(trustableAgentsEnd)
+	end += len(trustantAgentsEnd)
 	return strings.TrimSpace(content[:start]) == "" && strings.TrimSpace(content[end:]) == ""
 }
 
@@ -558,7 +558,7 @@ func handleGitPull(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := cleanGeneratedGitPullStatus(workbenchPath, &output, generatedEntries); err != nil {
 				writeGitJSON(w, http.StatusInternalServerError, map[string]string{
-					"error":  "failed to clean generated Trustable files before pull: " + err.Error(),
+					"error":  "failed to clean generated Trustant files before pull: " + err.Error(),
 					"output": output.String(),
 				})
 				return
@@ -734,7 +734,7 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// git commit
-	commitCmd := exec.Command("git", "commit", "-m", "save from trustable")
+	commitCmd := exec.Command("git", "commit", "-m", "save from trustant")
 	commitCmd.Dir = workbenchPath
 	if output, err := commitCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -852,7 +852,7 @@ func handleGit(w http.ResponseWriter, r *http.Request) {
 			output = append(output, recheckoutOutput...)
 		}
 
-		// NEVER add -x here. Trustable's generated runtime state (.mcp.json,
+		// NEVER add -x here. Trustant's generated runtime state (.mcp.json,
 		// .acp-data/, .env, and the CLAUDE.md/.claude links) is deliberately
 		// ignored by the managed .gitignore precisely so that it outlives a
 		// revert. -x would delete exactly those files and leave the app unable

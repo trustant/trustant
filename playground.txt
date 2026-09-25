@@ -1,5 +1,5 @@
 # collection of useful commands to debug nuvolaris
 
 sudo k3s kubectl -n nuvolaris get po
-sudo k3s kubectl -n nuvolaris exec -ti trustable-0 -c trustable -- sudo -u trustable bash
-sudo k3s kubectl -n nuvolaris logs trustable-0 -f
+sudo k3s kubectl -n nuvolaris exec -ti trustant-0 -c trustant -- sudo -u trustant bash
+sudo k3s kubectl -n nuvolaris logs trustant-0 -f

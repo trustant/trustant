@@ -27,8 +27,8 @@ func TestGitSaveGeneratedPathspecsExcludeRuntimeConfig(t *testing.T) {
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init"},
-		{"config", "user.name", "Trustable Test"},
-		{"config", "user.email", "trustable@example.test"},
+		{"config", "user.name", "Trustant Test"},
+		{"config", "user.email", "trustant@example.test"},
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir

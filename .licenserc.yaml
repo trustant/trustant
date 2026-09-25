@@ -4,7 +4,7 @@
 #   license-eye header fix     # add the header to every file that lacks one
 #
 # Scope: this repository only. license-eye discovers files via `git ls-files`,
-# which does not descend into submodules, so each Trustable-owned submodule
+# which does not descend into submodules, so each Trustant-owned submodule
 # (skills, oplugins-truinst, acp) carries its own
 # identical .licenserc.yaml and must be checked from inside it. The `oplugins`
 # (trustable-ai/openserverless-task) and `mcp` (apache/openserverless-mcp) submodules are

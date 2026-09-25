@@ -34,9 +34,9 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 		`serviceConfig, err := loadOpsConfig()`,
 		`generateProjectAssetsInDir(workbenchPath, buildMCPFromOpsConfig(serviceConfig))`,
 		`setupServiceToolingFromConfig(serviceConfig)`,
-		`writeTrustablePiRuntimeManifest(app, workbenchPath, browserURL, watcherLogPath)`,
-		`"TRUSTABLE_RUNTIME_CONFIG=" + runtimeManifestPath`,
-		`"TRUSTABLE_PI_EXTENSION_PATH=" + extensionPath`,
+		`writeTrustantPiRuntimeManifest(app, workbenchPath, browserURL, watcherLogPath)`,
+		`"TRUSTANT_RUNTIME_CONFIG=" + runtimeManifestPath`,
+		`"TRUSTANT_PI_EXTENSION_PATH=" + extensionPath`,
 		`if piDefaultModel(cfg) == ""`,
 		`"PI_SKIP_VERSION_CHECK=1"`,
 	} {
@@ -48,7 +48,7 @@ func TestLauncherUsesTruACPWithoutOpenCodeSessionBootstrap(t *testing.T) {
 		`exec.Command("opencode"`,
 		`handleOpenCodeSessions`,
 		`resolveOpencodeSession`,
-		`writeTrustableRuntimeManifest`,
+		`writeTrustantRuntimeManifest`,
 		`writePiGlobalConfig(`,
 	} {
 		if strings.Contains(source, removed) {
@@ -89,7 +89,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		"COPY --chown=trustant:trustant truacp-runtime/pi.version /tmp/truacp/pi.version",
 		"COPY --chown=trustant:trustant truacp-runtime/pi.integrity /tmp/truacp/pi.integrity",
 		"COPY --chown=trustant:trustant truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs",
-		"COPY --chown=trustant:trustant truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts",
+		"COPY --chown=trustant:trustant truacp-runtime/extensions/trustant-runtime.ts /tmp/truacp/extensions/trustant-runtime.ts",
 		"sh setup.sh",
 		`test -x "$HOME/.local/bin/truacp"`,
 	} {
@@ -97,7 +97,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 			t.Fatalf("TruACP image contract missing %q", required)
 		}
 	}
-	for _, removed := range []string{"opencode-builder", "OPENCODE_VERSION", "@opencode-ai/plugin", "COPY trustable-code", "COPY --chown=trustable:trustable acp"} {
+	for _, removed := range []string{"opencode-builder", "OPENCODE_VERSION", "@opencode-ai/plugin", "COPY trustant-code", "COPY --chown=trustant:trustant acp"} {
 		if strings.Contains(source, removed) {
 			t.Fatalf("runtime image still contains OpenCode build path %q", removed)
 		}
@@ -115,7 +115,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		`cp ../acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
 		`cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
 		`cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
-		`cp ../acp/extensions/trustable-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustable-runtime.ts"`,
+		`cp ../acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"`,
 		// The staged artifact must still be identified by the submodule commit
 		// it came from and by a content hash of what was actually staged.
 		// These used to feed `printf 'acp=%s:%s\n'` into a BASE_HASH
@@ -137,13 +137,13 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		`pi-packages`,
 		// WHY: the issue #57 execution-policy extension must return through
 		// its complete contract, not as the stale issue #58 build placeholder.
-		`trustable-guardrails.ts`,
+		`trustant-guardrails.ts`,
 	} {
 		if strings.Contains(staging, forbidden) {
 			t.Fatalf("image build contains forbidden TruACP staging entry %q", forbidden)
 		}
 	}
-	if strings.Contains(staging, "TRUSTABLE_CODE_CONTEXT_DIR") {
-		t.Fatal("image context still stages Trustable Code")
+	if strings.Contains(staging, "TRUSTANT_CODE_CONTEXT_DIR") {
+		t.Fatal("image context still stages Trustant Code")
 	}
 }

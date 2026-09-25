@@ -28,8 +28,8 @@ func gitignoreTestRepo(t *testing.T) string {
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init"},
-		{"config", "user.name", "Trustable Test"},
-		{"config", "user.email", "trustable@example.test"},
+		{"config", "user.name", "Trustant Test"},
+		{"config", "user.email", "trustant@example.test"},
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
@@ -75,7 +75,7 @@ func TestEnsureManagedGitignoreCreatesBlock(t *testing.T) {
 		t.Fatalf("read .gitignore: %s", err)
 	}
 	content := string(data)
-	for _, want := range trustableGitignoreEntries {
+	for _, want := range trustantGitignoreEntries {
 		if !strings.Contains(content, want+"\n") {
 			t.Fatalf("managed block missing %q: %s", want, content)
 		}
@@ -113,7 +113,7 @@ func TestEnsureManagedGitignorePreservesUserLines(t *testing.T) {
 
 	// User lines on both sides of the block survive a refresh, and a stale block
 	// is replaced rather than duplicated.
-	writeTestFile(t, path, "top/\n"+trustableGitignoreBegin+"\nstale-entry\n"+trustableGitignoreEnd+"\nbottom/\n")
+	writeTestFile(t, path, "top/\n"+trustantGitignoreBegin+"\nstale-entry\n"+trustantGitignoreEnd+"\nbottom/\n")
 	if _, err := ensureManagedGitignore(dir); err != nil {
 		t.Fatalf("refresh ensureManagedGitignore: %s", err)
 	}
@@ -125,7 +125,7 @@ func TestEnsureManagedGitignorePreservesUserLines(t *testing.T) {
 	if !strings.HasPrefix(content, "top/\n") || !strings.HasSuffix(content, "bottom/\n") {
 		t.Fatalf("user lines around the block must survive: %s", content)
 	}
-	if strings.Count(content, trustableGitignoreBegin) != 1 {
+	if strings.Count(content, trustantGitignoreBegin) != 1 {
 		t.Fatalf("managed block duplicated: %s", content)
 	}
 }

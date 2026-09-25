@@ -1,7 +1,7 @@
 # License and publishing authorization
 
 Implemented by [license.go](../license.go). The issuing CLI, `trulicense`, lives
-in the **trustable-installer** repo (`cmd/trulicense/`, run via `./trulicense.sh`)
+in the **trustant-installer** repo (`cmd/trulicense/`, run via `./trulicense.sh`)
 — this repo only *verifies* licenses and never signs one. Replaces the ai-proxy
 key check that used to live in `validate_key.go` (deleted; its spec was
 `10-validate_key.md`).
@@ -76,7 +76,7 @@ the API.
 # The trusted public key
 
 `master_key_pub` at the repo root is committed and embedded via `//go:embed`. It
-is produced by `trulicense keygen` from the `MasterKey Trustable` item in the
+is produced by `trulicense keygen` from the `MasterKey Trustant` item in the
 1Password vault. The server never talks to 1Password: verification is fully
 offline.
 
@@ -84,7 +84,7 @@ Replacing `master_key_pub` invalidates **every license already issued**, which i
 why `trulicense keygen` refuses to overwrite a mismatched one without `-force`.
 
 Because the CLI lives in another repo, the file is committed in **both**:
-`trulicense keygen` writes the copy in trustable-installer, and this repo holds
+`trulicense keygen` writes the copy in trustant-installer, and this repo holds
 the copy that gets embedded. Regenerating the key therefore means copying the new
 `master_key_pub` here and rebuilding the binary — until that happens every newly
 issued license is rejected. `trulicense.sh` compares the two copies whenever a
@@ -187,7 +187,7 @@ covered hosts and expiry, with controls to replace or remove the license.
 
 # CLI: `trulicense`
 
-Lives in the **trustable-installer** repo, not here — issuing is a release
+Lives in the **trustant-installer** repo, not here — issuing is a release
 operation, and keeping it out means this repo needs neither `op` nor the
 1Password vault. Run it through the `trulicense.sh` wrapper at that repo's root,
 which requires `go` (aborting if missing), installs a pinned, checksum-verified
@@ -196,9 +196,9 @@ execs `go run ./cmd/trulicense` with every argument passed through. All wrapper
 diagnostics go to stderr, so redirecting stdout to a `.lic` file stays clean.
 
 The signing key never touches the local disk in plaintext and issued licenses are
-always archived. Both live in 1Password, vault `TrustableLicenses`, reached
+always archived. Both live in 1Password, vault `TrustantLicenses`, reached
 through the `op` CLI with a service-account token. `.op.json` at the
-trustable-installer root holds **only** the service token; it is gitignored and is
+trustant-installer root holds **only** the service token; it is gitignored and is
 never a key store.
 
 ```
@@ -243,7 +243,7 @@ Idempotent. In order:
    run with **empty stdin** when no payload is piped, so it can never take over
    the operator's terminal with an interactive prompt, and `OP_ACCOUNT` is
    cleared from its environment so a stray account cannot shadow the token.
-3. **`MasterKey Trustable`** — read the keypair if the item exists; otherwise
+3. **`MasterKey Trustant`** — read the keypair if the item exists; otherwise
    generate a fresh Ed25519 pair and create an **`API Credential`** item with the
    base64 keys in `private_key` (concealed) and `public_key` (text).
 
@@ -267,7 +267,7 @@ before signing. `-email` / `-hosts` / `-exp` skip the prompts.
 The private key is fetched from the vault at signing time and held in memory
 only. The CLI then prints the token to stdout (summary on stderr, so
 `./trulicense.sh ... > out.lic` stays clean) and archives it as an item named
-`Trustable License: <email>`, category **`API Credential`**, with the token in a
+`Trustant License: <email>`, category **`API Credential`**, with the token in a
 concealed field named **`license`** and `email` / `hosts` as text fields.
 
 The category matters: `Password` items are only valid with a primary password
@@ -294,9 +294,9 @@ An existing item is **never** overwritten. The CLI lists the vault and picks the
 first free name in the sequence:
 
 ```
-Trustable License: a@b.c        first issue
-Trustable License: a@b.c 2      second
-Trustable License: a@b.c 3      third
+Trustant License: a@b.c        first issue
+Trustant License: a@b.c 2      second
+Trustant License: a@b.c 3      third
 ```
 
 The suffix is a space plus the smallest integer ≥ 2 not already taken. Titles are
@@ -317,7 +317,7 @@ operator never assumes an unarchived license was recorded.
 - `op` stderr is surfaced verbatim on failure — vault-permission problems are the
   most likely error and must not be swallowed.
 
-A 1Password **service account cannot create vaults**, so `TrustableLicenses` must
+A 1Password **service account cannot create vaults**, so `TrustantLicenses` must
 already exist and the token must be scoped to it with write access.
 
 # Tests
@@ -328,7 +328,7 @@ payload and signature, foreign signing key, expiry boundaries, host matching
 exemption and its lookalike rejections, the `/api/license` round trip, and the
 402 responses from the publish handlers.
 
-`cmd/trulicense/main_test.go`, in the trustable-installer repo, runs against an
+`cmd/trulicense/main_test.go`, in the trustant-installer repo, runs against an
 in-memory fake `op`, covering the bootstrap, token persistence and mode, host
 validation, the archived fields, the progressive suffix (including gap filling
 and case folding), and the assertion that no secret ever appears in argv.

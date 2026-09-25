@@ -122,15 +122,15 @@ RUN set -eu ;\
     done
 
 COPY openserverless-mcp /tmp/openserverless-mcp
-COPY trustable-react-mcp /tmp/trustable-react-mcp
+COPY trustant-react-mcp /tmp/trustant-react-mcp
 RUN \
     npm install -g typescript-language-server typescript tsx mongodb-mcp-server@1.9.0 ;\
     cd /tmp/openserverless-mcp && npm pack --pack-destination /tmp ;\
     npm install -g tsx /tmp/openserverless-mcp-*.tgz ;\
-    cd /tmp/trustable-react-mcp && npm pack --pack-destination /tmp ;\
-    npm install -g /tmp/trustable-react-mcp-*.tgz ;\
+    cd /tmp/trustant-react-mcp && npm pack --pack-destination /tmp ;\
+    npm install -g /tmp/trustant-react-mcp-*.tgz ;\
     cd / ;\
-    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustable-react-mcp /tmp/trustable-react-mcp-*.tgz ;\
+    rm -rf /tmp/openserverless-mcp /tmp/openserverless-mcp-*.tgz /tmp/trustant-react-mcp /tmp/trustant-react-mcp-*.tgz ;\
     rm -rf /var/lib/apt/lists/* ;\
     npm cache clean --force ;\
     export VER=1.3.0 ARCH="$(dpkg --print-architecture)" ;\
@@ -172,12 +172,12 @@ COPY --chown=trustant:trustant truacp-runtime/pi.version /tmp/truacp/pi.version
 COPY --chown=trustant:trustant truacp-runtime/pi.integrity /tmp/truacp/pi.integrity
 COPY --chown=trustant:trustant truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
 COPY --chown=trustant:trustant truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
-COPY --chown=trustant:trustant truacp-runtime/extensions/trustable-runtime.ts /tmp/truacp/extensions/trustable-runtime.ts
+COPY --chown=trustant:trustant truacp-runtime/extensions/trustant-runtime.ts /tmp/truacp/extensions/trustant-runtime.ts
 RUN \
     cd /tmp/truacp ;\
     sh setup.sh ;\
     test -x "$HOME/.local/bin/truacp" ;\
-    test -x "$HOME/.local/bin/trustable-acp" ;\
+    test -x "$HOME/.local/bin/trustant-acp" ;\
     rm -rf /tmp/truacp
 
 # workspace
@@ -219,9 +219,9 @@ RUN \
         mv /usr/local/bin/mcp-s3 /usr/local/bin/mcp-s3-real; \
     fi
 COPY mcp-s3 /usr/local/bin/mcp-s3
-COPY redis-mcp /usr/local/bin/trustable-redis-mcp
-RUN chmod 0755 /usr/local/bin/mcp-s3 /usr/local/bin/trustable-redis-mcp
-COPY bin/trustable-$TARGETARCH /usr/local/bin/trustable
+COPY redis-mcp /usr/local/bin/trustant-redis-mcp
+RUN chmod 0755 /usr/local/bin/mcp-s3 /usr/local/bin/trustant-redis-mcp
+COPY bin/trustant-$TARGETARCH /usr/local/bin/trustant
 COPY supervisord.ini /etc/supervisord.ini
 COPY start.sh /usr/local/bin/start.sh
 CMD ["/usr/local/bin/start.sh"]

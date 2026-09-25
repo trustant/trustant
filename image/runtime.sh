@@ -27,12 +27,12 @@
 #   RUNTIME_LOADS_K3S - "1" when builds land directly in k3s' image store,
 #                       so `save | k3s ctr images import` is redundant.
 #
-# Override with TRUSTABLE_CONTAINER_RUNTIME=docker|nerdctl.
+# Override with TRUSTANT_CONTAINER_RUNTIME=docker|nerdctl.
 
 # k3s keeps its containerd socket out of the default location, and images must
 # land in the k8s.io namespace or the kubelet cannot see them.
-K3S_CONTAINERD_SOCK="${TRUSTABLE_CONTAINERD_ADDRESS:-/run/k3s/containerd/containerd.sock}"
-NERDCTL_NAMESPACE="${TRUSTABLE_CONTAINERD_NAMESPACE:-k8s.io}"
+K3S_CONTAINERD_SOCK="${TRUSTANT_CONTAINERD_ADDRESS:-/run/k3s/containerd/containerd.sock}"
+NERDCTL_NAMESPACE="${TRUSTANT_CONTAINERD_NAMESPACE:-k8s.io}"
 
 # nerdctl needs buildkitd running; on the k3s server the unit ships disabled.
 ensure_buildkit() {
@@ -56,11 +56,11 @@ ensure_buildkit() {
 }
 
 detect_runtime() {
-    local want="${TRUSTABLE_CONTAINER_RUNTIME:-auto}"
+    local want="${TRUSTANT_CONTAINER_RUNTIME:-auto}"
 
     if [ "$want" = "docker" ] || { [ "$want" = "auto" ] && command -v docker >/dev/null 2>&1; }; then
         if ! command -v docker >/dev/null 2>&1; then
-            echo "TRUSTABLE_CONTAINER_RUNTIME=docker but docker is not installed" >&2
+            echo "TRUSTANT_CONTAINER_RUNTIME=docker but docker is not installed" >&2
             exit 1
         fi
         RUNTIME="docker"
@@ -72,7 +72,7 @@ detect_runtime() {
 
     if [ "$want" = "nerdctl" ] || { [ "$want" = "auto" ] && command -v nerdctl >/dev/null 2>&1; }; then
         if ! command -v nerdctl >/dev/null 2>&1; then
-            echo "TRUSTABLE_CONTAINER_RUNTIME=nerdctl but nerdctl is not installed" >&2
+            echo "TRUSTANT_CONTAINER_RUNTIME=nerdctl but nerdctl is not installed" >&2
             exit 1
         fi
         ensure_buildkit || exit 1

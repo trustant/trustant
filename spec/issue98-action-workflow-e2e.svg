@@ -36,7 +36,7 @@
   <text x="719" y="160" text-anchor="middle" class="small">after deploy</text>
   <rect x="824" y="76" width="130" height="106" class="ok"/>
   <text x="889" y="106" text-anchor="middle" class="label">Completion</text>
-  <text x="889" y="130" text-anchor="middle" class="small">Trustable gate</text>
+  <text x="889" y="130" text-anchor="middle" class="small">Trustant gate</text>
   <text x="889" y="151" text-anchor="middle" class="small">checkers pass</text>
   <text x="889" y="172" text-anchor="middle" class="small">worktree changed</text>
   <path d="M204 129 H244" class="arrow"/>

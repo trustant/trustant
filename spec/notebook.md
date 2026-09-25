@@ -22,7 +22,7 @@ environment or server `.env`.
 - The browser never asks for, receives, persists, logs, or renders the token.
 - API responses expose only `hasToken: boolean`.
 - When the token is absent, the upstream controls (Save to GitHub, remove) are
-  hidden and the panel points the operator at Trustable Configure.
+  hidden and the panel points the operator at Trustant Configure.
 - The token is not added to generated application `.env`, `.env.production`,
   application config maps, chat messages, model context, notebook Markdown, or
   commits.
@@ -261,7 +261,7 @@ server clears it.
 
 `repo` is **informational**. It records the origin so it stays visible, but it
 never selects a write destination — save-back always resolves the repository
-through the one configured in Trustable, so a template file cannot redirect an
+through the one configured in Trustant, so a template file cannot redirect an
 authenticated write. A template copied from another catalog therefore saves into
 the configured repository under its recorded file name.
 
@@ -281,7 +281,7 @@ Editing is write-through: every change to the prompt set writes `template.md`
 immediately, so durability never depends on a panel button.
 
 Staging is best-effort and stops at `git add` — the application's own save in
-Trustable already commits and pushes, so the template rides along with the
+Trustant already commits and pushes, so the template rides along with the
 user's other changes instead of producing commits they did not ask for. A
 workbench that is not a git checkout, or a failing `git`, still leaves the
 written file and reports `staged: false`.
@@ -330,13 +330,13 @@ strictly validated.
 Errors remain visible and recoverable. A read, conflict, authentication, or
 partial-mutation failure does not discard the loaded notebook or reorder the
 conversation.
-# Trustable-managed configuration ownership
+# Trustant-managed configuration ownership
 
 This section supersedes earlier references in this specification to editable
 source/ref controls in TruACP or to configuring `NOTEBOOK_GITHUB_TOKEN` in the
 TruACP server `.env`.
 
-- Trustable's main **Configure** screen owns the global template repository,
+- Trustant's main **Configure** screen owns the global template repository,
   branch/ref, and write token, under a **Template Repository** heading.
 - Repository/ref are persisted in workspace `trustant.json`; the token is
   write-only and stored separately in a mode-`0600` file under

@@ -25,7 +25,7 @@ from pathlib import Path
 
 def load_wrapper():
     path = Path(__file__).with_name("mcp-s3")
-    loader = importlib.machinery.SourceFileLoader("trustable_mcp_s3", str(path))
+    loader = importlib.machinery.SourceFileLoader("trustant_mcp_s3", str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)

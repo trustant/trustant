@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1220" height="485" viewBox="0 0 1220 485" role="img" aria-labelledby="title desc">
-  <title id="title">Trustable application test completion gate</title>
+  <title id="title">Trustant application test completion gate</title>
   <desc id="desc">Flow from action endpoint tracking through focused test coverage, bounded test discovery, and completion.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
@@ -59,5 +59,5 @@
   <path class="line" d="M935 255 L980 355"/>
   <text class="small" x="930" y="314">missing / failure / timeout</text>
   <text class="small" x="610" y="438">Raw ops action / wsk action commands are rejected before execution, independently of permission patterns.</text>
-  <text class="small" x="610" y="456">Trustable owns ops ide login; deploy and setup remain guarded agent lifecycle operations.</text>
+  <text class="small" x="610" y="456">Trustant owns ops ide login; deploy and setup remain guarded agent lifecycle operations.</text>
 </svg>

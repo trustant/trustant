@@ -67,7 +67,7 @@
         window.location.replace('/login.html?next=' + encodeURIComponent(next));
     }
 
-    window.fetch = async function trustableFetch(input, init) {
+    window.fetch = async function trustantFetch(input, init) {
         const details = requestDetails(input, init);
         let nextInput = input;
         let nextInit = init ? Object.assign({}, init) : {};
@@ -79,7 +79,7 @@
                 if (nextInit.headers) {
                     new Headers(nextInit.headers).forEach((value, key) => headers.set(key, value));
                 }
-                headers.set('X-Trustable-CSRF', session.csrf);
+                headers.set('X-Trustant-CSRF', session.csrf);
                 nextInit.headers = headers;
                 nextInit.credentials = 'same-origin';
                 if (input instanceof Request) {
@@ -108,14 +108,14 @@
 
     function revealLogout(session) {
         if (!session || !session.enabled) return;
-        document.querySelectorAll('[data-trustable-logout]').forEach(button => {
+        document.querySelectorAll('[data-trustant-logout]').forEach(button => {
             button.classList.remove('hidden');
         });
     }
 
-    window.TrustableAuth = { loadSession, logout };
+    window.TrustantAuth = { loadSession, logout };
     document.addEventListener('DOMContentLoaded', () => {
-        if (document.querySelector('[data-trustable-logout]')) {
+        if (document.querySelector('[data-trustant-logout]')) {
             loadSession(false).then(revealLogout).catch(() => {});
         }
     });

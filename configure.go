@@ -109,19 +109,19 @@ type NotebookConfig struct {
 	Ref        string `json:"ref,omitempty"`
 }
 
-// trustableConfig represents the structure of trustant.json
-type trustableConfig struct {
+// trustantConfig represents the structure of trustant.json
+type trustantConfig struct {
 	Provider string `json:"provider,omitempty"`
 	// BaseURL and APIKey are the top-level provider credentials.
 	// Ollama: BaseURL="http://localhost:11434/v1", APIKey="dummy".
-	// Trustable: posted by the ai-proxy registration iframe.
+	// Trustant: posted by the ai-proxy registration iframe.
 	BaseURL string `json:"base_url,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
 	// License is the signed "lic_<payload>.<sig>" token gating git push and
 	// production publishing. Workspace-only, like Provider and Apps: the base
 	// trustant.json never carries it. See spec/14-license.md.
 	License string `json:"license,omitempty"`
-	// ModelVersions is keyed by provider name ("ollama", "trustable", ...) and
+	// ModelVersions is keyed by provider name ("ollama", "trustant", ...) and
 	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
 	// On every splash boot and every applist load the frontend compares the
 	// live value against this map; only a version mismatch routes the user
@@ -166,8 +166,8 @@ type trustableConfig struct {
 // UnmarshalJSON tolerates the legacy singular `model_version` field by
 // folding it into ModelVersions under the active provider key. Lets existing
 // workspace trustant.json files written by older builds load cleanly.
-func (c *trustableConfig) UnmarshalJSON(data []byte) error {
-	type alias trustableConfig
+func (c *trustantConfig) UnmarshalJSON(data []byte) error {
+	type alias trustantConfig
 	aux := &struct {
 		LegacyModelVersion *int `json:"model_version,omitempty"`
 		*alias
@@ -191,7 +191,7 @@ func (c *trustableConfig) UnmarshalJSON(data []byte) error {
 }
 
 func developmentAPIHost() string {
-	for _, key := range []string{"OPS_APIHOST", "APIHOST", "TRUSTABLE_DEFAULT_APIHOST", "OPERATOR_CONFIG_APIHOST"} {
+	for _, key := range []string{"OPS_APIHOST", "APIHOST", "TRUSTANT_DEFAULT_APIHOST", "OPERATOR_CONFIG_APIHOST"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 			if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
 				proto := strings.TrimSpace(os.Getenv("OPERATOR_CONFIG_HOSTPROTOCOL"))
@@ -228,7 +228,7 @@ func apihostFilePath() string {
 // Split out from apihostFilePath so the per-OS layout is testable without
 // building for each GOOS. Returns "" when the location cannot be determined.
 //
-// The Linux path is the one start.sh writes on a native host (no Trustable
+// The Linux path is the one start.sh writes on a native host (no Trustant
 // macOS app, so no "Application Support" dir); leaving it empty would make the
 // server silently ignore the file and fall back to http://miniops.me.
 func apihostFilePathFor(goos, home, appData, xdgConfigHome string) string {
@@ -237,33 +237,33 @@ func apihostFilePathFor(goos, home, appData, xdgConfigHome string) string {
 		if home == "" {
 			return ""
 		}
-		return filepath.Join(home, "Library", "Application Support", "Trustable", "apihost")
+		return filepath.Join(home, "Library", "Application Support", "Trustant", "apihost")
 	case "windows":
 		appData = strings.TrimSpace(appData)
 		if appData == "" {
 			return ""
 		}
-		return filepath.Join(appData, "Trustable", "apihost")
+		return filepath.Join(appData, "Trustant", "apihost")
 	case "linux":
 		if xdg := strings.TrimSpace(xdgConfigHome); xdg != "" {
-			return filepath.Join(xdg, "trustable", "apihost")
+			return filepath.Join(xdg, "trustant", "apihost")
 		}
 		if home == "" {
 			return ""
 		}
-		return filepath.Join(home, ".config", "trustable", "apihost")
+		return filepath.Join(home, ".config", "trustant", "apihost")
 	default:
 		return ""
 	}
 }
 
 // loadBaseConfig reads the app-root trustant.json (immutable defaults)
-func loadBaseConfig() (*trustableConfig, error) {
+func loadBaseConfig() (*trustantConfig, error) {
 	data, err := os.ReadFile("trustant.json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read base trustant.json: %w", err)
 	}
-	var cfg trustableConfig
+	var cfg trustantConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse base trustant.json: %w", err)
 	}
@@ -271,16 +271,16 @@ func loadBaseConfig() (*trustableConfig, error) {
 }
 
 // loadWorkspaceConfig reads the workspace trustant.json (overrides)
-func loadWorkspaceConfig() (*trustableConfig, error) {
+func loadWorkspaceConfig() (*trustantConfig, error) {
 	configPath := filepath.Join(WorkspaceDir, "trustant.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &trustableConfig{}, nil
+			return &trustantConfig{}, nil
 		}
 		return nil, fmt.Errorf("failed to read workspace trustant.json: %w", err)
 	}
-	var cfg trustableConfig
+	var cfg trustantConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse workspace trustant.json: %w", err)
 	}
@@ -290,7 +290,7 @@ func loadWorkspaceConfig() (*trustableConfig, error) {
 // mergeConfigs merges workspace overrides onto base config.
 // Non-nil/non-empty workspace fields override base fields.
 // Maps are merged key-by-key (workspace keys override base keys).
-func mergeConfigs(base, override *trustableConfig) *trustableConfig {
+func mergeConfigs(base, override *trustantConfig) *trustantConfig {
 	result := *base // shallow copy
 
 	if override.Provider != "" {
@@ -393,10 +393,10 @@ func mergeConfigs(base, override *trustableConfig) *trustableConfig {
 	return &result
 }
 
-// loadTrustableConfig loads merged config (base + workspace overrides).
+// loadTrustantConfig loads merged config (base + workspace overrides).
 // The AIP_REGISTER_URL env var (mandatory at startup) is exposed on the
 // returned config as RegisterURL; it is not persisted.
-func loadTrustableConfig() (*trustableConfig, error) {
+func loadTrustantConfig() (*trustantConfig, error) {
 	base, err := loadBaseConfig()
 	if err != nil {
 		return nil, err
@@ -411,7 +411,7 @@ func loadTrustableConfig() (*trustableConfig, error) {
 }
 
 // saveWorkspaceConfig writes only the workspace trustant.json
-func saveWorkspaceConfig(cfg *trustableConfig) error {
+func saveWorkspaceConfig(cfg *trustantConfig) error {
 	formatted, err := json.MarshalIndent(cfg, "", "    ")
 	if err != nil {
 		return fmt.Errorf("failed to format configuration: %w", err)
@@ -559,7 +559,7 @@ func normalizeNotebookRef(value string) (string, error) {
 	return value, nil
 }
 
-func normalizeNotebookConfig(cfg *trustableConfig) error {
+func normalizeNotebookConfig(cfg *trustantConfig) error {
 	if cfg.Notebook == nil {
 		cfg.Notebook = &NotebookConfig{
 			Repository: defaultNotebookRepository,
@@ -584,7 +584,7 @@ func normalizeNotebookConfig(cfg *trustableConfig) error {
 // apps.<name>.templates, which takes precedence over the global
 // notebook.repository. Pass an empty app name for the global value.
 func notebookRuntimeEnvironment(app string) ([]string, error) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +613,7 @@ func notebookRuntimeEnvironment(app string) ([]string, error) {
 	}, nil
 }
 
-func configurationPayload(cfg *trustableConfig) (map[string]interface{}, error) {
+func configurationPayload(cfg *trustantConfig) (map[string]interface{}, error) {
 	encoded, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
@@ -794,7 +794,7 @@ func modelAllowedForPi(provider, modelID string, limits *ModelLimits) (bool, str
 	return true, ""
 }
 
-func validatePiModelSelection(cfg *trustableConfig) error {
+func validatePiModelSelection(cfg *trustantConfig) error {
 	if cfg == nil {
 		return nil
 	}
@@ -807,11 +807,11 @@ func validatePiModelSelection(cfg *trustableConfig) error {
 	// The own-host Ollama choice intentionally persists an empty model set
 	// first; configure.html discovers models in the next step.
 	if len(models) == 0 && defaultModel == "" {
-		// Trustable Cloud is catalog-backed and has no deferred discovery page.
+		// Trustant Cloud is catalog-backed and has no deferred discovery page.
 		// Rejecting its empty state here prevents a partial status response or
 		// legacy payload from being saved and failing later in testmodel.
-		if cfg.Provider == "trustable" {
-			return fmt.Errorf("Trustable model catalog is empty")
+		if cfg.Provider == "trustant" {
+			return fmt.Errorf("Trustant model catalog is empty")
 		}
 		return nil
 	}
@@ -864,13 +864,13 @@ func modelDisplayName(modelID string) string {
 
 // resolveOllamaRoot returns the HTTP root for talking to Ollama (i.e. the
 // base used to build /api/show, /api/pull, /api/tags) and a flag indicating
-// whether the user has pointed Trustable at their own remote host.
+// whether the user has pointed Trustant at their own remote host.
 //
 // "Own host" means cfg.BaseURL is set AND its host is neither the in-VM
 // embedded Ollama (localhost / 127.0.0.1 / "ollama") at port 11434. In that
 // case we return cfg.BaseURL stripped of its /v1 suffix. Otherwise we fall
 // back to the OLLAMA_ENDPOINT loaded by preflight.
-func resolveOllamaRoot(cfg *trustableConfig) (root string, isOwnHost bool) {
+func resolveOllamaRoot(cfg *trustantConfig) (root string, isOwnHost bool) {
 	base := strings.TrimSpace(cfg.BaseURL)
 	if base == "" {
 		return OllamaEndpoint, false
@@ -931,7 +931,7 @@ func installedOllamaModels(root string) (map[string]bool, error) {
 const (
 	piLocalProviderName     = "local"
 	piOllamaProviderName    = "ollama"
-	piTrustableProviderName = "trustable"
+	piTrustantProviderName = "trustant"
 	// Pi resolves this reference through auth.json, keeping the real secret out
 	// of the model catalog regardless of the selected provider origin.
 	piAPIKeyRef = "$OPENAI_API_KEY"
@@ -949,13 +949,13 @@ const (
 // piProviderNameForConfig keeps Pi's provider prefix aligned with the source
 // boundary shown to users: status-backed catalogs retain their product name,
 // while user-supplied/direct endpoints share the neutral "local" namespace.
-func piProviderNameForConfig(cfg *trustableConfig) string {
+func piProviderNameForConfig(cfg *trustantConfig) string {
 	if cfg == nil {
 		return piLocalProviderName
 	}
 	switch cfg.Provider {
-	case "trustable":
-		return piTrustableProviderName
+	case "trustant":
+		return piTrustantProviderName
 	case "ollama":
 		_, ownHost := resolveOllamaRoot(cfg)
 		if !ownHost {
@@ -1082,7 +1082,7 @@ func persistPiGlobalConfig(liveDir string) error {
 // restorePiGlobalConfigAtStartup overlays the durable JSON snapshot onto the
 // fresh image's Pi directory, preserving the image's current package registry.
 // On the first upgraded boot there is no snapshot yet, so the already-persisted
-// Trustable provider selection is materialized once without changing it or
+// Trustant provider selection is materialized once without changing it or
 // performing a new network probe.
 func restorePiGlobalConfigAtStartup() error {
 	liveDir, err := piAgentDir()
@@ -1119,7 +1119,7 @@ func restorePiGlobalConfigAtStartup() error {
 		}
 	}
 
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration for pi restore: %w", err)
 	}
@@ -1137,7 +1137,7 @@ func restorePiGlobalConfigAtStartup() error {
 // piDefaultModel reads the only model selector supported by Pi. Legacy
 // opencode configuration is intentionally ignored: issue #51 defines a hard
 // cutover so first-run recovery happens through Configure instead of migration.
-func piDefaultModel(cfg *trustableConfig) string {
+func piDefaultModel(cfg *trustantConfig) string {
 	if cfg == nil || cfg.Pi == nil {
 		return ""
 	}
@@ -1149,11 +1149,11 @@ var piThinkingLevels = map[string]struct{}{
 	"high": {}, "xhigh": {}, "max": {},
 }
 
-// piReasoningConfig translates only capabilities that Pi can enforce. Trustable
+// piReasoningConfig translates only capabilities that Pi can enforce. Trustant
 // Cloud supplies the high-effort compatibility baseline; extended levels remain
 // model declarations so the UI cannot claim xhigh while Pi clamps it to high.
 func piReasoningConfig(provider string, limits *ModelLimits) (bool, map[string]*string) {
-	reasoning := provider == piTrustableProviderName
+	reasoning := provider == piTrustantProviderName
 	if limits != nil && limits.Reasoning != nil {
 		reasoning = *limits.Reasoning
 	}
@@ -1173,9 +1173,9 @@ func piReasoningConfig(provider string, limits *ModelLimits) (bool, map[string]*
 	return reasoning, levelMap
 }
 
-// buildPiModels converts Trustable's catalog into Pi's native shape, retaining
+// buildPiModels converts Trustant's catalog into Pi's native shape, retaining
 // only coding-capable models and conservative limits when metadata is incomplete.
-func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
+func buildPiModels(cfg *trustantConfig) []map[string]interface{} {
 	ids := make([]string, 0, len(cfg.Models)+1)
 	for modelID := range cfg.Models {
 		ids = append(ids, modelID)
@@ -1224,7 +1224,7 @@ func buildPiModels(cfg *trustableConfig) []map[string]interface{} {
 
 // piBaseURL normalizes every provider to the OpenAI-compatible API consumed by
 // Pi; Ollama needs an explicit /v1 suffix while cloud endpoints already include it.
-func piBaseURL(cfg *trustableConfig) string {
+func piBaseURL(cfg *trustantConfig) string {
 	if cfg.Provider == "ollama" {
 		root, _ := resolveOllamaRoot(cfg)
 		return strings.TrimRight(root, "/") + "/v1"
@@ -1236,10 +1236,10 @@ func piBaseURL(cfg *trustableConfig) string {
 	return baseURL
 }
 
-// writePiGlobalConfig materializes Trustable's selected provider in Pi's
+// writePiGlobalConfig materializes Trustant's selected provider in Pi's
 // native config. It intentionally preserves unrelated Pi providers/settings.
 // Configure owns this global write; app launch only emits project-local assets.
-func writePiGlobalConfig(cfg *trustableConfig) error {
+func writePiGlobalConfig(cfg *trustantConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("configuration not loaded")
 	}
@@ -1280,7 +1280,7 @@ func writePiGlobalConfig(cfg *trustableConfig) error {
 	settings := readPiJSONFile(settingsPath)
 	settings["defaultProvider"] = providerName
 	settings["defaultModel"] = defaultModel
-	// Pi knows built-in providers even when Trustable configures only its own.
+	// Pi knows built-in providers even when Trustant configures only its own.
 	// Scope model cycling to the active managed prefix so stale or built-in
 	// providers cannot become active through Pi's selector or shortcuts.
 	settings["enabledModels"] = []string{providerName + "/*"}
@@ -1327,7 +1327,7 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load trustant.json config first so we can branch on provider.
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		sendMsg("ERROR: " + err.Error())
 		return
@@ -1368,13 +1368,13 @@ func handleConfigure(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if cfg.Provider == "trustable" || cfg.Provider == "private" {
+	if cfg.Provider == "trustant" || cfg.Provider == "private" {
 		if cfg.Provider == "private" {
 			// A user-supplied OpenAI-compatible endpoint must not go through
 			// the Ollama connectivity check and model-pull loop.
 			sendMsg("OK: Skipping Ollama setup (Private AI)")
 		} else {
-			sendMsg("OK: Skipping Ollama setup (Trustable Cloud)")
+			sendMsg("OK: Skipping Ollama setup (Trustant Cloud)")
 		}
 	} else {
 		ollamaRoot, isOwnHost := resolveOllamaRoot(cfg)
@@ -1508,23 +1508,23 @@ func generateProjectAssetsForApp(appName string) error {
 }
 
 const (
-	trustableAgentsBegin = "<!-- TRUSTABLE-MANAGED-AGENTS-BEGIN -->"
-	trustableAgentsEnd   = "<!-- TRUSTABLE-MANAGED-AGENTS-END -->"
+	trustantAgentsBegin = "<!-- TRUSTANT-MANAGED-AGENTS-BEGIN -->"
+	trustantAgentsEnd   = "<!-- TRUSTANT-MANAGED-AGENTS-END -->"
 )
 
 func managedAppAgentsContent() string {
 	// The guidance is agent-neutral and reaches Pi, Codex and Claude Code through
 	// AGENTS.md and the CLAUDE.md symlink, never as a project-local file of its own.
 	body := strings.TrimSpace(appAgentsMd) + "\n\n" + strings.TrimSpace(openserverlessInstructionsMd)
-	return trustableAgentsBegin + "\n" + body + "\n" + trustableAgentsEnd + "\n"
+	return trustantAgentsBegin + "\n" + body + "\n" + trustantAgentsEnd + "\n"
 }
 
 func mergeManagedAppAgents(existing string) string {
 	managed := managedAppAgentsContent()
-	start := strings.Index(existing, trustableAgentsBegin)
-	end := strings.Index(existing, trustableAgentsEnd)
+	start := strings.Index(existing, trustantAgentsBegin)
+	end := strings.Index(existing, trustantAgentsEnd)
 	if start >= 0 && end >= start {
-		end += len(trustableAgentsEnd)
+		end += len(trustantAgentsEnd)
 		rest := strings.TrimSpace(existing[end:])
 		if rest == "" {
 			return managed
@@ -1542,7 +1542,7 @@ func mergeManagedAppAgents(existing string) string {
 	return managed + "\n## App-local notes\n\n" + existing + "\n"
 }
 
-// writeManagedInstructionFile replaces only the marked Trustable section, so
+// writeManagedInstructionFile replaces only the marked Trustant section, so
 // reruns can refresh policy without destroying an application's local notes.
 func writeManagedInstructionFile(projectDir, filename string) error {
 	path := filepath.Join(projectDir, filename)
@@ -1566,7 +1566,7 @@ func writeManagedAppAgents(projectDir string) error {
 }
 
 // generateProjectAssetsInDir writes only agent-neutral project assets. The MCP
-// map uses Trustable's launcher representation and is split into a
+// map uses Trustant's launcher representation and is split into a
 // credential-free workbench config plus a private host config. WHY: every agent
 // needs the same server names, but model-readable discovery must never carry
 // service credentials or credential-bearing URIs.
@@ -1586,14 +1586,14 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 	if mcp == nil {
 		mcp = make(map[string]interface{})
 	}
-	// WHY: application .env files are owned by Trustable's user-facing
+	// WHY: application .env files are owned by Trustant's user-facing
 	// configuration flow. The agent-side MCP must not receive a writable
 	// secret-store path that could mutate or synchronize those files.
 	mcp["openserverless"] = map[string]interface{}{
 		"type":    "local",
 		"command": []string{"openserverless-mcp"},
 	}
-	runtimeConfigPath, err := trustablePiRuntimeManifestPath()
+	runtimeConfigPath, err := trustantPiRuntimeManifestPath()
 	if err != nil {
 		return err
 	}
@@ -1602,9 +1602,9 @@ func generateProjectAssetsInDir(projectDir string, mcp map[string]interface{}) e
 	// route/auth/type failures are reported before a frontend change is done.
 	mcp["react"] = map[string]interface{}{
 		"type":    "local",
-		"command": []string{"trustable-react-mcp"},
+		"command": []string{"trustant-react-mcp"},
 		"environment": map[string]string{
-			"TRUSTABLE_RUNTIME_CONFIG": runtimeConfigPath,
+			"TRUSTANT_RUNTIME_CONFIG": runtimeConfigPath,
 		},
 		"enabled": true,
 		"timeout": 30_000,
@@ -1718,7 +1718,7 @@ func ensureFrontendCheckerInstalled() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return ensureEmbeddedExecutable(path, "Trustable frontend checker", trustableFrontendCheckerSh)
+	return ensureEmbeddedExecutable(path, "Trustant frontend checker", trustantFrontendCheckerSh)
 }
 
 func ensureAppCheckerInstalled() (string, error) {
@@ -1726,7 +1726,7 @@ func ensureAppCheckerInstalled() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return ensureEmbeddedExecutable(path, "Trustable app checker", trustableAppCheckerSh)
+	return ensureEmbeddedExecutable(path, "Trustant app checker", trustantAppCheckerSh)
 }
 
 var (
@@ -1900,7 +1900,7 @@ func appUsesAgenticReact(projectDir string) bool {
 	return false
 }
 
-// standardMCPServers translates Trustable's launcher map to the shared
+// standardMCPServers translates Trustant's launcher map to the shared
 // mcpServers format (see spec/4-launch.md):
 //   - type "local" (command array + optional environment) -> stdio (command
 //     string + args + env)
@@ -1963,7 +1963,7 @@ func managedMCPConfigPath(projectDir string) (string, error) {
 	return filepath.Join(
 		home,
 		".config",
-		"trustable",
+		"trustant",
 		"runtime",
 		filepath.Base(projectDir),
 		"mcp.json",
@@ -1973,7 +1973,7 @@ func managedMCPConfigPath(projectDir string) (string, error) {
 func managedMCPLauncherInstallPath() (string, error) {
 	return localBinInstallPath(
 		managedMCPLauncherInstallPathOverride,
-		"trustable-mcp-launch",
+		"trustant-mcp-launch",
 	)
 }
 
@@ -1984,7 +1984,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 
 function fail(message) {
-  process.stderr.write("trustable-mcp-launch: " + message + "\n");
+  process.stderr.write("trustant-mcp-launch: " + message + "\n");
   process.exit(1);
 }
 function within(root, target) {
@@ -1994,7 +1994,7 @@ function within(root, target) {
 
 const serverName = process.argv[2] || "";
 if (!/^[a-zA-Z0-9_-]+$/.test(serverName)) fail("invalid server name");
-const manifestPath = process.env.TRUSTABLE_RUNTIME_CONFIG || "";
+const manifestPath = process.env.TRUSTANT_RUNTIME_CONFIG || "";
 if (!path.isAbsolute(manifestPath)) fail("managed runtime is unavailable");
 
 let manifest;
@@ -2109,7 +2109,7 @@ func writeManagedMCPConfigs(projectDir string, mcp map[string]interface{}) (stri
 	}
 	if _, err := ensureEmbeddedExecutable(
 		launcherPath,
-		"Trustable managed MCP launcher",
+		"Trustant managed MCP launcher",
 		managedMCPLauncherJS,
 	); err != nil {
 		return "", err
@@ -2120,7 +2120,7 @@ func writeManagedMCPConfigs(projectDir string, mcp map[string]interface{}) (stri
 		if credentialBearingMCPServer(name) {
 			publicServers[name] = map[string]interface{}{
 				"type":      "stdio",
-				"command":   "trustable-mcp-launch",
+				"command":   "trustant-mcp-launch",
 				"args":      []string{name},
 				"lifecycle": "eager",
 			}
@@ -2202,7 +2202,7 @@ type testModelResult struct {
 // connectivity probe must exercise the exact model the coding session will use.
 // Asserting on the reply content — not merely on a well-formed response —
 // catches a model that answers but is not actually usable.
-func runTestModel(cfg *trustableConfig) testModelResult {
+func runTestModel(cfg *trustantConfig) testModelResult {
 	if cfg == nil {
 		return testModelResult{Error: "configuration not loaded"}
 	}
@@ -2251,7 +2251,7 @@ func runTestModel(cfg *trustableConfig) testModelResult {
 
 	if resp.StatusCode != http.StatusOK || strings.HasPrefix(strings.TrimSpace(bodyStr), `{"error"`) || !strings.Contains(bodyStr, `"choices"`) {
 		message := ollamaErrorMessage(bodyStr)
-		if cfg.Provider != "trustable" && isOllamaSigninRequired(message) {
+		if cfg.Provider != "trustant" && isOllamaSigninRequired(message) {
 			return testModelResult{AuthRequired: true, Warning: message}
 		}
 		return testModelResult{Warning: message}
@@ -2299,7 +2299,7 @@ func handleTestModel(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -2358,7 +2358,7 @@ func isOllamaSigninRequired(message string) bool {
 }
 
 // handleOllamaConnect returns the browser URL needed to connect the Ollama CLI
-// identity used by Trustable to Ollama Cloud. The backend always invokes
+// identity used by Trustant to Ollama Cloud. The backend always invokes
 // `ollama signin` and scrapes its output for the first https://ollama.com/connect
 // URL — query strings from the calling page are not forwarded.
 func handleOllamaConnect(w http.ResponseWriter, r *http.Request) {
@@ -2458,16 +2458,16 @@ func handleDiscoverModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ollama-mode loopback guard: Trustable runs in a VM and cannot reach the
+	// Ollama-mode loopback guard: Trustant runs in a VM and cannot reach the
 	// host's loopback. Only enforce for Ollama (other providers may legitimately
 	// route via localhost from within the VM, e.g. side-cars).
-	cfg, cfgErr := loadTrustableConfig()
+	cfg, cfgErr := loadTrustantConfig()
 	if cfgErr == nil && cfg.Provider == "ollama" {
 		host := parsed.Hostname()
 		if host == "127.0.0.1" || strings.EqualFold(host, "localhost") {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Use the LAN IP of your machine, not 127.0.0.1 / localhost — Trustable runs inside a VM and cannot reach your loopback.",
+				"error": "Use the LAN IP of your machine, not 127.0.0.1 / localhost — Trustant runs inside a VM and cannot reach your loopback.",
 			})
 			return
 		}
@@ -2544,7 +2544,7 @@ func handleConfiguration(w http.ResponseWriter, r *http.Request) {
 
 // handleGetConfiguration returns the merged configuration (base + workspace overrides)
 func handleGetConfiguration(w http.ResponseWriter, r *http.Request) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -2570,7 +2570,7 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cfg trustableConfig
+	var cfg trustantConfig
 	if err := json.Unmarshal(body, &cfg); err != nil {
 		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
@@ -2653,7 +2653,7 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 
 	// Project assets are generated per app at launch. Reload the merged config
 	// for the connectivity probe and Pi's global native configuration.
-	merged, mergedErr := loadTrustableConfig()
+	merged, mergedErr := loadTrustantConfig()
 	if mergedErr != nil {
 		http.Error(w, "Failed to reload merged configuration: "+mergedErr.Error(), http.StatusInternalServerError)
 		return
@@ -2788,7 +2788,7 @@ func generateAppEnvFilesNoShared(appName string) error {
 }
 
 func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return err
 	}
@@ -2917,7 +2917,7 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 
 // regenerateAllAppEnvFiles regenerates .env files for all apps that have a workbench
 func regenerateAllAppEnvFiles() {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		log.Printf("Warning: failed to load config for env regeneration: %s", err)
 		return
@@ -2966,7 +2966,7 @@ func handleAppConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspacePath string) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		http.Error(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -3221,7 +3221,7 @@ func handleDeletePredefinedEnv(w http.ResponseWriter, r *http.Request) {
 // handleGetPredefinedEnv returns the merged set, sorted by name so the table
 // renders in a stable order.
 func handleGetPredefinedEnv(w http.ResponseWriter, r *http.Request) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -3321,7 +3321,7 @@ func handlePostPredefinedEnv(w http.ResponseWriter, r *http.Request) {
 	// so carry them over verbatim rather than letting a stale tab drop or
 	// rewrite one — the edit would be silently undone by the next refresh
 	// anyway, and dropping one would break a consumer until then.
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		http.Error(w, "Failed to read configuration: "+err.Error(), http.StatusInternalServerError)
 		return

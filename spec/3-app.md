@@ -13,9 +13,9 @@ It shows a full page, with a top bar with 10% high.
 
 In the bar, aligned to the left:
 
-- the trustable logo (80% height)
+- the trustant logo (80% height)
 - the app name in bold
-- the **Credits box** and **Top-up** button (only when `provider == "trustable"`, see "Credits" below)
+- the **Credits box** and **Top-up** button (only when `provider == "trustant"`, see "Credits" below)
 - the **sidebar toggle** (icon-only, panel glyph), immediately before the Terminal button — see "Sidebar Toggle" below
 - the **"Config" pulldown** (purple, gear icon + chevron-down) — see "Config Pulldown" below
 - the **"Utils" pulldown** (kebab "more actions" icon + chevron-down), immediately to the right of Config — see "Utils Pulldown" below
@@ -163,12 +163,12 @@ workbench width.
 - The button reflects the state through `aria-pressed`, a `title`/`aria-label`
   that flips between "Hide chat" and "Show chat", and the primary button accent
   while the chat is hidden.
-- The state persists in `localStorage` under `trustable.sidebarHidden` and is
+- The state persists in `localStorage` under `trustant.sidebarHidden` and is
   applied on page load, so the choice survives navigation and reloads.
 
 The workbench chrome, menus, modals, and toolbar controls use the shared
-Nuvolaris-style Trustable visual system defined in
-[1-applist.md](1-applist.md) under "Shared Trustable visual system" and loaded
+Nuvolaris-style Trustant visual system defined in
+[1-applist.md](1-applist.md) under "Shared Trustant visual system" and loaded
 from `web/trustant-ui.css`. The top bar uses the shared near-paper surface,
 thin border, Work Sans typography, compact app identity, status pill, restrained
 buttons, and shared dropdown/menu styling. Dialogs, the environment editor and
@@ -290,7 +290,7 @@ The modal can be closed with the X button, Escape key, or clicking the backdrop.
 
 The **Files** entry in the Utils pulldown opens a read-only viewer for the files
 of the current application, so the user can inspect what the assistant generated
-without leaving Trustable. It never writes: there is no edit, create, rename, or
+without leaving Trustant. It never writes: there is no edit, create, rename, or
 delete action.
 
 The modal has a file tree on the left (fetched from `GET /api/files/<name>`,
@@ -511,7 +511,7 @@ Pull > Deploy are unchanged — this entry only adds a way to invoke it on deman
 
 The **Debug** entry in the Utils pulldown opens a separate browser window at `debug.html?app=<NAME>`.
 
-`debug.html` is a first-party Trustable utility page in the visual rollout. It
+`debug.html` is a first-party Trustant utility page in the visual rollout. It
 uses the shared light top bar, Work Sans status text, restrained action buttons,
 and a bordered log panel. The streamed activation output remains monospace
 inside the log panel because it is command output.
@@ -528,7 +528,7 @@ The backend:
 
 # Credits
 
-A small **Credits box** is rendered in the toolbar immediately after the app name, but **only when the merged configuration's `provider` field equals `"trustable"`**. For Ollama (or any other provider) neither the box nor the Top-up button are rendered.
+A small **Credits box** is rendered in the toolbar immediately after the app name, but **only when the merged configuration's `provider` field equals `"trustant"`**. For Ollama (or any other provider) neither the box nor the Top-up button are rendered.
 
 The box is a compact pill (rounded border, light background) showing the label `Credits:` followed by the current credit value (e.g. `Credits: 873`). While the value has not yet been fetched, show `Credits: …`. On error, show `Credits: —` and put the error text in the element's `title` attribute (tooltip).
 
@@ -545,7 +545,7 @@ Two environment variables drive all ai-proxy URLs. They are read at process star
 | `AIP_BASE_URL` | JSON API base. `/api/credits`, `/api/topup`, and `/api/status` all forward directly under this URL. | `https://api.nuvolaris.io/api/v2/` |
 | `AIP_REGISTER_URL` | Registration UI base. The splash page loads it in an iframe; the top-up form lives at `<this>/top-up`. Exposed to the frontend as `register_url` on `GET /api/configuration`. | `https://api.nuvolaris.io/_register` |
 
-The Trustable provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by TruACP/Pi and any model client — but it is **not** what the credit/top-up/status endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
+The Trustant provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by TruACP/Pi and any model client — but it is **not** what the credit/top-up/status endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
 
 URL summary:
 
@@ -564,7 +564,7 @@ The frontend MUST NOT call the proxy directly (the API key must stay server-side
 
 Proxies `GET $AIP_BASE_URL/credits` (response shape: see [credit_check.md](credit_check.md) — at minimum `credits`, `credit_total`, `currency`, `credit_value`, `out_of_credit`).
 
-- If `provider != "trustable"`, return HTTP 404.
+- If `provider != "trustant"`, return HTTP 404.
 - If `AIP_BASE_URL` is not set, return HTTP 502 with `{"error": "AIP_BASE_URL is not set"}` (preflight should have already aborted startup; this is the defense-in-depth path).
 - Otherwise issue `GET $AIP_BASE_URL/credits` with the bearer key and return the JSON body verbatim on 2xx.
 - On non-2xx from the proxy, return `{"error": "<status>: <body>"}` with HTTP 502.
@@ -573,7 +573,7 @@ Proxies `GET $AIP_BASE_URL/credits` (response shape: see [credit_check.md](credi
 
 Proxies `POST $AIP_BASE_URL/top-up` (see [credit_check.md](credit_check.md) §`POST /api/v2/top-up` for the response shape).
 
-- If `provider != "trustable"`, return HTTP 404.
+- If `provider != "trustant"`, return HTTP 404.
 - If `AIP_BASE_URL` is not set, return HTTP 502 with `{"error": "AIP_BASE_URL is not set"}`.
 - Request body: `{"amount": <integer>}`. The amount must be one of `1000`, `5000`, `10000` (the default `TOPUP_AMOUNTS` whitelist documented in [credit_check.md](credit_check.md)). The backend forwards the body unchanged.
 - Forward the request as `POST $AIP_BASE_URL/top-up` with `Authorization: Bearer <api_key>` and `Content-Type: application/json`.
@@ -583,7 +583,7 @@ Proxies `POST $AIP_BASE_URL/top-up` (see [credit_check.md](credit_check.md) §`P
 
 ## Refresh cadence
 
-When the page loads (and the provider is Trustable), the frontend calls `GET /api/credits`, populates the box from the `credits` field of the response, and then re-fetches **every 60 seconds** using `setInterval`. The interval is cleared when the user navigates away (Back button or page unload).
+When the page loads (and the provider is Trustant), the frontend calls `GET /api/credits`, populates the box from the `credits` field of the response, and then re-fetches **every 60 seconds** using `setInterval`. The interval is cleared when the user navigates away (Back button or page unload).
 
 In addition, the Credits box must be re-fetched immediately after a successful top-up (see "Top-up" below).
 
@@ -591,7 +591,7 @@ In addition, the Credits box must be re-fetched immediately after a successful t
 
 Clicking the Top-up button opens a modal titled "Top up credits" containing:
 
-- A short description: *"Add credits to your Trustable account. Each credit is worth `<credit_value> <currency>` (taken from the most recent `/api/credits` response — fall back to the literal text "—" if unknown)."*
+- A short description: *"Add credits to your Trustant account. Each credit is worth `<credit_value> <currency>` (taken from the most recent `/api/credits` response — fall back to the literal text "—" if unknown)."*
 - Three radio buttons / amount tiles: **1000**, **5000**, **10000** credits. Default-select `1000`.
 - An "OK" button (yellow/amber, label `Top up`) and a "Cancel" button.
 

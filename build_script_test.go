@@ -117,7 +117,7 @@ func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
 // This is not style. opsroot keeps pointing at the BASE image so the next
 // hotfix chains off it instead of nesting (...2118-1-1), and it is the reason
 // the rollout patches the StatefulSet directly rather than calling
-// `ops truinst trustable redeploy`, which would resolve the base image and roll
+// `ops truinst trustant redeploy`, which would resolve the base image and roll
 // out the wrong thing. The moment this script writes opsroot, that whole design
 // stops making sense.
 func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {

@@ -15,23 +15,23 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #
-# start.sh — bring up a Trustable development environment. Two hosts, one script,
+# start.sh — bring up a Trustant development environment. Two hosts, one script,
 # selected by `uname -s` (see spec/start.md):
 #
-#   macOS  — provisions a local Trustable VM with Lima and wires it up so the
+#   macOS  — provisions a local Trustant VM with Lima and wires it up so the
 #            rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds
 #            it exactly where the macOS app would put it:
-#            ~/Library/Application Support/Trustable/.
+#            ~/Library/Application Support/Trustant/.
 #   Linux  — no VM. Ubuntu/Debian already IS the environment, so the same
-#            initialization runs directly on this host: install the Trustable
+#            initialization runs directly on this host: install the Trustant
 #            .deb when k3s is absent, then ollama/kubefwd/gh, the k3s host-rewrite
 #            proxy, the support files, and setup.sh.
 #
-# Plain run:   macOS boots a plain Ubuntu VM (vz), then installs the Trustable
+# Plain run:   macOS boots a plain Ubuntu VM (vz), then installs the Trustant
 #              .deb (k3s + helpers) inside it, installs a CPU-only ollama host
 #              (localhost:11434, pinned to the image's OLLAMA_VERSION), ensures
 #              gh via apt in-VM, writes the VM ip/apihost/ssh key to the
-#              Trustable support dir, runs setup.sh in-VM, and finally runs
+#              Trustant support dir, runs setup.sh in-VM, and finally runs
 #              ./run.sh in the VM (foreground — Ctrl-C stops the dev server).
 #              Linux does the same minus everything that only makes sense
 #              against a VM, and stops before run.sh (just run it yourself).
@@ -85,9 +85,9 @@ VM_NAME="trudev"
 # such app, so the same two files (current.ip, apihost) live under XDG config.
 # configure.go's apihostFilePath() resolves the identical path per OS.
 if $NATIVE_LINUX; then
-  SUPPORT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/trustable"
+  SUPPORT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/trustant"
 else
-  SUPPORT_DIR="$HOME/Library/Application Support/Trustable"
+  SUPPORT_DIR="$HOME/Library/Application Support/Trustant"
 fi
 LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
 # The cluster package comes from the Apache OpenServerless bucket, which publishes
@@ -97,21 +97,21 @@ LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
 # supported way to discover what is published. Do not try to enumerate it.
 OPENSERVERLESS_INDEX="https://openserverless.nuvolaris.download/index.json"
 # openserverless.txt pins WHICH package version gets installed, so it is a hard
-# pin: unlike TRUSTABLE_VERSION below there is no "unknown" fallback, because an
+# pin: unlike TRUSTANT_VERSION below there is no "unknown" fallback, because an
 # empty value here would silently install something other than what the repo
 # declares. A missing or bogus pin must fail loudly instead.
 OPENSERVERLESS_VERSION="$(head -n1 openserverless.txt 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$OPENSERVERLESS_VERSION" ]] \
   || fail "openserverless.txt not found or empty — it must pin the OpenServerless package version (e.g. 0.1.0+f1553b)"
 # The release identity lives in version.txt (tagged form, e.g. v0.4.0) and is the
-# single source shared with build.sh/hotfix.sh/run.sh. It identifies the Trustable
+# single source shared with build.sh/hotfix.sh/run.sh. It identifies the Trustant
 # APP release and is unrelated to OPENSERVERLESS_VERSION above, which identifies
 # the cluster package — the two version files are deliberately separate. The
 # numeric form is used, so strip the leading "v".
-TRUSTABLE_VERSION="$(head -n1 version.txt 2>/dev/null | tr -d '[:space:]')"
-TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"
-if [[ -z "$TRUSTABLE_VERSION" ]]; then
-  TRUSTABLE_VERSION="unknown"
+TRUSTANT_VERSION="$(head -n1 version.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSTANT_VERSION="${TRUSTANT_VERSION#v}"
+if [[ -z "$TRUSTANT_VERSION" ]]; then
+  TRUSTANT_VERSION="unknown"
   warn "version.txt not found or empty"
 fi
 DIST_DIR="dist"                              # host-side cache (.deb + ollama tarball)
@@ -499,7 +499,7 @@ GUEST
 }
 
 # Install the exact Linux kubefwd consumed by repository-root run.sh. WHY:
-# Trustable and its MCP children execute outside k3s in development, while
+# Trustant and its MCP children execute outside k3s in development, while
 # production runs inside a pod; a checked release binary gives the development
 # host temporary service reachability without mutating its permanent resolver
 # configuration.
@@ -617,7 +617,7 @@ GUEST
 
 # Strip the obsolete OPS_BRANCH/OPS_REPO managed block from the shell rc files of
 # both accounts that get a shell here: the mirrored dev user and the package's
-# 'trustable' user.
+# 'trustant' user.
 #
 # WHY this exists at all rather than just deleting the writer: `ops` resolves its
 # task source from the binary itself now (installed via n7s.co/get-ops-tru, which
@@ -634,14 +634,14 @@ remove_ops_env() {
   echo "--- Removing obsolete OPS_BRANCH/OPS_REPO exports from .profile/.bashrc${where} ---"
 
   run_privileged HOST_USER="$HOST_USER" <<'GUEST'
-BEGIN="# >>> trustable ops env >>>"
-END="# <<< trustable ops env <<<"
+BEGIN="# >>> trustant ops env >>>"
+END="# <<< trustant ops env <<<"
 seen=""
 removed=0
 
-for u in "$HOST_USER" trustable; do
-  # Skip an account that does not exist: 'trustable' is created by the package,
-  # and on a native host HOST_USER may already BE trustable.
+for u in "$HOST_USER" trustant; do
+  # Skip an account that does not exist: 'trustant' is created by the package,
+  # and on a native host HOST_USER may already BE trustant.
   id "$u" >/dev/null 2>&1 || continue
   case " $seen " in *" $u "*) continue ;; esac
   seen="$seen $u"
@@ -891,7 +891,7 @@ refresh_support_files() {
   [[ -n "$IP" ]] || fail "could not determine host-reachable VM IP"
   ok "VM IP: $IP"
 
-  echo "--- Writing Trustable support files ---"
+  echo "--- Writing Trustant support files ---"
   mkdir -p "$SUPPORT_DIR"
 
   printf '%s' "$IP" > "$SUPPORT_DIR/current.ip"
@@ -962,7 +962,7 @@ wait_for_ssh_ready() {
   fail "ssh could not reach the VM after $((retries * delay_secs))s"
 }
 
-# Read the host-reachable IP from the running VM and write the Trustable support
+# Read the host-reachable IP from the running VM and write the Trustant support
 # files. Used both by the fresh-install path and when the VM already exists.
 finish() {
   refresh_support_files
@@ -995,7 +995,7 @@ finish() {
   login_github_from_token
 
   echo
-  echo -e "${GREEN}=== Trustable VM ready ===${NC}"
+  echo -e "${GREEN}=== Trustant VM ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
   echo "  ssh:          ./ssh.sh   |   ssh $HOST_USER@$IP   |   ssh trudev"
@@ -1038,7 +1038,7 @@ finish_native() {
   ensure_ollama
   ensure_kubefwd
   ensure_jq
-  # After the package install above, so the 'trustable' account exists.
+  # After the package install above, so the 'trustant' account exists.
   remove_ops_env
   ensure_tls_san "$IP"
   apply_reverse_proxy "$IP"
@@ -1057,7 +1057,7 @@ finish_native() {
   login_github_from_token
 
   echo
-  echo -e "${GREEN}=== Trustable environment ready ===${NC}"
+  echo -e "${GREEN}=== Trustant environment ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
   echo "  ollama:       http://localhost:11434"
@@ -1180,7 +1180,7 @@ ensure_deb() {
 
 # Copy the cached .deb into the running VM and install it (k3s + helpers), set
 # the netplan route so the firewall DROP lands on vzNAT, and authorize the Lima
-# ssh key for the package-created 'trustable' user. No-op if already installed.
+# ssh key for the package-created 'trustant' user. No-op if already installed.
 # Requires DEB_FILE (call ensure_deb first) and a running VM.
 install_package() {
   echo "--- Copying package into the VM ---"
@@ -1204,7 +1204,7 @@ apt-get install -y -qq iptables
 # Lima's netplan gives eth0 metric 200 and the host-facing lima0 metric 100, so
 # by default the DROP lands on lima0 and blocks the host. Override eth0 to a
 # lower metric than lima0 so the DROP lands on the non-host-reachable vzNAT.
-cat >/etc/netplan/99-trustable.yaml <<'NET'
+cat >/etc/netplan/99-trustant.yaml <<'NET'
 network:
   version: 2
   ethernets:
@@ -1212,7 +1212,7 @@ network:
       dhcp4-overrides:
         route-metric: 50
 NET
-chmod 0600 /etc/netplan/99-trustable.yaml
+chmod 0600 /etc/netplan/99-trustant.yaml
 netplan apply
 # Wait for the default route to actually move onto eth0 before installing.
 for _ in $(seq 1 10); do
@@ -1227,19 +1227,19 @@ echo "default-route interface is now: ${DEF_IFACE}"
 apt-get install -y /tmp/openserverless.deb
 rm -f /tmp/openserverless.deb
 
-# ssh.sh reaches the VM as trustable@<ip> with the Lima identity, so authorize
-# the Lima pubkey(s) for the package-created 'trustable' user.
-install -d -o trustable -g trustable -m 0700 /home/trustable/.ssh
+# ssh.sh reaches the VM as trustant@<ip> with the Lima identity, so authorize
+# the Lima pubkey(s) for the package-created 'trustant' user.
+install -d -o trustant -g trustant -m 0700 /home/trustant/.ssh
 : > /tmp/authkeys
 for ak in /home/*/.ssh/authorized_keys; do
-  [ "$ak" = /home/trustable/.ssh/authorized_keys ] && continue
+  [ "$ak" = /home/trustant/.ssh/authorized_keys ] && continue
   [ -f "$ak" ] && cat "$ak" >> /tmp/authkeys
 done
-[ -f /home/trustable/.ssh/authorized_keys ] && cat /home/trustable/.ssh/authorized_keys >> /tmp/authkeys
-sort -u /tmp/authkeys > /home/trustable/.ssh/authorized_keys
+[ -f /home/trustant/.ssh/authorized_keys ] && cat /home/trustant/.ssh/authorized_keys >> /tmp/authkeys
+sort -u /tmp/authkeys > /home/trustant/.ssh/authorized_keys
 rm -f /tmp/authkeys
-chown -R trustable:trustable /home/trustable/.ssh
-chmod 0600 /home/trustable/.ssh/authorized_keys
+chown -R trustant:trustant /home/trustant/.ssh
+chmod 0600 /home/trustant/.ssh/authorized_keys
 echo "install complete"
 GUEST
   ok "OpenServerless package installed and ssh key authorized"
@@ -1253,7 +1253,7 @@ GUEST
 #    the package's :80/:443/:6443 firewall DROP between the Mac and k3s. A native
 #    host has no such split — its real default route is the correct one to
 #    protect, which is exactly what the package's postinst already picks.
-#  * No authorized_keys grafting for the package's 'trustable' user. That exists
+#  * No authorized_keys grafting for the package's 'trustant' user. That exists
 #    so ssh.sh can reach the VM; nobody ssh's into the machine they are sitting at.
 #
 # Requires DEB_FILE (call ensure_deb first). No-op if already installed.
@@ -1261,7 +1261,7 @@ install_package_native() {
   echo
   warn "About to install the OpenServerless package on THIS machine:"
   warn "  package:  $DEB_FILE"
-  warn "  installs: k3s + the Trustable service stack, and a firewall dropin"
+  warn "  installs: k3s + the Trustant service stack, and a firewall dropin"
   warn "            that DROPs :80/:443/:6443 on the default-route interface"
   echo
 
@@ -1356,7 +1356,7 @@ native_host_ip() {
 # server and the tooling read, at the XDG location resolved by SUPPORT_DIR.
 # There is no id_ed25519: nothing ssh's anywhere on this path.
 refresh_support_files_native() {
-  echo "--- Writing Trustable support files ---"
+  echo "--- Writing Trustant support files ---"
   local IP APIHOST
   IP="$(native_host_ip)"
   ok "host IP: $IP"
@@ -1428,7 +1428,7 @@ ensure_host_key() {
 # passphrase prompt. Rewritten on every run because the VM IP can change.
 ensure_ssh_config() {
   local IP="$1" CFG="$HOME/.ssh/config"
-  local BEGIN="# >>> trustable trudev >>>" END="# <<< trustable trudev <<<"
+  local BEGIN="# >>> trustant trudev >>>" END="# <<< trustant trudev <<<"
   touch "$CFG"; chmod 0600 "$CFG"
   # Drop any previous managed block, then append the current one.
   awk -v b="$BEGIN" -v e="$END" '
@@ -1453,10 +1453,10 @@ ensure_ssh_config() {
 # and UID, so files under the virtiofs mount (mounted at the same path) keep the
 # host's ownership. Give them passwordless sudo and authorize the same Lima key
 # so `ssh <host_user>@<ip>` works too. Idempotent — safe to run on every start.
-# Skip when the host user is 'trustable' or 'root' (already present in the VM).
+# Skip when the host user is 'trustant' or 'root' (already present in the VM).
 ensure_guest_user() {
   [ -n "$HOST_USER" ] || return 0
-  case "$HOST_USER" in trustable|root) return 0 ;; esac
+  case "$HOST_USER" in trustant|root) return 0 ;; esac
   echo "--- Mirroring host user '$HOST_USER' into the VM ---"
   ensure_host_key
   limactl shell "$VM_NAME" sudo HOST_USER="$HOST_USER" HOST_UID="$HOST_UID" \
@@ -1485,11 +1485,11 @@ HOST_GROUP="$(id -gn "$HOST_USER")"
 echo "authorizing keys in ${HOME_DIR}/.ssh (group ${HOST_GROUP})"
 
 install -d -o "$HOST_USER" -g "$HOST_GROUP" -m 0700 "$HOME_DIR/.ssh"
-# Authorize the same key(s) trustable trusts, plus the dedicated host key, so
+# Authorize the same key(s) trustant trusts, plus the dedicated host key, so
 # both `ssh <user>@<ip>` and VS Code Remote-SSH connect without a passphrase.
 AK="$HOME_DIR/.ssh/authorized_keys"
 : > /tmp/hostkeys
-[ -f /home/trustable/.ssh/authorized_keys ] && cat /home/trustable/.ssh/authorized_keys >> /tmp/hostkeys
+[ -f /home/trustant/.ssh/authorized_keys ] && cat /home/trustant/.ssh/authorized_keys >> /tmp/hostkeys
 [ -f "$AK" ] && cat "$AK" >> /tmp/hostkeys
 [ -n "${HOST_PUBKEY:-}" ] && printf '%s\n' "$HOST_PUBKEY" >> /tmp/hostkeys
 sort -u /tmp/hostkeys > "$AK"
@@ -1655,7 +1655,7 @@ ensure_deb   # sets DEB_FILE
 # on the DEFAULT-route interface. We therefore force the vzNAT interface to hold the
 # default route (see the routefix provision below) so the DROP lands there and
 # lima0:80 stays reachable — that lima0 address is what we publish as the apihost.
-LIMA_CONFIG="$(mktemp -t trustable-lima-XXXX).yaml"
+LIMA_CONFIG="$(mktemp -t trustant-lima-XXXX).yaml"
 trap 'rm -f "$LIMA_CONFIG"' EXIT
 
 # The mount is writable and lands at the same path inside the VM as on the host,
@@ -1670,7 +1670,7 @@ images:
     arch: "x86_64"
 cpus: 4
 memory: "8GiB"
-# Trustable keeps the full k3s service stack and imports multi-layer development
+# Trustant keeps the full k3s service stack and imports multi-layer development
 # images locally; 60 GiB restores headroom over the DiskPressure-prone 40 GiB
 # default without imposing the larger 100 GiB allocation on every new VM.
 disk: "60GiB"
@@ -1686,7 +1686,7 @@ ssh:
 YAML
 
 # --- create + start (fast: no heavy install here) --------------------------
-echo "--- Booting Trustable VM ---"
+echo "--- Booting Trustant VM ---"
 limactl start --name "$VM_NAME" --tty=false "$LIMA_CONFIG" \
   || fail "limactl start failed"
 ok "VM '$VM_NAME' booted"

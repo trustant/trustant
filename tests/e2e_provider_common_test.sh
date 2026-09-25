@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export TRUSTABLE_E2E_COMMON_LIBRARY=1
+export TRUSTANT_E2E_COMMON_LIBRARY=1
 # shellcheck source=tests/e2e_provider_common.sh
 . "$ROOT/tests/e2e_provider_common.sh"
 
@@ -28,38 +28,38 @@ fail() {
 }
 
 test_noninteractive_missing_value() {
-  unset TRUSTABLE_E2E_TEST_MISSING
+  unset TRUSTANT_E2E_TEST_MISSING
   local output
-  if output="$(e2e_require_value TRUSTABLE_E2E_TEST_MISSING "Missing test value" 1 2>&1 </dev/null)"; then
+  if output="$(e2e_require_value TRUSTANT_E2E_TEST_MISSING "Missing test value" 1 2>&1 </dev/null)"; then
     fail "missing non-interactive value unexpectedly succeeded"
   fi
-  [[ "$output" == *"TRUSTABLE_E2E_TEST_MISSING is required in non-interactive mode"* ]] ||
+  [[ "$output" == *"TRUSTANT_E2E_TEST_MISSING is required in non-interactive mode"* ]] ||
     fail "missing-value error did not identify the variable: $output"
 }
 
 test_profiles() {
-  unset TRUSTABLE_E2E_BASE_URL
-  TRUSTABLE_E2E_API_KEY="residual-provider-secret"
-  TRUSTABLE_E2E_MODEL="private-model"
+  unset TRUSTANT_E2E_BASE_URL
+  TRUSTANT_E2E_API_KEY="residual-provider-secret"
+  TRUSTANT_E2E_MODEL="private-model"
   # A private endpoint has no canonical host, so the base URL is required.
-  TRUSTABLE_E2E_BASE_URL="http://my-gpu:11434/v1"
+  TRUSTANT_E2E_BASE_URL="http://my-gpu:11434/v1"
   e2e_resolve_profile private
   [ "$E2E_PROVIDER" = "private" ] || fail "wrong Private AI provider"
   [ "$E2E_BASE_URL" = "http://my-gpu:11434/v1" ] || fail "Private AI ignored the supplied base URL"
   [ "$E2E_API_KEY" = "" ] || fail "Private AI inherited a provider credential"
   [ "$E2E_CREDENTIAL_REQUIRED" = "false" ] || fail "Private AI unexpectedly requires a credential"
-  unset TRUSTABLE_E2E_BASE_URL
+  unset TRUSTANT_E2E_BASE_URL
 
-  TRUSTABLE_E2E_MODEL="coding-model"
-  TRUSTABLE_E2E_API_KEY="regolo-secret"
+  TRUSTANT_E2E_MODEL="coding-model"
+  TRUSTANT_E2E_API_KEY="regolo-secret"
   e2e_resolve_profile regolo
-  [ "$E2E_PROVIDER" = "trustable" ] || fail "wrong Regolo provider"
+  [ "$E2E_PROVIDER" = "trustant" ] || fail "wrong Regolo provider"
   [ "$E2E_BASE_URL" = "https://api.nuvolaris.io/v1" ] || fail "wrong Regolo URL"
   [ "$E2E_CREDENTIAL_REQUIRED" = "true" ] || fail "Regolo credential not required"
 
-  unset TRUSTABLE_E2E_API_KEY
-  TRUSTABLE_E2E_OLLAMA_API_KEY="ollama-secret"
-  TRUSTABLE_E2E_MODEL="cloud-model"
+  unset TRUSTANT_E2E_API_KEY
+  TRUSTANT_E2E_OLLAMA_API_KEY="ollama-secret"
+  TRUSTANT_E2E_MODEL="cloud-model"
   e2e_resolve_profile ollama-cloud
   [ "$E2E_PROVIDER" = "ollama" ] || fail "wrong Ollama provider"
   [ "$E2E_BASE_URL" = "http://localhost:11434/v1" ] || fail "wrong Ollama URL"
@@ -76,7 +76,7 @@ test_profile_preflight() {
   local config
   config='{"provider":"private","base_url":"http://my-gpu:11434/v1","model":"coding-model","limits":{"max_token":131072,"max_output":32768},"credential":{"required":false,"configured":false}}'
   e2e_preflight_profile "$config" || fail "valid Private AI preflight failed"
-  if e2e_preflight_profile "$(jq '.provider = "trustable"' <<<"$config")" 2>/dev/null; then
+  if e2e_preflight_profile "$(jq '.provider = "trustant"' <<<"$config")" 2>/dev/null; then
     fail "preflight accepted the wrong effective provider"
   fi
 }
@@ -92,7 +92,7 @@ test_report() {
   e2e_write_report "$report" "run-1" private "2026-01-01T00:00:00Z" \
     "2026-01-01T00:00:07Z" 7 0 "benchmark-results/run-1/run.log" \
     "benchmark-results/run-1/playwright"
-  jq -e '.schema == "trustable-e2e-benchmark/v1" and .outcome == "passed" and
+  jq -e '.schema == "trustant-e2e-benchmark/v1" and .outcome == "passed" and
     .duration_seconds == 7 and .provider == "private" and
     .effective_config.provider == "private" and
     .effective_config.credential == {"required":false,"configured":false} and
@@ -109,13 +109,13 @@ test_report() {
 test_private_profile_clears_and_restores_credential() {
   local temp original_hash
   temp="$(mktemp -d)"
-  printf '%s\n' '{"provider":"trustable","base_url":"https://api.nuvolaris.io/v1","api_key":"residual-secret","models":{"old":{}},"opencode":{"default":"old","small":"old"}}' >"$temp/config.json"
+  printf '%s\n' '{"provider":"trustant","base_url":"https://api.nuvolaris.io/v1","api_key":"residual-secret","models":{"old":{}},"opencode":{"default":"old","small":"old"}}' >"$temp/config.json"
   original_hash="$(sha256sum "$temp/config.json" | awk '{print $1}')"
   make_fake_kubectl "$temp"
 
   (
     export PATH="$temp/bin:$PATH"
-    export FAKE_TRUSTABLE_CONFIG="$temp/config.json"
+    export FAKE_TRUSTANT_CONFIG="$temp/config.json"
     E2E_LOCK_DIR="$temp/lock"
     E2E_PROVIDER="private"
     E2E_BASE_URL="http://my-gpu:11434/v1"
@@ -145,15 +145,15 @@ while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift
 case "$1" in
   cat)
-    cat "$FAKE_TRUSTABLE_CONFIG"
+    cat "$FAKE_TRUSTANT_CONFIG"
     ;;
   sh)
-    cat >"$FAKE_TRUSTABLE_CONFIG"
+    cat >"$FAKE_TRUSTANT_CONFIG"
     ;;
   jq)
     shift
     args=("$@")
-    args[$((${#args[@]} - 1))]="$FAKE_TRUSTABLE_CONFIG"
+    args[$((${#args[@]} - 1))]="$FAKE_TRUSTANT_CONFIG"
     command jq "${args[@]}"
     ;;
   *)
@@ -174,9 +174,9 @@ test_profile_is_restored() {
 
   (
     export PATH="$temp/bin:$PATH"
-    export FAKE_TRUSTABLE_CONFIG="$temp/config.json"
+    export FAKE_TRUSTANT_CONFIG="$temp/config.json"
     E2E_LOCK_DIR="$temp/lock"
-    E2E_PROVIDER="trustable"
+    E2E_PROVIDER="trustant"
     E2E_BASE_URL="https://api.nuvolaris.io/v1"
     E2E_API_KEY="temporary-secret"
     E2E_CREDENTIAL_REQUIRED=true
@@ -184,7 +184,7 @@ test_profile_is_restored() {
     E2E_MAX_TOKEN=131072
     E2E_MAX_OUTPUT=32768
     e2e_apply_profile
-  jq -e '.provider == "trustable" and .api_key == "temporary-secret" and
+  jq -e '.provider == "trustant" and .api_key == "temporary-secret" and
       .pi.default == "coding-model" and (.opencode | not)' "$temp/config.json" >/dev/null
   )
 

@@ -24,18 +24,18 @@ The binary embeds `web/`, `_build.txt`, and `openserverless-instructions.md` (se
 
 ## Prerequisites
 
-macOS development uses a **running Trustable VM** on the local machine — the macOS app from `https://trustable.ai` provisions a k3s VM and writes its credentials to `~/Library/Application Support/Trustable/` (`id_ed25519`, `current.ip`, `apihost`).
+macOS development uses a **running Trustant VM** on the local machine — the macOS app from `https://trustant.ai` provisions a k3s VM and writes its credentials to `~/Library/Application Support/Trustant/` (`id_ed25519`, `current.ip`, `apihost`).
 
-Linux server development uses local access to the Trustable k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` is the single build entrypoint for both hosts and detects which one it is on.
+Linux server development uses local access to the Trustant k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` is the single build entrypoint for both hosts and detects which one it is on.
 
-`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustable-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
+`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustant-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
 
 ## Common commands
 
 ```bash
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
-./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustable URL
+./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
 ./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
@@ -45,7 +45,7 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 `air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
 
-`build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustable redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+`build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustant redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
 [hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
@@ -57,7 +57,7 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 - `WORKBENCH_DIR` — checkout area for the currently-launched app
 - `OPENAI_BASE_URL`, `OPENAI_API_KEY` — provider credentials (overwritten when user picks a provider in the UI)
 - `OLLAMA_ENDPOINT` — local Ollama for the Ollama provider
-- `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustable Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
+- `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustant Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
 - `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
 - `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
 
@@ -94,12 +94,12 @@ When a spec doc and a `.go` file disagree, **the spec is the source of truth** �
 
 [middleware.go](middleware.go) inspects the request hostname and routes by the first label:
 
-- `trustable.<domain>` → serves static `web/` + Go APIs (`http.DefaultServeMux`)
+- `trustant.<domain>` → serves static `web/` + Go APIs (`http.DefaultServeMux`)
 - `opencode.<domain>` → reverse-proxies to `localhost:4096` (the AI coding assistant)
 - `vite.<domain>` → reverse-proxies to `localhost:5173` (the running user app)
 - Any other prefix → 400 with the corrected URL
 
-Bare `localhost` or IP requests are 307-redirected to `trustable.<ip>.nip.io:<port>` so the FQDN form is always used. **Every test must be against an FQDN** — plain `localhost:8910` will redirect.
+Bare `localhost` or IP requests are 307-redirected to `trustant.<ip>.nip.io:<port>` so the FQDN form is always used. **Every test must be against an FQDN** — plain `localhost:8910` will redirect.
 
 ### Workspace vs. workbench (the other non-obvious bit)
 
@@ -140,11 +140,11 @@ An expired license invalidates everything, git push included. Local apihosts (`m
 
 The frontend recognizes the `"License required"` and `"Host not licensed"` prefixes and shows a license modal (see `showLicenseModal` in [web/applist.html](web/applist.html)). When changing the error wording, keep those prefixes intact or the frontend gate breaks.
 
-Licenses are issued by the `trulicense` CLI, which lives in the **trustable-installer** repo (run `./trulicense.sh` there). It keeps the signing key in 1Password (vault `TrustableLicenses`) and archives every license it issues. This repo only *verifies* licenses, offline, against the embedded `master_key_pub`. See [spec/14-license.md](spec/14-license.md).
+Licenses are issued by the `trulicense` CLI, which lives in the **trustant-installer** repo (run `./trulicense.sh` there). It keeps the signing key in 1Password (vault `TrustantLicenses`) and archives every license it issues. This repo only *verifies* licenses, offline, against the embedded `master_key_pub`. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 
-Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `oplugins`, `oplugins-truinst`, `skills`, and `trustable-acp`. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
+Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `oplugins`, `oplugins-truinst`, `skills`, and `trustant-acp`. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
 Never push to any plugin repository without explicit user authorization, including `oplugins`, `oplugins-truinst`, local plugin copies, submodules, and scripts that would push those repos.
 
 ## Tests

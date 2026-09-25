@@ -8,7 +8,7 @@ import sys
 import threading
 
 
-REAL = os.environ.get("TRUSTABLE_REDIS_MCP_REAL") or shutil.which("redis-mcp-server")
+REAL = os.environ.get("TRUSTANT_REDIS_MCP_REAL") or shutil.which("redis-mcp-server")
 BLOCKED_TOOLS = {"client_list", "dbsize", "get_indexes", "info"}
 UNSCOPED_TOOLS = {"search_redis_documents"}
 KEY_FIELDS = {
@@ -130,7 +130,7 @@ def rewrite_response(message):
         if isinstance(description, str):
             tool["description"] = (
                 description
-                + "\nTrustable enforces the current application's Redis namespace server-side."
+                + "\nTrustant enforces the current application's Redis namespace server-side."
             )
     return message
 
@@ -218,12 +218,12 @@ def pump_stderr(source):
 
 def main():
     try:
-        prefix = validate_prefix(os.environ.get("TRUSTABLE_REDIS_PREFIX", ""))
+        prefix = validate_prefix(os.environ.get("TRUSTANT_REDIS_PREFIX", ""))
     except PolicyError as error:
-        print(f"trustable-redis-mcp: {error}", file=sys.stderr)
+        print(f"trustant-redis-mcp: {error}", file=sys.stderr)
         return 78
     if not REAL:
-        print("trustable-redis-mcp: redis-mcp-server is not installed", file=sys.stderr)
+        print("trustant-redis-mcp: redis-mcp-server is not installed", file=sys.stderr)
         return 127
 
     proc = subprocess.Popen(

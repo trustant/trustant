@@ -21,7 +21,7 @@ from pathlib import Path
 
 def load_wrapper():
     path = Path(__file__).with_name("redis-mcp")
-    loader = importlib.machinery.SourceFileLoader("trustable_redis_mcp", str(path))
+    loader = importlib.machinery.SourceFileLoader("trustant_redis_mcp", str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)

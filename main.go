@@ -41,21 +41,21 @@ var openserverlessContractMd string
 var appAgentsMd string
 
 // The checker is embedded rather than copied from the host. WHY: every app
-// must receive the exact source-contract checker matching this Trustable
+// must receive the exact source-contract checker matching this Trustant
 // binary, including its managed-live behavior that does not poll deploy ZIPs.
 //go:embed check_openserverless_actions.sh
 var openserverlessCheckerSh string
 
 //go:embed check_trustant_frontend.sh
-var trustableFrontendCheckerSh string
+var trustantFrontendCheckerSh string
 
 //go:embed check_trustant_app.sh
-var trustableAppCheckerSh string
+var trustantAppCheckerSh string
 
 //go:embed milvus_cli.tmpl
 var milvusCliTemplate string
 
-// noStoreHTML prevents an upgraded Trustable UI from restoring stale inline
+// noStoreHTML prevents an upgraded Trustant UI from restoring stale inline
 // configuration logic from browser history. This is especially important for
 // hard schema cutovers such as OpenCode -> Pi, where old JavaScript can create
 // a redirect loop even though the server-side configuration is already valid.

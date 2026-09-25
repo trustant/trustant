@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="380" viewBox="0 0 980 380" role="img" aria-labelledby="title desc">
-  <title id="title">Trustable action deploy guard flow</title>
+  <title id="title">Trustant action deploy guard flow</title>
   <desc id="desc">Action MCP or source changes require ops ide deploy. Manual ZIP mutations, setup before deploy, and completion before deploy are blocked.</desc>
   <style>
     text { font-family: Arial, sans-serif; fill: #172033; }

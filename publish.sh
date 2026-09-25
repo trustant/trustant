@@ -41,7 +41,7 @@ fi
 
 # Push the current HEAD to the selected release branch plus tags.
 CURRENT_BRANCH=$(git branch --show-current)
-TARGET_BRANCH="${TRUSTABLE_PUBLISH_BRANCH:-$CURRENT_BRANCH}"
+TARGET_BRANCH="${TRUSTANT_PUBLISH_BRANCH:-$CURRENT_BRANCH}"
 echo "Pushing HEAD to origin/$TARGET_BRANCH plus tags..."
 git push origin "HEAD:$TARGET_BRANCH" --tags
 

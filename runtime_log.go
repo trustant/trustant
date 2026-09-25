@@ -24,7 +24,7 @@ import (
 
 const opsDevelLogMaxBytes int64 = 1024 * 1024
 
-var trustableRuntimeLogRootOverride string
+var trustantRuntimeLogRootOverride string
 
 // opsDevelLogPath keeps watcher diagnostics outside the model-editable
 // workbench. WHY: Pi needs authoritative deployment evidence, while application
@@ -33,13 +33,13 @@ func opsDevelLogPath(app string) (string, error) {
 	if !namePattern.MatchString(app) {
 		return "", fmt.Errorf("invalid application name for watcher log: %q", app)
 	}
-	root := trustableRuntimeLogRootOverride
+	root := trustantRuntimeLogRootOverride
 	if root == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve home for watcher log: %w", err)
 		}
-		root = filepath.Join(home, ".config", "trustable", "runtime")
+		root = filepath.Join(home, ".config", "trustant", "runtime")
 	}
 	return filepath.Join(root, app, "ops-ide-devel.log"), nil
 }

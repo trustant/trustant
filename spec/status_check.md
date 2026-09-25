@@ -28,7 +28,7 @@ GET /api/v2/status?version=<client-version>
 ```json
 {
   "message":   "<operator string for this version, or \"\">",
-  "trustable": { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } },
+  "trustant": { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } },
   "ollama":    { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } }
 }
 ```
@@ -40,7 +40,7 @@ GET /api/v2/status?version=<client-version>
 - The `"default"` key is the operator's catch-all for unknown / unreleased client versions. Typical use: `"default": "Unknown client version — please check for an update."` Operators can also leave it empty (`"default": ""`) to silence the unknown-version case while still messaging specific versions.
 - Empty rather than 404 is deliberate: the proxy doesn't presume to know which versions exist. Clients have a single parse path.
 
-### Provider blocks (`trustable`, `ollama`, …)
+### Provider blocks (`trustant`, `ollama`, …)
 
 Each provider declared in `AIP_CONFIG` appears as a top-level key with the same shape:
 
@@ -82,10 +82,10 @@ Pi reasoning-capability fields:
 | `maxOutput` | Max tokens the upstream will return. |
 | `reasoning` | Whether the model supports Pi reasoning controls. |
 | `thinkingLevelMap` | Optional Pi level map. `null` hides a level; `xhigh` is supported only when its entry is present and non-null. |
-| `enabled` / `recommended` / `roles` / `reason` | Optional coding-agent selection policy consumed by Trustable. |
+| `enabled` / `recommended` / `roles` / `reason` | Optional coding-agent selection policy consumed by Trustant. |
 
 **All fields are optional.** Integer fields that are `0` in the config are
-omitted from the response (via `omitempty`). A `trustable` model typically has
+omitted from the response (via `omitempty`). A `trustant` model typically has
 all three limits; an `ollama` (self-hosted) model often declares only
 `maxInput`. Capability fields are declarations, not guesses: clients must not
 infer `xhigh` from `reasoning: true`.
@@ -101,7 +101,7 @@ These are **hints**, not enforcement. The proxy doesn't reject oversized request
 ```json
 {
   "message": "",
-  "trustable": {
+  "trustant": {
     "modelsVersion": 1,
     "default": "gpt-oss-20b",
     "small":   "gpt-oss-20b",
@@ -121,7 +121,7 @@ These are **hints**, not enforcement. The proxy doesn't reject oversized request
 ```json
 {
   "message": "you are on the current version",
-  "trustable": {
+  "trustant": {
     "modelsVersion": 3,
     "default": "gpt-oss-120b",
     "small":   "gpt-oss-20b",
@@ -153,7 +153,7 @@ GET /api/v2/status?version=v0.3.3-alpha
 ```json
 {
   "message": "A new version has been released. Please update.",
-  "trustable": { "modelsVersion": 1, "default": "...", "small": "...", "models": { ... } },
+  "trustant": { "modelsVersion": 1, "default": "...", "small": "...", "models": { ... } },
   "ollama":    { "modelsVersion": 1, "default": "...", "small": "...", "models": { ... } }
 }
 ```
@@ -186,7 +186,7 @@ If `default` were absent or empty, `message` would be `""`.
 
 ## Provider naming
 
-The set of provider names is whatever the operator declares in `AIP_CONFIG`. `trustable` and `ollama` are the names used in v1 — clients should treat the set as **open-ended**: new providers may appear in future config edits without an API version bump. Iterate over the top-level keys excluding `message` rather than hard-coding the two names.
+The set of provider names is whatever the operator declares in `AIP_CONFIG`. `trustant` and `ollama` are the names used in v1 — clients should treat the set as **open-ended**: new providers may appear in future config edits without an API version bump. Iterate over the top-level keys excluding `message` rather than hard-coding the two names.
 
 A given model id appears under **exactly one** provider: the proxy rejects collisions at startup.
 

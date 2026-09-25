@@ -6,7 +6,7 @@ Date: 2026-07-01
 
 ## Goal
 
-Prevent OpenCode from drifting away from the Trustable/OpenServerless workflow
+Prevent OpenCode from drifting away from the Trustant/OpenServerless workflow
 after long sessions or compaction, especially when it touches database actions,
 seed data, wrappers, deploys, and runtime verification.
 
@@ -179,18 +179,18 @@ Implemented in this refinement:
   exactly the intended non-blocking warnings for `fattura.py` and
   `OrdersPage.tsx`.
 - Follow-up environment drift found after the pod rebuild: OpenCode persists
-  recent project paths, while `/home/trustable/workbench` was not on the
+  recent project paths, while `/home/trustant/workbench` was not on the
   persistent workspace volume. After a restart, recent projects could point to
-  missing checkout paths such as `/home/trustable/workbench/truk8s`. The
+  missing checkout paths such as `/home/trustant/workbench/truk8s`. The
   proposed product fix is to keep `~/workbench` backed by the persistent
   workspace volume and restore missing checkout directories from the durable
   bare repos at startup, while still doing full per-app login/deploy only in
   `/api/launch/<name>`.
 - Correction from later testing: do not seed every restored checkout as an
-  OpenCode project. That lets OpenCode open another Trustable app as a plain
+  OpenCode project. That lets OpenCode open another Trustant app as a plain
   folder, bypassing `ops ide login`, generated env, deploy, app-local
   `opencode.json`, and MCP configuration. The OpenCode iframe must stay scoped
-  to the app launched by Trustable; switching apps must go through
+  to the app launched by Trustant; switching apps must go through
   `/api/launch/<app>`. The `opencode.<domain>` proxy should rewrite API
   requests carrying a non-current `directory` query back to the current app
   directory, and should scope `GET /project` to only the current app even if
@@ -331,7 +331,7 @@ Proposed files:
 - `.openserverless-contract.md`: short human-readable contract that OpenCode
   must read before touching actions, DB, setup, seed, deploy, or service state;
 - `check_openserverless_actions.sh`: executable checker installed once in the
-  Trustable user PATH and referenced by the contract and by `opencode.md`.
+  Trustant user PATH and referenced by the contract and by `opencode.md`.
 
 Update embedded `opencode.md` so OpenCode has an explicit recovery rule:
 
@@ -419,18 +419,18 @@ Warnings at first:
 Open questions before implementation:
 
 - Decision: `.openserverless-contract.md` lives in every generated app repo; the
-  checker is installed once in the Trustable user PATH and receives the app path
+  checker is installed once in the Trustant user PATH and receives the app path
   as an argument. Do not duplicate the checker into every app repo.
-- Should Trustable overwrite these files on launch, or preserve app-local
+- Should Trustant overwrite these files on launch, or preserve app-local
   customizations and only update when missing?
-- Should the checker run automatically from the Trustable redeploy endpoint, or
+- Should the checker run automatically from the Trustant redeploy endpoint, or
   initially only be an OpenCode-required command?
 
 ### Phase 4: runtime anti-drift verification
 
 Add a documented smoke-test protocol first, then automate where practical.
 
-Be careful with host classification. OpenCode runs inside the Trustable pod and
+Be careful with host classification. OpenCode runs inside the Trustant pod and
 `ops ide devel` exposes the app dev server inside that same pod on
 `http://localhost:5173`. For app-level HTTP checks performed by OpenCode from
 inside the pod, the default target should be the local dev server:
@@ -449,7 +449,7 @@ Before any runtime smoke test, OpenCode should run an environment-recognition
 preflight:
 
 1. confirm current directory is the app workbench, normally
-   `/home/trustable/workbench/<app>`;
+   `/home/trustant/workbench/<app>`;
 2. read `opencode.md` and `.openserverless-contract.md` if present;
 3. inspect `opencode.json` for generated MCP servers and model/provider shape;
 4. inspect `.env` only for platform variables such as `OPS_APIHOST`, without
@@ -461,8 +461,8 @@ preflight:
 7. classify any concrete host before using it:
    - `localhost:5173`: explicit pod-local app dev server check;
    - `localhost:4096`: explicit pod-local OpenCode server check;
-   - `trustable.<domain>`: browser-visible Trustable UI/API host;
-   - `vite.<domain>`: browser-visible app host through Trustable proxy/ingress;
+   - `trustant.<domain>`: browser-visible Trustant UI/API host;
+   - `vite.<domain>`: browser-visible app host through Trustant proxy/ingress;
    - `opencode.<domain>`: browser-visible OpenCode host through proxy/ingress;
    - `OPS_APIHOST`: configured OpenServerless API host;
    - other raw IPs/hosts: suspicious unless justified by config or the user.
@@ -491,14 +491,14 @@ OpenCode must execute shell checks itself when it has shell access. It should
 not ask the user to run commands such as `ops ide deploy`, `curl`, `npm run
 build`, `python3 -m compileall`, or `git diff --check` unless it truly lacks
 the shell/tool permission or needs credentials/physical access only the user
-has. Asking the user to run commands from inside the Trustable pod is normally
+has. Asking the user to run commands from inside the Trustant pod is normally
 wrong: the user does not have that shell context, while OpenCode does.
 
 Potential automation:
 
 - add a generated `scripts/smoke_openserverless.sh` hook for common app shapes;
 - add app-level examples but avoid fake endpoint names;
-- expose a Trustable UI "Run backend smoke" later if enough patterns stabilize.
+- expose a Trustant UI "Run backend smoke" later if enough patterns stabilize.
 
 ## Enforced drift guard proposal from the latest app test
 
@@ -540,21 +540,21 @@ Recovery behavior:
 Follow-up observation: some app templates include `CLAUDE.md`. OpenCode can
 load `CLAUDE.md` as a Claude Code compatibility project rules file when no
 `AGENTS.md` takes precedence, and a prompt that asks for "all instructions" may
-also make it read that file directly. In Trustable templates this can skew the
+also make it read that file directly. In Trustant templates this can skew the
 assistant toward generic frontend-only guidance and away from the
 OpenServerless action contract.
 
 Mitigation added to this PR:
 
-- Trustable writes a managed app-local `AGENTS.md` on launch;
+- Trustant writes a managed app-local `AGENTS.md` on launch;
 - the managed block is first in the file and explicitly says that
   `CLAUDE.md`, `CONTEXT.md`, `.cursorrules`, `.cursor/rules/*`,
   `.github/copilot-instructions.md`, and generated `rules.md` files are
-  legacy/template notes, not mandatory Trustable instructions;
-- if an app already has `AGENTS.md`, Trustable replaces only the managed block
+  legacy/template notes, not mandatory Trustant instructions;
+- if an app already has `AGENTS.md`, Trustant replaces only the managed block
   and preserves app-local notes below it;
 - `.openserverless-contract.md` and `opencode.md` repeat the same precedence
-  rule so that direct reads of legacy files cannot override Trustable workflow.
+  rule so that direct reads of legacy files cannot override Trustant workflow.
 
 Initial harness added:
 
@@ -567,7 +567,7 @@ Initial harness added:
 
 The test is opt-in because it uses a live cluster, launches OpenCode/Vite, and
 may create/delete app users. It can run against an existing app with
-`TRUSTABLE_E2E_APP=<app>` or create a fresh app when `TRUSTABLE_E2E_REPO` is
+`TRUSTANT_E2E_APP=<app>` or create a fresh app when `TRUSTANT_E2E_REPO` is
 provided.
 
 The deleted app is not a fixture; fresh app mode creates a unique app name for
@@ -575,11 +575,11 @@ the run.
 
 Target scenario:
 
-1. create a fresh Trustable app with a unique name such as
+1. create a fresh Trustant app with a unique name such as
    `trudriftguard-<timestamp>`;
-2. launch it through the Trustable UI/API and wait for OpenCode plus
+2. launch it through the Trustant UI/API and wait for OpenCode plus
    `ops ide devel`;
-3. verify browser-visible `opencode.<domain>` is scoped through Trustable
+3. verify browser-visible `opencode.<domain>` is scoped through Trustant
    middleware and exposes only the active project;
 4. verify `/mcp` shows the expected connected servers, including
    `openserverless` and configured service MCPs;
@@ -599,18 +599,18 @@ Target scenario:
 
 Current automated coverage:
 
-- Trustable UI through `trustable.<domain>`;
+- Trustant UI through `trustant.<domain>`;
 - `/api/launch/<app>` result;
 - `opencode.<domain>/project` scoping;
 - session listing for canonical workbench path;
 - `opencode.<domain>/mcp` contains `openserverless`;
 - app-local `AGENTS.md` exists and explicitly demotes `CLAUDE.md` and other
-  legacy/template agent files from mandatory Trustable instructions;
+  legacy/template agent files from mandatory Trustant instructions;
 - app-local `opencode.json` instructions, permissions, and MCP;
 - `check_openserverless_actions.sh .` inside the pod;
 - pod-local `localhost:5173`;
 - browser-visible `vite.<domain>`.
-- optional OpenCode prompt execution via `TRUSTABLE_E2E_RUN_PROMPT=1`;
+- optional OpenCode prompt execution via `TRUSTANT_E2E_RUN_PROMPT=1`;
 - prompt-session polling with failures on pending questions, unexpected
   permissions, raw `ops action`, failed tools, and post-prompt checker errors.
 
@@ -633,23 +633,23 @@ Pass criteria:
 ## OpenCode ingress scoping follow-up
 
 The browser-visible `opencode.<domain>` host must not route directly to the
-OpenCode service port `4096`. It must route to the Trustable app port `8910`,
-where `middleware.go` can scope OpenCode requests to the current Trustable app
+OpenCode service port `4096`. It must route to the Trustant app port `8910`,
+where `middleware.go` can scope OpenCode requests to the current Trustant app
 before proxying to the pod-local OpenCode server.
 
 The authoritative deployment manifests for this are under
-`olaris-bestia/trustable`. The older `olaris-trustable` checkout is deprecated
+`olaris-bestia/trustant`. The older `olaris-trustant` checkout is deprecated
 and must not be used as the source of truth. In the current local test cluster,
-`olaris-bestia/trustable` already had `opencode-ing` on service port `8910`;
+`olaris-bestia/trustant` already had `opencode-ing` on service port `8910`;
 the live cluster object had drifted/stayed stale on `4096`, so it had to be
 patched or redeployed from the active `olaris-bestia` manifest.
 
 Failure mode observed with Playwright:
 
-- Trustable launched `trutestdb2`, but the OpenCode project API exposed older
-  projects such as `truk8s` because `opencode-ing` bypassed Trustable
+- Trustant launched `trutestdb2`, but the OpenCode project API exposed older
+  projects such as `truk8s` because `opencode-ing` bypassed Trustant
   middleware and pointed directly at service port `4096`.
-- When the browser path bypasses Trustable middleware, OpenCode can open another
+- When the browser path bypasses Trustant middleware, OpenCode can open another
   workbench as a plain folder, without that app's `ops ide login`, generated
   env, deploy, app-local `opencode.json`, and MCP context.
 - After patching `opencode-ing` to service port `8910`, Playwright saw
@@ -658,9 +658,9 @@ Failure mode observed with Playwright:
 
 Host classification for this case:
 
-- `localhost:4096`: pod-local OpenCode sidecar/API used by Trustable launch
+- `localhost:4096`: pod-local OpenCode sidecar/API used by Trustant launch
   bootstrap;
-- `opencode.<domain>`: browser-visible host that must enter Trustable
+- `opencode.<domain>`: browser-visible host that must enter Trustant
   middleware on port `8910`;
 - `localhost:5173`: pod-local app dev server started by `ops ide devel`;
 - `vite.<domain>`: browser-visible app host, used only after `ops ide deploy`
@@ -669,13 +669,13 @@ Host classification for this case:
 Session persistence follow-up from the same verification pass:
 
 - OpenCode stores sessions under the resolved worktree path, for example
-  `/home/trustable/workspace/workbench/<app>`, not necessarily the symlink path
-  `/home/trustable/workbench/<app>`.
-- Trustable launch and the OpenCode proxy must therefore use the canonical path
+  `/home/trustant/workspace/workbench/<app>`, not necessarily the symlink path
+  `/home/trustant/workbench/<app>`.
+- Trustant launch and the OpenCode proxy must therefore use the canonical path
   for `b64dir`, `encdir`, session lookup, and `directory` query rewriting.
 - The container startup must also symlink OpenCode's own persistent state
   (`~/.config/opencode`, `~/.cache/opencode`, `~/.local/share/opencode`) into
-  `$WORKSPACE_DIR/.trustable/opencode/` before Trustable/OpenCode starts;
+  `$WORKSPACE_DIR/.trustant/opencode/` before Trustant/OpenCode starts;
   otherwise pod/image rebuilds create a fresh OpenCode DB and the UI appears to
   lose previous sessions.
 
@@ -722,7 +722,7 @@ curl http://localhost:5173/api/my/v1/<read-action>
   additional generic `opencode-critical.md` until we see a separate need.
 - Decision: `.openserverless-contract.md` should live in the same generated app
   repo so OpenCode can discover, commit, and review the critical workflow with
-  the app code. The checker should be installed once by Trustable in the user
+  the app code. The checker should be installed once by Trustant in the user
   PATH and run against the current app path, avoiding duplicated checker copies
   across apps. It should not live only in an external skills repo.
 - Decision: keep the OpenCode version bump separate from the issue-98 guardrail
@@ -743,11 +743,11 @@ The Issue98 branch therefore adds deterministic OpenCode plugin enforcement:
 
 - `session.compacted` marks the session context dirty and blocks source,
   action, and deploy mutations;
-- `trustable_context_recover` reloads `AGENTS.md`, the short contract, the full
+- `trustant_context_recover` reloads `AGENTS.md`, the short contract, the full
   guide, sanitized OpenCode configuration, git status, and project layout;
 - reported bug language activates a diagnostic gate; the model must reproduce
-  the exact symptom and call `trustable_diagnostic_checkpoint` with evidence;
-- `trustable_completion_check` runs the OpenServerless and frontend checkers,
+  the exact symptom and call `trustant_diagnostic_checkpoint` with evidence;
+- `trustant_completion_check` runs the OpenServerless and frontend checkers,
   `git diff --check`, and the frontend build when present;
 - two equal completion failures open a circuit breaker and require fresh
   reproduction evidence;
@@ -791,7 +791,7 @@ content as real source, and LLM-driven compaction attempted another `write`
 while summary tools were disabled. The run ended after 9.6 minutes with only a
 partial frontend change and no useful final response.
 
-Trustable Code resolves this in core rather than adding another plugin gate:
+Trustant Code resolves this in core rather than adding another plugin gate:
 
 1. every user iteration fingerprints the active task and invalidates the old
    execution plan until an updated `todowrite` plan is persisted;
@@ -799,7 +799,7 @@ Trustable Code resolves this in core rather than adding another plugin gate:
    context on every provider turn;
 3. failed and interrupted mutation inputs are reduced to path plus an explicit
    `changed nothing` marker before historical replay;
-4. unsigned historical reasoning is removed from Trustable provider history;
+4. unsigned historical reasoning is removed from Trustant provider history;
 5. compaction creates a deterministic checkpoint from observed state and never
    invokes the model or tools;
 6. the UI reports real activity and elapsed time from session tool events.

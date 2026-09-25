@@ -1,10 +1,10 @@
 {
-  "name": "trustable-react-mcp",
+  "name": "trustant-react-mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "trustable-react-mcp": "./src/index.ts"
+    "trustant-react-mcp": "./src/index.ts"
   },
   "scripts": {
     "start": "tsx src/index.ts",

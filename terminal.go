@@ -540,7 +540,7 @@ func terminalEnvironment(workbenchPath string) []string {
 		authSessionKeyEnv:        true,
 		"GITHUB_TOKEN":           true,
 		"GH_TOKEN":               true,
-		"TRUSTABLE_GITHUB_TOKEN": true,
+		"TRUSTANT_GITHUB_TOKEN": true,
 	}
 	environment := make([]string, 0, len(os.Environ())+2)
 	for _, entry := range os.Environ() {

@@ -274,7 +274,7 @@ func importRefTarget(value string) (string, bool) {
 // rather than only the pending ones is deliberate — the popup shows the complete
 // picture, so the user can re-point a binding that is already resolved.
 func resolveImports(appName string) ([]ImportResolution, error) {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +389,7 @@ func pendingImports(appName string) ([]ImportResolution, error) {
 // partial apply would launch the app with some variables bound and others not,
 // which is the state this whole feature exists to prevent.
 func applyImportChoices(appName string, choices map[string]string, literals map[string]string) error {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return err
 	}
@@ -472,7 +472,7 @@ func handleImportsGet(w http.ResponseWriter, app string) {
 		return
 	}
 
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -544,7 +544,7 @@ func handleImportsSave(w http.ResponseWriter, r *http.Request, app string) {
 // overlapping — the disjunction is what makes each variable live in exactly one
 // of the two.
 func saveImportBindings(app string, bindings []EnvBinding) error {
-	cfg, err := loadTrustableConfig()
+	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return err
 	}

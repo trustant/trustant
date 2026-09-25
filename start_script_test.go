@@ -190,10 +190,10 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 	}
 
 	// The package installed is now openserverless, so every installed-check must
-	// name it; a leftover `dpkg -l trustable` would never match and would
+	// name it; a leftover `dpkg -l trustant` would never match and would
 	// re-run the ~3GB install on every invocation.
-	if strings.Contains(script, "dpkg -l trustable") {
-		t.Error("start.sh must check for the openserverless package, not trustable")
+	if strings.Contains(script, "dpkg -l trustant") {
+		t.Error("start.sh must check for the openserverless package, not trustant")
 	}
 
 	if !strings.Contains(script, "curl -fL --retry 3") {
@@ -206,10 +206,10 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 	// version.txt keeps its own, separate meaning (the app release identity
 	// shared with build.sh/hotfix.sh/run.sh) and must not be conflated with the
 	// package pin above.
-	if !strings.Contains(script, `TRUSTABLE_VERSION="$(head -n1 version.txt`) {
-		t.Error("start.sh must still derive TRUSTABLE_VERSION from version.txt")
+	if !strings.Contains(script, `TRUSTANT_VERSION="$(head -n1 version.txt`) {
+		t.Error("start.sh must still derive TRUSTANT_VERSION from version.txt")
 	}
-	if !strings.Contains(script, `TRUSTABLE_VERSION="${TRUSTABLE_VERSION#v}"`) {
+	if !strings.Contains(script, `TRUSTANT_VERSION="${TRUSTANT_VERSION#v}"`) {
 		t.Error("start.sh must strip the leading v from version.txt (v0.4.0 -> 0.4.0)")
 	}
 }

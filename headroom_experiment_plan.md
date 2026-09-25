@@ -1,7 +1,7 @@
 # Headroom experiment (closed)
 
 The Headroom experiment was closed on 2026-07-11 and the component was removed
-from the Trustable product, image, configuration UI, launch path, and E2E
+from the Trustant product, image, configuration UI, launch path, and E2E
 runner.
 
 ## Result
@@ -22,7 +22,7 @@ credential was available.
 
 ## Decision
 
-Headroom is not a supported or experimental Trustable component. OpenCode uses
+Headroom is not a supported or experimental Trustant component. OpenCode uses
 the configured provider directly. Issue 98 reliability continues through
 deterministic contracts, compaction recovery, completion gates, browser checks,
 and E2E coverage. The delegated-session accounting fix discovered during this

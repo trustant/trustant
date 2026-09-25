@@ -27,7 +27,7 @@ import (
 // --- pruneSharedPool ------------------------------------------------------
 
 func TestPruneSharedPoolRemovesBothPoolsForOneApp(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		PredefinedEnv: map[string]string{
 			"APPSUITE__DB": "postgres://appsuite",
 			"APPSUITE__S3": "s3://appsuite",
@@ -76,7 +76,7 @@ func TestPruneSharedPoolRemovesBothPoolsForOneApp(t *testing.T) {
 func TestPruneSharedPoolIsCaseInsensitiveOnTheAppName(t *testing.T) {
 	// The pool name is uppercased by sharedVarPrefix; the app is stored as the
 	// user typed it. Matching must fold case or nothing would ever be pruned.
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{"MyApp__DB": "v", "MYAPP__S3": "v"}}
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{"MyApp__DB": "v", "MYAPP__S3": "v"}}
 	if removed := pruneSharedPool(cfg, "myapp"); removed != 2 {
 		t.Fatalf("removed = %d, want 2 (%v)", removed, cfg.PredefinedEnv)
 	}
@@ -85,7 +85,7 @@ func TestPruneSharedPoolIsCaseInsensitiveOnTheAppName(t *testing.T) {
 func TestPruneSharedPoolDoesNotMatchAPrefixOfAnotherApp(t *testing.T) {
 	// splitSharedVarName splits on the FIRST separator, so the prefix here is
 	// BILLING. Deleting an app called `bill` must not take it with it.
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{
 		"BILLING__POSTGRESDB": "postgres://billing",
 		"BILL__POSTGRESDB":    "postgres://bill",
 	}}
@@ -99,7 +99,7 @@ func TestPruneSharedPoolDoesNotMatchAPrefixOfAnotherApp(t *testing.T) {
 }
 
 func TestPruneSharedPoolNilsAnEmptiedPool(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		PredefinedEnv:           map[string]string{"APPSUITE__DB": "v"},
 		PredefinedEnvProduction: map[string]map[string]string{"h": {"APPSUITE__DB": "v"}},
 	}
@@ -110,7 +110,7 @@ func TestPruneSharedPoolNilsAnEmptiedPool(t *testing.T) {
 }
 
 func TestPruneSharedPoolIsANoOpForAnAppThatSharedNothing(t *testing.T) {
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{"APPSUITE__DB": "v"}}
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{"APPSUITE__DB": "v"}}
 	if removed := pruneSharedPool(cfg, "somethingelse"); removed != 0 {
 		t.Fatalf("removed = %d, want 0", removed)
 	}
@@ -126,7 +126,7 @@ func TestPruneSharedPoolIsANoOpForAnAppThatSharedNothing(t *testing.T) {
 // --- removeSharedPoolVar --------------------------------------------------
 
 func TestRemoveSharedPoolVarSpansEveryPool(t *testing.T) {
-	cfg := &trustableConfig{
+	cfg := &trustantConfig{
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "v", "OTHER": "v"},
 		PredefinedEnvProduction: map[string]map[string]string{
 			"api.nuvolaris.io":   {"APPSUITE__DB": "v", "OTHER": "v"},
@@ -152,7 +152,7 @@ func TestRemoveSharedPoolVarSpansEveryPool(t *testing.T) {
 func TestRemoveSharedPoolVarRemovesAHandTypedName(t *testing.T) {
 	// The endpoint does not care who produced it; that distinction only governs
 	// whether the removal is durable.
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{"MY_API_KEY": "v"}}
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{"MY_API_KEY": "v"}}
 	if removed := removeSharedPoolVar(cfg, "MY_API_KEY"); removed != 1 {
 		t.Fatalf("removed = %d, want 1", removed)
 	}
@@ -162,7 +162,7 @@ func TestRemoveSharedPoolVarRemovesAHandTypedName(t *testing.T) {
 
 func TestDeletePredefinedEnvEndpoint(t *testing.T) {
 	isolateSharedWorkspace(t)
-	saveWorkspaceConfig(&trustableConfig{
+	saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {Password: "p"}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "secret", "MY_API_KEY": "v"},
 		PredefinedEnvProduction: map[string]map[string]string{
@@ -201,7 +201,7 @@ func TestDeletePredefinedEnvEndpoint(t *testing.T) {
 
 func TestDeletePredefinedEnvIsIdempotentAndNeedsAName(t *testing.T) {
 	isolateSharedWorkspace(t)
-	saveWorkspaceConfig(&trustableConfig{PredefinedEnv: map[string]string{"KEEP": "v"}})
+	saveWorkspaceConfig(&trustantConfig{PredefinedEnv: map[string]string{"KEEP": "v"}})
 
 	// Removing a name that is not there is success: a double-click is not an
 	// error.
@@ -229,7 +229,7 @@ func TestDeletePredefinedEnvIsIdempotentAndNeedsAName(t *testing.T) {
 // honouring an absent key there would let a stale tab drop a live export.
 func TestBulkSaveStillCarriesAppProducedEntries(t *testing.T) {
 	isolateSharedWorkspace(t)
-	saveWorkspaceConfig(&trustableConfig{
+	saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {Password: "p"}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "secret", "MY_API_KEY": "v"},
 	})
@@ -260,7 +260,7 @@ func TestDeleteRepoPrunesWhatTheAppShared(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(WorkspaceDir, "workspace", "appsuite"), 0755); err != nil {
 		t.Fatalf("mkdir bare repo: %s", err)
 	}
-	saveWorkspaceConfig(&trustableConfig{
+	saveWorkspaceConfig(&trustantConfig{
 		Apps: map[string]*AppConfig{
 			"appsuite": {Password: "p"},
 			"billing":  {Password: "p"},
@@ -314,7 +314,7 @@ func TestRecreatingADeletedAppDoesNotInheritItsSecrets(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(WorkspaceDir, "workspace", "appsuite"), 0755); err != nil {
 		t.Fatalf("mkdir bare repo: %s", err)
 	}
-	saveWorkspaceConfig(&trustableConfig{
+	saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {Password: "p"}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "the old app's database"},
 	})
@@ -344,7 +344,7 @@ func TestRecreatingADeletedAppDoesNotInheritItsSecrets(t *testing.T) {
 // back to a different producer; until the prune existed that branch could
 // never fire, because nothing ever left.
 func TestConsumerOfAPrunedProducerRePends(t *testing.T) {
-	cfg := &trustableConfig{PredefinedEnv: map[string]string{
+	cfg := &trustantConfig{PredefinedEnv: map[string]string{
 		"APPSUITE__DB": "postgres://appsuite",
 		"BILLING__DB":  "postgres://billing",
 	}}

@@ -77,10 +77,10 @@ This endpoint is a remote shell — the most sensitive surface in the app. It is
 protected by three independent gates:
 
 1. **Host routing** — `hostnameMiddleware` serves `/api/*` only on the
-   `trustable.<domain>` prefix, never on `vite.` or `opencode.`.
+   `trustant.<domain>` prefix, never on `vite.` or `opencode.`.
 2. **Session auth** — `/api/terminal/` is not in `publicAuthPath`, so
    `authManager.middleware` requires a valid signed session whenever
-   `TRUSTABLE_AUTH_MODE` is enabled.
+   `TRUSTANT_AUTH_MODE` is enabled.
 3. **Origin check** — a WebSocket upgrade is a `GET`, so it does not reach the
    CSRF branch of `effectfulAuthRequest`, and WebSockets are not subject to
    CORS. `terminalSameOrigin` re-checks `Origin` so a third-party page cannot
@@ -90,13 +90,13 @@ protected by three independent gates:
 
    There are three request shapes, and the check accepts the first two:
 
-   1. **Direct** — a browser on `trustable.<ip>.nip.io:8910` reaches the server
+   1. **Direct** — a browser on `trustant.<ip>.nip.io:8910` reaches the server
       with no proxy in between, so `Origin` and `Host` agree and are compared
       directly by `originSharesDomain`. That helper accepts the host itself and
       any label beneath it, then climbs **at most one label** and repeats, so a
-      request arriving on `trustable.<domain>` also accepts a sibling
+      request arriving on `trustant.<domain>` also accepts a sibling
       `vite.<domain>` or the bare `<domain>`. The climb is refused when the
-      remainder is not itself dotted, so `trustable.miniops.me` widens to
+      remainder is not itself dotted, so `trustant.miniops.me` widens to
       `miniops.me` but never to `.me`. Every suffix test requires a non-empty
       label before a literal leading dot, rejecting `miniops.me.evil.com`,
       `notminiops.me` and `.miniops.me`.
@@ -114,7 +114,7 @@ protected by three independent gates:
       `isRoutingLabelHost`, against the same routing labels
       `hostnameMiddleware` accepts (`routingLabels` in `middleware.go` — shared,
       so the router and this check cannot drift). A label still needs a real
-      dotted domain under it, which rejects a bare `trustable` or a
+      dotted domain under it, which rejects a bare `trustant` or a
       trailing-dot name.
 
       A request is known to be proxied by `r.Host` being under `miniops.me`.
@@ -145,7 +145,7 @@ protected by three independent gates:
    the label rule above is sufficient — and it was not taken because it needs a
    ConfigMap change deployed by `ensure_openserverless_proxy`. Note the header is
    client-settable, which is why the `r.Host` condition is load-bearing: a
-   request reaching `trustable-svc:8910` directly could otherwise forge it on a
+   request reaching `trustant-svc:8910` directly could otherwise forge it on a
    remote-shell endpoint.
 
    Independent of all this, a request with no `Origin` header at all is a
@@ -167,7 +167,7 @@ than a login, so in the deployed image it is empty while `/etc/passwd` records
 the real shell:
 
 ```
-$ kubectl exec -n openserverless trustable-0 -c trustable -- sh -c 'echo "SHELL=$SHELL"; getent passwd "$(id -u)"'
+$ kubectl exec -n openserverless trustant-0 -c trustant -- sh -c 'echo "SHELL=$SHELL"; getent passwd "$(id -u)"'
 SHELL=
 root:x:0:0:root:/root:/bin/bash
 ```
@@ -208,7 +208,7 @@ PATH handling and tends to surprise. Recorded here so the choice is deliberate
 rather than accidental.
 
 The shell is user-visible, so the environment is scrubbed before it is handed
-over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTABLE_AUTH_*` secrets, and
+over: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, the `TRUSTANT_AUTH_*` secrets, and
 GitHub tokens are removed. `TERM=xterm-256color` and `PWD` are set.
 
 ## Working directory, and the image's `.bashrc`
@@ -264,7 +264,7 @@ Wired in the same inline script as the rest of the page.
   row on top, then a horizontal divider and the terminal pane **below**. Opening
   the terminal shrinks the iframe row rather than replacing either frame.
 - The pane is resizable with the same drag behaviour as the vertical `#divider`.
-  Its height persists in `localStorage` under `trustable.terminal.height`.
+  Its height persists in `localStorage` under `trustant.terminal.height`.
   **Visibility is not persisted** — closing the pane terminates the shell.
 - xterm.js runs in a `<div>`, not an iframe. The existing frames are iframes
   only because they host other origins; a terminal needs no document boundary.
@@ -320,16 +320,16 @@ so `build.sh` can keep cross-compiling `linux/amd64` and `linux/arm64` with
 
 - invalid name → 400; missing workbench → 404
 - rejects a cross-origin upgrade → 403
-- covers both deployment shapes: direct access on `trustable.<ip>.nip.io:8910`
+- covers both deployment shapes: direct access on `trustant.<ip>.nip.io:8910`
   where `Origin` and `Host` agree, and the proxied case where `Host` was
   rewritten to `<label>.miniops.me` while `Origin` kept the hostname the user
   typed (the reported bug)
 - accepts sibling labels and the bare domain under the host the request
   arrived on (`vite.<domain>`, `<domain>`)
-- proxied: accepts `trustable.`/`vite.`/`opencode.` over any domain, rejects an
+- proxied: accepts `trustant.`/`vite.`/`opencode.` over any domain, rejects an
   unroutable label (`evil.<ip>.nip.io`), a bare label and a trailing-dot name
 - the proxied relaxation does not leak into the direct case: on an `nip.io`
-  Host, `trustable.evil.com` and `trustable.miniops.me` are both rejected
+  Host, `trustant.evil.com` and `trustant.miniops.me` are both rejected
 - rejects the suffix-match traps `miniops.me.evil.com`, `notminiops.me` and
   `.miniops.me`, an unrelated `<ip>.nip.io`, and `evil.me` — proving the climb
   strips at most one label and never widens to a TLD

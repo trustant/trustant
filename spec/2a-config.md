@@ -13,7 +13,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 
 ```json
 {
-    "provider": "ollama" | "trustable" | "private",
+    "provider": "ollama" | "trustant" | "private",
     "base_url": "<provider base URL>",
     "api_key": "<provider API key>",
     "models": {
@@ -49,10 +49,10 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
 }
 ```
 
-- `provider` — `ollama`, `trustable`, or `private`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) — there is no separate `publishing` flag, and `api_key` has no bearing on publishing.
+- `provider` — `ollama`, `trustant`, or `private`. Set on first run by the provider-choice screen on the splash page. Workspace-only field (not in base config). Whether the user can publish is determined at request time by the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) — there is no separate `publishing` flag, and `api_key` has no bearing on publishing.
 - `base_url` and `api_key` — top-level provider credentials. Set when a provider is chosen:
   - **Ollama** — `api_key = "dummy"`. `base_url` depends on the Ollama mode picked on the splash sub-modal (see "Ollama mode selection"). For **internal** Ollama it is fixed to `http://localhost:11434/v1`; for **own host** the user enters host and port and `base_url` becomes `http://<host>:<port>/v1`. Scheme is always `http://` and path is always `/v1` — no HTTPS, no auth, no other paths.
-  - **Trustable** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
+  - **Trustant** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
   - **Private AI** — both are supplied by the user in the Private AI dialog on the splash (see [1-index.md](1-index.md)). `base_url` is any OpenAI-compatible endpoint matching `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve. `api_key` is optional and is persisted as `"dummy"` when left empty, because Pi requires a non-empty value to consider the provider configured (see [pi.md](pi.md)).
   There is **no** global `env` section in `trustant.json`, and no global block is ever merged into an application. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`. The separate `predefined_env` map is **not** an exception: it is a palette of values the user is *offered*, never applied — see "Predefined environment variables" below.
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
@@ -82,7 +82,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   from `trustant.json`: Configure stores it as a mode-`0600` workspace secret
   under `<WorkspaceDir>/.trustant/secrets/` and the API exposes only
   `notebook.has_token`.
-- `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustable Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustableConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
+- `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustant Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustantConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
 - `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
 
 The base config has no `apps` or `provider` section. Those live only in the workspace config.
@@ -98,7 +98,7 @@ The trustable-app fetches the per-provider model catalog via `GET /api/status`, 
 
 ```json
 {
-    "trustable": { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } },
+    "trustant": { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } },
     "ollama":    { "modelsVersion": <int>, "default": "<id>", "small": "<id>", "models": { ... } }
 }
 ```
@@ -137,16 +137,16 @@ mark a model as selectable.
 `reasoning: true` enables Pi's standard effort levels through `high`.
 Extended `xhigh` is available only when the model explicitly publishes a
 non-null `thinkingLevelMap.xhigh`; a missing or null entry must never be
-presented as Extra high. Trustable Cloud is the managed compatibility
+presented as Extra high. Trustant Cloud is the managed compatibility
 exception: its OpenAI-compatible proxy supports the standard `high`
 reasoning-effort contract for coding models, so the Pi writer treats a missing
-`reasoning` value as `true` for provider `trustable`. Ollama and
+`reasoning` value as `true` for provider `trustant`. Ollama and
 user-provided endpoints (including Private AI) remain capability-driven and are not assumed to support
-reasoning. An explicit `reasoning: false` always wins, including for Trustable
+reasoning. An explicit `reasoning: false` always wins, including for Trustant
 Cloud.
 
 When a provider does not return policy metadata (for example Private AI or
-own-host Ollama discovery), Trustable applies a conservative local policy:
+own-host Ollama discovery), Trustant applies a conservative local policy:
 embedding/rerank/vector models, obvious tiny/small non-agent models, vision,
 audio, TTS/Whisper-style models, and models below roughly 20B parameters are
 hidden from the Pi dropdown. They may still appear in the provider model
@@ -156,7 +156,7 @@ There is no longer a top-level `version` field driving reselect — the previous
 
 ### Version tracking (per provider)
 
-The workspace `trustant.json` carries a `model_versions` map: `{ "ollama"?: int, "trustable"?: int }`. Each entry caches the `modelsVersion` that was current when the user last saved (or first seeded) that provider's models.
+The workspace `trustant.json` carries a `model_versions` map: `{ "ollama"?: int, "trustant"?: int }`. Each entry caches the `modelsVersion` that was current when the user last saved (or first seeded) that provider's models.
 
 On every page load that depends on a chosen provider (splash, applist), the frontend fetches `/api/status` and compares `status[provider].modelsVersion` against `config.model_versions[provider]`:
 
@@ -174,7 +174,7 @@ differs from `status[provider].default` must not trigger a redirect.
 
 When `provider == "ollama"` **and** `base_url` resolves to a non-localhost host (see "Detecting own-host Ollama" below), the reselect redirect is suppressed. Own-host Ollama gets its models by calling `POST /api/discover-models` against the user's machine; the proxy catalog never appears in their UI, so catalog drift cannot invalidate their choices. `model_versions.ollama` is still recorded but never used to trigger a reselect for this mode.
 
-Internal Ollama (localhost `base_url`) and Trustable are catalog-backed and **do** trigger the redirect when `modelsVersion` bumps. This is a deliberate change from the previous "all-Ollama is exempt" rule.
+Internal Ollama (localhost `base_url`) and Trustant are catalog-backed and **do** trigger the redirect when `modelsVersion` bumps. This is a deliberate change from the previous "all-Ollama is exempt" rule.
 
 The `Refresh` button in the configure UI is also hidden whenever the active config is own-host Ollama (it re-fetches the catalog and would otherwise overwrite the user's discovered model list).
 
@@ -189,7 +189,7 @@ This single rule is reused by:
 
 - the modelsVersion reselect-suppression check above,
 - Step 2 of `GET /api/configure` (skip model-pull on non-localhost),
-- `POST /api/discover-models`, which explicitly rejects `localhost` / `127.0.0.1` for Ollama mode (Trustable runs inside a VM and a loopback there is not the user's loopback).
+- `POST /api/discover-models`, which explicitly rejects `localhost` / `127.0.0.1` for Ollama mode (Trustant runs inside a VM and a loopback there is not the user's loopback).
 
 ### Per-provider seeding
 
@@ -203,10 +203,10 @@ When the user picks a provider on the choice screen (or when the configure UI's 
 Switching provider replaces the model list **and** the Pi default from the
 catalog.
 
-Trustable Cloud and internal Ollama are catalog-backed. Their status section
+Trustant Cloud and internal Ollama are catalog-backed. Their status section
 must contain at least one model, a non-empty default, and that default must
 exist in the model map before the provider choice can be persisted. The backend
-also rejects an empty Trustable Cloud catalog, so a stale frontend or partial
+also rejects an empty Trustant Cloud catalog, so a stale frontend or partial
 status response cannot save a configuration that fails later in
 `/api/testmodel`.
 
@@ -223,7 +223,7 @@ internal Ollama server: `base_url = "http://localhost:11434/v1"`, `models` and
 /api/configure` proceeds to check connectivity and pull each model. There is no
 mode sub-modal.
 
-Pointing Trustable at a user-supplied Ollama host is superseded by the **Private
+Pointing Trustant at a user-supplied Ollama host is superseded by the **Private
 AI** card, which accepts any OpenAI-compatible endpoint (Ollama's `/v1` included)
 and discovers its models the same way. The splash therefore never persists a new
 own-host Ollama configuration.
@@ -282,7 +282,7 @@ Request body (JSON):
 { "base_url": "http://<host>:<port>/v1", "api_key": "..." }
 ```
 
-- `base_url` — required. Must be a parseable URL. When the in-progress config indicates Ollama mode (`provider == "ollama"` on the saved config), the host must NOT be `127.0.0.1` / `localhost` — rejected with HTTP 400 because Trustable runs inside a VM and a loopback there is not the user's loopback. For non-Ollama providers any host is accepted.
+- `base_url` — required. Must be a parseable URL. When the in-progress config indicates Ollama mode (`provider == "ollama"` on the saved config), the host must NOT be `127.0.0.1` / `localhost` — rejected with HTTP 400 because Trustant runs inside a VM and a loopback there is not the user's loopback. For non-Ollama providers any host is accepted.
 - `api_key` — optional. If non-empty and not the literal string `"dummy"`, the backend sends `Authorization: Bearer <api_key>` on the upstream request. Otherwise no auth header is sent (matches the current Ollama-on-LAN behavior).
 
 Backend behavior:
@@ -302,7 +302,7 @@ This endpoint replaces the previous `GET /api/ollama-tags?host=&port=` (which wa
 - `loadBaseConfig()` — reads app-root `trustant.json`
 - `loadWorkspaceConfig()` — reads `<WorkspaceDir>/trustant.json` (returns empty if missing)
 - `mergeConfigs(base, override)` — merges workspace overrides onto base
-- `loadTrustableConfig()` — returns the merged result (base + workspace)
+- `loadTrustantConfig()` — returns the merged result (base + workspace)
 - `saveWorkspaceConfig(cfg)` — writes only the workspace file
 
 ## Per-app .env generation
@@ -321,11 +321,11 @@ lost: launch regenerates `.env`, `.env.production`, and `.env.dist` immediately
 after cloning workspace → workbench. Saving config for a not-yet-launched app
 must therefore succeed silently, not log a write failure.
 
-The Trustable configuration UI and these server-side generators are the only
+The Trustant configuration UI and these server-side generators are the only
 owners of application env files. Coding agents and MCP servers must treat
 `.env` and `.env.production` as immutable: they may not read, create, edit,
 import, synchronize, or regenerate them. A missing application value is
-reported to the user, who may add it through the Trustable app config UI.
+reported to the user, who may add it through the Trustant app config UI.
 
 New variables must not be added to generated app `.env` / `.env.production`,
 the per-app config `development` / `production` maps, or env-generation code
@@ -337,17 +337,17 @@ The function `generateAppEnvFiles(appName)` builds the workbench `.env` from:
 1. Fixed vars: `OPS_USER=<appName>`, `OPS_PASSWORD=<from apps.password>`,
 
 2. The OPS_APIHOST is set in this order
-- by env variables OPS_APIHOST/APIHOST/TRUSTABLE_DEFAULT_APIHOST/OPERATOR_CONFIG_APIHOST
-- on Mac by the content of file ~/Library/Application Support/Trustable/apihost if the file is present
-- on Windows by the content of %APPDATA%/Trustable/apihost  if it is present
-- on Linux by the content of ${XDG_CONFIG_HOME:-$HOME/.config}/trustable/apihost if it is present.
-  There is no Trustable macOS app on Linux, so this is where the native path of
+- by env variables OPS_APIHOST/APIHOST/TRUSTANT_DEFAULT_APIHOST/OPERATOR_CONFIG_APIHOST
+- on Mac by the content of file ~/Library/Application Support/Trustant/apihost if the file is present
+- on Windows by the content of %APPDATA%/Trustant/apihost  if it is present
+- on Linux by the content of ${XDG_CONFIG_HOME:-$HOME/.config}/trustant/apihost if it is present.
+  There is no Trustant macOS app on Linux, so this is where the native path of
   `start.sh` writes it (see [start.md](start.md)); this case must not be left
   unresolved, or the value written there is silently ignored in favour of the
   default below.
 - defaults to http://miniops.me
 
-`OPS_APIHOST` configures Trustable and `ops ide` orchestration. It is not an
+`OPS_APIHOST` configures Trustant and `ops ide` orchestration. It is not an
 application secret and must never be propagated into an action wrapper as
 `#--param OPS_APIHOST "$OPS_APIHOST"` or exposed as `ctx.OPS_APIHOST`.
 Browser application code uses relative `/api/my/...` URLs, while action modules
@@ -357,7 +357,7 @@ use generated service bindings directly.
 
 4. Service runtime bindings from official OpenServerless config are not written
    to `.env`. When `~/.ops/config.json` exposes an official MongoDB capability,
-   Trustable may pass the resolved URI as `MONGODB_URI` only in the process
+   Trustant may pass the resolved URI as `MONGODB_URI` only in the process
    environment of TruACP/Pi, `ops ide deploy`, and `ops ide devel`, so
    `action_add_mongodb` can bind it without exposing the credential in the
    editable app configuration. A casual per-app/workbench `MONGODB_URI` must not
@@ -793,8 +793,8 @@ This endpoint streams progress to the client. It assumes a provider has already 
 The behaviour depends on the merged config's `provider`:
 
 - **`provider == "ollama"`** — run Step 1 and Step 2 below.
-- **`provider == "trustable"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustable Cloud)` so the UI shows progress, then write global Pi configuration when `pi.default` is present.
-- **`provider == "private"`** — same as Trustable: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Private AI)`, then write global Pi configuration when `pi.default` is present. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop.
+- **`provider == "trustant"`** — skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Trustant Cloud)` so the UI shows progress, then write global Pi configuration when `pi.default` is present.
+- **`provider == "private"`** — same as Trustant: skip Step 1 and Step 2 entirely. Stream a single line `OK: Skipping Ollama setup (Private AI)`, then write global Pi configuration when `pi.default` is present. A user-supplied OpenAI-compatible endpoint must not go through the Ollama connectivity check and model-pull loop.
 
 In both cases the frontend separately calls `GET /api/testmodel` after the configure stream ends to run the say-OK connection test.
 
@@ -833,13 +833,13 @@ streamed provider-setup endpoint and `POST /api/configuration` write only after
 - `${PI_CODING_AGENT_DIR:-~/.pi/agent}/settings.json`;
 - `${PI_CODING_AGENT_DIR:-~/.pi/agent}/auth.json`.
 
-The writer merges only Trustable-owned keys, preserves unrelated Pi providers
+The writer merges only Trustant-owned keys, preserves unrelated Pi providers
 and settings, and uses the file modes and credential boundary defined in
-[pi.md](pi.md). It writes the selected endpoint under `trustable` for the
-Trustable status catalog, `ollama` for embedded/status-backed Ollama, or `local`
+[pi.md](pi.md). It writes the selected endpoint under `trustant` for the
+Trustant status catalog, `ollama` for embedded/status-backed Ollama, or `local`
 for user-provided endpoints including Private AI, then limits runtime selection to that
 single active prefix. Generated model entries preserve `reasoning` and a
-sanitized Pi `thinkingLevelMap`. A Trustable Cloud coding model with no
+sanitized Pi `thinkingLevelMap`. A Trustant Cloud coding model with no
 capability metadata receives the managed `reasoning: true` baseline, which
 allows `high` but does not opt it into `xhigh`. `auth.json` is the only file
 containing the real provider credential.
@@ -879,8 +879,8 @@ The unified save endpoint used by `configure.html` and by the splash provider-ch
    Omitting it preserves the current token; `notebook.clear_token=true`
    explicitly removes it. Repository/ref are validated and normalized before
    persistence.
-2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (say-OK prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustable pod this resolves to the pod-local `ollama serve` process. An Ollama authentication failure is preserved as `testmodel.auth_required` in the save response and as `AUTH_REQUIRED:` in the streamed Configure gate. The browser opens the managed Ollama Cloud sign-in modal and reruns the complete gate after Retry, ensuring the Pi global configuration is written only after the model succeeds.
-3. **Write global Pi configuration** — only when testmodel succeeds, merge the Trustable provider into `models.json`, `settings.json`, and `auth.json`. On test failure the previously working files remain unchanged.
+2. **Run testmodel** — invoke the same logic as `GET /api/testmodel` (say-OK prompt against `pi.default` using the resolved provider URL and `api_key` of the just-saved merged config). For internal Ollama, `base_url` remains `http://localhost:11434/v1` on disk and server-side requests use `OLLAMA_ENDPOINT`; in the Trustant pod this resolves to the pod-local `ollama serve` process. An Ollama authentication failure is preserved as `testmodel.auth_required` in the save response and as `AUTH_REQUIRED:` in the streamed Configure gate. The browser opens the managed Ollama Cloud sign-in modal and reruns the complete gate after Retry, ensuring the Pi global configuration is written only after the model succeeds.
+3. **Write global Pi configuration** — only when testmodel succeeds, merge the Trustant provider into `models.json`, `settings.json`, and `auth.json`. On test failure the previously working files remain unchanged.
 
 This endpoint does not write any per-app agent configuration. App launch does
 not repeat the global write.
@@ -923,8 +923,8 @@ instead of showing a generic failure.
 
 For internal
 Ollama, the resolved URL is derived from `OLLAMA_ENDPOINT` rather than the
-persisted localhost `base_url`; in the Trustable pod that endpoint is the
-pod-local `ollama serve` process. For own-host Ollama, Trustable, and Private AI it
+persisted localhost `base_url`; in the Trustant pod that endpoint is the
+pod-local `ollama serve` process. For own-host Ollama, Trustant, and Private AI it
 is the configured provider URL. There is no separate `testmodel` field.
 
 # Per-app configuration: GET /api/appconfig/<name>
@@ -953,10 +953,10 @@ To switch providers from this screen, the user clicks the **Change Provider** bu
 
 ## Layout
 
-The page header shows a "Current provider: <Ollama|Trustable>" line and a **Change Provider** button (navigates to `index.html?choose=1`).
+The page header shows a "Current provider: <Ollama|Trustant>" line and a **Change Provider** button (navigates to `index.html?choose=1`).
 
-The page uses the shared Nuvolaris-style Trustable visual system defined in
-[1-applist.md](1-applist.md) under "Shared Trustable visual system" and linked
+The page uses the shared Nuvolaris-style Trustant visual system defined in
+[1-applist.md](1-applist.md) under "Shared Trustant visual system" and linked
 from `web/trustant-ui.css`. Keep the configuration UI compact and operational:
 neutral panels, thin table rules, Work Sans typography, restrained buttons, 4px
 radii, and no marketing hero. Restyling must preserve all existing field ids,
@@ -966,12 +966,12 @@ behavior, and redirects.
 
 Sections (rendered top to bottom in this order):
 
-- **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustable"`.
+- **Ollama Host** *(only when `provider == "ollama"`; this is the first section on the page)* — lets the user change the hostname and port of the Ollama server. The row renders as a single line: the literal text `http://`, then a text `<input>` for **hostname** (placeholder `hostname`), then the literal `:`, then a text `<input>` for **port** (placeholder `port`), then the literal `/v1`, then a **Test** button. On save, recombine into `http://<host>:<port>/v1` and write it to `base_url`. Only host and port are editable — scheme is always `http://` and path is always `/v1`. This section is hidden when `provider == "trustant"`.
     - In **internal** mode (or when `base_url` parses as `http://(localhost|127.0.0.1|ollama):...`) the inputs are pre-filled from the existing `base_url`. The Test button is still available for re-validation but is not required.
     - In **own host** mode (URL `?ollama=own`, or when `base_url` is empty / non-localhost) the hostname input starts empty (port defaults to `11434`), three bullets are shown below the row ("Provide the IP of your local machine or intranet server (NOT 127.0.0.1)", "Enable network access on that machine", "It must be accessible via HTTP without authentication"), and the user must click **Test** before saving. **Test** calls `POST /api/discover-models` with `base_url = "http://<host>:<port>/v1"` and `api_key = "dummy"`; on success it replaces `config.models` with the discovered list (each model getting the default limits `maxToken=128000`, `maxOutput=32768`) and resets `config.pi.default` so the user chooses the Pi model.
-- **`<Provider> Models`** — a table of the currently selected provider's models with editable **Context Size** and **Max Output** columns and a **For coding** column that shows whether each model can be selected for coding agent work. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustable Models"` when `provider == "trustable"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
+- **`<Provider> Models`** — a table of the currently selected provider's models with editable **Context Size** and **Max Output** columns and a **For coding** column that shows whether each model can be selected for coding agent work. The heading text is `"Ollama Models"` when `provider == "ollama"` and `"Trustant Models"` when `provider == "trustant"`. Rows are read from the workspace `models` map (which was last seeded from `/api/status` per "Per-provider seeding" above). Switching provider via **Change Provider** reseeds this section from `/api/status`.
   - **Ollama** — editable. The user can add or remove rows; adds/removes only edit the workspace `models` map (they do not change the catalog). The header shows an **Add Model** button and each row has a **Remove** button.
-  - **Trustable** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map and `pi.default` from `status.trustable`. The dropdown repopulates from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
+  - **Trustant** — read-only. The model list is authoritative from `/api/status` and the user cannot add or remove rows. The **Add Model** button and per-row **Remove** buttons are hidden. Instead, the header shows a **Refresh** button that re-fetches `/api/status` and rewrites the workspace `models` map and `pi.default` from `status.trustant`. The dropdown repopulates from the new list. The button is also hidden whenever the active config is own-host Ollama (see §"Exception — own-host Ollama" in "Model catalog").
 - **Pi Model** — one `<select>` labelled "Default Model", populated from the
   keys of the active provider's `models` map. The selected value is written to
   `pi.default`; there is no small/secondary model.
@@ -1005,7 +1005,7 @@ its immediate catalog-reselect redirect. This guarantees that a successful
 configuration can exit the configure screen even if a status response changes
 concurrently; normal `modelsVersion` checks resume on the next app-list load.
 
-The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, `apps`, and `predefined_env` fields when saving — this POST is a full-document write, so a field left out is erased. (The `register_url` field is exposed read-only by `loadTrustableConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
+The `buildConfig()` function preserves `provider`, `base_url`, `api_key`, `apps`, and `predefined_env` fields when saving — this POST is a full-document write, so a field left out is erased. (The `register_url` field is exposed read-only by `loadTrustantConfig` from the `AIP_REGISTER_URL` env var and must not be sent back on save.)
 
 The Configure page also owns a **Shared Variables** card (`id="sharedVariables"`,
 linked from the app list header), sitting between Template Repository and Git
@@ -1039,7 +1039,7 @@ On any error: replace the strip with a red error box containing the error text a
 
 Shows a table with columns: VARIABLE, Development, Production, Actions.
 
-The app config editor uses the same shared Trustable visual system from
+The app config editor uses the same shared Trustant visual system from
 `web/trustant-ui.css`. Treat it as a dense data-entry page: compact table rows,
 aligned inputs, restrained import / commit actions, and no decorative hero
 content. Preserve all environment import, edit, save, unsaved-warning, and close

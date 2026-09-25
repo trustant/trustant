@@ -1,13 +1,13 @@
 # OpenServerless action contract
 
-This file is the short recovery contract for Trustable app work. Read it before
+This file is the short recovery contract for Trustant app work. Read it before
 touching actions, databases, setup, seed data, deploys, or service state.
 
 If `check_openserverless_actions.sh .` reports drift, re-read this file before
 editing again.
 
-Trustable also generates `AGENTS.md` as the app-local mandatory agent
-entrypoint. Treat the Trustable-managed block in `AGENTS.md`, this file, and
+Trustant also generates `AGENTS.md` as the app-local mandatory agent
+entrypoint. Treat the Trustant-managed block in `AGENTS.md`, this file, and
 `.mcp.json` as authoritative. There is no project-local `opencode.md`;
 `CLAUDE.md` is a symlink to `AGENTS.md` and `.claude` a symlink to `.agents`,
 so every agent shares one configuration. Ignore `CONTEXT.md`, `.cursorrules`,
@@ -26,22 +26,22 @@ discovery because a server is lazy.
 
 ## Environment
 
-- You are inside a generated Trustable app workbench, normally
-  `/home/trustable/workbench/<app>`.
+- You are inside a generated Trustant app workbench, normally
+  `/home/trustant/workbench/<app>`.
 - The durable source is the app git repo; fixes must be made in repo files, not
   only in the runtime.
 - Pi has the shell. Run bounded checks yourself instead of asking the user
   to run pod-local commands.
 - After compaction, re-read the exact active request, this contract,
   `AGENTS.md`, git status, and the relevant project files before resuming.
-  Pi has no Trustable session-enforcement plugin or recovery tool.
+  Pi has no Trustant session-enforcement plugin or recovery tool.
 - For a reported bug, reproduce the exact symptom before modifying source,
   using bounded HTTP, log, or deterministic tests for evidence. If a check
   fails repeatedly, stop repeating it and revise the diagnosis.
 - After source changes, run the relevant action and frontend checker commands,
   `git diff --check`, and the frontend typecheck/build when present. Verify
   user-visible frontend changes through the exact changed route. Pi has no
-  `trustable_completion_check` tool.
+  `trustant_completion_check` tool.
 - `ops ide devel` exposes the app in this pod at `http://localhost:5173`.
 - It is also the sole owner of live action packaging and deployment. Never run
   `ops ide deploy` or start another `ops ide devel` instance. Do not kill or
@@ -50,7 +50,7 @@ discovery because a server is lazy.
 - Browser/ingress hosts such as `vite.<domain>` are external checks. Use them
   only after the managed watcher has deployed the current sources and only
   when external routing matters.
-- `OPS_APIHOST` is the configured OpenServerless API host used by Trustable and
+- `OPS_APIHOST` is the configured OpenServerless API host used by Trustant and
   `ops ide` for login, deploy, and development proxy orchestration. It is not
   an application secret or action runtime parameter. Never bind it into an
   action, expose it as `ctx.OPS_APIHOST`, read it from an action module, or
@@ -107,7 +107,7 @@ Invalid examples:
 
 - Application `.env` and `.env.production` are immutable agent boundaries.
   Never read, create, edit, import, synchronize, or regenerate them. Only the
-  user may change application environment values through the Trustable
+  user may change application environment values through the Trustant
   configuration interface. Report a missing variable without creating it.
 - Application authentication uses Redis-backed opaque sessions, not JWT or an
   application signing secret. Create every login, registration, `me`/session,
@@ -122,7 +122,7 @@ Invalid examples:
   stores only the opaque token; the backend derives identity from the Redis
   record and never trusts a browser-supplied user id.
 - `OPS_USER`, `OPS_PASSWORD`, `OPS_APIHOST`, `OPS_REPO`, and `OPS_SKILLS` are
-  Trustable-managed runtime variables, not application secrets. Secret tools
+  Trustant-managed runtime variables, not application secrets. Secret tools
   must reject them and must not add them to generated action wrappers.
 - Add PostgreSQL wiring with the OpenServerless action tool.
 - Use `conn = ctx.POSTGRESQL` in editable action modules.
@@ -205,13 +205,13 @@ Invalid examples:
 ## Deploy And Verification
 
 - After one or more successful `action_new` creations, finish the coherent
-  action/wiring/source batch and call `trustable_runtime_redeploy` exactly
-  once. It invokes the same safe Trustable host workflow as the UI Redeploy
+  action/wiring/source batch and call `trustant_runtime_redeploy` exactly
+  once. It invokes the same safe Trustant host workflow as the UI Redeploy
   action: stop the watcher, run the full deploy, restart the watcher, and wait
   for readiness. A compatible idempotent `action_new` no-op does not require
   it. Do not run a concurrent `ops ide deploy`.
 - After the required redeploy succeeds, read the canonical watcher state with
-  `trustable_runtime_status`. Watcher status, checker, HTTP, and browser
+  `trustant_runtime_status`. Watcher status, checker, HTTP, and browser
   verification are blocked while redeploy remains required.
 - Run `timeout 60 check_openserverless_actions.sh .` once after that evidence
   and before setup, runtime verification, or completion. In managed live mode,
@@ -223,7 +223,7 @@ Invalid examples:
 - Never create or update action ZIP files manually. The managed watcher owns
   the sibling `packages/<package>/<action>.zip` artifacts.
 - Never inspect, list, search, stat, or poll those sibling ZIPs. If
-  `trustable_runtime_status` reports an error or no progress, use that exact
+  `trustant_runtime_status` reports an error or no progress, use that exact
   evidence to repair the source/tool sequence or report a managed failure. Do
   not repeat the checker without a relevant mutation or watcher change, run a
   manual deploy, increase the timeout, or repair a ZIP.
