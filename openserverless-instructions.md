@@ -213,8 +213,9 @@ Use this execution loop for backend work:
 5. Edit only the generated editable module, not `__main__.py`. If the module
    exists without a wrapper, stop and repair/create the action through the MCP
    action tool before continuing.
-6. Add Python libraries with `action-requirements` — never with a virtualenv or
-   a `requirements.txt`.
+6. Use only the Python libraries the action runtime ships (see Dependencies);
+   check one with `action-requirements` when unsure. Implement anything else in
+   code — never with a virtualenv or a `requirements.txt`.
 7. Wait for the managed `ops ide devel` watcher after each coherent action
    change batch, then run the checker. If setup actions changed, run
    `timeout 120 ops ide setup` only after the checker passes. Inspect failures,
@@ -245,7 +246,8 @@ depending on the client. Use the matching exposed tool:
   check/no-op; continue without retrying it.
 - `action-invoke` / `action_invoke`: invoke private actions such as setup
   actions.
-- `action-requirements` / `action_requirements`: add Python libraries.
+- `action-requirements` / `action_requirements`: check that a Python library
+  is shipped by the action runtime; it refuses anything else.
 - `action-add-secret` / `action_add_secret`: add an environment secret.
 - `action-add-s3` / `action_add_s3`: add S3 service wiring.
 - `action-add-postgresql` / `action_add_postgresql`: add PostgreSQL service
@@ -818,15 +820,24 @@ Examples of idempotent setup:
 ## Dependencies
 
 - Add frontend dependencies to `package.json`, then run `npm install`.
-- Add Python dependencies only with `action-requirements`.
+- Python actions may import only the standard library and the libraries the
+  OpenServerless Python 3.12 runtime already ships
+  ([requirements.txt](https://raw.githubusercontent.com/trustable-ai/openserverless-runtimes/refs/heads/0.9.0/runtime/python/v3.12/requirements.txt)):
+  `bcrypt`, `beautifulsoup4` (`bs4`), `boto3`, `feedparser`, `httplib2`,
+  `joblib`, `kafka-python`, `langchain`, `langdetect`, `minio`, `nltk`,
+  `ollama`, `openai`, `pg8000`, `plotly`, `psycopg`, `pymilvus`, `pymongo`,
+  `python-dateutil`, `pyyaml` (`yaml`), `redis`, `requests`, and their
+  dependencies (e.g. `numpy`, `pandas`, `pydantic`, `httpx`, `python-dotenv`,
+  `pycryptodome`). `action-requirements` tells you whether a library is
+  available.
+- Anything not shipped (e.g. `jwt`, `Pillow`, `scikit-learn`) must be
+  implemented in code with the standard library and the shipped libraries.
+  Never add a new requirement.
 - Never create a virtualenv (`python -m venv`, `virtualenv`, `uv venv`, or any
   `.venv`/`venv` directory) and never create or edit a `requirements.txt`.
   Actions are built and deployed server-side, so a local virtualenv is never
   used at runtime — it only leaves artifacts that Clean has to remove.
-  `action-requirements` is the only supported path.
-- Before importing a non-stdlib Python package such as `bcrypt`, `jwt`,
-  `requests`, or a database driver, add it with `action-requirements` and
-  redeploy the action.
+  Trustant blocks these attempts.
 - If action logs show `ModuleNotFoundError`, fix the dependency or import before
   doing any other validation. Do not mark the feature complete.
 - Add PostgreSQL, Redis, S3, Milvus, MongoDB, and secrets with the corresponding

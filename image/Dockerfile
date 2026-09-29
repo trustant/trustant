@@ -173,6 +173,7 @@ COPY --chown=trustant:trustant truacp-runtime/pi.integrity /tmp/truacp/pi.integr
 COPY --chown=trustant:trustant truacp-runtime/pi-acp-package.tgz /tmp/truacp/pi-acp-package.tgz
 COPY --chown=trustant:trustant truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs
 COPY --chown=trustant:trustant truacp-runtime/extensions/trustant-runtime.ts /tmp/truacp/extensions/trustant-runtime.ts
+COPY --chown=trustant:trustant truacp-runtime/extensions/requirements.txt /tmp/truacp/extensions/requirements.txt
 RUN \
     cd /tmp/truacp ;\
     sh setup.sh ;\

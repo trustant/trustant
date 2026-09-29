@@ -10,10 +10,6 @@
 	path = skills
 	url = https://github.com/trustable-ai/skills
         branch = main
-[submodule "mcp"]
-	path = mcp
-	url = https://github.com/apache/openserverless-mcp.git
-        branch = main
 [submodule "acp"]
 	path = acp
 	url = https://github.com/trustant/trustant-acp.git
@@ -21,4 +17,8 @@
 [submodule "packages"]
 	path = packages
 	url = https://github.com/trustant/openserverless-packages
+        branch = main
+[submodule "openserverless-mcp"]
+	path = mcp
+	url = https://github.com/trustant/openserverless-mcp
         branch = main

@@ -184,8 +184,41 @@ Version 2 revalidates the host contract inside Pi and:
   semantic strategy after three equivalent failures without a successful
   relevant source/OpenServerless-wiring mutation. Changed inputs, strategy, or
   a successful relevant mutation permit recovery;
-- fails closed when the managed marker, manifest, workbench, `.mcp.json`, or
-  extension is invalid.
+- forbids local Python environments and libraries outside the action runtime
+  (issue #5). It blocks shell commands that create a virtualenv or install
+  packages (`python -m venv`, `virtualenv`, `uv venv|sync|add|pip|init`,
+  `pip install`, `poetry`, `pipenv`, `pdm`, `conda|mamba create|install|env`),
+  shell writes to `requirements*.txt` or `.venv/`/`venv/`, `write`/`edit` of
+  `requirements*.txt`, `pyproject.toml`, `Pipfile`, `setup.py`/`setup.cfg`,
+  lock files, or anything under `.venv/`, `venv/`, `site-packages/`, and the
+  OpenServerless `action_requirements` MCP call for a library the runtime does
+  not ship. Every refusal tells Pi to use the shipped libraries or implement the
+  missing piece in code; the system prompt carries the same rule with the full
+  library list;
+- fails closed when the managed marker, manifest, workbench, `.mcp.json`,
+  extension, or the Python runtime `requirements.txt` beside it is invalid.
+
+### Python runtime libraries
+
+The single source of truth for "what an action may import" is the
+OpenServerless Python 3.12 runtime's
+[requirements.txt](https://raw.githubusercontent.com/trustable-ai/openserverless-runtimes/refs/heads/0.9.0/runtime/python/v3.12/requirements.txt),
+vendored **verbatim** in two places and read at runtime — no library list is
+hardcoded:
+
+- `acp/extensions/requirements.txt` — installed by `acp/setup.sh` beside
+  `trustant-runtime.ts` in `~/.local/lib/truacp/extensions/` (staged by
+  `image/image.sh`, copied by the `Dockerfile`); the extension resolves it
+  relative to its own file and refuses to load without it.
+- `mcp/requirements.txt` — at the `openserverless-mcp` package root, shipped by
+  `npm pack`/`git archive`. `action_requirements` reports a shipped library as
+  available and returns an error for anything else; it never writes an
+  endpoint `requirements.txt`. `action_add_redis`/`auth_setup` therefore no
+  longer write one either, since the runtime ships `redis`.
+
+Both parse every pinned line (direct and transitive entries are all
+importable), taking the name before `==`/`[`/`;`, PEP 503-normalized. When the
+runtime changes, refresh both copies together.
 
 This first increment does not claim the complete OpenCode guardrail parity.
 The following issue #57 increments remain explicit:
@@ -230,7 +263,11 @@ Tests must cover:
   retaining source-contract failures, plus deterministic rejection of direct
   `packages/**/*.zip` shell access, masked checker pipelines, and repeated
   checker calls without an intervening relevant mutation;
-- extension installation and image staging;
+- extension installation and image staging, including the vendored Python
+  runtime `requirements.txt`;
+- blocked virtualenv/package-install commands and dependency-metadata writes,
+  read-only commands left alone, and `action_requirements` allowed only for
+  runtime libraries (in both the extension and the MCP);
 - unchanged standalone TruACP behavior;
 - direct `!` prefix classification, active-session cwd resolution,
   stdout/stderr and nonzero-exit rendering, bounded timeout/output, exact ready
