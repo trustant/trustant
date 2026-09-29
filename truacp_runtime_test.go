@@ -90,6 +90,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		"COPY --chown=trustant:trustant truacp-runtime/pi.integrity /tmp/truacp/pi.integrity",
 		"COPY --chown=trustant:trustant truacp-runtime/dist-bin/truacp.cjs /tmp/truacp/dist-bin/truacp.cjs",
 		"COPY --chown=trustant:trustant truacp-runtime/extensions/trustant-runtime.ts /tmp/truacp/extensions/trustant-runtime.ts",
+		"COPY --chown=trustant:trustant truacp-runtime/extensions/requirements.txt /tmp/truacp/extensions/requirements.txt",
 		"sh setup.sh",
 		`test -x "$HOME/.local/bin/truacp"`,
 	} {
@@ -116,6 +117,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		`cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
 		`cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
 		`cp ../acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"`,
+		`cp ../acp/extensions/requirements.txt "$TRUACP_ARTIFACT_DIR/extensions/requirements.txt"`,
 		// The staged artifact must still be identified by the submodule commit
 		// it came from and by a content hash of what was actually staged.
 		// These used to feed `printf 'acp=%s:%s\n'` into a BASE_HASH
