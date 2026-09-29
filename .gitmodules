@@ -21,3 +21,4 @@
 [submodule "openserverless-mcp"]
 	path = mcp
 	url = https://github.com/trustant/openserverless-mcp
+        branch = main

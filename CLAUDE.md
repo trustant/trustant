@@ -237,7 +237,7 @@ Six git submodules in [.gitmodules](.gitmodules). The rebrand to Trustant is **p
 | `packages` | `trustant/openserverless-packages` | migrated |
 | `oplugins` | `trustable-ai/openserverless-task` (branch `0.9.0`) | **still `trustable-ai`** |
 | `skills` | `trustable-ai/skills` | **still `trustable-ai`** |
-| `mcp` | `apache/openserverless-mcp` | upstream Apache |
+| `mcp` (submodule name `openserverless-mcp`) | `trustant/openserverless-mcp` | migrated (fork of `apache/openserverless-mcp`) |
 
 `acp` holds the TruACP/Pi runtime sources, checked out at path `acp`; it was formerly at path `trustant-acp`, a name much of the repo still uses — see below. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
 Never push to any plugin repository without explicit user authorization, including `oplugins`, `oplugins-truinst`, local plugin copies, submodules, and scripts that would push those repos.
