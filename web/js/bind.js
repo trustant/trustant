@@ -20,7 +20,10 @@
 // Two pieces, both the consumer side of the Share dialog's Export tab:
 //
 //   ImportEditor    the Import tab: rows of name + pattern, written to .env.dist
-//   ImportResolver  the launch popup: every variable, and what it will be set to
+//   ImportResolver  the launch popup: every variable, and what it will be set to.
+//                   In production mode (publish) the same rows are resolved
+//                   against the target host's pool and answers go to
+//                   apps.<name>.production.
 //
 // The vocabulary is fixed and worth keeping straight: EXPORT is what this app
 // publishes for others (.env.shared, shared.js), IMPORT is what it takes from
@@ -205,7 +208,7 @@
         this.showError('');
         const cleaned = this.bindings.filter((b) => b.name);
         try {
-            const response = await fetch('/api/imports/' + encodeURIComponent(this.appName), {
+            const response = await fetch(this.url(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ bindings: cleaned })
@@ -249,6 +252,8 @@
         this.rows = [];
         this.choices = {};
         this.values = {};
+        this.mode = 'development';
+        this.host = '';
     }
 
     ImportResolver.prototype.el = function (suffix) {
@@ -259,8 +264,21 @@
         return this._globalName;
     };
 
-    ImportResolver.prototype.open = async function (appName, rows) {
+    // The endpoint for this mode: production carries the target host.
+    ImportResolver.prototype.url = function () {
+        let url = '/api/imports/' + encodeURIComponent(this.appName);
+        if (this.mode === 'production') {
+            url += '?mode=production&host=' + encodeURIComponent(this.host);
+        }
+        return url;
+    };
+
+    // options: { mode: 'production', host } opens the publish popup for a host.
+    ImportResolver.prototype.open = async function (appName, rows, options) {
+        options = options || {};
         this.appName = appName;
+        this.mode = options.mode === 'production' ? 'production' : 'development';
+        this.host = options.host || '';
         this.choices = {};
         this.values = {};
 
@@ -268,7 +286,7 @@
             this.rows = rows;
         } else {
             try {
-                const response = await fetch('/api/imports/' + encodeURIComponent(appName));
+                const response = await fetch(this.url());
                 if (!response.ok) throw new Error(await response.text());
                 const data = await response.json();
                 this.rows = data.resolutions || [];
@@ -278,8 +296,27 @@
             }
         }
 
+        // A first-time binding arrives pending with its single candidate
+        // suggested: pre-select it, so confirming is one click.
+        this.rows.forEach((row) => {
+            if (row.pending && row.suggested) this.choices[row.name] = row.suggested;
+        });
+
         const nameEl = this.el('AppName');
         if (nameEl) nameEl.textContent = appName;
+        const hostEl = this.el('Host');
+        if (hostEl) {
+            hostEl.textContent = this.mode === 'production' ? ' on ' + this.host : '';
+        }
+        const introEl = this.el('Intro');
+        if (introEl) {
+            introEl.textContent = this.mode === 'production'
+                ? 'Every imported variable needs a value on this host before the application is published. '
+                  + 'Choose the shared variable published to this host, or enter the value.'
+                : 'Every variable needs a value before the application starts. Variables '
+                  + 'imported from another application are filled from the shared variable '
+                  + 'you choose here.';
+        }
         this.showError('');
         this.render();
 
@@ -327,9 +364,10 @@
                 // A wildcard: the user picks which producer feeds it. The current
                 // source is preselected so re-opening the popup does not silently
                 // re-point an already resolved variable.
+                const current = row.source || row.suggested;
                 const options = ['<option value="">Choose a shared variable…</option>'].concat(
                     row.matches.map((m) => {
-                        const selected = m === row.source ? ' selected' : '';
+                        const selected = m === current ? ' selected' : '';
                         return `<option value="${escapeHTML(m)}"${selected}>${escapeHTML(m)}</option>`;
                     })
                 ).join('');
@@ -369,8 +407,16 @@
             }
 
             const flag = row.pending
-                ? '<span class="text-[11px] text-amber-500 ml-2">needs a value</span>'
+                ? `<span class="text-[11px] text-amber-500 ml-2">${row.suggested ? 'confirm' : 'needs a value'}</span>`
                 : '';
+            // Production: the producer chosen in development has nothing on this
+            // host yet. Publishing it there first is the usual way out.
+            if (row.producer) {
+                control += `
+                    <div class="text-[11px] text-amber-500 mt-1">
+                      publish <strong>${escapeHTML(row.producer)}</strong> to this host first, or enter the value
+                    </div>`;
+            }
             return `
                 <div class="nu-card p-2 mb-2">
                   <div class="flex items-center mb-1">${label}${flag}</div>
@@ -413,7 +459,7 @@
         }
 
         try {
-            const response = await fetch('/api/imports/' + encodeURIComponent(this.appName), {
+            const response = await fetch(this.url(), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ choices: this.choices, values: this.values })
@@ -443,10 +489,10 @@
             <div id="${prefix}Modal" class="hidden fixed inset-0 nu-modal-backdrop items-center justify-center z-50 p-4">
               <div class="nu-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
                 <div class="flex items-center justify-between px-5 py-4 border-b border-[color:var(--nu-border)]">
-                  <h3 class="text-lg font-semibold">Set the variables for <span id="${prefix}AppName" class="nu-mono"></span></h3>
+                  <h3 class="text-lg font-semibold">Set the variables for <span id="${prefix}AppName" class="nu-mono"></span><span id="${prefix}Host" class="nu-mono"></span></h3>
                   <button onclick="${globalName}.close()" class="nu-btn nu-btn-secondary nu-btn-compact">Close</button>
                 </div>
-                <div class="px-5 py-3 text-xs text-[color:var(--nu-muted)] border-b border-[color:var(--nu-border)]">
+                <div id="${prefix}Intro" class="px-5 py-3 text-xs text-[color:var(--nu-muted)] border-b border-[color:var(--nu-border)]">
                   Every variable needs a value before the application starts. Variables
                   imported from another application are filled from the shared variable
                   you choose here.

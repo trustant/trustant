@@ -1841,21 +1841,17 @@
         // Publish Remote functions
         let publishApp = null;
 
-        // The publish gate for unresolved shared values. `needs_config` also
-        // carries `missing_shared` when the app consumes a variable another app
-        // produces that has no value for THIS host — showing the credentials
-        // form there would be wrong: the fields are already filled and filling
-        // them again changes nothing.
-        function sharedGateMessage(missing) {
-            const host = missing[0] && missing[0].host ? missing[0].host : 'this host';
-            const lines = missing.map(m =>
-                `<li><span class="nu-code">${escapeHtml(m.name)}</span> — produced by <strong>${escapeHtml(m.app)}</strong></li>`
-            ).join('');
-            return `Cannot publish to <span class="nu-code">${escapeHtml(host)}</span>: `
-                + `${missing.length} shared variable${missing.length === 1 ? ' has' : 's have'} no value there.`
-                + `<ul class="list-disc ml-5 mt-2">${lines}</ul>`
-                + `<p class="mt-2">Publish the producing application to this host, or enter the value by hand `
-                + `in the application's Env editor under Production.</p>`;
+        // The publish gate for imports. `needs_config` also carries
+        // `pending_imports` when an imported variable has no value on THIS host
+        // (or has never been confirmed there) — showing the credentials form
+        // would be wrong: the fields are already filled. Instead the import
+        // popup opens in production mode for the host; confirming records the
+        // choice in the production config and retries the publish.
+        function openPublishImports(name, data) {
+            hidePublishModal();
+            importResolver.resumeLaunch = false;
+            importResolver.resumePublish = true;
+            importResolver.open(name, data.pending_imports, { mode: 'production', host: data.host });
         }
 
         // This endpoint does double duty: it answers `needs_config` when the
@@ -1869,8 +1865,8 @@
             try {
                 const response = await fetchPublishResponse('/api/publish/remote', { name }, 'publish');
                 const data = await response.json();
-                if (data.missing_shared && data.missing_shared.length > 0) {
-                    showPublishResult(sharedGateMessage(data.missing_shared), 'error');
+                if (data.pending_imports && data.pending_imports.length > 0) {
+                    openPublishImports(name, data);
                 } else if (data.needs_config) {
                     // Not configured yet: fall back to the form.
                     showPublishModal();
@@ -1937,8 +1933,8 @@
                 const response = await fetchPublishResponse('/api/publish/remote',
                     { name: publishApp, apihost, user, password }, 'publish');
                 const data = await response.json();
-                if (data.missing_shared && data.missing_shared.length > 0) {
-                    showPublishResult(sharedGateMessage(data.missing_shared), 'error');
+                if (data.pending_imports && data.pending_imports.length > 0) {
+                    openPublishImports(publishApp, data);
                 } else if (data.needs_config) {
                     // The credentials are saved but something else is unresolved;
                     // never report this as a success.
@@ -2440,6 +2436,7 @@
                         hideCreatingModal();
                         loadApps();
                         importResolver.resumeLaunch = false;
+                        importResolver.resumePublish = false;
                         importResolver.open(name);
                         return;
                     }
@@ -2612,7 +2609,12 @@
         // Resuming is conditional: the launch path wants the app started once the
         // values are in, the add path does not — nothing was in flight there.
         importResolver.onResolved = (name) => {
-            if (importResolver.resumeLaunch) launchApp(name);
+            if (importResolver.resumePublish) {
+                importResolver.resumePublish = false;
+                handlePublishRemote(name);
+            } else if (importResolver.resumeLaunch) {
+                launchApp(name);
+            }
         };
 
         EnvTable.register('missingEnvTable', new EnvTable({
@@ -2766,6 +2768,7 @@
                 if (data.missing_env && data.missing_env.length > 0) {
                     hideLaunchModal();
                     importResolver.resumeLaunch = true;
+                    importResolver.resumePublish = false;
                     importResolver.open(name, data.imports);
                     return;
                 }

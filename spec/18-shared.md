@@ -125,8 +125,8 @@ away. Two paths remove one, and they are the only two.
 
 **Deleting an application prunes what it shared.** `handleDeleteRepo` calls
 `pruneSharedPool(wsCfg, name)`, which removes every entry whose prefix is that
-app — from `predefined_env` and from every host in `predefined_env_production` —
-in the same save that drops `apps.<name>`.
+app from `predefined_env`, and deletes `shared_production[<host>][<app>]` for
+every host — in the same save that drops `apps.<name>`.
 
 This is not housekeeping. Ownership is derived from the prefix matching an app
 that **exists**, so an orphaned entry does not merely linger: it stops being
@@ -197,58 +197,75 @@ to pick up a rotated credential.
 A name the app already declares with a non-empty value is still not overwritten,
 and a readonly row is still skipped.
 
-## Production: one pool per apihost
+## Production: host → app → secrets
 
 Service credentials on `api.nuvolaris.io` have nothing to do with those on
 `openserverless.dev` — same variable name, different cluster, different secret.
 A single production pool would hand an app the wrong cluster's credentials, so
-production values are keyed by host in `predefined_env_production`:
+production values are stored per host, and within a host per **producing app**,
+in `shared_production`:
 
 ```json
-"predefined_env_production": {
-  "api.nuvolaris.io":   { "APPSUITE__POSTGRES_URL": "postgres://…" },
-  "openserverless.dev": { "APPSUITE__POSTGRES_URL": "postgres://…" }
+"shared_production": {
+  "api.nuvolaris.io":   { "appsuite": { "APPSUITE__POSTGRES_URL": "postgres://…" } },
+  "openserverless.dev": { "appsuite": { "APPSUITE__POSTGRES_URL": "postgres://…" } }
 }
 ```
 
-Keys are normalized by `sharedHostKey` — lowercased, scheme and trailing slash
-stripped — so `https://api.nuvolaris.io/` and `api.nuvolaris.io` are one pool.
-This is deliberately **not** license.go's `normalizeAPIHost`, which keeps the
-scheme and rejects a schemeless host because a license names hosts exactly.
+Host keys are normalized by `sharedHostKey` — lowercased, scheme and trailing
+slash stripped — so `https://api.nuvolaris.io/` and `api.nuvolaris.io` are one
+pool. This is deliberately **not** license.go's `normalizeAPIHost`, which keeps
+the scheme and rejects a schemeless host because a license names hosts exactly.
+
+**Ownership is the map key**, not a name prefix. `pruneSharedPool(app)` deletes
+`shared_production[*][app]`; `removeSharedPoolVar(name)` deletes the name under
+every host and app. Variable names stay the expanded `APP__NAME`, so a
+development reference (`${{APPSUITE__POSTGRES_URL}}`) and a production lookup
+use the same key. `productionPool(cfg, host)` flattens one host across all apps
+for import matching.
 
 **Filled by the producer's own publish only.** After
 `ops ide login --mode=production`, `resolveProductionShared` resolves the
-published app's own `.env.shared` against that cluster and stores it under that
+published app's own `.env.shared` against that cluster and **replaces** that
+app's map for that host (`setProductionShared`): a secret the producer stopped
+exporting disappears; an app with no `.env.shared` any more is removed from the
 host. No other app is logged into: a production login is a real operation
 against a real cluster, and sweeping every producer would log into clusters the
-user never asked to touch.
+user never asked to touch. A value typed by hand for production lives in the
+consumer's own `apps.<name>.production`, never in this store.
 
-A hand-typed host value is **kept**, not overwritten, by a later producer
-publish — the same rule the development pool uses.
+**Migration.** The pre-#9 flat `predefined_env_production: {host: {APP__NAME: v}}`
+is folded into `shared_production` when the config is loaded
+(`migrateSharedProduction`), owner taken from the name prefix one last time.
+Entries whose prefix matches no app — orphans of deleted apps, or hand-typed
+values — are dropped. The legacy key is never written again, so it disappears
+on the next save.
+
+The development pool (`predefined_env`) keeps its flat shape.
 
 ### The publish gate
 
-`missingProductionShared` returns every production variable the app declares
-that is app-produced by **another** app, has no value of its own, and is absent
-from that host's pool. A non-empty list stops the publish at the existing
-`needs_config` point, before anything touches the cluster:
+Publishing resolves the app's imports against the target host — see
+[19-import.md](19-import.md#production-publish). Any pending import stops the
+publish at the `needs_config` point, before anything touches the cluster:
 
 ```json
-{"needs_config": true, "missing_shared": [
-  {"name": "APPSUITE__POSTGRES_URL", "app": "appsuite", "host": "openserverless.dev"}
-]}
+{"needs_config": true, "host": "https://openserverless.dev",
+ "pending_imports": [{"name": "EXT_URL", "pattern": "*__POSTGRESDB",
+   "matches": [], "pending": true, "producer": "appsuite"}]}
 ```
 
-An app never blocks on a variable it produces itself: its own publish resolves
-it in the same request.
+The frontend opens the import popup in production mode for that host. Ways out:
 
-Two ways out, both surfaced by the frontend:
+- choose a shared variable published to that host (pull-down);
+- publish the producing app to that host first — `producer` names it when the
+  development choice points at an app with nothing on this host;
+- type the value by hand, recorded in `apps.<name>.production`. This is the
+  escape hatch for a producer that lives on another installation, and it must
+  exist or an app could become unpublishable through no fault of its own.
 
-- publish the producing app to that host, which the message names;
-- type the value in by hand for that host, in the Env editor's Production
-  column. This is the escape hatch for a producer that lives on another
-  installation, and it must exist or an app could become unpublishable through
-  no fault of its own.
+An app never blocks on a reference to its own exports: its own publish resolves
+them in the same request.
 
 **Unlike development, this gate blocks.** A launch with a missing value costs a
 broken dev server; a publish with one deploys an app pointed at nothing.
@@ -334,7 +351,8 @@ stacked rows — path above, editable name below.
 app list's Env action.
 
 **Configure** renames the palette card to **Shared Variables** and adds an
-environment selector — Development, plus one entry per production host.
+environment selector — Development, plus one entry per production host; a
+production host lists its rows app by app, each marked "shared by <app>".
 App-produced rows render read-only and masked, with a Show toggle; they still
 emit hidden inputs, because the save path reads the DOM and a row without inputs
 would be dropped from the set it posts. The production view never writes: it is

@@ -492,7 +492,10 @@ The pool is an input to `.env` generation, but a **narrow** one:
 
 - `generateAppEnvFiles` fills a variable whose value is **empty** and whose name
   the app **already declares**, in `apps.<name>.development` for `.env` and in
-  the production pool for `.env.production`. A value the user typed always wins.
+  `apps.<name>.production` (from the target host's pool) for `.env.production`.
+  Imports and `${{ref}}` choices reach `.env.production` resolved against that
+  host ([19-import.md](19-import.md#production-publish)). A value the user typed
+  always wins.
 - The pool is **never a source of new variables**. An app that does not name a
   pool variable never sees it, so an app's `.env` stays what its own config
   declares.
@@ -508,22 +511,24 @@ an app does not yet declare. An app-produced name is added with an empty value
 on purpose; a hand-typed palette entry carries its value, because nothing else
 will ever supply it.
 
-### The production pool is keyed by apihost
+### The production pool: `shared_production`
 
-`predefined_env_production` is a map of apihost → name → value. Service
+`shared_production` is a map of apihost → producing app → name → value. Service
 credentials on `api.nuvolaris.io` have nothing to do with those on
 `openserverless.dev` — same name, different cluster, different secret — so one
-flat map would hand an app the wrong cluster's credentials. Keys are normalized
-by `sharedHostKey`. It is written only by a publish; see
-[6-publish.md](6-publish.md).
+flat map would hand an app the wrong cluster's credentials. Host keys are
+normalized by `sharedHostKey`. It is written only by a publish, which replaces
+the publishing app's map for that host; see [6-publish.md](6-publish.md) and
+[18-shared.md](18-shared.md). The legacy flat `predefined_env_production` is
+migrated into it on load and dropped on the next save.
 
-Layering follows `models` / `model_versions` — key-by-key, workspace over base —
-rather than the whole-map replacement used for `apps`. The production pool
-merges host-by-host and then key-by-key within a host.
+Layering follows `models` / `model_versions` rather than the whole-map
+replacement used for `apps`: host by host, then app by app; within one app the
+workspace map replaces the base one whole.
 
 ### GET /api/predefined-env
 
-Returns `{"vars": [...], "production": {"<host>": [...]}}` from the **merged**
+Returns `{"vars": [...], "production": {"<host>": {"<app>": [...]}}}` from the **merged**
 config, sorted by name so the table renders in a stable order. Each entry is
 `{"name", "value"}` plus `"app"` when the value is app-produced — that is how the
 page knows which rows it may not edit.
@@ -556,8 +561,8 @@ below.
 
 ### DELETE /api/predefined-env?name=&lt;NAME&gt;
 
-Removes **one** variable, from `predefined_env` and from every host in
-`predefined_env_production`, whether it is app-produced or typed by hand.
+Removes **one** variable, from `predefined_env` and from every host and app in
+`shared_production`, whether it is app-produced or typed by hand.
 Responds `{"status":"deleted","removed":<n>}`.
 
 - A missing or blank `name` is **400**: an empty name must never be read as
@@ -1021,7 +1026,8 @@ User. It edits `predefined_env` through `GET`/`POST /api/predefined-env`,
 **saving on every edit** with no Save button of its own and reporting through an
 inline status line: it does not go through **Save & Configure**, does not run a
 model probe, and does not navigate away. An environment selector switches
-between Development and each production host; the production view is read-only,
+between Development and each production host; the production view lists rows app
+by app and is read-only,
 because those values are written by a publish and this endpoint does not save
 them. See "Shared variables" above.
 

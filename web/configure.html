@@ -1158,7 +1158,11 @@
 
         function currentPredefinedEnvRows() {
             if (!predefinedEnvScope) return predefinedEnvVars;
-            return predefinedEnvProduction[predefinedEnvScope] || [];
+            // Production is grouped host → producing app; rows are listed app by
+            // app, each marked "shared by <app>".
+            const byApp = predefinedEnvProduction[predefinedEnvScope] || {};
+            return Object.keys(byApp).sort().flatMap(app =>
+                (byApp[app] || []).map(v => Object.assign({}, v, { app: v.app || app })));
         }
 
         function togglePredefinedEnvReveal(name) {
