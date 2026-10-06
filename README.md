@@ -6,11 +6,6 @@ How to run it from sources:
 
 ## Before you start (every system)
 
-The first run asks for a **GitHub token** — it clones private sources. Create one at
-[github.com/settings/tokens](https://github.com/settings/tokens) with the `repo` and
-`read:org` scopes, then either paste it at the prompt or save it in `.ghtoken` at the
-repo root (git-ignored). Without it the run stops immediately.
-
 `.env` needs no attention: it is seeded from `.env.dist` for you.
 
 ## Mac
@@ -181,7 +176,6 @@ The UI is **plain HTML + Tailwind** (loaded via [web/tailwind.js](web/tailwind.j
 
 - For macOS development, a **running Trustant VM** on the local machine — the macOS app from [trustant.ai](https://trustant.ai) provisions a k3s VM and writes `id_ed25519`, `current.ip`, and `apihost` into `~/Library/Application Support/Trustant/`. `setup.sh` reads these to extract the VM's kubeconfig so `ops` can talk to k3s directly.
 - For Linux server development, local access to the Trustant k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` detects this host automatically. Windows development is this same flow inside WSL2 — see [spec/start.md](spec/start.md).
-- A **GitHub token** in `.ghtoken` at the repo root (git-ignored). `start.sh` checks it as its second step and prompts when it is missing.
 - **Go** (managed via [`g`](https://github.com/stefanmaric/g)), plus `ops`, `air`, `bun`, `uv`, Node, and the TruACP/Pi versions pinned by `trustant-acp/pi.version` — all installed and verified by `setup.sh`.
 - A populated **`.env`** (see below). Startup fails preflight if it is missing; `start.sh` seeds it from `.env.dist` on the first run.
 
