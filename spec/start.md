@@ -384,12 +384,9 @@ from `image/Dockerfile`.
 
 This applies to provisioning flows that execute `setup.sh` (fresh VM creation).
 
-On provisioning flows that execute `setup.sh` (fresh VM creation), `start.sh`
-attempts non-interactive GitHub
-authentication inside the VM using repository-root `.ghtoken`
-(`gh auth login --with-token`). At that late point, missing `gh` or a login
-failure are warning-only and must not block startup — the token itself has
-already been gated up front (see below). The default final step is `./run.sh`
+All sources (this repo and every submodule) are public: `start.sh` needs no
+GitHub token and performs no `gh` login or git credential-helper setup. The
+default final step is `./run.sh`
 inside the VM (foreground, `limactl shell` in the mounted repo dir, as the
 mirrored user); `./start.sh -v` opens VS Code over Remote-SSH instead, and
 `./start.sh -n` finishes without either.
@@ -412,28 +409,10 @@ Note the two `.env` creators differ by design: `setup.sh` generates in-VM values
 rooted at the guest `$HOME`, whereas this step only materializes the shipped
 template so the file exists from the very start of the run.
 
-## GitHub token gate (second step)
-
-Immediately after `.env` seeding, on both hosts, `start.sh` checks the
-repository-root `.ghtoken`. A run provisions a cluster and clones private
-sources, so an absent token must surface immediately rather than minutes later
-at the login step.
-
-- Present and non-empty: report it and continue.
-- Absent or empty, with a terminal: prompt for the token on `/dev/tty` with echo
-  **off** (it is a credential and must not reach scrollback), then persist it to
-  `.ghtoken` created under `umask 077` / mode `0600`. `.ghtoken` is git-ignored.
-- Empty input at the prompt: **stop the run** non-zero without writing a file.
-- Absent or empty with no TTY (CI, piped): do not hang waiting on input — fail
-  immediately, naming the file to create and where to get a token.
-
-The check sits after the `-s`/`-k` branches, which exit earlier: stopping or
-destroying a VM must never require a token.
-
-On a **native Linux host** the preflight and the `gh` install come *before* this
-gate and before the git credential helper — see "Ordering on a native host"
-below. On macOS they do not: `gh` comes from brew there, and the VM the in-VM
-`gh` install targets does not exist yet at this point.
+On a **native Linux host** the preflight and the `gh` install run right after
+`.env` seeding — see "Ordering on a native host" below. On macOS they do not:
+`gh` comes from brew there, and the VM the in-VM `gh` install targets does not
+exist yet at this point.
 
 ## Re-running when the VM already exists
 
@@ -462,6 +441,15 @@ On a Linux host `./start.sh` **skips VM creation entirely** and initializes this
 machine directly, so that `./setup.sh` and `./run.sh` are then usable exactly as
 they are inside `trudev`.
 
+## Sudo check (very first step)
+
+Before anything else on a native host — even before `.env` seeding — `start.sh`
+checks `sudo -n true` and aborts, naming the sudoers line to add, when it fails.
+Passwordless sudo is assumed by `setup.sh`, by `run.sh`'s kubefwd supervisor, by
+the `gh` install and by the package install (`sudo apt-get install`). macOS
+needs no host sudo — everything privileged runs inside the VM — so the check
+does not apply there.
+
 ## Preflight
 
 Abort with an actionable message unless all of the following hold:
@@ -471,8 +459,6 @@ Abort with an actionable message unless all of the following hold:
 - the architecture reported by `dpkg --print-architecture` is amd64 or arm64.
   This is the same source `ensure_deb` uses, so the preflight gate and the
   package actually selected can never disagree.
-- `sudo -n true` succeeds. Passwordless sudo is already assumed by `setup.sh`,
-  by `run.sh`'s kubefwd supervisor, and by the package install.
 - systemd is running (`/run/systemd/system` exists and `systemctl
   is-system-running` is not `offline`). k3s is a systemd service.
 
@@ -483,24 +469,19 @@ this step is host-agnostic.
 
 ## Ordering on a native host
 
-On this path the host *is* the target, so `gh` has to exist before the git
-credential helper is wired and before the token gate, not after. The order is:
+On this path the host *is* the target, so `gh` is installed up front. The order is:
 
-1. `.env` seeding — host-agnostic, first on both hosts.
-2. **preflight** (the checks above).
-3. **`gh` via apt.**
-4. the git credential helper, which needs `gh` — `gh auth login --with-token`
-   authenticates the CLI but installs no helper, so plain `git` still cannot
-   read github.com without it.
-5. the GitHub token gate.
-6. the rest of the native flow, starting with the submodule initialization —
-   which clones a **private** submodule over https and fails with
-   `could not read Username for 'https://github.com'` when 3 and 4 have not run.
+1. the **sudo check** (above).
+2. `.env` seeding — host-agnostic, first on both hosts after that.
+3. **preflight** (the checks above).
+4. **`gh` via apt.**
+5. the rest of the native flow, starting with the submodule initialization
+   (all submodules are public, cloned anonymously over https).
 
 Preflight moves ahead of the `gh` install because that install goes through the
-privileged runner, and `sudo -n` is exactly what preflight verifies. Preflight
-is pure checks, so hoisting it costs nothing and an unsupported host now fails
-before being asked for a token.
+privileged runner, whose `sudo -n` the sudo check has already verified. Preflight
+is pure checks, so hoisting it costs nothing and an unsupported host fails
+before anything is installed.
 
 These two steps run **once**, here, and not again inside the native finish path.
 Both are idempotent, so a duplicate call would be harmless, but a linear
@@ -511,7 +492,12 @@ The macOS path is unaffected by all of this.
 ## Cluster
 
 If `dpkg -l openserverless` does not report `ii`, download and cache the `.deb`
-and install it on this machine. The installed-package check names the package
+in `dist/`, then copy it into a fresh `mktemp -d /tmp/trustant-deb.XXXXXX`
+directory (`0755`, file `0644`, so apt's `_apt` sandbox user can read it),
+install it from there with sudo, and remove the `/tmp` copy — right after the
+install, and via the EXIT trap if the install fails. This mirrors the VM path,
+which copies the cached deb to `/tmp/openserverless.deb` in the guest, installs
+it and removes it. The installed-package check names the package
 actually being installed (`openserverless`); a host still carrying the older
 `trustant` package is therefore treated as uninstalled and gets the new one.
 
@@ -598,8 +584,7 @@ Run the same helpers the macOS finish path runs, against this host:
 - the `gh` and `jq` apt packages.
 
 Then wait for OpenWhisk on `http://miniops.me` (see above), run `./setup.sh`
-directly (not through `limactl shell`), verify the pinned `gh` runtime version,
-and attempt the warning-only `.ghtoken` login.
+directly (not through `limactl shell`), and verify the pinned `gh` runtime version.
 
 ## Flags
 
@@ -688,8 +673,7 @@ Windows-aware, and none of them may be taught to be.
   what the package's postinst builds its `:80/:443/:6443` firewall dropin with;
   `zstd` and `unzip` unpack what the flow downloads. `gh` is belt and braces:
   the bootstrap runs as root before `start.sh` is invoked at all, so the
-  distribution has the CLI whatever `start.sh`'s internal ordering does — it
-  needs it for the git credential helper and for the private submodule clones.
+  distribution has the CLI whatever `start.sh`'s internal ordering does.
   If the Ubuntu archive ever stops carrying `gh`, `ensure_gh_apt` is what gets
   fixed, not this list; `setup.sh` still owns the pinned-version convergence
   from the release tarball afterwards.

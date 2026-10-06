@@ -56,7 +56,8 @@
 # VM boots, then copied in and installed over `limactl shell`. Installing this
 # way — rather than as a Lima `provision` script — avoids limactl start's ~10min
 # readiness timeout, and caching on the host makes re-runs skip the download.
-# On Linux the same cached .deb is installed straight into this machine.
+# On Linux the same cached .deb is copied into /tmp, installed straight into
+# this machine with sudo, and the /tmp copy removed.
 #
 # The ~1.5GB ollama release tarball is cached in dist/ the same way and for the
 # same reason: dist/ outlives the VM, so `./start.sh -k && ./start.sh` reinstalls
@@ -138,7 +139,6 @@ KUBEFWD_SHA_ARM64="e01ade02d919be2c7e306543f0a65de2e629c254ef16b51ecb45830b0044a
 HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
-GH_TOKEN_FILE="$MOUNT_DIR/.ghtoken"
 ENV_FILE="$MOUNT_DIR/.env"
 ENV_DIST_FILE="$MOUNT_DIR/.env.dist"
 
@@ -798,85 +798,6 @@ ensure_env_file() {
   fi
 }
 
-# Install gh as the HOST's git credential helper for github.com. Distinct from
-# login_github_from_token, which runs via run_guest and so only ever configures
-# the VM: the private submodule clones in ensure_source_submodules happen on the
-# host, before the VM exists. Warning-only — a host without gh can still start,
-# it just cannot clone private submodules.
-setup_git_credential_helper() {
-  echo "--- Configuring git credential helper ---"
-  if ! command -v gh >/dev/null 2>&1; then
-    warn "gh is not installed on this host; private submodule clones may fail"
-    return 0
-  fi
-  if gh auth setup-git --hostname github.com >/dev/null 2>&1; then
-    ok "git will authenticate to github.com through gh"
-  else
-    warn "could not configure gh as a git credential helper"
-  fi
-}
-
-# First real step of every start: the run provisions a cluster and clones private
-# sources, so a missing GitHub token is worth catching up front rather than 10
-# minutes later at login_github_from_token. Prompt for it when absent and persist
-# it to .ghtoken; stop the run outright when nothing usable is provided.
-require_gh_token() {
-  echo "--- Checking GitHub token ---"
-  if [[ -s "$GH_TOKEN_FILE" ]]; then
-    ok ".ghtoken found at $GH_TOKEN_FILE"
-    return 0
-  fi
-
-  if [[ -f "$GH_TOKEN_FILE" ]]; then
-    warn ".ghtoken at $GH_TOKEN_FILE is empty"
-  else
-    warn ".ghtoken not found at $GH_TOKEN_FILE"
-  fi
-
-  # No TTY (CI, piped run): there is nobody to ask, so fail with the fix.
-  [[ -t 0 ]] || fail "no .ghtoken and no terminal to prompt on — create $GH_TOKEN_FILE with a GitHub token (https://github.com/settings/tokens) and re-run"
-
-  echo "  Create one at https://github.com/settings/tokens (scopes: repo, read:org)."
-  echo "  It will be saved to $GH_TOKEN_FILE (git-ignored)."
-  local token=""
-  # -s: the token is a credential and must not echo or land in scrollback.
-  read -r -s -p "  GitHub token (empty to abort): " token < /dev/tty || true
-  echo
-
-  [[ -n "$token" ]] || fail "no GitHub token provided — aborting"
-
-  ( umask 077; printf '%s\n' "$token" > "$GH_TOKEN_FILE" ) \
-    || fail "could not write $GH_TOKEN_FILE"
-  chmod 600 "$GH_TOKEN_FILE" 2>/dev/null || true
-  ok "token saved to $GH_TOKEN_FILE"
-}
-
-# Attempt a non-interactive gh login from a repo-local token file. Missing gh or
-# login errors are warning-only so start.sh can still continue; the token itself
-# is already guaranteed by require_gh_token.
-login_github_from_token() {
-  local where=" in VM"
-  if $NATIVE_LINUX; then where=""; fi
-  echo "--- Attempting GitHub login${where} from .ghtoken ---"
-  if [[ ! -f "$GH_TOKEN_FILE" ]]; then
-    warn ".ghtoken not found at $GH_TOKEN_FILE; cannot login gh"
-    return 0
-  fi
-  if [[ ! -s "$GH_TOKEN_FILE" ]]; then
-    warn ".ghtoken is empty; cannot login gh"
-    return 0
-  fi
-  if ! run_guest command -v gh >/dev/null 2>&1; then
-    warn "gh is not installed${where}; cannot login gh"
-    return 0
-  fi
-  if run_guest bash -euo pipefail -c 'gh auth login --with-token >/dev/null 2>&1' < "$GH_TOKEN_FILE"; then
-    ok "GitHub CLI authenticated${where}"
-  else
-    warn "GitHub CLI login failed using .ghtoken"
-  fi
-}
-
 # Refresh host-visible VM connection metadata and SSH access files.
 refresh_support_files() {
   echo "--- Reading VM IP ---"
@@ -992,7 +913,6 @@ finish() {
   ok "setup.sh completed"
   ensure_openserverless_proxy
   ensure_gh
-  login_github_from_token
 
   echo
   echo -e "${GREEN}=== Trustant VM ready ===${NC}"
@@ -1015,10 +935,9 @@ finish() {
 # boot, no virtiofs mount, no mirrored guest user, no ssh key or ~/.ssh/config,
 # no VS Code Remote-SSH.
 finish_native() {
-  # preflight_native and ensure_gh_apt already ran at the top level, before the
-  # credential helper and the token gate — see the block near the end of this
-  # file. They are idempotent, but a linear provisioning script should call them
-  # once, where the ordering is visible.
+  # preflight_native and ensure_gh_apt already ran at the top level — see the
+  # block near the end of this file. They are idempotent, but a linear
+  # provisioning script should call them once, where the ordering is visible.
   ensure_source_submodules
 
   # Install the cluster only when it is absent; otherwise just confirm it runs.
@@ -1054,7 +973,6 @@ finish_native() {
   ok "setup.sh completed"
   ensure_openserverless_proxy
   ensure_gh
-  login_github_from_token
 
   echo
   echo -e "${GREEN}=== Trustant environment ready ===${NC}"
@@ -1269,6 +1187,8 @@ GUEST
 #  * No authorized_keys grafting for the package's 'trustant' user. That exists
 #    so ssh.sh can reach the VM; nobody ssh's into the machine they are sitting at.
 #
+# Like the VM path, the cached .deb is copied into /tmp, installed from there
+# with sudo and the copy removed (the EXIT trap removes it on failure too).
 # Requires DEB_FILE (call ensure_deb first). No-op if already installed.
 install_package_native() {
   echo
@@ -1278,7 +1198,16 @@ install_package_native() {
   warn "            that DROPs :80/:443/:6443 on the default-route interface"
   echo
 
-  run_privileged DEB_FILE="$(cd "$(dirname "$DEB_FILE")" && pwd)/$(basename "$DEB_FILE")" <<'GUEST'
+  DEB_TMP_DIR="$(mktemp -d /tmp/trustant-deb.XXXXXX)" \
+    || fail "could not create a temp directory under /tmp"
+  trap cleanup_deb EXIT
+  # mktemp -d is 0700; apt's _apt sandbox user must be able to read the file.
+  chmod 755 "$DEB_TMP_DIR"
+  local tmp_deb="$DEB_TMP_DIR/openserverless.deb"
+  cp "$DEB_FILE" "$tmp_deb" || fail "could not copy $DEB_FILE to $tmp_deb"
+  chmod 644 "$tmp_deb"
+
+  run_privileged DEB_FILE="$tmp_deb" <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 
 if dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
@@ -1295,7 +1224,16 @@ echo "default-route interface: ${DEF_IFACE:-none}"
 apt-get install -y "$DEB_FILE"
 echo "install complete"
 GUEST
+  cleanup_deb
   ok "OpenServerless package installed on this host"
+}
+
+# Remove the /tmp copy of the .deb made by install_package_native. Idempotent.
+cleanup_deb() {
+  if [[ -n "${DEB_TMP_DIR:-}" ]]; then
+    rm -rf "$DEB_TMP_DIR"
+    DEB_TMP_DIR=""
+  fi
 }
 
 # Wait for the local k3s to serve /readyz and for the openserverless namespace to
@@ -1385,6 +1323,16 @@ refresh_support_files_native() {
   ok "wrote apihost -> $APIHOST"
 }
 
+# First check on a native Linux host: setup.sh, run.sh, the gh install and the
+# package install all run through passwordless sudo, so abort before doing
+# anything else when it is not available.
+require_sudo() {
+  echo "--- Checking sudo rights ---"
+  sudo -n true 2>/dev/null \
+    || fail "passwordless sudo is required (add: $(id -un) ALL=(ALL) NOPASSWD:ALL to /etc/sudoers.d/)"
+  ok "passwordless sudo works"
+}
+
 # Preflight for the native path: everything the rest of the flow assumes.
 preflight_native() {
   echo "--- Checking this host ---"
@@ -1407,11 +1355,6 @@ preflight_native() {
     *) fail "unsupported architecture: $dpkg_arch (expected amd64 or arm64)" ;;
   esac
   ok "architecture: $dpkg_arch"
-
-  # setup.sh, run.sh and the package install all assume passwordless sudo.
-  sudo -n true 2>/dev/null \
-    || fail "passwordless sudo is required (add: $(id -un) ALL=(ALL) NOPASSWD:ALL to /etc/sudoers.d/)"
-  ok "passwordless sudo works"
 
   # k3s is a systemd service; a container/WSL instance without systemd cannot run it.
   local systemd_state
@@ -1607,28 +1550,21 @@ if [[ "${1:-}" == "-k" ]]; then
 fi
 
 # First steps of a real start on either host. Placed after the -s/-k branches,
-# which exit above and must not need a .env or a token to stop or destroy a VM.
+# which exit above and must not need a .env to stop or destroy a VM. On a native
+# host the sudo check comes first of all; macOS needs no host sudo (everything
+# privileged runs inside the VM).
+if $NATIVE_LINUX; then require_sudo; fi
 ensure_env_file
 # On a native Linux host (the path WSL takes) the host IS the target, so `gh`
-# has to exist before the credential helper is wired and before the token gate:
-# setup_git_credential_helper needs the CLI, and ensure_source_submodules then
-# clones a PRIVATE submodule over https. preflight_native comes first because
+# is installed here, up front. preflight_native comes first because
 # ensure_gh_apt installs through run_privileged, which is the `sudo -n` that
-# preflight is what verifies — it is pure checks, so an unsupported host now
-# fails before being asked for a token. On macOS neither applies: gh comes from
-# brew and the VM ensure_gh_apt would target does not exist yet.
+# require_sudo verified — preflight is pure checks, so an unsupported host fails
+# before anything is installed. On macOS neither applies: gh comes from brew and
+# the VM ensure_gh_apt would target does not exist yet.
 if $NATIVE_LINUX; then
   preflight_native
   ensure_gh_apt
 fi
-# WHY: `gh auth login --with-token` authenticates the gh CLI but does NOT install
-# a git credential helper, so plain `git` still has no way to read github.com.
-# ensure_source_submodules runs on the HOST and clones private submodules
-# (acp, oplugins-truinst) over https, which then fails with
-# "could not read Username for 'https://github.com'". This wires gh in as the
-# host's credential helper so those fetches authenticate with the existing token.
-setup_git_credential_helper
-require_gh_token
 
 # --- native Linux: no VM, initialize this host directly ----------------------
 if $NATIVE_LINUX; then

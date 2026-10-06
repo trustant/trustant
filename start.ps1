@@ -77,8 +77,7 @@ $VM_SWAP = '8GB'
 # .deb payload and the zipped release archives); iptables is what the package's
 # postinst installs its firewall dropin with. gh is here as belt and braces: the
 # bootstrap runs as root before start.sh is invoked at all, so the distro has
-# the CLI whatever start.sh's own internal ordering does - it needs it for the
-# git credential helper and for cloning the private submodules.
+# the CLI whatever start.sh's own internal ordering does.
 $BASE_PACKAGES = 'sudo curl ca-certificates git iproute2 iptables zstd unzip gh'
 
 function Write-Ok   { param([string]$m) Write-Host "OK  $m" -ForegroundColor Green }

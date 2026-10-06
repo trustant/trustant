@@ -203,6 +203,23 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 		t.Error("start.sh must stage the download through a .part file")
 	}
 
+	// On a native host the cached deb is installed from a /tmp copy that is
+	// removed afterwards, never straight out of the repository's dist/.
+	if !strings.Contains(script, `DEB_TMP_DIR="$(mktemp -d /tmp/trustant-deb.XXXXXX)"`) ||
+		!strings.Contains(script, `run_privileged DEB_FILE="$tmp_deb"`) {
+		t.Error("install_package_native must install from a /tmp copy of the cached deb")
+	}
+	if !strings.Contains(script, "trap cleanup_deb EXIT") || !strings.Contains(script, "GUEST\n  cleanup_deb\n") {
+		t.Error("the /tmp copy must be removed after the install and by the EXIT trap")
+	}
+
+	// On a native host passwordless sudo is checked before anything else.
+	sudo := strings.Index(script, "if $NATIVE_LINUX; then require_sudo; fi")
+	env := strings.Index(script, "\nensure_env_file\n")
+	if sudo < 0 || env < 0 || sudo > env {
+		t.Error("start.sh must run require_sudo before .env seeding on a native host")
+	}
+
 	// version.txt keeps its own, separate meaning (the app release identity
 	// shared with build.sh/hotfix.sh/run.sh) and must not be conflated with the
 	// package pin above.
