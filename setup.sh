@@ -211,8 +211,10 @@ if [[ -s "$HOME/.g/env" ]]; then
   set -u
 fi
 
-if ! command -v go &>/dev/null; then
-  warn "go not found, installing g (Go version manager)..."
+# Install g even when some other go (apt, /usr/local/go) is already on PATH:
+# g's toolchain is prepended below, so it takes precedence.
+if ! command -v g &>/dev/null; then
+  warn "g not found, installing g (Go version manager)..."
   curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash || fail "g install failed"
   add_to_path "$HOME/.g/bin"
   export GOROOT="$HOME/.g/go"

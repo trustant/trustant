@@ -120,7 +120,8 @@ arm64/amd64) and check uv is in path. If uv is missing, install it for the user:
 
 curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" INSTALLER_NO_MODIFY_PATH=1 sh
 
-4. if go is not in the path, install first g:
+4. if g is not in the path, install it — even when another `go` (apt,
+/usr/local/go) is already on the path; g's toolchain is prepended so it wins:
 
 curl -sSL https://raw.githubusercontent.com/voidint/g/master/install.sh | bash
 
