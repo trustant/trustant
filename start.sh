@@ -52,15 +52,14 @@
 # Teardown:    stops and deletes the VM. macOS only.
 #   ./start.sh -k
 #
-# The ~4GB package is downloaded+cached on the HOST (under dist/) before the
-# VM boots, then copied in and installed over `limactl shell`. Installing this
-# way — rather than as a Lima `provision` script — avoids limactl start's ~10min
-# readiness timeout, and caching on the host makes re-runs skip the download.
-# On Linux the same cached .deb is installed straight into this machine.
+# The ~4GB package is downloaded on the HOST into a temp directory under /tmp
+# before the VM boots, then copied in and installed over `limactl shell`, and the
+# download is removed. Installing this way — rather than as a Lima `provision`
+# script — avoids limactl start's ~10min readiness timeout. On Linux the .deb is
+# downloaded the same way and installed with sudo straight into this machine.
 #
-# The ~1.5GB ollama release tarball is cached in dist/ the same way and for the
-# same reason: dist/ outlives the VM, so `./start.sh -k && ./start.sh` reinstalls
-# both from disk instead of re-downloading ~5.5GB.
+# The ~1.5GB ollama release tarball is cached in dist/: dist/ outlives the VM,
+# so `./start.sh -k && ./start.sh` reinstalls it from disk.
 #
 set -euo pipefail
 
@@ -114,7 +113,7 @@ if [[ -z "$TRUSTANT_VERSION" ]]; then
   TRUSTANT_VERSION="unknown"
   warn "version.txt not found or empty"
 fi
-DIST_DIR="dist"                              # host-side cache (.deb + ollama tarball)
+DIST_DIR="dist"                              # host-side cache (ollama tarball)
 
 # CPU-only ollama is installed as a host process in the VM (localhost:11434); the
 # app mostly uses cloud models. Defaults to the image's version (the ARG line in
@@ -382,7 +381,7 @@ GUEST
 # WHY this is cached at all: upstream's install.sh always re-downloads ~1.5GB and
 # offers no local-artifact option, so `./start.sh -k && ./start.sh` used to pay
 # for the whole thing again. dist/ lives on the host — outside the VM's lifetime
-# — so a recreated VM reuses it, exactly as it does for the ~4GB .deb.
+# — so a recreated VM reuses it.
 ensure_ollama_tarball() {
   OLLAMA_TARBALL=""
   [[ -n "${OLLAMA_VERSION:-}" ]] || {
@@ -1045,15 +1044,16 @@ index_versions_for() {
     | sed 's/,/, /g'
 }
 
-# Resolve + cache the .deb for the host arch into dist/, downloading if absent.
-# Sets the global DEB_FILE. The deb arch matches the HOST arch (the VM runs the
+# Resolve and download the .deb for the host arch into a fresh /tmp directory.
+# Sets the global DEB_FILE (and DEB_TMP_DIR, removed by cleanup_deb right after
+# the install and again by the EXIT trap, so a failed run leaves nothing behind). The deb arch matches the HOST arch (the VM runs the
 # host arch under vz): arm64 on Apple Silicon, amd64 on Intel.
 #
 # The version installed is pinned by openserverless.txt (OPENSERVERLESS_VERSION)
 # and resolved through the bucket's index.json, so what lands on the machine is
 # reproducible — a given checkout always installs the same package.
 ensure_deb() {
-  local DEB_ARCH TMP_DEB HOST_ARCH INDEX_JSON DEB_URL AVAILABLE
+  local DEB_ARCH HOST_ARCH INDEX_JSON DEB_URL AVAILABLE
   # On Linux the package is installed by dpkg on THIS machine, so ask dpkg which
   # architecture it will accept — that is what governs `apt-get install`, and it
   # is authoritative on a multiarch host where uname reports the kernel's arch.
@@ -1072,15 +1072,6 @@ ensure_deb() {
   esac
   ok "package architecture: $DEB_ARCH (detected: $HOST_ARCH)"
 
-  DEB_FILE="${DIST_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"
-  mkdir -p "$DIST_DIR"
-  if [[ -s "$DEB_FILE" ]]; then
-    ok "Using cached package: $DEB_FILE"
-    return 0
-  fi
-
-  # Only hit the network when the cache misses — resolving the index on every run
-  # would make a fully-cached start.sh depend on the bucket being reachable.
   echo "--- Resolving OpenServerless ${OPENSERVERLESS_VERSION} (${DEB_ARCH}) ---"
   INDEX_JSON="$(curl -fsSL --retry 3 "$OPENSERVERLESS_INDEX")" \
     || fail "could not fetch the package index at $OPENSERVERLESS_INDEX"
@@ -1098,24 +1089,44 @@ ensure_deb() {
   fi
   ok "resolved: $DEB_URL"
 
+  DEB_TMP_DIR="$(mktemp -d /tmp/trustant-deb.XXXXXX)" \
+    || fail "could not create a temp directory under /tmp"
+  trap cleanup_on_exit EXIT
+  # mktemp -d is 0700; apt's _apt sandbox user must be able to read the file.
+  chmod 755 "$DEB_TMP_DIR"
+  DEB_FILE="${DEB_TMP_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"
+
   echo "--- Downloading OpenServerless package (~3GB) -> $DEB_FILE ---"
-  # Download to a temp file then move into place, so an interrupted download
-  # never leaves a truncated cache entry.
-  TMP_DEB="${DEB_FILE}.part"
-  curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL" \
-    || { rm -f "$TMP_DEB"; fail "download failed: $DEB_URL"; }
-  mv "$TMP_DEB" "$DEB_FILE"
+  curl -fL --retry 3 -o "$DEB_FILE" "$DEB_URL" \
+    || { cleanup_deb; fail "download failed: $DEB_URL"; }
+  chmod 644 "$DEB_FILE"
   ok "Downloaded $DEB_FILE"
 }
 
-# Copy the cached .deb into the running VM and install it (k3s + helpers), set
+# Remove the downloaded .deb and its temp directory. Idempotent.
+cleanup_deb() {
+  if [[ -n "${DEB_TMP_DIR:-}" ]]; then
+    rm -rf "$DEB_TMP_DIR"
+    DEB_TMP_DIR=""
+  fi
+}
+
+# Single EXIT trap: a later `trap ... EXIT` would replace an earlier one.
+cleanup_on_exit() {
+  cleanup_deb
+  [[ -z "${LIMA_CONFIG:-}" ]] || rm -f "$LIMA_CONFIG"
+}
+
+# Copy the downloaded .deb into the running VM and install it (k3s + helpers), set
 # the netplan route so the firewall DROP lands on vzNAT, and authorize the Lima
 # ssh key for the package-created 'trustant' user. No-op if already installed.
-# Requires DEB_FILE (call ensure_deb first) and a running VM.
+# Requires DEB_FILE (call ensure_deb first) and a running VM. The host copy in
+# /tmp is removed as soon as it is in the VM.
 install_package() {
   echo "--- Copying package into the VM ---"
   limactl copy "$DEB_FILE" "${VM_NAME}:/tmp/openserverless.deb" \
     || fail "failed to copy $DEB_FILE into the VM"
+  cleanup_deb
 
   echo "--- Installing the OpenServerless package ---"
   limactl shell "$VM_NAME" sudo bash -euo pipefail -s <<'GUEST'
@@ -1175,7 +1186,7 @@ GUEST
   ok "OpenServerless package installed and ssh key authorized"
 }
 
-# Native-Linux counterpart of install_package: install the cached .deb straight
+# Native-Linux counterpart of install_package: install the downloaded .deb straight
 # into THIS machine. Two deliberate carve-outs versus the VM path:
 #
 #  * No netplan override. The VM needs one only because Lima gives it two
@@ -1186,7 +1197,8 @@ GUEST
 #  * No authorized_keys grafting for the package's 'trustant' user. That exists
 #    so ssh.sh can reach the VM; nobody ssh's into the machine they are sitting at.
 #
-# Requires DEB_FILE (call ensure_deb first). No-op if already installed.
+# Requires DEB_FILE (call ensure_deb first); installs it with sudo and removes
+# the /tmp download afterwards. No-op if already installed.
 install_package_native() {
   echo
   warn "About to install the OpenServerless package on THIS machine:"
@@ -1195,7 +1207,7 @@ install_package_native() {
   warn "            that DROPs :80/:443/:6443 on the default-route interface"
   echo
 
-  run_privileged DEB_FILE="$(cd "$(dirname "$DEB_FILE")" && pwd)/$(basename "$DEB_FILE")" <<'GUEST'
+  run_privileged DEB_FILE="$DEB_FILE" <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 
 if dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
@@ -1212,6 +1224,7 @@ echo "default-route interface: ${DEF_IFACE:-none}"
 apt-get install -y "$DEB_FILE"
 echo "install complete"
 GUEST
+  cleanup_deb
   ok "OpenServerless package installed on this host"
 }
 
@@ -1302,6 +1315,16 @@ refresh_support_files_native() {
   ok "wrote apihost -> $APIHOST"
 }
 
+# First check on a native Linux host: setup.sh, run.sh, the gh install and the
+# package install all run through passwordless sudo, so abort before doing
+# anything else when it is not available.
+require_sudo() {
+  echo "--- Checking sudo rights ---"
+  sudo -n true 2>/dev/null \
+    || fail "passwordless sudo is required (add: $(id -un) ALL=(ALL) NOPASSWD:ALL to /etc/sudoers.d/)"
+  ok "passwordless sudo works"
+}
+
 # Preflight for the native path: everything the rest of the flow assumes.
 preflight_native() {
   echo "--- Checking this host ---"
@@ -1324,11 +1347,6 @@ preflight_native() {
     *) fail "unsupported architecture: $dpkg_arch (expected amd64 or arm64)" ;;
   esac
   ok "architecture: $dpkg_arch"
-
-  # setup.sh, run.sh and the package install all assume passwordless sudo.
-  sudo -n true 2>/dev/null \
-    || fail "passwordless sudo is required (add: $(id -un) ALL=(ALL) NOPASSWD:ALL to /etc/sudoers.d/)"
-  ok "passwordless sudo works"
 
   # k3s is a systemd service; a container/WSL instance without systemd cannot run it.
   local systemd_state
@@ -1524,12 +1542,15 @@ if [[ "${1:-}" == "-k" ]]; then
 fi
 
 # First steps of a real start on either host. Placed after the -s/-k branches,
-# which exit above and must not need a .env to stop or destroy a VM.
+# which exit above and must not need a .env to stop or destroy a VM. On a native
+# host the sudo check comes first of all; macOS needs no host sudo (everything
+# privileged runs inside the VM).
+if $NATIVE_LINUX; then require_sudo; fi
 ensure_env_file
 # On a native Linux host (the path WSL takes) the host IS the target, so `gh`
 # is installed here, up front. preflight_native comes first because
 # ensure_gh_apt installs through run_privileged, which is the `sudo -n` that
-# preflight is what verifies — it is pure checks, so an unsupported host fails
+# require_sudo verified — preflight is pure checks, so an unsupported host fails
 # before anything is installed. On macOS neither applies: gh comes from brew and
 # the VM ensure_gh_apt would target does not exist yet.
 if $NATIVE_LINUX; then
@@ -1564,7 +1585,7 @@ if limactl list --quiet 2>/dev/null | grep -qx "$VM_NAME"; then
   exit 0
 fi
 
-# --- download + cache the .deb on the host -----------------------------------
+# --- download the .deb into /tmp on the host ---------------------------------
 ensure_deb   # sets DEB_FILE
 
 # --- lima config ------------------------------------------------------------
@@ -1576,7 +1597,7 @@ ensure_deb   # sets DEB_FILE
 # default route (see the routefix provision below) so the DROP lands there and
 # lima0:80 stays reachable — that lima0 address is what we publish as the apihost.
 LIMA_CONFIG="$(mktemp -t trustant-lima-XXXX).yaml"
-trap 'rm -f "$LIMA_CONFIG"' EXIT
+trap cleanup_on_exit EXIT
 
 # The mount is writable and lands at the same path inside the VM as on the host,
 # so a guest user with the host's UID (created in install_package) owns the files.

@@ -62,11 +62,13 @@ message naming the requested version and listing the versions the index does
 offer, so a stale pin is loud and self-diagnosing. It must never silently fall
 back to the index's `latest` key.
 
-Cache as `dist/openserverless_<version>_<arch>.deb`, mirroring the bucket's own
-naming. If it already exists, skip the ~3GB download **and skip fetching the
-index** — a fully-cached run must not depend on the bucket being reachable.
-Download to a `.part` file and move into place so an interrupted download never
-leaves a truncated cache entry.
+Download it as `openserverless_<version>_<arch>.deb`, mirroring the bucket's own
+naming, into a fresh `mktemp -d /tmp/trustant-deb.XXXXXX` directory — never into
+the repository, and with no cache: every install downloads it. The directory is
+made world-readable (`0755`, file `0644`) so apt's `_apt` sandbox user can read
+the package. It is removed right after the install (on macOS as soon as it has
+been copied into the VM) and again by the EXIT trap, so a failed or interrupted
+run leaves nothing in `/tmp`.
 
 Resolve the index without `jq`. `ensure_deb` runs on the HOST and, on both the
 macOS and native-Linux paths, *before* `ensure_jq` — which in any case installs jq
@@ -95,7 +97,7 @@ Two separate version files, deliberately not conflated:
 - `version.txt` — the **Trustant app** release identity in tagged form (`v0.4.0`),
   the single source shared with `build.sh`/`hotfix.sh`/`run.sh`; `TRUSTANT_VERSION`
   strips the leading `v`. It must not hold a second, hand-maintained copy. It no
-  longer names the cached deb, and a missing value only warns.
+  longer names the deb, and a missing value only warns.
 
 Keep `--retry` on the download.
 
@@ -104,7 +106,7 @@ Keep `--retry` on the download.
 Create an Ubuntu VM with Lima using vmType: vz and a vzNAT network. Do NOT install
 the package as a Lima `provision` script: that runs inside `limactl start`'s
 readiness wait, which times out after ~10min on the big package. Instead boot a
-bare VM fast, then copy the cached deb in (`limactl copy`) and `apt install` it
+bare VM fast, then copy the downloaded deb in (`limactl copy`) and `apt install` it
 over `limactl shell`, where the install is not time-bounded.
 
 ## Networking (so the apihost is actually reachable)
@@ -258,8 +260,7 @@ CPU-only; that's fine because the app mostly uses cloud models. Idempotent: skip
 the install when ollama is already present at the pinned version. Runs on every
 start (in the finish path), so an existing VM gets ollama too.
 
-Cache the ~1.5GB release tarball on the HOST under `dist/`, next to the `.deb`
-and for the same reason: `dist/` outlives the VM, so `./start.sh -k` followed by
+Cache the ~1.5GB release tarball on the HOST under `dist/`: `dist/` outlives the VM, so `./start.sh -k` followed by
 a fresh start reinstalls from disk instead of re-downloading. Upstream's
 `install.sh` always re-downloads and takes no local artifact, so the cached path
 does the work itself — fetch
@@ -441,6 +442,15 @@ On a Linux host `./start.sh` **skips VM creation entirely** and initializes this
 machine directly, so that `./setup.sh` and `./run.sh` are then usable exactly as
 they are inside `trudev`.
 
+## Sudo check (very first step)
+
+Before anything else on a native host — even before `.env` seeding — `start.sh`
+checks `sudo -n true` and aborts, naming the sudoers line to add, when it fails.
+Passwordless sudo is assumed by `setup.sh`, by `run.sh`'s kubefwd supervisor, by
+the `gh` install and by the package install (`sudo apt-get install`). macOS
+needs no host sudo — everything privileged runs inside the VM — so the check
+does not apply there.
+
 ## Preflight
 
 Abort with an actionable message unless all of the following hold:
@@ -450,8 +460,6 @@ Abort with an actionable message unless all of the following hold:
 - the architecture reported by `dpkg --print-architecture` is amd64 or arm64.
   This is the same source `ensure_deb` uses, so the preflight gate and the
   package actually selected can never disagree.
-- `sudo -n true` succeeds. Passwordless sudo is already assumed by `setup.sh`,
-  by `run.sh`'s kubefwd supervisor, and by the package install.
 - systemd is running (`/run/systemd/system` exists and `systemctl
   is-system-running` is not `offline`). k3s is a systemd service.
 
@@ -464,14 +472,15 @@ this step is host-agnostic.
 
 On this path the host *is* the target, so `gh` is installed up front. The order is:
 
-1. `.env` seeding — host-agnostic, first on both hosts.
-2. **preflight** (the checks above).
-3. **`gh` via apt.**
-4. the rest of the native flow, starting with the submodule initialization
+1. the **sudo check** (above).
+2. `.env` seeding — host-agnostic, first on both hosts after that.
+3. **preflight** (the checks above).
+4. **`gh` via apt.**
+5. the rest of the native flow, starting with the submodule initialization
    (all submodules are public, cloned anonymously over https).
 
 Preflight moves ahead of the `gh` install because that install goes through the
-privileged runner, and `sudo -n` is exactly what preflight verifies. Preflight
+privileged runner, whose `sudo -n` the sudo check has already verified. Preflight
 is pure checks, so hoisting it costs nothing and an unsupported host fails
 before anything is installed.
 
@@ -483,8 +492,8 @@ The macOS path is unaffected by all of this.
 
 ## Cluster
 
-If `dpkg -l openserverless` does not report `ii`, download and cache the `.deb`
-and install it on this machine. The installed-package check names the package
+If `dpkg -l openserverless` does not report `ii`, download the `.deb` into
+`/tmp` (see above), install it on this machine with sudo, and remove it. The installed-package check names the package
 actually being installed (`openserverless`); a host still carrying the older
 `trustant` package is therefore treated as uninstalled and gets the new one.
 
@@ -494,14 +503,14 @@ will accept the package, and it stays correct on a multiarch host where `uname`
 reports the kernel's architecture. It emits exactly the strings the filenames
 use, so:
 
-- arm64 -> `dist/openserverless_<version>_arm64.deb` (index key `arm64`)
-- amd64 -> `dist/openserverless_<version>_amd64.deb` (index key `amd64`)
+- arm64 -> `openserverless_<version>_arm64.deb` (index key `arm64`)
+- amd64 -> `openserverless_<version>_amd64.deb` (index key `amd64`)
 
 macOS has no `dpkg` — the `.deb` is installed inside the VM, which runs the host
 architecture under vz — so the macOS path keeps mapping from `uname -m`
 (`arm64`/`aarch64` -> arm64, `x86_64`/`amd64` -> amd64) onto the same two
 filenames. Anything else aborts as an unsupported architecture. The resolved
-architecture is echoed before the download so a wrong-arch cache hit is visible. Print an explicit banner naming the package and what it installs
+architecture is echoed before the download so a wrong-arch package is visible. Print an explicit banner naming the package and what it installs
 first — this is the one step that mutates the host outside the repository.
 
 Two deliberate differences from the in-VM install:
