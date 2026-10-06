@@ -22,7 +22,7 @@ You need a Mac (Apple Silicon or Intel) with at least 16GB of memory and 60GB di
 
 ```
 git clone https://github.com/trustant/trustant --recurse-submodules
-cd trustable-app
+cd trustant
 ./start.sh
 ```
 
@@ -62,7 +62,7 @@ Create a user with passwordless sudo rights and execute:
 
 ```
 git clone https://github.com/trustant/trustant
-cd trustable-app
+cd trustant
 ./start.sh
 ```
 
@@ -76,8 +76,6 @@ You can also
 - re-run just the dev loop afterwards with `./run.sh`
 
 `-s` and `-k` are VM operations and are refused here.
-
-
 
 ## Update sources
 
