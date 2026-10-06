@@ -174,35 +174,19 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 	// ensure_jq installs jq in the VM — so it can never help a Mac parse the
 	// index. A jq call inside the resolver would break provisioning on a clean
 	// Mac, which is exactly the host that cannot be caught by CI here.
-	resolver := script[strings.Index(script, "index_url_for()"):strings.Index(script, "# Copy the downloaded")]
+	resolver := script[strings.Index(script, "index_url_for()"):strings.Index(script, "# Copy the cached")]
 	if strings.Contains(resolver, "jq ") || strings.Contains(resolver, "jq\n") {
 		t.Error("the index resolver must not depend on jq — it runs on the host before jq exists")
 	}
 
-	// The deb is downloaded into a throwaway /tmp directory, never into the
-	// repository, named by the pinned version and arch, and removed both after
-	// the install and by the EXIT trap.
-	if !strings.Contains(script, `DEB_TMP_DIR="$(mktemp -d /tmp/trustant-deb.XXXXXX)"`) {
-		t.Error("start.sh must download the deb into a fresh /tmp directory")
+	// The cache is keyed by the pinned version, and a cache hit must not need
+	// the network: a fully-cached run cannot depend on the bucket being up.
+	if !strings.Contains(script, `DEB_FILE="${DIST_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"`) {
+		t.Error("start.sh must cache the deb under its pinned version and arch")
 	}
-	if !strings.Contains(script, `DEB_FILE="${DEB_TMP_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"`) {
-		t.Error("start.sh must name the deb by its pinned version and arch")
-	}
-	if strings.Contains(script, `DEB_FILE="${DIST_DIR}`) {
-		t.Error("the deb must no longer be cached under dist/")
-	}
-	if strings.Count(script, "\n  cleanup_deb\n") < 2 {
-		t.Error("both install paths must remove the downloaded deb right after installing")
-	}
-	if !strings.Contains(script, "trap cleanup_on_exit EXIT") || strings.Contains(script, `trap 'rm -f "$LIMA_CONFIG"' EXIT`) {
-		t.Error("a single EXIT trap must remove both the deb and the lima config")
-	}
-
-	// On a native host passwordless sudo is checked before anything else.
-	sudo := strings.Index(script, "if $NATIVE_LINUX; then require_sudo; fi")
-	env := strings.Index(script, "\nensure_env_file\n")
-	if sudo < 0 || env < 0 || sudo > env {
-		t.Error("start.sh must run require_sudo before .env seeding on a native host")
+	if !strings.Contains(script, `ok "Using cached package: $DEB_FILE"
+    return 0`) {
+		t.Error("a cache hit must return before fetching the index (no network on cached runs)")
 	}
 
 	// The package installed is now openserverless, so every installed-check must
@@ -214,6 +198,26 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 
 	if !strings.Contains(script, "curl -fL --retry 3") {
 		t.Error("start.sh must keep --retry on the download")
+	}
+	if !strings.Contains(script, `TMP_DEB="${DEB_FILE}.part"`) {
+		t.Error("start.sh must stage the download through a .part file")
+	}
+
+	// On a native host the cached deb is installed from a /tmp copy that is
+	// removed afterwards, never straight out of the repository's dist/.
+	if !strings.Contains(script, `DEB_TMP_DIR="$(mktemp -d /tmp/trustant-deb.XXXXXX)"`) ||
+		!strings.Contains(script, `run_privileged DEB_FILE="$tmp_deb"`) {
+		t.Error("install_package_native must install from a /tmp copy of the cached deb")
+	}
+	if !strings.Contains(script, "trap cleanup_deb EXIT") || !strings.Contains(script, "GUEST\n  cleanup_deb\n") {
+		t.Error("the /tmp copy must be removed after the install and by the EXIT trap")
+	}
+
+	// On a native host passwordless sudo is checked before anything else.
+	sudo := strings.Index(script, "if $NATIVE_LINUX; then require_sudo; fi")
+	env := strings.Index(script, "\nensure_env_file\n")
+	if sudo < 0 || env < 0 || sudo > env {
+		t.Error("start.sh must run require_sudo before .env seeding on a native host")
 	}
 
 	// version.txt keeps its own, separate meaning (the app release identity
