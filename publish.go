@@ -463,8 +463,8 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 
 	// Run ops ide deploy
 	reportProgress(w, 6, "Deploying application...")
-	log.Printf("Running ops ide deploy for %s...", req.Name)
-	deployCmd := exec.Command("ops", "ide", "deploy")
+	log.Printf("Running ops ide deploy --mode=production for %s...", req.Name)
+	deployCmd := exec.Command("ops", "ide", "deploy", "--mode=production")
 	deployCmd.Dir = workbenchPath
 	if err := runStreamingCommand(w, &output, deployCmd); err != nil {
 		log.Printf("ops ide deploy failed: %s, output: %s", err, output.String())

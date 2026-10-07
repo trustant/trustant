@@ -445,6 +445,14 @@ and are not gated at launch.
 unresolved names into `apps.<name>.development` as empty entries so the env
 editor would render them as blank rows; blank rows are now illegal there.
 
+### Imported rows in the env editor
+
+Both columns of an imported variable render a pull-down of shared variables: the
+Development column from the development pool, the Production column from the
+production pool of the app's `OPS_APIHOST` (`prod_source`, `prod_matches`,
+`prod_host`). Saving never replaces a stored `${{X}}` reference with the value it
+displays. See [19-import.md](19-import.md#re-opening).
+
 ### The env editor holds no empty values
 
 `POST /api/appconfig/<name>` **refuses** a variable whose development and

@@ -152,7 +152,7 @@ Where `apihost`, `user`, `password` are optional (only sent when user provides t
    published is resolved — a production login is a real operation against a real
    cluster, and sweeping every producer would log into clusters the user never
    asked to touch. Non-fatal; taken under the runtime lifecycle lock.
-7. Run `ops ide deploy` in the workbench directory
+7. Run `ops ide deploy --mode=production` in the workbench directory, so the deploy loads `.env.production` (the ide plugin reads `.env.<mode>` before `.env`)
 8. Return `{"message": "Published successfully", "output": "..."}` on success, or
    `{"error": "...", "output": "..."}` on failure. On success `output` carries
    the accumulated command output (previously discarded), so the modal's

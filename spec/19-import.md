@@ -147,7 +147,11 @@ Consequences that fall out of this, rather than being implemented separately:
 - **The reference never reaches `.env`.** `generateAppEnvFiles` resolves it and
   writes the value; the app receives a secret, never a `${{...}}` string.
 - **The env editor shows the resolved value**, not the reference: the stored form
-  is storage, and the row renders what the app will actually get.
+  is storage, and the row renders what the app will actually get. Saving the
+  table does not turn that displayed value back into a literal: a posted value
+  equal to what the stored reference resolves to keeps the stored form (the
+  reference, or nothing for a production row that follows the development
+  choice). Applies to both columns.
 
 ## Launching resolves every variable
 
@@ -191,6 +195,12 @@ env files, and resumes the launch that was blocked.
   a text field. Editing the text would break the binding silently, so the
   pull-down is the only control offered. Choosing posts to `/api/imports/`
   immediately, because it writes the binding rather than just a value.
+  The **Production** column gets the same pull-down, resolved against the pool of
+  the app's production `OPS_APIHOST` only (`prod_source`, `prod_matches`, and the
+  table-level `prod_host` on `GET /api/appconfig/<app>`; derived, ignored on
+  POST). Choosing posts to `/api/imports/<app>?mode=production&host=<prod_host>`,
+  the same endpoint as the publish popup. With no production apihost, or no
+  match on that host, the column stays a text field.
 
 ## Endpoints
 

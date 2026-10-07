@@ -2718,12 +2718,19 @@ type EnvVar struct {
 	// ignored on POST.
 	Source  string   `json:"source,omitempty"`
 	Matches []string `json:"matches,omitempty"`
+	// ProdSource and ProdMatches are the same for the production column,
+	// resolved against the pool of the app's production OPS_APIHOST only.
+	ProdSource  string   `json:"prod_source,omitempty"`
+	ProdMatches []string `json:"prod_matches,omitempty"`
 }
 
 // AppEnvConfig represents the full env configuration for an app
 type AppEnvConfig struct {
 	Vars     []EnvVar `json:"vars"`
 	LocalEnv []string `json:"localenv_keys"`
+	// ProdHost is the production apihost the prod_* fields were resolved
+	// against; the editor posts production choices for that host.
+	ProdHost string `json:"prod_host,omitempty"`
 }
 
 // parseEnvFile parses a .env file into a map
@@ -3072,10 +3079,34 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		seen[b.Name] = true
 	}
 
+	// The production column of an import gets its own pull-down, fed by the
+	// production host's pool. Without a production apihost there is no pool.
+	prodHost := strings.TrimSpace(appCfg.Production["OPS_APIHOST"])
+	if sharedHostKey(prodHost) != "" {
+		for _, res := range resolveProductionImportsFrom(cfg, name, prodHost) {
+			for i := range vars {
+				if vars[i].Name != res.Name {
+					continue
+				}
+				vars[i].ProdSource = res.Source
+				vars[i].ProdMatches = res.Matches
+				if res.Source != "" && vars[i].ProdMatches == nil {
+					vars[i].ProdMatches = []string{res.Source}
+				}
+				// Show what production will get, never the ${{…}} storage.
+				if res.Source != "" {
+					vars[i].ProdValue = res.Value
+				}
+				break
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AppEnvConfig{
 		Vars:     vars,
 		LocalEnv: nil,
+		ProdHost: prodHost,
 	})
 }
 
@@ -3108,9 +3139,45 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 		importNames[b.Name] = true
 	}
 
+	// An imported row arrives carrying the value its pool entry resolved to, not
+	// the ${{X}} reference that is stored. Writing that copy back would cut the
+	// link to the producer, so a value equal to its resolution keeps whatever
+	// was stored before (the reference, or nothing for a followed dev choice).
+	devResolved, prodResolved := map[string]string{}, map[string]string{}
+	var oldDev, oldProd map[string]string
+	if wsCfg.Apps[name] != nil {
+		oldDev, oldProd = wsCfg.Apps[name].Development, wsCfg.Apps[name].Production
+	}
+	if cfg, err := loadTrustantConfig(); err == nil {
+		dev := map[string]string{}
+		if a := cfg.Apps[name]; a != nil && a.Development != nil {
+			dev = a.Development
+		}
+		for _, b := range readAppEnvDistBindings(name) {
+			if res := resolveOneImport(b, dev, cfg.PredefinedEnv); res.Source != "" {
+				devResolved[b.Name] = res.Value
+			}
+		}
+		if a := cfg.Apps[name]; a != nil {
+			if host := a.Production["OPS_APIHOST"]; sharedHostKey(host) != "" {
+				for _, res := range resolveProductionImportsFrom(cfg, name, host) {
+					if res.Source != "" {
+						prodResolved[res.Name] = res.Value
+					}
+				}
+			}
+		}
+	}
+
 	devVars := make(map[string]string)
 	prodVars := make(map[string]string)
 	for _, v := range req.Vars {
+		if r, ok := devResolved[v.Name]; ok && v.DevValue == r {
+			v.DevValue = oldDev[v.Name]
+		}
+		if r, ok := prodResolved[v.Name]; ok && v.ProdValue == r {
+			v.ProdValue = oldProd[v.Name]
+		}
 		if v.Name == "" {
 			continue
 		}

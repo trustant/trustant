@@ -123,6 +123,7 @@
         const data = await resp.json();
         this.vars = data.vars || [];
         this.localEnvKeys = data.localenv_keys || [];
+        this.prodHost = data.prod_host || '';
         this.savedSnapshot = JSON.stringify(this.vars);
         this.render();
         return data;
@@ -175,10 +176,23 @@
                     class="${devClass}">`;
             }
 
-            const prodField = this.readOnly
-                ? `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.prod_value)}</span>`
-                : `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="${id}.update(${i}, 'prod_value', this.value)"
+            // Same pull-down for production, fed by the production host's pool.
+            let prodField;
+            if (v.prod_matches && v.prod_matches.length && !this.readOnly) {
+                const options = ['<option value="">Choose a shared variable…</option>'].concat(
+                    v.prod_matches.map((m) => {
+                        const sel = m === v.prod_source ? ' selected' : '';
+                        return `<option value="${escapeHtml(m)}"${sel}>${escapeHtml(m)}</option>`;
+                    })
+                ).join('');
+                prodField = `<select onchange="${id}.setProdImportSource(${i}, this.value)"
+                    class="nu-input nu-code w-full px-2 py-1 text-xs">${options}</select>`;
+            } else if (this.readOnly) {
+                prodField = `<span class="text-xs text-[color:var(--nu-muted)]">${escapeHtml(v.prod_value)}</span>`;
+            } else {
+                prodField = `<input type="text" value="${escapeHtml(v.prod_value)}" onchange="${id}.update(${i}, 'prod_value', this.value)"
                     class="nu-input w-full px-2 py-1 text-xs">`;
+            }
 
             const removeBtn = (this.readOnly || v.readonly || v.fixed)
                 ? ''
@@ -403,6 +417,29 @@
             return;
         }
         v.source = source;
+        if (this.onChange) this.onChange();
+    };
+
+    // The production twin: records the choice for the production host, the
+    // same endpoint the publish popup uses.
+    EnvTable.prototype.setProdImportSource = async function (index, source) {
+        const v = this.vars[index];
+        if (!v || !source || !this.prodHost) return;
+        const url = `/api/imports/${encodeURIComponent(this.appName)}?mode=production&host=` +
+            encodeURIComponent(this.prodHost);
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ choices: { [v.name]: source } })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            alert(data.error || 'Failed to change the shared variable');
+            return;
+        }
+        const res = (data.resolutions || []).find((r) => r.name === v.name);
+        v.prod_source = source;
+        if (res && res.value !== undefined) v.prod_value = res.value;
         if (this.onChange) this.onChange();
     };
 

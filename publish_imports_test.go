@@ -352,3 +352,65 @@ func TestPublishGateReturnsPendingImportsBeforeAnyOps(t *testing.T) {
 		t.Fatalf("publish did not get past the gate: %s", rec.Body.String())
 	}
 }
+
+// The env editor's production column gets the pull-down too, fed only by the
+// production host's pool, and saving the table never turns the stored
+// ${{X}} reference into a copied literal.
+func TestEnvEditorProductionPullDown(t *testing.T) {
+	cfg := productionTestConfig(
+		map[string]string{"DB": "postgres://dev"},
+		map[string]string{
+			"OPS_APIHOST": "https://openserverless.dev",
+			"DB":          importRef("BILLING__POSTGRESDB"),
+		},
+	)
+	setupProductionApp(t, cfg, "DB=*__POSTGRESDB\nCACHE=*__REDIS\n")
+
+	get := func() AppEnvConfig {
+		rec := httptest.NewRecorder()
+		handleGetAppConfig(rec, httptest.NewRequest("GET", "/api/appconfig/demoapp", nil),
+			"demoapp", filepath.Join(WorkspaceDir, "workspace", "demoapp"))
+		var out AppEnvConfig
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %s", err)
+		}
+		return out
+	}
+	shown := get()
+	if shown.ProdHost != "https://openserverless.dev" {
+		t.Errorf("prod_host = %q", shown.ProdHost)
+	}
+	rows := map[string]EnvVar{}
+	for _, v := range shown.Vars {
+		rows[v.Name] = v
+	}
+	db := rows["DB"]
+	if db.ProdSource != "BILLING__POSTGRESDB" || db.ProdValue != "postgres://billing-prod" || len(db.ProdMatches) != 2 {
+		t.Errorf("DB row = %+v, want both host matches, the billing source and its value", db)
+	}
+	// APPSUITE__REDIS exists only on another host: no production pull-down.
+	if c := rows["CACHE"]; len(c.ProdMatches) != 0 {
+		t.Errorf("CACHE offered another host's variables: %+v", c)
+	}
+
+	var editable []EnvVar
+	for _, v := range shown.Vars {
+		if !v.Readonly {
+			editable = append(editable, v)
+		}
+	}
+	body, _ := json.Marshal(map[string]interface{}{"vars": editable})
+	rec := httptest.NewRecorder()
+	handlePostAppConfig(rec, httptest.NewRequest("POST", "/api/appconfig/demoapp", strings.NewReader(string(body))),
+		"demoapp", filepath.Join(WorkspaceDir, "workspace", "demoapp"))
+	if rec.Code != 200 {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, err := loadWorkspaceConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.Apps["demoapp"].Production["DB"]; got != importRef("BILLING__POSTGRESDB") {
+		t.Errorf("production DB saved as %q, want the reference kept", got)
+	}
+}
