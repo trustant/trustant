@@ -298,6 +298,13 @@ works for its author and nobody else. The same file drives MCP generation and
 - `handlePublishRemote` ([publish.go](../publish.go))
 - `opsLoginForApp` ([shared.go](../shared.go))
 
+`opsLoginForApp` regenerates the workbench env files with the **full**
+`generateAppEnvFiles`, shared values included. It runs when the Share dialog
+opens and twice per launch (producer refresh, then the restore login) before the
+import gate, so a pool-less variant there left `.env` and `.env.production`
+stripped of every import whenever the launch stopped at the popup or the dialog
+was opened — nothing on those paths regenerates afterwards.
+
 A missing file is success. Cleaning only the share path would leave launch
 repolluting the file for everything else that reads it.
 

@@ -212,7 +212,7 @@ when nothing is staged, never pushes.
 ## What was removed
 
 - `writeEnvDistFile` / `appEnvVarNames` — the generator, and the `.env.dist`
-  write inside `generateAppEnvFilesWith`.
+  write inside `generateAppEnvFiles`.
 - `seedMissingEnvKeys` — it seeded unresolved names into the config as blank rows
   so the env editor would show them. Blank rows are now illegal there, and
   unresolved names live in the Import tab.

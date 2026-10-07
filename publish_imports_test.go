@@ -254,6 +254,45 @@ func TestProductionEnvGetsResolvedImportsNeverReferences(t *testing.T) {
 	}
 }
 
+// The ops login behind the Share dialog and the launch's pool refresh rewrites
+// the env files; it must keep the shared values, or .env and .env.production
+// are left stripped of every import (the launch gate and the dialog both stop
+// before anything regenerates them).
+func TestOpsLoginKeepsSharedValuesInEnvFiles(t *testing.T) {
+	cfg := productionTestConfig(
+		map[string]string{"CHOSEN": importRef("BILLING__POSTGRESDB")},
+		map[string]string{
+			"OPS_APIHOST": "openserverless.dev",
+			"PICKED":      importRef("APPSUITE__POSTGRESDB"),
+		},
+	)
+	cfg.PredefinedEnv = map[string]string{"BILLING__POSTGRESDB": "postgres://billing-dev"}
+	wb := setupProductionApp(t, cfg, "")
+
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "ops"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake ops: %s", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+
+	if err := opsLoginForApp("demoapp", false); err != nil {
+		t.Fatalf("opsLoginForApp: %s", err)
+	}
+	for file, want := range map[string]string{
+		".env":            "CHOSEN=postgres://billing-dev",
+		".env.production": "PICKED=postgres://appsuite-prod",
+	} {
+		body, err := os.ReadFile(filepath.Join(wb, file))
+		if err != nil {
+			t.Fatalf("read %s: %s", file, err)
+		}
+		if !strings.Contains(string(body), want) {
+			t.Errorf("%s lost its shared value %q:\n%s", file, want, body)
+		}
+	}
+}
+
 // --- the publish gate -----------------------------------------------------
 
 func TestPublishGateReturnsPendingImportsBeforeAnyOps(t *testing.T) {

@@ -2788,17 +2788,6 @@ func isEnvDistFixedKey(name string) bool {
 // workbench directory, filling any declared-but-empty variable from the shared
 // pool (see shared.go).
 func generateAppEnvFiles(appName string) error {
-	return generateAppEnvFilesWith(appName, true)
-}
-
-// generateAppEnvFilesNoShared is the same without the pool fill. opsLoginForApp
-// calls this: the login it is preparing is what resolves the pool in the first
-// place, so filling from it there would be circular.
-func generateAppEnvFilesNoShared(appName string) error {
-	return generateAppEnvFilesWith(appName, false)
-}
-
-func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return err
@@ -2845,9 +2834,6 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		// than a copy frozen in the config (spec/19-import.md). The reference
 		// itself is never written to .env — the app gets the value.
 		if src, isRef := importRefTarget(v); isRef {
-			if !useSharedPool {
-				continue
-			}
 			if shared, ok := cfg.PredefinedEnv[src]; ok && strings.TrimSpace(shared) != "" {
 				devVars[k] = shared
 			}
@@ -2855,7 +2841,7 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		}
 		// Empty-only: a value the user typed always wins, and the pool is never
 		// a source of variables the app does not already declare.
-		if useSharedPool && strings.TrimSpace(v) == "" {
+		if strings.TrimSpace(v) == "" {
 			if shared, ok := cfg.PredefinedEnv[k]; ok && strings.TrimSpace(shared) != "" {
 				v = shared
 			}
@@ -2866,18 +2852,16 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	// Imports declared in .env.dist are variables too: they are not in the config
 	// until the popup resolves them, but an unambiguous one needs no decision and
 	// must reach .env all the same.
-	if useSharedPool {
-		for _, b := range readAppEnvDistBindings(appName) {
-			if _, ok := devVars[b.Name]; ok {
-				continue
-			}
-			if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
-				continue
-			}
-			res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
-			if res.fillable() {
-				devVars[b.Name] = res.Value
-			}
+	for _, b := range readAppEnvDistBindings(appName) {
+		if _, ok := devVars[b.Name]; ok {
+			continue
+		}
+		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
+			continue
+		}
+		res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
+		if res.fillable() {
+			devVars[b.Name] = res.Value
 		}
 	}
 
@@ -2886,10 +2870,7 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	// Production values come from the pool of the app's OWN target host: the
 	// same name on another cluster is a different secret.
 	prodHost := appCfg.Production["OPS_APIHOST"]
-	prodPool := map[string]string{}
-	if useSharedPool {
-		prodPool = productionPool(cfg, prodHost)
-	}
+	prodPool := productionPool(cfg, prodHost)
 	for k, v := range appCfg.Production {
 		if isServiceRuntimeEnvKey(k) {
 			continue
@@ -2912,7 +2893,7 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 
 	// Imports reach production too: .env.dist bindings and development ${{ref}}
 	// choices, resolved against the target host's pool (spec/19-import.md).
-	if useSharedPool && sharedHostKey(prodHost) != "" {
+	if sharedHostKey(prodHost) != "" {
 		for _, res := range resolveProductionImportsFrom(cfg, appName, prodHost) {
 			if v, set := prodVars[res.Name]; set && strings.TrimSpace(v) != "" {
 				continue

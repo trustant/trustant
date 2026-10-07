@@ -270,7 +270,10 @@ func lookupOpsPath(tree map[string]interface{}, path string) (string, bool) {
 
 // opsLoginForApp logs in as one app. generateAppEnvFiles writes the
 // OPS_APIHOST/OPS_USER/OPS_PASSWORD the command reads from the workbench .env,
-// exactly as the launch and publish paths do.
+// exactly as the launch and publish paths do. It is the full generator, shared
+// values included: the files it writes are the ones the app keeps, and the
+// Share dialog and every launch run this, so a pool-less variant here left
+// .env and .env.production stripped of their imports.
 //
 // Callers must hold the runtime lifecycle lock: this rewrites the single global
 // ~/.ops/config.json, so running it while another app's launch is mid-flight
@@ -283,7 +286,7 @@ func opsLoginForApp(app string, production bool) error {
 	if _, err := os.Stat(workbenchPath); err != nil {
 		return fmt.Errorf("no workbench for %s", app)
 	}
-	if err := generateAppEnvFilesNoShared(app); err != nil {
+	if err := generateAppEnvFiles(app); err != nil {
 		return fmt.Errorf("generate env for %s: %w", app, err)
 	}
 	removeOpsConfig()
