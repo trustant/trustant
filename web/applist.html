@@ -1874,6 +1874,7 @@
                     showPublishResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
                     showPublishResult(data.message || data.output || 'Published successfully', 'success');
+                    loadApps(); // show the new production link on the card
                 }
             } catch (error) {
                 showPublishResult('Failed: ' + error.message, 'error');
@@ -1943,6 +1944,7 @@
                     showPublishResult(data.error + (data.output ? '\n' + data.output : ''), 'error');
                 } else {
                     showPublishResult(data.message || data.output || 'Published successfully', 'success');
+                    loadApps(); // show the new production link on the card
                 }
             } catch (error) {
                 showPublishResult('Failed: ' + error.message, 'error');

@@ -517,7 +517,8 @@ Once configured, the backend ensures the workbench exists (clones from workspace
 
 If `needs_config` was not returned (already configured), skip the form and show the result directly.
 
-Show spinner during the operation and result on completion.
+Show spinner during the operation and result on completion. On success, reload
+the app list so the card shows the new production link.
 
 # Undeploy
 
