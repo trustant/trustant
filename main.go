@@ -145,6 +145,7 @@ func main() {
 	http.HandleFunc("/api/clean", handleClean)
 	http.HandleFunc("/api/activations/poll", handleActivationPoll)
 	http.HandleFunc("/api/license", handleLicense)
+	http.HandleFunc("/api/legal/", handleLegal)
 	http.HandleFunc("/api/credits", handleCredits)
 	http.HandleFunc("/api/topup", handleTopUp)
 	auth.registerRoutes(http.DefaultServeMux)

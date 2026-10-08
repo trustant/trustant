@@ -1,0 +1,15 @@
+Ubuntu / Debian per-package licensing
+
+The Ubuntu 24.04 base system is a collection of independently licensed
+packages, mostly under the GPL, LGPL, BSD, MIT and similar free software
+licenses. Every installed package ships its full copyright and license
+statement as a machine-readable Debian copyright file at
+
+    /usr/share/doc/<package>/copyright
+
+inside the container image (or the WSL2/Lima Ubuntu guest). Those files are
+the authoritative license texts for the packages. Corresponding sources are
+available from the Ubuntu archive with `apt-get source <package>` or at
+https://launchpad.net/ubuntu.
+
+Ubuntu is a registered trademark of Canonical Ltd.

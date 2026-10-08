@@ -1,0 +1,6 @@
+Public Domain
+
+Parts of the component are dedicated to the public domain by their authors:
+they carry no copyright and no license conditions apply to them. The exact
+files concerned, and the authors' statements, are listed in the component's
+own license file (reproduced in NOTICE).

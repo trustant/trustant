@@ -170,6 +170,7 @@ case "$MODE" in
     env GOOS=linux GOARCH=amd64 go build -o image/bin/trustant-amd64
     env GOOS=linux GOARCH=arm64 go build -o image/bin/trustant-arm64
     cp -v trustant.json image/trustant.json
+cp -v LICENSE NOTICE DEPS image/
 
     image/image.sh "$TAG" --push
     exit 0
@@ -199,6 +200,7 @@ mkdir -p image/bin
 # Host arch only: a single-arch local image never uses the other binary.
 env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustant-$ARCH"
 cp -v trustant.json image/trustant.json
+cp -v LICENSE NOTICE DEPS image/
 
 image/image.sh "$TAG"
 

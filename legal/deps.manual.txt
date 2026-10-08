@@ -1,0 +1,214 @@
+# Hand-maintained part of DEPS. deps.sh merges it with what it reads from
+# go.mod, the npm lockfiles, acp/pi.version, acp/extensions/requirements.txt
+# and oplugins/prereq.yml, then regenerates DEPS, LICENSE and NOTICE.
+#
+# One component per line, `|`-separated:
+#
+#   section | name | version | license (SPDX expression) | homepage | fetch
+#
+# version `*` means "take the version from the pinned source for that section"
+# (go.mod for `go`, requirements.txt for `python`, prereq.yml for `prereq`); deps.sh fails when
+# it cannot find one.
+#
+# fetch tells deps.sh where to read the component's own LICENSE/NOTICE files,
+# from which NOTICE is built (`{v}` is replaced by the version):
+#   npm:<spec>              npm pack of that spec
+#   pypi:<name>==<version>  wheel/sdist from PyPI
+#   path:<dir>              a directory in this repo
+#   url:<url>[,<url>...]    raw files (LICENSE, NOTICE, ...)
+#   -                       nothing to fetch (see the section note in DEPS)
+#
+# LicenseRef-* identifiers need a text in legal/licenses/<id>.txt.
+
+# --- 1. Go binary (modules are read from go.mod) ---------------------------
+go | Go standard library and runtime | * | BSD-3-Clause | https://go.dev | url:https://raw.githubusercontent.com/golang/go/go{v}/LICENSE
+
+# --- 2. Frontend assets vendored in web/ ------------------------------------
+web | @tailwindcss/browser (web/tailwind.js) | 4.1.18 | MIT | https://github.com/tailwindlabs/tailwindcss | npm:@tailwindcss/browser@4.1.18
+web | marked (web/js/marked.min.js) | 15.0.12 | MIT | https://github.com/markedjs/marked | npm:marked@15.0.12
+web | codejar (web/js/codejar.min.js) | 4.2.0 | MIT | https://github.com/antonmedv/codejar | npm:codejar@4.2.0
+web | @xterm/xterm (web/js/xterm.min.js, xterm.css) | 6.0.0 | MIT | https://github.com/xtermjs/xterm.js | npm:@xterm/xterm@6.0.0
+web | @xterm/addon-fit (web/js/xterm-addon-fit.min.js) | 0.11.0 | MIT | https://github.com/xtermjs/xterm.js | npm:@xterm/addon-fit@0.11.0
+
+# --- 3. Git submodules ------------------------------------------------------
+submodule | acp (TruACP) | main | AGPL-3.0-or-later | https://github.com/trustant/trustant-acp | path:acp
+submodule | oplugins-truinst | main | AGPL-3.0-or-later | https://github.com/trustant/oplugins-truinst | path:oplugins-truinst
+submodule | oplugins (openserverless-task) | 0.9.0 | Apache-2.0 | https://github.com/trustable-ai/openserverless-task | path:oplugins
+submodule | mcp (openserverless-mcp) | main | Apache-2.0 | https://github.com/trustant/openserverless-mcp | path:mcp
+submodule | skills | main | Apache-2.0 | https://github.com/trustable-ai/skills | path:skills
+submodule | pi-acp (fork, nested in acp/pi-acp) | 0.0.31-trustant.1 | MIT | https://github.com/trustable-ai/pi-acp | path:acp/pi-acp
+submodule | packages (openserverless-packages) | main | Apache-2.0 | https://github.com/trustant/openserverless-packages | path:packages
+
+# --- 5. Container image: Ubuntu 24.04 packages ------------------------------
+apt | ubuntu:24.04 base image | 24.04 | LicenseRef-Debian-Copyright | https://ubuntu.com | -
+apt | git | distro | GPL-2.0-only | https://git-scm.com | -
+apt | sudo | distro | ISC | https://www.sudo.ws | -
+apt | curl | distro | curl | https://curl.se | -
+apt | jq | distro | MIT | https://jqlang.github.io/jq | -
+apt | less | distro | GPL-3.0-or-later OR BSD-2-Clause | https://www.greenwoodsoftware.com/less | -
+apt | vim | distro | Vim | https://www.vim.org | -
+apt | lsof | distro | LicenseRef-lsof | https://github.com/lsof-org/lsof | -
+apt | tini | distro | MIT | https://github.com/krallin/tini | -
+apt | openssh-server | distro | SSH-OpenSSH | https://www.openssh.com | -
+apt | supervisor | distro | LicenseRef-supervisor | http://supervisord.org | -
+apt | iputils-ping | distro | BSD-3-Clause AND GPL-2.0-or-later | https://github.com/iputils/iputils | -
+apt | inetutils-telnet | distro | GPL-3.0-or-later | https://www.gnu.org/software/inetutils | -
+apt | ripgrep | distro | MIT OR Unlicense | https://github.com/BurntSushi/ripgrep | -
+apt | python3, python-is-python3 | distro | PSF-2.0 | https://www.python.org | -
+apt | python3-pip | distro | MIT | https://pip.pypa.io | -
+apt | python3-pytest | distro | MIT | https://pytest.org | -
+apt | python3-dotenv | distro | BSD-3-Clause | https://github.com/theskumar/python-dotenv | -
+apt | postgresql-client-16 | distro | PostgreSQL | https://www.postgresql.org | -
+apt | redis-tools | distro | BSD-3-Clause | https://redis.io | -
+apt | rclone | distro | MIT | https://rclone.org | -
+apt | locales | distro | LGPL-2.1-or-later | https://www.gnu.org/software/libc | -
+apt | libatomic1 | distro | GPL-3.0-or-later WITH GCC-exception-3.1 | https://gcc.gnu.org | -
+apt | ca-certificates | distro | MPL-2.0 | https://salsa.debian.org/debian/ca-certificates | -
+apt | zstd (build stage only) | distro | BSD-3-Clause OR GPL-2.0-only | https://github.com/facebook/zstd | -
+
+# --- 6. Container image: downloaded binaries and runtimes -------------------
+binary | Node.js (NodeSource) | 24.x | MIT | https://nodejs.org | url:https://raw.githubusercontent.com/nodejs/node/v24.x/LICENSE
+binary | ollama | 0.32.14 | MIT | https://github.com/ollama/ollama | url:https://raw.githubusercontent.com/ollama/ollama/v{v}/LICENSE
+binary | gh (GitHub CLI) | 2.96.0 | MIT | https://github.com/cli/cli | url:https://raw.githubusercontent.com/cli/cli/v{v}/LICENSE
+binary | uv (/usr/bin/uv) | latest | Apache-2.0 OR MIT | https://github.com/astral-sh/uv | url:https://raw.githubusercontent.com/astral-sh/uv/main/LICENSE-MIT,https://raw.githubusercontent.com/astral-sh/uv/main/LICENSE-APACHE
+binary | ops (OpenServerless CLI) | latest | Apache-2.0 | https://github.com/apache/openserverless-cli | url:https://raw.githubusercontent.com/apache/openserverless-cli/main/LICENSE,https://raw.githubusercontent.com/apache/openserverless-cli/main/NOTICE
+binary | mcp-s3 | 1.3.0 | Apache-2.0 | https://github.com/txn2/mcp-s3 | url:https://raw.githubusercontent.com/txn2/mcp-s3/v{v}/LICENSE
+
+# --- 7. ops prerequisites (oplugins/prereq.yml, downloaded by `ops`) --------
+prereq | 7zz (7-Zip) | * | LGPL-2.1-or-later AND BSD-3-Clause AND LicenseRef-unRAR | https://www.7-zip.org | url:https://www.7-zip.org/license.txt
+prereq | coreutils (uutils) | * | MIT | https://github.com/uutils/coreutils | url:https://raw.githubusercontent.com/uutils/coreutils/{v}/LICENSE
+prereq | bun | * | MIT | https://github.com/oven-sh/bun | url:https://raw.githubusercontent.com/oven-sh/bun/bun-v{v}/LICENSE.md
+prereq | kubectl | * | Apache-2.0 | https://github.com/kubernetes/kubernetes | url:https://raw.githubusercontent.com/kubernetes/kubernetes/v{v}/LICENSE
+prereq | kind | * | Apache-2.0 | https://github.com/kubernetes-sigs/kind | url:https://raw.githubusercontent.com/kubernetes-sigs/kind/v{v}/LICENSE
+prereq | k3sup | * | MIT | https://github.com/alexellis/k3sup | url:https://raw.githubusercontent.com/alexellis/k3sup/{v}/LICENSE
+prereq | rg (ripgrep) | * | MIT OR Unlicense | https://github.com/BurntSushi/ripgrep | url:https://raw.githubusercontent.com/BurntSushi/ripgrep/{v}/LICENSE-MIT,https://raw.githubusercontent.com/BurntSushi/ripgrep/{v}/UNLICENSE
+prereq | uv | * | Apache-2.0 OR MIT | https://github.com/astral-sh/uv | url:https://raw.githubusercontent.com/astral-sh/uv/{v}/LICENSE-MIT
+prereq | yq | * | MIT | https://github.com/mikefarah/yq | url:https://raw.githubusercontent.com/mikefarah/yq/v{v}/LICENSE
+prereq | helm | * | Apache-2.0 | https://github.com/helm/helm | url:https://raw.githubusercontent.com/helm/helm/v{v}/LICENSE
+prereq | zip (Windows only) | * | Info-ZIP | https://infozip.sourceforge.net | -
+
+# --- 8. Container image: global npm installs (top-level package only) -------
+# pi.version entries are added automatically; these come from image/Dockerfile.
+npmglobal | typescript | latest | Apache-2.0 | https://github.com/microsoft/TypeScript | npm:typescript
+npmglobal | typescript-language-server | latest | Apache-2.0 | https://github.com/typescript-language-server/typescript-language-server | npm:typescript-language-server
+npmglobal | tsx | latest | MIT | https://github.com/privatenumber/tsx | npm:tsx
+npmglobal | mongodb-mcp-server | 1.9.0 | Apache-2.0 | https://github.com/mongodb-js/mongodb-mcp-server | npm:mongodb-mcp-server@1.9.0
+
+# pi.version packages whose npm tarball has no LICENSE file: the version comes
+# from pi.version (`*`), these lines only say where the license lives.
+npmglobal | @earendil-works/pi-ai | * | MIT | https://github.com/earendil-works/pi | url:https://raw.githubusercontent.com/earendil-works/pi/v{v}/LICENSE
+npmglobal | @earendil-works/pi-tui | * | MIT | https://github.com/earendil-works/pi | url:https://raw.githubusercontent.com/earendil-works/pi/v{v}/LICENSE
+npmglobal | @earendil-works/pi-agent-core | * | MIT | https://github.com/earendil-works/pi | url:https://raw.githubusercontent.com/earendil-works/pi/v{v}/LICENSE
+npmglobal | @earendil-works/pi-storage-sqlite-node | * | MIT | https://github.com/earendil-works/pi | url:https://raw.githubusercontent.com/earendil-works/pi/v{v}/LICENSE
+npmglobal | @earendil-works/pi-coding-agent | * | MIT | https://github.com/earendil-works/pi | url:https://raw.githubusercontent.com/earendil-works/pi/v{v}/LICENSE
+npmglobal | @openai/codex | * | Apache-2.0 | https://github.com/openai/codex | url:https://raw.githubusercontent.com/openai/codex/rust-v{v}/LICENSE,https://raw.githubusercontent.com/openai/codex/rust-v{v}/NOTICE
+
+# --- 9. Container image: Python tools (uv tool install) ---------------------
+pytool | milvus-cli | 1.2.1 | Apache-2.0 | https://github.com/zilliztech/milvus_cli | pypi:milvus-cli==1.2.1
+pytool | python-lsp-server | latest | MIT | https://github.com/python-lsp/python-lsp-server | pypi:python-lsp-server
+pytool | yapf | latest | Apache-2.0 | https://github.com/google/yapf | pypi:yapf
+pytool | postgres-mcp | 0.3.0 | MIT | https://github.com/crystaldba/postgres-mcp | pypi:postgres-mcp==0.3.0
+pytool | redis-mcp-server | 0.5.0 | MIT | https://github.com/redis/mcp-redis | url:https://raw.githubusercontent.com/redis/mcp-redis/main/LICENSE
+pytool | mcp-server-milvus (fork, a7e624f) | a7e624f | Apache-2.0 | https://github.com/trustable-ai/mcp-server-milvus | url:https://raw.githubusercontent.com/trustable-ai/mcp-server-milvus/a7e624f3057a0d739528bca3ed92504943224ceb/LICENSE
+pytool | mcp (Python MCP SDK, <2) | 1.x | MIT | https://github.com/modelcontextprotocol/python-sdk | pypi:mcp<2
+
+# --- 10. Python packages for user apps (acp/extensions/requirements.txt) ----
+# Versions come from requirements.txt; deps.sh fails on a package missing here.
+python | annotated-types | * | MIT | https://pypi.org/project/annotated-types | pypi
+python | anyio | * | MIT | https://pypi.org/project/anyio | pypi
+python | argon2-cffi | * | MIT | https://pypi.org/project/argon2-cffi | pypi
+python | argon2-cffi-bindings | * | MIT | https://pypi.org/project/argon2-cffi-bindings | pypi
+python | asn1crypto | * | MIT | https://pypi.org/project/asn1crypto | pypi
+python | bcrypt | * | Apache-2.0 | https://pypi.org/project/bcrypt | pypi
+python | beautifulsoup4 | * | MIT | https://pypi.org/project/beautifulsoup4 | pypi
+python | boto3 | * | Apache-2.0 | https://pypi.org/project/boto3 | pypi
+python | botocore | * | Apache-2.0 | https://pypi.org/project/botocore | pypi
+python | cachetools | * | MIT | https://pypi.org/project/cachetools | pypi
+python | certifi | * | MPL-2.0 | https://pypi.org/project/certifi | pypi
+python | cffi | * | MIT-0 | https://pypi.org/project/cffi | pypi
+python | charset-normalizer | * | MIT | https://pypi.org/project/charset-normalizer | pypi
+python | click | * | BSD-3-Clause | https://pypi.org/project/click | pypi
+python | cloudpickle | * | BSD-3-Clause | https://pypi.org/project/cloudpickle | pypi
+python | defusedxml | * | PSF-2.0 | https://pypi.org/project/defusedxml | pypi
+python | distro | * | Apache-2.0 | https://pypi.org/project/distro | pypi
+python | dnspython | * | ISC | https://pypi.org/project/dnspython | pypi
+python | feedparser | * | BSD-2-Clause | https://pypi.org/project/feedparser | pypi
+python | feedparser-sgmllib | * | PSF-2.0 | https://pypi.org/project/feedparser-sgmllib | pypi
+python | grpcio | * | Apache-2.0 | https://pypi.org/project/grpcio | pypi
+python | h11 | * | MIT | https://pypi.org/project/h11 | pypi
+python | httpcore | * | BSD-3-Clause | https://pypi.org/project/httpcore | pypi
+python | httpcore2 | * | BSD-3-Clause | https://pypi.org/project/httpcore2 | pypi
+python | httplib2 | * | MIT | https://pypi.org/project/httplib2 | pypi
+python | httpx | * | BSD-3-Clause | https://pypi.org/project/httpx | pypi
+python | httpx2 | * | BSD-3-Clause | https://pypi.org/project/httpx2 | pypi
+python | idna | * | BSD-3-Clause | https://pypi.org/project/idna | pypi
+python | jiter | * | MIT | https://pypi.org/project/jiter | pypi
+python | jmespath | * | MIT | https://pypi.org/project/jmespath | pypi
+python | joblib | * | BSD-3-Clause | https://pypi.org/project/joblib | pypi
+python | jsonpatch | * | BSD-3-Clause | https://pypi.org/project/jsonpatch | pypi
+python | jsonpointer | * | BSD-3-Clause | https://pypi.org/project/jsonpointer | pypi
+python | kafka-python | * | Apache-2.0 | https://pypi.org/project/kafka-python | pypi
+python | langchain | * | MIT | https://pypi.org/project/langchain | pypi
+python | langchain-core | * | MIT | https://pypi.org/project/langchain-core | pypi
+python | langchain-protocol | * | MIT | https://pypi.org/project/langchain-protocol | pypi
+python | langdetect | * | Apache-2.0 | https://pypi.org/project/langdetect | pypi
+python | langgraph | * | MIT | https://pypi.org/project/langgraph | pypi
+python | langgraph-checkpoint | * | MIT | https://pypi.org/project/langgraph-checkpoint | pypi
+python | langgraph-prebuilt | * | MIT | https://pypi.org/project/langgraph-prebuilt | pypi
+python | langgraph-sdk | * | MIT | https://pypi.org/project/langgraph-sdk | pypi
+python | langsmith | * | MIT | https://pypi.org/project/langsmith | url:https://raw.githubusercontent.com/langchain-ai/langsmith-sdk/v{v}/LICENSE
+python | minio | * | Apache-2.0 | https://pypi.org/project/minio | pypi
+python | narwhals | * | MIT | https://pypi.org/project/narwhals | pypi
+python | nltk | * | Apache-2.0 | https://pypi.org/project/nltk | pypi
+python | numpy | * | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | https://pypi.org/project/numpy | pypi
+python | ollama | * | MIT | https://pypi.org/project/ollama | pypi
+python | openai | * | Apache-2.0 | https://pypi.org/project/openai | pypi
+python | orjson | * | MPL-2.0 AND (Apache-2.0 OR MIT) | https://pypi.org/project/orjson | pypi
+python | ormsgpack | * | Apache-2.0 OR MIT | https://pypi.org/project/ormsgpack | pypi
+python | packaging | * | Apache-2.0 OR BSD-2-Clause | https://pypi.org/project/packaging | pypi
+python | pandas | * | BSD-3-Clause | https://pypi.org/project/pandas | pypi
+python | pg8000 | * | BSD-3-Clause | https://pypi.org/project/pg8000 | pypi
+python | plotly | * | MIT | https://pypi.org/project/plotly | pypi
+python | protobuf | * | BSD-3-Clause | https://pypi.org/project/protobuf | pypi
+python | psycopg | * | LGPL-3.0-only | https://pypi.org/project/psycopg | pypi
+python | psycopg-binary | * | LGPL-3.0-only | https://pypi.org/project/psycopg-binary | pypi
+python | pycparser | * | BSD-3-Clause | https://pypi.org/project/pycparser | pypi
+python | pycryptodome | * | BSD-2-Clause AND LicenseRef-Public-Domain | https://pypi.org/project/pycryptodome | pypi
+python | pydantic | * | MIT | https://pypi.org/project/pydantic | pypi
+python | pydantic-core | * | MIT | https://pypi.org/project/pydantic-core | pypi
+python | pymilvus | * | Apache-2.0 | https://pypi.org/project/pymilvus | pypi
+python | pymongo | * | Apache-2.0 | https://pypi.org/project/pymongo | pypi
+python | pyparsing | * | MIT | https://pypi.org/project/pyparsing | pypi
+python | python-dateutil | * | Apache-2.0 AND BSD-3-Clause | https://pypi.org/project/python-dateutil | pypi
+python | python-dotenv | * | BSD-3-Clause | https://pypi.org/project/python-dotenv | pypi
+python | pyyaml | * | MIT | https://pypi.org/project/pyyaml | pypi
+python | redis | * | MIT | https://pypi.org/project/redis | pypi
+python | regex | * | Apache-2.0 AND CNRI-Python | https://pypi.org/project/regex | pypi
+python | requests | * | Apache-2.0 | https://pypi.org/project/requests | pypi
+python | requests-toolbelt | * | Apache-2.0 | https://pypi.org/project/requests-toolbelt | pypi
+python | s3transfer | * | Apache-2.0 | https://pypi.org/project/s3transfer | pypi
+python | scramp | * | MIT-0 | https://pypi.org/project/scramp | pypi
+python | six | * | MIT | https://pypi.org/project/six | pypi
+python | sniffio | * | MIT OR Apache-2.0 | https://pypi.org/project/sniffio | pypi
+python | soupsieve | * | MIT | https://pypi.org/project/soupsieve | pypi
+python | tenacity | * | Apache-2.0 | https://pypi.org/project/tenacity | pypi
+python | tqdm | * | MPL-2.0 AND MIT | https://pypi.org/project/tqdm | pypi
+python | truststore | * | MIT | https://pypi.org/project/truststore | pypi
+python | typing-extensions | * | PSF-2.0 | https://pypi.org/project/typing-extensions | pypi
+python | typing-inspection | * | MIT | https://pypi.org/project/typing-inspection | pypi
+python | urllib3 | * | MIT | https://pypi.org/project/urllib3 | pypi
+python | uuid-utils | * | BSD-3-Clause | https://pypi.org/project/uuid-utils | pypi
+python | websockets | * | BSD-3-Clause | https://pypi.org/project/websockets | pypi
+python | xxhash | * | BSD-2-Clause | https://pypi.org/project/xxhash | pypi
+python | zstandard | * | BSD-3-Clause | https://pypi.org/project/zstandard | pypi
+
+# --- 11. Development environment only (not distributed) ---------------------
+dev | Lima | latest | Apache-2.0 | https://github.com/lima-vm/lima | -
+dev | k3s | via ops | Apache-2.0 | https://github.com/k3s-io/k3s | -
+dev | kubefwd | 1.25.16 | Apache-2.0 | https://github.com/txn2/kubefwd | -
+dev | air | latest | GPL-3.0-only | https://github.com/air-verse/air | -
+dev | g (Go version manager) | latest | MIT | https://github.com/voidint/g | -
+dev | license-eye (skywalking-eyes) | 0.8.0 | Apache-2.0 | https://github.com/apache/skywalking-eyes | -
+dev | ffmpeg (screenshot.sh) | distro | LGPL-2.1-or-later AND GPL-2.0-or-later | https://ffmpeg.org | -
+dev | @playwright/test (e2e tests) | 1.56.1 | Apache-2.0 | https://github.com/microsoft/playwright | -
+dev | WSL2 / Ubuntu-24.04 distro (Windows) | - | LicenseRef-Debian-Copyright | https://ubuntu.com | -
