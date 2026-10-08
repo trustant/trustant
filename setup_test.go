@@ -166,6 +166,33 @@ func TestSetupChecksUpstreamPiBeforeNestedACPBuild(t *testing.T) {
 	}
 }
 
+// Claude Code is proprietary: neither setup.sh nor the image (which installs
+// acp/pi.version too) may install it. TruACP installs it on demand after the
+// user accepts Anthropic's terms.
+func TestSetupNeverInstallsClaudeCode(t *testing.T) {
+	versions, err := os.ReadFile(filepath.Join("acp", "pi.version"))
+	if err != nil {
+		t.Fatalf("read acp/pi.version: %s", err)
+	}
+	for _, line := range strings.Split(string(versions), "\n") {
+		spec := line
+		if i := strings.Index(spec, "#"); i >= 0 {
+			spec = spec[:i]
+		}
+		spec = strings.TrimSpace(spec)
+		if strings.HasPrefix(spec, "@anthropic-ai/") || strings.Contains(spec, "claude-agent-acp") {
+			t.Fatalf("acp/pi.version must not install Claude Code: %q", spec)
+		}
+	}
+	setup, err := os.ReadFile("setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	if strings.Contains(string(setup), "command -v claude") {
+		t.Fatal("setup.sh must not require the claude CLI")
+	}
+}
+
 // Ubuntu's stock ~/.bashrc returns early for non-interactive shells, so a PATH
 // line appended only there never runs under `bash -lc`. ~/.profile is what
 // actually carries the toolchain into a login shell.
