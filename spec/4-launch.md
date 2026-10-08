@@ -823,6 +823,12 @@ or inconsistent inputs abort launch; these values must never enter generated
 application env files or maps. Standalone TruACP does not receive this managed
 contract.
 
+Launch also sets `TRUACP_CLAUDE_PREFIX=$WORKSPACE_DIR/.trustant/agents/claude`.
+Claude Code is proprietary and is **not** in the image or installed by
+`setup.sh`; TruACP installs it there on demand, from npm, only after the user
+accepts Anthropic's Commercial Terms (see `acp/SPEC.md` §10d). The prefix is on
+the persistent workspace volume so the install survives a pod restart.
+
 The same private process boundary carries
 `NOTEBOOK_GITHUB_REPOSITORY`, `NOTEBOOK_GITHUB_REF`, and
 `NOTEBOOK_GITHUB_TOKEN`. Repository/ref come from the global Trustant

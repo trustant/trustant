@@ -1561,6 +1561,10 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		"TRUSTANT_RUNTIME_CONFIG=" + runtimeManifestPath,
 		"TRUSTANT_PI_EXTENSION_PATH=" + extensionPath,
 		"PI_SKIP_VERSION_CHECK=1",
+		// Claude Code is not shipped in the image; TruACP installs it on demand
+		// once the user accepts Anthropic's terms. Put that install on the
+		// persistent workspace volume so it survives a pod restart.
+		"TRUACP_CLAUDE_PREFIX=" + stateDir("agents", "claude"),
 	}
 	managedEnv = append(managedEnv, notebookEnv...)
 	truacpCmd.Env = appendEnvironmentOverrides(truacpCmd.Env, managedEnv...)

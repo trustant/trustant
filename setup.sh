@@ -528,10 +528,11 @@ done
   || fail "npm install of the pi toolchain failed"
 
 hash -r
-# pi.version pins the upstream Pi CLI together with the other managed agent
-# CLIs, so all three commands must exist before setup proceeds to MCP tooling.
+# pi.version pins the upstream Pi CLI together with the Codex CLI, so both
+# commands must exist before setup proceeds to MCP tooling. Claude Code is
+# deliberately absent: it is proprietary, so TruACP installs it on demand after
+# the user accepts Anthropic's terms (acp/server/claude-install.ts).
 command -v pi &>/dev/null || fail "pi not on PATH after install (expected $NPM_GLOBAL_BIN/pi)"
-command -v claude &>/dev/null || fail "claude not on PATH after install (expected $NPM_GLOBAL_BIN/claude)"
 command -v codex &>/dev/null || fail "codex not on PATH after install (expected $NPM_GLOBAL_BIN/codex)"
 ok "pi toolchain installed (${#PI_PACKAGES[@]} pinned packages)"
 
@@ -690,7 +691,7 @@ ok "truacp installed ($(command -v truacp))"
 #
 # WHY both files: Ubuntu's stock ~/.bashrc returns early for non-interactive
 # shells, so a PATH line appended there is dead code under `bash -lc` (and under
-# `ssh <host> <cmd>`) — that is how `pi`/`claude`/`codex` end up "installed but
+# `ssh <host> <cmd>`) — that is how `pi`/`codex` end up "installed but
 # not found". ~/.profile is read by login shells regardless of interactivity, so
 # it is the file that actually carries the toolchain. ~/.bashrc keeps the same
 # ordering for interactive non-login shells, which never source ~/.profile.
