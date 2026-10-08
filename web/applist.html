@@ -141,6 +141,31 @@
             <span id="expireText"></span>
             <span id="taskText"></span>
         </p>
+        <footer class="text-sm text-center mt-1 mb-6">
+            <a href="#" id="legalLink" onclick="showLegalModal(); return false;" title="Third-party components, notices and licenses"
+                class="text-[color:var(--nu-muted)] underline hover:text-[color:var(--nu-ink)]">License</a>
+        </footer>
+    </div>
+
+    <!-- License Modal: DEPS / NOTICE / LICENSE embedded in the binary (spec/20-legal.md) -->
+    <div id="legalModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50"
+        onclick="if (event.target === this) hideLegalModal()">
+        <div class="nu-modal p-6 w-full max-w-5xl mx-4 flex flex-col" style="height: 85vh;">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <h3 class="text-lg font-medium">Licenses</h3>
+                <div class="inline-flex rounded border border-[color:var(--nu-rule)] overflow-hidden bg-white" role="tablist">
+                    <button type="button" role="tab" data-legal-tab="deps" onclick="showLegalTab('deps')"
+                        title="Third-party components and their licenses" class="nu-segment-btn">DEPS</button>
+                    <button type="button" role="tab" data-legal-tab="notice" onclick="showLegalTab('notice')"
+                        title="Copyright statements and NOTICE files" class="nu-segment-btn">NOTICE</button>
+                    <button type="button" role="tab" data-legal-tab="license" onclick="showLegalTab('license')"
+                        title="Full license texts" class="nu-segment-btn">LICENSE</button>
+                </div>
+                <button type="button" onclick="hideLegalModal()" title="Close" aria-label="Close"
+                    class="nu-btn nu-btn-secondary">&#x2715;</button>
+            </div>
+            <pre id="legalText" class="nu-code flex-1 overflow-auto p-3 text-xs whitespace-pre-wrap break-words">Loading...</pre>
+        </div>
     </div>
 
     <!-- Add Application Modal -->
@@ -1420,6 +1445,54 @@
                 if (ssh) ssh.classList.add('hidden');
             }
         }
+
+        // License modal: lazily fetches each embedded text once (see spec/20-legal.md).
+        const legalCache = {};
+        let legalTab = 'deps';
+
+        function showLegalModal() {
+            const modal = document.getElementById('legalModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            showLegalTab(legalTab);
+        }
+
+        function hideLegalModal() {
+            const modal = document.getElementById('legalModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function showLegalTab(name) {
+            legalTab = name;
+            document.querySelectorAll('[data-legal-tab]').forEach(btn => {
+                const active = btn.dataset.legalTab === name;
+                btn.classList.toggle('nu-segment-btn-active', active);
+                btn.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            const pre = document.getElementById('legalText');
+            if (!(name in legalCache)) {
+                pre.textContent = 'Loading...';
+                try {
+                    const resp = await fetch('/api/legal/' + name);
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    legalCache[name] = await resp.text();
+                } catch (err) {
+                    if (legalTab === name) pre.textContent = 'Cannot load ' + name.toUpperCase() + ': ' + err.message;
+                    return;
+                }
+            }
+            if (legalTab === name) {
+                pre.textContent = legalCache[name];
+                pre.scrollTop = 0;
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !document.getElementById('legalModal').classList.contains('hidden')) {
+                hideLegalModal();
+            }
+        });
 
         function showUndeployModal(name) {
             appToUndeploy = name;

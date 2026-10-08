@@ -55,7 +55,7 @@ never patched directly with `kubectl set image`.
 **never tags, commits or writes `opsroot.json`**: CI runs on a detached checkout
 of an already-pushed tag, so creating a tag there is meaningless and a commit
 would be orphaned. It writes `_build.txt`, compiles both arches, stages
-`trustant.json` and calls `image/image.sh "$TAG" --push`.
+`trustant.json` and the legal texts and calls `image/image.sh "$TAG" --push`.
 
 `image/image.sh` decides between a local single-arch build and a multiarch
 registry push from that explicit `--push` argument, not by sniffing
@@ -260,6 +260,11 @@ local; publishing it is a separate, authorization-gated push of the submodule.
 
 ## Hotfix builds
 
+Both `--build` and `--buildx` also stage `LICENSE`, `NOTICE` and `DEPS` with
+`cp -v LICENSE NOTICE DEPS image/` (gitignored copies, like `image/trustant.json`);
+`image/Dockerfile` copies them to `/usr/share/doc/trustant/`. See
+[20-legal.md](20-legal.md).
+
 `hotfix.sh` layers four files onto the image already recorded in
 `oplugins-truinst/opsroot.json` via `FROM <that image>`:
 
@@ -269,6 +274,7 @@ local; publishing it is a separate, authorization-gated push of the submodule.
 | `start.sh` | `/usr/local/bin/start.sh` | root |
 | `env` | `/home/trustant/.env` | `trustant:trustant` |
 | `trustant.json` | `/home/trustant/trustant.json` | `trustant:trustant` |
+| `LICENSE`, `NOTICE`, `DEPS` | `/usr/share/doc/trustant/` | root |
 
 That set covers a Go change, a container entrypoint fix, a flag flip in `.env`
 (`ENABLE_LICENSE`, `ENABLE_REGOLO`) and a base-config change — none of which
@@ -280,8 +286,9 @@ staged MCP context dirs, ~20 minutes) is skipped.
 The ownership split mirrors `image/Dockerfile` and is not cosmetic: root-owned
 files in `/home/trustant` break the running app, which writes there.
 Destinations are absolute because `WORKDIR` is set after the COPYs.
-`image/trustant.json` is gitignored and generated, so the build stages it with
-`cp trustant.json image/trustant.json` first; `image/env` and `image/start.sh`
+`image/trustant.json` and the legal texts are gitignored and generated, so the
+build stages them with `cp trustant.json image/trustant.json` and
+`cp -v LICENSE NOTICE DEPS image/` first; `image/env` and `image/start.sh`
 are tracked. The generated Dockerfile must use the **dot** name
 `image/Dockerfile.hotfix` — `.gitignore` ignores `image/Dockerfile.*` but not the
 dash form, so a crashed run would otherwise leave an untracked file that fails

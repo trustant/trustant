@@ -150,6 +150,7 @@ COPY start.sh /usr/local/bin/start.sh
 RUN chmod 0755 /usr/local/bin/trustant /usr/local/bin/start.sh
 COPY --chown=trustant:trustant env /home/trustant/.env
 COPY --chown=trustant:trustant trustant.json /home/trustant/trustant.json
+COPY LICENSE NOTICE DEPS /usr/share/doc/trustant/
 CMD ["/usr/local/bin/start.sh"]
 WORKDIR /home/trustant
 EOF
@@ -159,10 +160,12 @@ cleanup() {
     rm -f "image/$DOCKERFILE"
 }
 
-# image/trustant.json is gitignored and generated -- without this the build
-# ships a stale copy from an earlier build, or fails on a clean checkout.
+# image/trustant.json and the legal texts are gitignored and generated --
+# without this the build ships a stale copy from an earlier build, or fails on
+# a clean checkout.
 stage_config() {
     cp -v trustant.json image/trustant.json
+    cp -v LICENSE NOTICE DEPS image/
 }
 
 # ---------------------------------------------------------------- k8s rollout

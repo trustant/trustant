@@ -1,5 +1,8 @@
 image/bin
 image/trustant.json
+image/LICENSE
+image/NOTICE
+image/DEPS
 image/opencode.md
 workspace
 workbench
@@ -45,3 +48,6 @@ aaa-screenshot.png
 aaa-screenshot
 apps/
 ghlogin.sh
+
+# deps.sh download cache
+legal/.cache/
