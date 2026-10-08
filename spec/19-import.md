@@ -101,9 +101,16 @@ Precedence, in `resolveOneImport`:
    [18-shared.md](18-shared.md#leaving-the-pool)) or when it is removed by name
    on the Configure page, so this case is reached by deleting a producer while
    another app imports from it.
-3. **An exact binding** reads the pool entry of its target name.
-4. **A wildcard with exactly one match** resolves with no decision.
-5. Anything else is **pending**: zero matches, or several with no choice.
+3. **Nothing recorded yet: always pending, the first time.** An exact binding
+   whose target is in the pool, or a wildcard with exactly one match, is still
+   pending — but carries that single candidate as `suggested` (and its value),
+   and the popup pre-selects it, so confirming is one click. Confirming records
+   `${{NAME}}`, and from then on the binding resolves silently (rule 2). The
+   popup therefore appears only the first time, or when the referenced producer
+   disappears. `generateAppEnvFiles` still writes a suggested value into `.env`
+   (`ImportResolution.fillable`), so a regenerate outside the launch never
+   blanks a value; the launch gate is what forces the confirmation.
+4. Anything else is **pending** with no suggestion: zero matches, or several.
 
 ### Where the choice is recorded
 
@@ -140,7 +147,11 @@ Consequences that fall out of this, rather than being implemented separately:
 - **The reference never reaches `.env`.** `generateAppEnvFiles` resolves it and
   writes the value; the app receives a secret, never a `${{...}}` string.
 - **The env editor shows the resolved value**, not the reference: the stored form
-  is storage, and the row renders what the app will actually get.
+  is storage, and the row renders what the app will actually get. Saving the
+  table does not turn that displayed value back into a literal: a posted value
+  equal to what the stored reference resolves to keeps the stored form (the
+  reference, or nothing for a production row that follows the development
+  choice). Applies to both columns.
 
 ## Launching resolves every variable
 
@@ -184,6 +195,12 @@ env files, and resumes the launch that was blocked.
   a text field. Editing the text would break the binding silently, so the
   pull-down is the only control offered. Choosing posts to `/api/imports/`
   immediately, because it writes the binding rather than just a value.
+  The **Production** column gets the same pull-down, resolved against the pool of
+  the app's production `OPS_APIHOST` only (`prod_source`, `prod_matches`, and the
+  table-level `prod_host` on `GET /api/appconfig/<app>`; derived, ignored on
+  POST). Choosing posts to `/api/imports/<app>?mode=production&host=<prod_host>`,
+  the same endpoint as the publish popup. With no production apihost, or no
+  match on that host, the column stays a text field.
 
 ## Endpoints
 
@@ -205,8 +222,43 @@ when nothing is staged, never pushes.
 ## What was removed
 
 - `writeEnvDistFile` / `appEnvVarNames` — the generator, and the `.env.dist`
-  write inside `generateAppEnvFilesWith`.
+  write inside `generateAppEnvFiles`.
 - `seedMissingEnvKeys` — it seeded unresolved names into the config as blank rows
   so the env editor would show them. Blank rows are now illegal there, and
   unresolved names live in the Import tab.
 - `missingAppEnvKeys` — replaced by `pendingImports`.
+
+## Production (publish)
+
+Imports are resolved at publish too, against the **target host's** production
+pool (`productionPool`, from `shared_production` — see
+[18-shared.md](18-shared.md#production-host--app--secrets)), never another
+host's and never the development pool.
+
+`resolveProductionImports(app, host)` covers every `.env.dist` binding plus every
+development variable whose value is a `${{ref}}` (a reference is an import even
+when `.env.dist` does not declare it). Precedence, in
+`resolveOneProductionImport`:
+
+1. a non-empty value in `apps.<name>.production` — a literal wins; a `${{X}}`
+   recorded by the production popup is looked up in the host pool;
+2. the **development choice**: if `apps.<name>.development[NAME]` is `${{X}}`,
+   look up `X` in the host pool. The user already chose the producer in the
+   development popup, so publish follows it rather than asking again. If `X`
+   has no value on this host the row is pending with `producer` set — *publish
+   that app to this host first*;
+3. otherwise exact/wildcard matching against the host pool, with the same
+   first-time rule as development;
+4. otherwise pending.
+
+`generateAppEnvFiles` writes the resolved (and suggested) values into
+`.env.production` — the resolved value, never the `${{…}}` reference.
+
+The pending rows are the publish gate (`pendingProductionImports`, see
+[6-publish.md](6-publish.md)). The popup is the same `ImportResolver`, opened
+with `{mode: 'production', host}`: it GETs and POSTs
+`/api/imports/<app>?mode=production&host=<apihost>` (host defaults to the app's
+production `OPS_APIHOST`). The POST takes the same `{choices, values}` and
+`applyImportChoices(..., production=true, host)` validates choices against that
+host's pool and writes them into `apps.<name>.production` (`${{X}}` for a
+choice, the literal for typed text). Confirming retries the publish.

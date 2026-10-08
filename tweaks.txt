@@ -1,0 +1,7 @@
+collection of tweaks
+
+- when a link to login into ollama appers
+show a  message saying "Please log in to Ollama to continue, then come back and press retry to continue."
+
+- in the splash when it is checking for the models
+display the logo Trustant and below a message saying that includes Ollama with its license.

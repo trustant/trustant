@@ -35,9 +35,9 @@ func TestPruneSharedPoolRemovesBothPoolsForOneApp(t *testing.T) {
 			"MY_API_KEY":   "typed by the user",
 			"NO_SEPARATOR": "also the user's",
 		},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"api.nuvolaris.io":   {"APPSUITE__DB": "prod", "BILLING__DB": "prod"},
-			"openserverless.dev": {"APPSUITE__DB": "prod"},
+		SharedProduction: map[string]map[string]map[string]string{
+			"api.nuvolaris.io":   {"appsuite": {"APPSUITE__DB": "prod"}, "billing": {"BILLING__DB": "prod"}},
+			"openserverless.dev": {"appsuite": {"APPSUITE__DB": "prod"}},
 		},
 	}
 
@@ -60,16 +60,16 @@ func TestPruneSharedPoolRemovesBothPoolsForOneApp(t *testing.T) {
 	if cfg.PredefinedEnv["MY_API_KEY"] == "" || cfg.PredefinedEnv["NO_SEPARATOR"] == "" {
 		t.Fatalf("a hand-typed entry was pruned: %v", cfg.PredefinedEnv)
 	}
-	if _, ok := cfg.PredefinedEnvProduction["api.nuvolaris.io"]["APPSUITE__DB"]; ok {
+	if _, ok := cfg.SharedProduction["api.nuvolaris.io"]["appsuite"]; ok {
 		t.Fatalf("production entry survived the prune")
 	}
-	if cfg.PredefinedEnvProduction["api.nuvolaris.io"]["BILLING__DB"] != "prod" {
+	if cfg.SharedProduction["api.nuvolaris.io"]["billing"]["BILLING__DB"] != "prod" {
 		t.Fatalf("another app's production export was pruned")
 	}
 	// A host whose last entry went with the app leaves no empty map behind:
 	// the workspace file uses omitempty to stay small.
-	if _, ok := cfg.PredefinedEnvProduction["openserverless.dev"]; ok {
-		t.Fatalf("emptied host map was kept: %v", cfg.PredefinedEnvProduction)
+	if _, ok := cfg.SharedProduction["openserverless.dev"]; ok {
+		t.Fatalf("emptied host map was kept: %v", cfg.SharedProduction)
 	}
 }
 
@@ -100,12 +100,12 @@ func TestPruneSharedPoolDoesNotMatchAPrefixOfAnotherApp(t *testing.T) {
 
 func TestPruneSharedPoolNilsAnEmptiedPool(t *testing.T) {
 	cfg := &trustantConfig{
-		PredefinedEnv:           map[string]string{"APPSUITE__DB": "v"},
-		PredefinedEnvProduction: map[string]map[string]string{"h": {"APPSUITE__DB": "v"}},
+		PredefinedEnv:    map[string]string{"APPSUITE__DB": "v"},
+		SharedProduction: map[string]map[string]map[string]string{"h": {"appsuite": {"APPSUITE__DB": "v"}}},
 	}
 	pruneSharedPool(cfg, "appsuite")
-	if cfg.PredefinedEnv != nil || cfg.PredefinedEnvProduction != nil {
-		t.Fatalf("emptied pools were not nilled: %v %v", cfg.PredefinedEnv, cfg.PredefinedEnvProduction)
+	if cfg.PredefinedEnv != nil || cfg.SharedProduction != nil {
+		t.Fatalf("emptied pools were not nilled: %v %v", cfg.PredefinedEnv, cfg.SharedProduction)
 	}
 }
 
@@ -128,9 +128,9 @@ func TestPruneSharedPoolIsANoOpForAnAppThatSharedNothing(t *testing.T) {
 func TestRemoveSharedPoolVarSpansEveryPool(t *testing.T) {
 	cfg := &trustantConfig{
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "v", "OTHER": "v"},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"api.nuvolaris.io":   {"APPSUITE__DB": "v", "OTHER": "v"},
-			"openserverless.dev": {"APPSUITE__DB": "v"},
+		SharedProduction: map[string]map[string]map[string]string{
+			"api.nuvolaris.io":   {"appsuite": {"APPSUITE__DB": "v"}, "other": {"OTHER": "v"}},
+			"openserverless.dev": {"appsuite": {"APPSUITE__DB": "v"}},
 		},
 	}
 
@@ -141,10 +141,10 @@ func TestRemoveSharedPoolVarSpansEveryPool(t *testing.T) {
 	if _, ok := cfg.PredefinedEnv["APPSUITE__DB"]; ok {
 		t.Fatalf("development entry survived")
 	}
-	if _, ok := cfg.PredefinedEnvProduction["openserverless.dev"]; ok {
+	if _, ok := cfg.SharedProduction["openserverless.dev"]; ok {
 		t.Fatalf("emptied host map was kept")
 	}
-	if cfg.PredefinedEnvProduction["api.nuvolaris.io"]["OTHER"] != "v" {
+	if cfg.SharedProduction["api.nuvolaris.io"]["other"]["OTHER"] != "v" {
 		t.Fatalf("an unrelated entry was removed")
 	}
 }
@@ -165,8 +165,8 @@ func TestDeletePredefinedEnvEndpoint(t *testing.T) {
 	saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {Password: "p"}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "secret", "MY_API_KEY": "v"},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"api.nuvolaris.io": {"APPSUITE__DB": "prodsecret"},
+		SharedProduction: map[string]map[string]map[string]string{
+			"api.nuvolaris.io": {"appsuite": {"APPSUITE__DB": "prodsecret"}},
 		},
 	})
 
@@ -194,7 +194,7 @@ func TestDeletePredefinedEnvEndpoint(t *testing.T) {
 	if wsCfg.PredefinedEnv["MY_API_KEY"] != "v" {
 		t.Fatalf("an unrelated entry was lost")
 	}
-	if _, ok := wsCfg.PredefinedEnvProduction["api.nuvolaris.io"]; ok {
+	if _, ok := wsCfg.SharedProduction["api.nuvolaris.io"]; ok {
 		t.Fatalf("production entry survived the delete")
 	}
 }
@@ -270,8 +270,8 @@ func TestDeleteRepoPrunesWhatTheAppShared(t *testing.T) {
 			"BILLING__DB":  "postgres://billing",
 			"MY_API_KEY":   "typed by the user",
 		},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"api.nuvolaris.io": {"APPSUITE__DB": "prodsecret", "BILLING__DB": "prod"},
+		SharedProduction: map[string]map[string]map[string]string{
+			"api.nuvolaris.io": {"appsuite": {"APPSUITE__DB": "prodsecret"}, "billing": {"BILLING__DB": "prod"}},
 		},
 	})
 
@@ -292,7 +292,7 @@ func TestDeleteRepoPrunesWhatTheAppShared(t *testing.T) {
 	if _, ok := wsCfg.PredefinedEnv["APPSUITE__DB"]; ok {
 		t.Fatalf("a deleted app's secret is still in the development pool: %v", wsCfg.PredefinedEnv)
 	}
-	if _, ok := wsCfg.PredefinedEnvProduction["api.nuvolaris.io"]["APPSUITE__DB"]; ok {
+	if _, ok := wsCfg.SharedProduction["api.nuvolaris.io"]["appsuite"]; ok {
 		t.Fatalf("a deleted app's secret is still in the production pool")
 	}
 	// Everything else is untouched, in the same single save.

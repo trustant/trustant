@@ -150,7 +150,8 @@ func bindTestApp(t *testing.T, dev map[string]string, pool map[string]string, di
 }
 
 // An exact binding reads the pool entry of its own name; a wildcard with one
-// match needs no decision; a wildcard with several pends.
+// match suggests it; both stay pending until confirmed. Several matches pend
+// with no suggestion.
 func TestResolveImports(t *testing.T) {
 	bindTestApp(t,
 		map[string]string{},
@@ -171,11 +172,13 @@ func TestResolveImports(t *testing.T) {
 		byName[r.Name] = r
 	}
 
-	if r := byName["DATABASE_PASSWORD"]; r.Value != "hunter2" || r.Pending {
-		t.Errorf("exact binding = %+v, want hunter2 resolved", r)
+	// First resolution always asks: an unambiguous candidate is pending but
+	// pre-selected, and carries its value so .env is still filled.
+	if r := byName["DATABASE_PASSWORD"]; r.Value != "hunter2" || !r.Pending || r.Suggested != "DATABASE_PASSWORD" {
+		t.Errorf("exact binding = %+v, want hunter2 suggested and pending", r)
 	}
-	if r := byName["ONE_MATCH"]; r.Value != "redis://appsuite" || r.Pending || r.Source != "APPSUITE__REDIS" {
-		t.Errorf("single match = %+v, want auto-resolved", r)
+	if r := byName["ONE_MATCH"]; r.Value != "redis://appsuite" || !r.Pending || r.Suggested != "APPSUITE__REDIS" {
+		t.Errorf("single match = %+v, want suggested and pending", r)
 	}
 	if r := byName["MANY"]; !r.Pending || len(r.Matches) != 2 {
 		t.Errorf("ambiguous binding = %+v, want pending with 2 matches", r)
@@ -274,7 +277,7 @@ func TestApplyImportChoices(t *testing.T) {
 		},
 		"MANY=*__POSTGRESDB\n")
 
-	if err := applyImportChoices("demo", map[string]string{"MANY": "BILLING__POSTGRESDB"}, nil); err != nil {
+	if err := applyImportChoices("demo", map[string]string{"MANY": "BILLING__POSTGRESDB"}, nil, false, ""); err != nil {
 		t.Fatalf("applyImportChoices: %s", err)
 	}
 
@@ -301,7 +304,7 @@ func TestApplyImportChoices(t *testing.T) {
 func TestApplyImportChoicesRejectsUnknownSource(t *testing.T) {
 	bindTestApp(t, map[string]string{}, map[string]string{"APPSUITE__POSTGRESDB": "p"}, "MANY=*__POSTGRESDB\n")
 
-	err := applyImportChoices("demo", map[string]string{"MANY": "NOT__IN__POOL"}, nil)
+	err := applyImportChoices("demo", map[string]string{"MANY": "NOT__IN__POOL"}, nil, false, "")
 	if err == nil {
 		t.Fatal("expected a refusal")
 	}
@@ -320,7 +323,7 @@ func TestApplyImportChoicesLiteralClearsRecordedChoice(t *testing.T) {
 		map[string]string{"BILLING__POSTGRESDB": "postgres://billing"},
 		"MANY=*__POSTGRESDB\n")
 
-	if err := applyImportChoices("demo", nil, map[string]string{"MANY": "postgres://manual"}); err != nil {
+	if err := applyImportChoices("demo", nil, map[string]string{"MANY": "postgres://manual"}, false, ""); err != nil {
 		t.Fatalf("applyImportChoices: %s", err)
 	}
 

@@ -270,7 +270,10 @@ func lookupOpsPath(tree map[string]interface{}, path string) (string, bool) {
 
 // opsLoginForApp logs in as one app. generateAppEnvFiles writes the
 // OPS_APIHOST/OPS_USER/OPS_PASSWORD the command reads from the workbench .env,
-// exactly as the launch and publish paths do.
+// exactly as the launch and publish paths do. It is the full generator, shared
+// values included: the files it writes are the ones the app keeps, and the
+// Share dialog and every launch run this, so a pool-less variant here left
+// .env and .env.production stripped of their imports.
 //
 // Callers must hold the runtime lifecycle lock: this rewrites the single global
 // ~/.ops/config.json, so running it while another app's launch is mid-flight
@@ -283,7 +286,7 @@ func opsLoginForApp(app string, production bool) error {
 	if _, err := os.Stat(workbenchPath); err != nil {
 		return fmt.Errorf("no workbench for %s", app)
 	}
-	if err := generateAppEnvFilesNoShared(app); err != nil {
+	if err := generateAppEnvFiles(app); err != nil {
 		return fmt.Errorf("generate env for %s: %w", app, err)
 	}
 	removeOpsConfig()
@@ -398,42 +401,90 @@ func foldIntoSharedPool(wsCfg *trustantConfig, resolved map[string]string, apps 
 	return stored
 }
 
-// foldIntoProductionPool is the same for one apihost. Production values are
-// kept per host: the same variable name means a different secret on a different
-// cluster, and one flat map would hand an app the wrong one.
-func foldIntoProductionPool(wsCfg *trustantConfig, host string, resolved map[string]string, apps map[string]*AppConfig) []string {
+// setProductionShared stores one app's resolved secrets for one apihost,
+// REPLACING whatever that app had there: a secret the producer stopped exporting
+// must disappear, not linger as a stale binding. An empty set removes the app
+// from that host. Does not save.
+func setProductionShared(wsCfg *trustantConfig, host, app string, resolved map[string]string) {
 	host = sharedHostKey(host)
-	if host == "" || len(resolved) == 0 {
-		return nil
+	if wsCfg == nil || host == "" || strings.TrimSpace(app) == "" {
+		return
 	}
-	if wsCfg.PredefinedEnvProduction == nil {
-		wsCfg.PredefinedEnvProduction = make(map[string]map[string]string)
-	}
-	if wsCfg.PredefinedEnvProduction[host] == nil {
-		wsCfg.PredefinedEnvProduction[host] = make(map[string]string)
-	}
-	pool := wsCfg.PredefinedEnvProduction[host]
-
-	names := make([]string, 0, len(resolved))
-	for name := range resolved {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var stored []string
-	for _, name := range names {
-		// A value typed in by hand for this host is the escape hatch for a
-		// producer that lives on another installation. A later publish of the
-		// producer must not silently replace it.
-		if _, appProduced := sharedProducerOf(name, apps); !appProduced {
-			if _, exists := pool[name]; exists {
-				continue
+	if len(resolved) == 0 {
+		if apps := wsCfg.SharedProduction[host]; apps != nil {
+			delete(apps, app)
+			if len(apps) == 0 {
+				delete(wsCfg.SharedProduction, host)
 			}
 		}
-		pool[name] = resolved[name]
-		stored = append(stored, name)
+		if len(wsCfg.SharedProduction) == 0 {
+			wsCfg.SharedProduction = nil
+		}
+		return
 	}
-	return stored
+	if wsCfg.SharedProduction == nil {
+		wsCfg.SharedProduction = make(map[string]map[string]map[string]string)
+	}
+	if wsCfg.SharedProduction[host] == nil {
+		wsCfg.SharedProduction[host] = make(map[string]map[string]string)
+	}
+	copied := make(map[string]string, len(resolved))
+	for k, v := range resolved {
+		copied[k] = v
+	}
+	wsCfg.SharedProduction[host][app] = copied
+}
+
+// productionPool flattens one host's secrets across every producing app, for
+// matching imports. Names carry the producer prefix, so two apps never collide.
+func productionPool(cfg *trustantConfig, host string) map[string]string {
+	pool := make(map[string]string)
+	if cfg == nil {
+		return pool
+	}
+	for _, vars := range cfg.SharedProduction[sharedHostKey(host)] {
+		for k, v := range vars {
+			pool[k] = v
+		}
+	}
+	return pool
+}
+
+// migrateSharedProduction folds the pre-#9 flat per-host pool
+// (predefined_env_production: {host: {APP__NAME: value}}) into SharedProduction,
+// deriving the owner from the name prefix one last time. An entry whose prefix
+// matches no app is dropped: it is either an orphan of a deleted app or a
+// hand-typed value, and a hand-typed production value now belongs in the
+// consumer's own production config. The legacy field is cleared so the next
+// save drops the key.
+func migrateSharedProduction(cfg *trustantConfig) {
+	if cfg == nil || len(cfg.LegacyPredefinedEnvProduction) == 0 {
+		cfg.LegacyPredefinedEnvProduction = nil
+		return
+	}
+	for host, pool := range cfg.LegacyPredefinedEnvProduction {
+		host = sharedHostKey(host)
+		for name, value := range pool {
+			app, ok := sharedProducerOf(name, cfg.Apps)
+			if !ok || host == "" {
+				continue
+			}
+			if cfg.SharedProduction == nil {
+				cfg.SharedProduction = make(map[string]map[string]map[string]string)
+			}
+			if cfg.SharedProduction[host] == nil {
+				cfg.SharedProduction[host] = make(map[string]map[string]string)
+			}
+			if cfg.SharedProduction[host][app] == nil {
+				cfg.SharedProduction[host][app] = make(map[string]string)
+			}
+			// An entry already in the new shape is newer than the legacy one.
+			if _, exists := cfg.SharedProduction[host][app][name]; !exists {
+				cfg.SharedProduction[host][app][name] = value
+			}
+		}
+	}
+	cfg.LegacyPredefinedEnvProduction = nil
 }
 
 // pruneSharedPool removes every pool entry produced by one app, from the
@@ -478,19 +529,20 @@ func pruneSharedPool(wsCfg *trustantConfig, app string) int {
 		wsCfg.PredefinedEnv = nil
 	}
 
-	for host, pool := range wsCfg.PredefinedEnvProduction {
-		for name := range pool {
-			if producedBy(name) {
-				delete(pool, name)
-				removed++
+	// Production ownership is the map key, so no prefix heuristic is needed.
+	for host, apps := range wsCfg.SharedProduction {
+		for owner, vars := range apps {
+			if strings.EqualFold(owner, app) {
+				removed += len(vars)
+				delete(apps, owner)
 			}
 		}
-		if len(pool) == 0 {
-			delete(wsCfg.PredefinedEnvProduction, host)
+		if len(apps) == 0 {
+			delete(wsCfg.SharedProduction, host)
 		}
 	}
-	if len(wsCfg.PredefinedEnvProduction) == 0 {
-		wsCfg.PredefinedEnvProduction = nil
+	if len(wsCfg.SharedProduction) == 0 {
+		wsCfg.SharedProduction = nil
 	}
 
 	return removed
@@ -520,17 +572,22 @@ func removeSharedPoolVar(wsCfg *trustantConfig, name string) int {
 		wsCfg.PredefinedEnv = nil
 	}
 
-	for host, pool := range wsCfg.PredefinedEnvProduction {
-		if _, ok := pool[name]; ok {
-			delete(pool, name)
-			removed++
+	for host, apps := range wsCfg.SharedProduction {
+		for owner, vars := range apps {
+			if _, ok := vars[name]; ok {
+				delete(vars, name)
+				removed++
+			}
+			if len(vars) == 0 {
+				delete(apps, owner)
+			}
 		}
-		if len(pool) == 0 {
-			delete(wsCfg.PredefinedEnvProduction, host)
+		if len(apps) == 0 {
+			delete(wsCfg.SharedProduction, host)
 		}
 	}
-	if len(wsCfg.PredefinedEnvProduction) == 0 {
-		wsCfg.PredefinedEnvProduction = nil
+	if len(wsCfg.SharedProduction) == 0 {
+		wsCfg.SharedProduction = nil
 	}
 
 	return removed
@@ -633,6 +690,17 @@ func refreshSharedForApp(app string) ([]string, error) {
 func resolveProductionShared(app, host string) ([]string, error) {
 	declared := loadSharedEnv(app)
 	if len(declared) == 0 {
+		// An app that stopped exporting must not keep its old secrets here.
+		wsCfg, err := loadWorkspaceConfig()
+		if err != nil {
+			return nil, err
+		}
+		if _, had := wsCfg.SharedProduction[sharedHostKey(host)][app]; had {
+			setProductionShared(wsCfg, host, app, nil)
+			if err := saveWorkspaceConfig(wsCfg); err != nil {
+				return nil, err
+			}
+		}
 		return nil, nil
 	}
 	tree, err := opsConfigTree()
@@ -656,77 +724,23 @@ func resolveProductionShared(app, host string) ([]string, error) {
 		}
 		resolved[name] = value
 	}
-	if len(resolved) == 0 {
-		return nil, nil
-	}
-	cfg, err := loadTrustantConfig()
-	if err != nil {
-		return nil, err
-	}
+	// Replace, never merge: the publish just read this app's declarations
+	// against this cluster, so whatever it no longer resolves is gone.
 	wsCfg, err := loadWorkspaceConfig()
 	if err != nil {
 		return nil, err
 	}
-	stored := foldIntoProductionPool(wsCfg, host, resolved, cfg.Apps)
-	if len(stored) == 0 {
-		return nil, nil
-	}
+	setProductionShared(wsCfg, host, app, resolved)
 	if err := saveWorkspaceConfig(wsCfg); err != nil {
 		return nil, err
 	}
+	stored := make([]string, 0, len(resolved))
+	for name := range resolved {
+		stored = append(stored, name)
+	}
+	sort.Strings(stored)
 	log.Printf("Shared: stored %d production variables for %s on %s: %v", len(stored), app, host, stored)
 	return stored, nil
-}
-
-// missingShared is one entry of the publish gate's answer: the variable, and
-// the app that would have to be published to supply it.
-type missingShared struct {
-	Name string `json:"name"`
-	App  string `json:"app"`
-	Host string `json:"host"`
-}
-
-// missingProductionShared returns the app-produced production variables that
-// have no value for the target host.
-//
-// Unlike the development side this BLOCKS the publish: a launch with a missing
-// value costs a broken dev server, a publish with one deploys an app pointed at
-// nothing. A value the user typed for the app, or one already in that host's
-// pool, satisfies it.
-func missingProductionShared(appName, host string, cfg *trustantConfig) []missingShared {
-	appCfg := cfg.Apps[appName]
-	if appCfg == nil || len(appCfg.Production) == 0 {
-		return nil
-	}
-	host = sharedHostKey(host)
-	pool := cfg.PredefinedEnvProduction[host]
-
-	names := make([]string, 0, len(appCfg.Production))
-	for name := range appCfg.Production {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var missing []missingShared
-	for _, name := range names {
-		producer, appProduced := sharedProducerOf(name, cfg.Apps)
-		if !appProduced {
-			continue
-		}
-		// An app never blocks on a variable it produces itself: its own publish
-		// is what resolves it, in the same request.
-		if strings.EqualFold(producer, appName) {
-			continue
-		}
-		if strings.TrimSpace(appCfg.Production[name]) != "" {
-			continue
-		}
-		if strings.TrimSpace(pool[name]) != "" {
-			continue
-		}
-		missing = append(missing, missingShared{Name: name, App: producer, Host: host})
-	}
-	return missing
 }
 
 // commitSharedEnv commits .env.shared, mirroring commitEnvDist: the declaration

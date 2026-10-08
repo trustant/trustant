@@ -150,12 +150,19 @@ type trustantConfig struct {
 	// does not name a pool variable never sees it. See spec/2a-config.md.
 	PredefinedEnv map[string]string `json:"predefined_env,omitempty"`
 
-	// PredefinedEnvProduction is the same pool for production, keyed by
-	// apihost. Service credentials on api.nuvolaris.io have nothing to do with
+	// SharedProduction is the production pool: apihost → producing app →
+	// secrets. Service credentials on api.nuvolaris.io have nothing to do with
 	// those on openserverless.dev — same variable name, different cluster,
-	// different secret — so one flat map would hand an app the wrong cluster's
-	// credentials. Keys are normalized by sharedHostKey.
-	PredefinedEnvProduction map[string]map[string]string `json:"predefined_env_production,omitempty"`
+	// different secret — so values are kept per host. Ownership is the app key,
+	// not a name prefix, so an app's exports are found (and pruned) exactly.
+	// Host keys are normalized by sharedHostKey. Written only by a publish
+	// (resolveProductionShared). See spec/18-shared.md.
+	SharedProduction map[string]map[string]map[string]string `json:"shared_production,omitempty"`
+
+	// LegacyPredefinedEnvProduction is the pre-#9 flat per-host pool. It is
+	// only ever read: migrateSharedProduction folds it into SharedProduction on
+	// load and clears it, so the next save drops the key.
+	LegacyPredefinedEnvProduction map[string]map[string]string `json:"predefined_env_production,omitempty"`
 
 	// RegisterURL is populated at GET-time from the AIP_REGISTER_URL env var
 	// (mandatory at startup). It points at the proxy's registration UI; the
@@ -267,6 +274,7 @@ func loadBaseConfig() (*trustantConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse base trustant.json: %w", err)
 	}
+	migrateSharedProduction(&cfg)
 	return &cfg, nil
 }
 
@@ -284,6 +292,7 @@ func loadWorkspaceConfig() (*trustantConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse workspace trustant.json: %w", err)
 	}
+	migrateSharedProduction(&cfg)
 	return &cfg, nil
 }
 
@@ -368,26 +377,27 @@ func mergeConfigs(base, override *trustantConfig) *trustantConfig {
 		result.PredefinedEnv = merged
 	}
 
-	// Host-by-host, then key-by-key within a host: two installations' bases
-	// could each know a different cluster, and neither should erase the other.
-	if len(override.PredefinedEnvProduction) > 0 {
-		merged := make(map[string]map[string]string)
-		for host, vars := range base.PredefinedEnvProduction {
-			hostVars := make(map[string]string, len(vars))
-			for k, v := range vars {
-				hostVars[k] = v
+	// Host by host, then app by app: two installations' bases could each know a
+	// different cluster, and neither should erase the other. Within one app the
+	// override's map wins whole — a publish replaces an app's secrets, it never
+	// merges them.
+	if len(override.SharedProduction) > 0 {
+		merged := make(map[string]map[string]map[string]string)
+		for _, layer := range []map[string]map[string]map[string]string{base.SharedProduction, override.SharedProduction} {
+			for host, apps := range layer {
+				if merged[host] == nil {
+					merged[host] = make(map[string]map[string]string)
+				}
+				for app, vars := range apps {
+					copied := make(map[string]string, len(vars))
+					for k, v := range vars {
+						copied[k] = v
+					}
+					merged[host][app] = copied
+				}
 			}
-			merged[host] = hostVars
 		}
-		for host, vars := range override.PredefinedEnvProduction {
-			if merged[host] == nil {
-				merged[host] = make(map[string]string, len(vars))
-			}
-			for k, v := range vars {
-				merged[host][k] = v
-			}
-		}
-		result.PredefinedEnvProduction = merged
+		result.SharedProduction = merged
 	}
 
 	return &result
@@ -2618,12 +2628,13 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		if len(wsCfg.PredefinedEnv) > 0 && len(cfg.PredefinedEnv) == 0 {
 			cfg.PredefinedEnv = wsCfg.PredefinedEnv
 		}
-		// Same guard for the per-host production pool. No page posts it here at
-		// all — it is written only by a publish — so an omitted or empty map
-		// always means "unchanged", never "clear".
-		if len(wsCfg.PredefinedEnvProduction) > 0 && len(cfg.PredefinedEnvProduction) == 0 {
-			cfg.PredefinedEnvProduction = wsCfg.PredefinedEnvProduction
+		// Same guard for the production pool. No page posts it here at all — it
+		// is written only by a publish — so an omitted or empty map always means
+		// "unchanged", never "clear".
+		if len(wsCfg.SharedProduction) > 0 && len(cfg.SharedProduction) == 0 {
+			cfg.SharedProduction = wsCfg.SharedProduction
 		}
+		cfg.LegacyPredefinedEnvProduction = nil
 	}
 
 	if err := normalizeNotebookConfig(&cfg); err != nil {
@@ -2707,12 +2718,19 @@ type EnvVar struct {
 	// ignored on POST.
 	Source  string   `json:"source,omitempty"`
 	Matches []string `json:"matches,omitempty"`
+	// ProdSource and ProdMatches are the same for the production column,
+	// resolved against the pool of the app's production OPS_APIHOST only.
+	ProdSource  string   `json:"prod_source,omitempty"`
+	ProdMatches []string `json:"prod_matches,omitempty"`
 }
 
 // AppEnvConfig represents the full env configuration for an app
 type AppEnvConfig struct {
 	Vars     []EnvVar `json:"vars"`
 	LocalEnv []string `json:"localenv_keys"`
+	// ProdHost is the production apihost the prod_* fields were resolved
+	// against; the editor posts production choices for that host.
+	ProdHost string `json:"prod_host,omitempty"`
 }
 
 // parseEnvFile parses a .env file into a map
@@ -2777,17 +2795,6 @@ func isEnvDistFixedKey(name string) bool {
 // workbench directory, filling any declared-but-empty variable from the shared
 // pool (see shared.go).
 func generateAppEnvFiles(appName string) error {
-	return generateAppEnvFilesWith(appName, true)
-}
-
-// generateAppEnvFilesNoShared is the same without the pool fill. opsLoginForApp
-// calls this: the login it is preparing is what resolves the pool in the first
-// place, so filling from it there would be circular.
-func generateAppEnvFilesNoShared(appName string) error {
-	return generateAppEnvFilesWith(appName, false)
-}
-
-func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return err
@@ -2834,9 +2841,6 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		// than a copy frozen in the config (spec/19-import.md). The reference
 		// itself is never written to .env — the app gets the value.
 		if src, isRef := importRefTarget(v); isRef {
-			if !useSharedPool {
-				continue
-			}
 			if shared, ok := cfg.PredefinedEnv[src]; ok && strings.TrimSpace(shared) != "" {
 				devVars[k] = shared
 			}
@@ -2844,7 +2848,7 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 		}
 		// Empty-only: a value the user typed always wins, and the pool is never
 		// a source of variables the app does not already declare.
-		if useSharedPool && strings.TrimSpace(v) == "" {
+		if strings.TrimSpace(v) == "" {
 			if shared, ok := cfg.PredefinedEnv[k]; ok && strings.TrimSpace(shared) != "" {
 				v = shared
 			}
@@ -2855,18 +2859,16 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	// Imports declared in .env.dist are variables too: they are not in the config
 	// until the popup resolves them, but an unambiguous one needs no decision and
 	// must reach .env all the same.
-	if useSharedPool {
-		for _, b := range readAppEnvDistBindings(appName) {
-			if _, ok := devVars[b.Name]; ok {
-				continue
-			}
-			if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
-				continue
-			}
-			res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
-			if !res.Pending && strings.TrimSpace(res.Value) != "" {
-				devVars[b.Name] = res.Value
-			}
+	for _, b := range readAppEnvDistBindings(appName) {
+		if _, ok := devVars[b.Name]; ok {
+			continue
+		}
+		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
+			continue
+		}
+		res := resolveOneImport(b, appCfg.Development, cfg.PredefinedEnv)
+		if res.fillable() {
+			devVars[b.Name] = res.Value
 		}
 	}
 
@@ -2874,14 +2876,18 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 	prodVars := make(map[string]string)
 	// Production values come from the pool of the app's OWN target host: the
 	// same name on another cluster is a different secret.
-	prodPool := map[string]string{}
-	if useSharedPool {
-		if host := sharedHostKey(appCfg.Production["OPS_APIHOST"]); host != "" {
-			prodPool = cfg.PredefinedEnvProduction[host]
-		}
-	}
+	prodHost := appCfg.Production["OPS_APIHOST"]
+	prodPool := productionPool(cfg, prodHost)
 	for k, v := range appCfg.Production {
 		if isServiceRuntimeEnvKey(k) {
+			continue
+		}
+		// A ${{NAME}} reference recorded by the publish popup: the app gets the
+		// host's value, never the reference itself.
+		if src, isRef := importRefTarget(v); isRef {
+			if shared, ok := prodPool[src]; ok && strings.TrimSpace(shared) != "" {
+				prodVars[k] = shared
+			}
 			continue
 		}
 		if strings.TrimSpace(v) == "" {
@@ -2890,6 +2896,19 @@ func generateAppEnvFilesWith(appName string, useSharedPool bool) error {
 			}
 		}
 		prodVars[k] = v
+	}
+
+	// Imports reach production too: .env.dist bindings and development ${{ref}}
+	// choices, resolved against the target host's pool (spec/19-import.md).
+	if sharedHostKey(prodHost) != "" {
+		for _, res := range resolveProductionImportsFrom(cfg, appName, prodHost) {
+			if v, set := prodVars[res.Name]; set && strings.TrimSpace(v) != "" {
+				continue
+			}
+			if res.fillable() {
+				prodVars[res.Name] = res.Value
+			}
+		}
 	}
 
 	order := []string{"OPS_USER", "OPS_PASSWORD", "OPS_APIHOST", "OPS_REPO", "OPS_SKILLS"}
@@ -3060,10 +3079,34 @@ func handleGetAppConfig(w http.ResponseWriter, r *http.Request, name, workspaceP
 		seen[b.Name] = true
 	}
 
+	// The production column of an import gets its own pull-down, fed by the
+	// production host's pool. Without a production apihost there is no pool.
+	prodHost := strings.TrimSpace(appCfg.Production["OPS_APIHOST"])
+	if sharedHostKey(prodHost) != "" {
+		for _, res := range resolveProductionImportsFrom(cfg, name, prodHost) {
+			for i := range vars {
+				if vars[i].Name != res.Name {
+					continue
+				}
+				vars[i].ProdSource = res.Source
+				vars[i].ProdMatches = res.Matches
+				if res.Source != "" && vars[i].ProdMatches == nil {
+					vars[i].ProdMatches = []string{res.Source}
+				}
+				// Show what production will get, never the ${{…}} storage.
+				if res.Source != "" {
+					vars[i].ProdValue = res.Value
+				}
+				break
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(AppEnvConfig{
 		Vars:     vars,
 		LocalEnv: nil,
+		ProdHost: prodHost,
 	})
 }
 
@@ -3096,9 +3139,45 @@ func handlePostAppConfig(w http.ResponseWriter, r *http.Request, name, workspace
 		importNames[b.Name] = true
 	}
 
+	// An imported row arrives carrying the value its pool entry resolved to, not
+	// the ${{X}} reference that is stored. Writing that copy back would cut the
+	// link to the producer, so a value equal to its resolution keeps whatever
+	// was stored before (the reference, or nothing for a followed dev choice).
+	devResolved, prodResolved := map[string]string{}, map[string]string{}
+	var oldDev, oldProd map[string]string
+	if wsCfg.Apps[name] != nil {
+		oldDev, oldProd = wsCfg.Apps[name].Development, wsCfg.Apps[name].Production
+	}
+	if cfg, err := loadTrustantConfig(); err == nil {
+		dev := map[string]string{}
+		if a := cfg.Apps[name]; a != nil && a.Development != nil {
+			dev = a.Development
+		}
+		for _, b := range readAppEnvDistBindings(name) {
+			if res := resolveOneImport(b, dev, cfg.PredefinedEnv); res.Source != "" {
+				devResolved[b.Name] = res.Value
+			}
+		}
+		if a := cfg.Apps[name]; a != nil {
+			if host := a.Production["OPS_APIHOST"]; sharedHostKey(host) != "" {
+				for _, res := range resolveProductionImportsFrom(cfg, name, host) {
+					if res.Source != "" {
+						prodResolved[res.Name] = res.Value
+					}
+				}
+			}
+		}
+	}
+
 	devVars := make(map[string]string)
 	prodVars := make(map[string]string)
 	for _, v := range req.Vars {
+		if r, ok := devResolved[v.Name]; ok && v.DevValue == r {
+			v.DevValue = oldDev[v.Name]
+		}
+		if r, ok := prodResolved[v.Name]; ok && v.ProdValue == r {
+			v.ProdValue = oldProd[v.Name]
+		}
 		if v.Name == "" {
 			continue
 		}
@@ -3243,25 +3322,24 @@ func handleGetPredefinedEnv(w http.ResponseWriter, r *http.Request) {
 		vars = append(vars, v)
 	}
 
-	// The per-host production pool, so the Configure card can offer a host
-	// selector rather than showing one name several times with no way to tell
-	// which cluster each value belongs to.
-	production := make(map[string][]PredefinedEnvVar)
-	for host, pool := range cfg.PredefinedEnvProduction {
-		hostNames := make([]string, 0, len(pool))
-		for name := range pool {
-			hostNames = append(hostNames, name)
-		}
-		sort.Strings(hostNames)
-		hostVars := make([]PredefinedEnvVar, 0, len(hostNames))
-		for _, name := range hostNames {
-			v := PredefinedEnvVar{Name: name, Value: pool[name]}
-			if app, ok := sharedProducerOf(name, cfg.Apps); ok {
-				v.App = app
+	// The production pool, grouped host → producing app, so the Configure card
+	// can show which cluster and which app each value belongs to. Ownership is
+	// the map key here, never a name prefix.
+	production := make(map[string]map[string][]PredefinedEnvVar)
+	for host, apps := range cfg.SharedProduction {
+		production[host] = make(map[string][]PredefinedEnvVar)
+		for app, pool := range apps {
+			appNames := make([]string, 0, len(pool))
+			for name := range pool {
+				appNames = append(appNames, name)
 			}
-			hostVars = append(hostVars, v)
+			sort.Strings(appNames)
+			appVars := make([]PredefinedEnvVar, 0, len(appNames))
+			for _, name := range appNames {
+				appVars = append(appVars, PredefinedEnvVar{Name: name, Value: pool[name], App: app})
+			}
+			production[host][app] = appVars
 		}
-		production[host] = hostVars
 	}
 
 	w.Header().Set("Content-Type", "application/json")

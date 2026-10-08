@@ -84,8 +84,17 @@ type ImportResolution struct {
 	Source string `json:"source"`
 	Value  string `json:"value"`
 	// Pending is true when the launch cannot proceed until the user acts: no
-	// match, or several with no choice recorded.
+	// match, several with no choice recorded, or a single candidate that has
+	// never been confirmed.
 	Pending bool `json:"pending"`
+	// Suggested is the single candidate of a first-time binding: pending until
+	// the user confirms it, but pre-selected so confirming is one click. Value
+	// then carries that candidate's value, so a regenerate outside the popup
+	// still fills .env.
+	Suggested string `json:"suggested,omitempty"`
+	// Producer names the app that would supply a missing production value — the
+	// one to publish to this host first. Production only.
+	Producer string `json:"producer,omitempty"`
 }
 
 // parseEnvDistBindings returns the bindings declared by a .env.dist body, in
@@ -361,23 +370,148 @@ func resolveOneImport(b EnvBinding, dev, pool map[string]string) ImportResolutio
 		return res
 	}
 
+	// Nothing recorded yet. Even an unambiguous candidate — an exact hit, or the
+	// only wildcard match — is pending: the user sees and confirms every binding
+	// once, and the confirmation records a ${{NAME}} reference that resolves
+	// silently from then on. The candidate is pre-selected.
 	if b.Exact() {
 		if v, ok := pool[b.target()]; ok {
-			res.Source, res.Value = b.target(), v
-			return res
+			res.Matches = []string{b.target()}
+			res.Suggested, res.Value = b.target(), v
 		}
 		res.Pending = true
 		return res
 	}
 
-	// Exactly one match needs no decision; zero or several do.
 	if len(res.Matches) == 1 {
-		res.Source, res.Value = res.Matches[0], pool[res.Matches[0]]
-		return res
+		res.Suggested, res.Value = res.Matches[0], pool[res.Matches[0]]
 	}
 
 	res.Pending = true
 	return res
+}
+
+// fillable reports whether a resolution carries a value .env may be written
+// with: a resolved one, or the single unconfirmed candidate. Writing the latter
+// is harmless — the launch gate still stops on the pending row — and it keeps a
+// regenerate outside the launch from blanking a value.
+func (r ImportResolution) fillable() bool {
+	return (!r.Pending || r.Suggested != "") && strings.TrimSpace(r.Value) != ""
+}
+
+// resolveProductionImports is the production twin of resolveImports: for every
+// .env.dist binding and every development ${{ref}}, what the app will get on
+// the target apihost, resolved against THAT host's pool only.
+func resolveProductionImports(appName, host string) ([]ImportResolution, error) {
+	cfg, err := loadTrustantConfig()
+	if err != nil {
+		return nil, err
+	}
+	return resolveProductionImportsFrom(cfg, appName, host), nil
+}
+
+func resolveProductionImportsFrom(cfg *trustantConfig, appName, host string) []ImportResolution {
+	dev, prod := map[string]string{}, map[string]string{}
+	if appCfg := cfg.Apps[appName]; appCfg != nil {
+		if appCfg.Development != nil {
+			dev = appCfg.Development
+		}
+		if appCfg.Production != nil {
+			prod = appCfg.Production
+		}
+	}
+	pool := productionPool(cfg, host)
+
+	var out []ImportResolution
+	declared := make(map[string]bool)
+	for _, b := range readAppEnvDistBindings(appName) {
+		if isEnvDistFixedKey(b.Name) || isServiceRuntimeEnvKey(b.Name) {
+			continue
+		}
+		declared[b.Name] = true
+		out = append(out, resolveOneProductionImport(cfg, appName, b, dev, prod, pool))
+	}
+
+	// A development variable bound by reference is an import too, even when
+	// .env.dist does not declare it: the app expects that producer's value.
+	var refs []string
+	for name, value := range dev {
+		if declared[name] || isEnvDistFixedKey(name) || isServiceRuntimeEnvKey(name) {
+			continue
+		}
+		if _, isRef := importRefTarget(value); isRef {
+			refs = append(refs, name)
+		}
+	}
+	sort.Strings(refs)
+	for _, name := range refs {
+		target, _ := importRefTarget(dev[name])
+		b := EnvBinding{Name: name, Pattern: target}
+		out = append(out, resolveOneProductionImport(cfg, appName, b, dev, prod, pool))
+	}
+	return out
+}
+
+// resolveOneProductionImport applies the production precedence: a production
+// value the user recorded, then the development choice followed on this host,
+// then a match against this host's pool (first-time rule included).
+func resolveOneProductionImport(cfg *trustantConfig, appName string, b EnvBinding, dev, prod, pool map[string]string) ImportResolution {
+	if strings.TrimSpace(prod[b.Name]) != "" {
+		res := resolveOneImport(b, prod, pool)
+		if res.Pending {
+			if target, isRef := importRefTarget(prod[b.Name]); isRef {
+				res.Producer = producerOfShared(cfg, target)
+			}
+		}
+		return res
+	}
+
+	// The user already chose the producer in the development popup; publish
+	// follows that choice rather than asking again.
+	if target, isRef := importRefTarget(dev[b.Name]); isRef {
+		res := ImportResolution{Name: b.Name, Pattern: b.Pattern}
+		if !b.Exact() {
+			res.Matches = matchPoolVariables(b.Pattern, pool)
+		}
+		if v, ok := pool[target]; ok {
+			res.Source, res.Value = target, v
+			return res
+		}
+		producer := producerOfShared(cfg, target)
+		// An app never waits on its own exports: this publish resolves them.
+		if producer != "" && strings.EqualFold(producer, appName) {
+			res.Source = target
+			return res
+		}
+		res.Pending = true
+		res.Producer = producer
+		return res
+	}
+
+	res := resolveOneImport(b, prod, pool)
+	if res.Pending && res.Suggested == "" && b.Exact() {
+		res.Producer = producerOfShared(cfg, b.target())
+	}
+	return res
+}
+
+// producerOfShared names the app that exports a pool name, from its prefix.
+func producerOfShared(cfg *trustantConfig, name string) string {
+	if app, ok := sharedProducerOf(name, cfg.Apps); ok {
+		return app
+	}
+	return ""
+}
+
+// pendingProductionImports is the publish gate.
+func pendingProductionImports(cfg *trustantConfig, appName, host string) []ImportResolution {
+	var pending []ImportResolution
+	for _, r := range resolveProductionImportsFrom(cfg, appName, host) {
+		if r.Pending {
+			pending = append(pending, r)
+		}
+	}
+	return pending
 }
 
 // pendingImports is the launch gate: the rows the user must resolve before the
@@ -403,16 +537,29 @@ func pendingImports(appName string) ([]ImportResolution, error) {
 // Validation is total, like #227's save path: one bad row writes nothing. A
 // partial apply would launch the app with some variables bound and others not,
 // which is the state this whole feature exists to prevent.
-func applyImportChoices(appName string, choices map[string]string, literals map[string]string) error {
+//
+// production selects the publish side: choices are validated against host's
+// production pool and written to apps.<name>.production.
+func applyImportChoices(appName string, choices map[string]string, literals map[string]string, production bool, host string) error {
 	cfg, err := loadTrustantConfig()
 	if err != nil {
 		return err
+	}
+	pool := cfg.PredefinedEnv
+	if production {
+		if sharedHostKey(host) == "" {
+			return fmt.Errorf("a production choice needs the target host")
+		}
+		pool = productionPool(cfg, host)
 	}
 	for _, source := range choices {
 		if strings.TrimSpace(source) == "" {
 			continue
 		}
-		if _, ok := cfg.PredefinedEnv[source]; !ok {
+		if _, ok := pool[source]; !ok {
+			if production {
+				return fmt.Errorf("shared variable %q does not exist on %s", source, sharedHostKey(host))
+			}
 			return fmt.Errorf("shared variable %q does not exist", source)
 		}
 	}
@@ -431,6 +578,13 @@ func applyImportChoices(appName string, choices map[string]string, literals map[
 	if appCfg.Development == nil {
 		appCfg.Development = make(map[string]string)
 	}
+	if appCfg.Production == nil {
+		appCfg.Production = make(map[string]string)
+	}
+	target := appCfg.Development
+	if production {
+		target = appCfg.Production
+	}
 
 	// The reference IS the value, so choosing a producer and typing a literal are
 	// the same write. A literal simply replaces the reference, which is how an
@@ -440,13 +594,13 @@ func applyImportChoices(appName string, choices map[string]string, literals map[
 		if source == "" {
 			continue
 		}
-		appCfg.Development[name] = importRef(source)
+		target[name] = importRef(source)
 	}
 	for name, value := range literals {
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
-		appCfg.Development[name] = value
+		target[name] = value
 	}
 
 	return saveWorkspaceConfig(wsCfg)
@@ -467,6 +621,30 @@ func handleImports(w http.ResponseWriter, r *http.Request) {
 	app := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/imports"), "/")
 	if !namePattern.MatchString(app) {
 		http.Error(w, "Invalid app name", http.StatusBadRequest)
+		return
+	}
+
+	// ?mode=production&host=<apihost> is the publish popup: the same rows,
+	// resolved against that host's production pool.
+	if r.URL.Query().Get("mode") == "production" {
+		host := r.URL.Query().Get("host")
+		if host == "" {
+			if cfg, err := loadTrustantConfig(); err == nil && cfg.Apps[app] != nil {
+				host = cfg.Apps[app].Production["OPS_APIHOST"]
+			}
+		}
+		if sharedHostKey(host) == "" {
+			writeJSONError(w, http.StatusBadRequest, "No production host configured")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			handleProductionImportsGet(w, app, host)
+		case http.MethodPost:
+			handleProductionImportsSave(w, r, app, host)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 		return
 	}
 
@@ -515,6 +693,40 @@ func handleImportsGet(w http.ResponseWriter, app string) {
 	})
 }
 
+func handleProductionImportsGet(w http.ResponseWriter, app, host string) {
+	resolutions, err := resolveProductionImports(app, host)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if resolutions == nil {
+		resolutions = []ImportResolution{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, map[string]interface{}{
+		"app":         app,
+		"host":        sharedHostKey(host),
+		"resolutions": resolutions,
+	})
+}
+
+// handleProductionImportsSave records the publish popup's answers into
+// apps.<name>.production. .env.dist is never rewritten from here.
+func handleProductionImportsSave(w http.ResponseWriter, r *http.Request, app, host string) {
+	var req importsSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if len(req.Choices) > 0 || len(req.Values) > 0 {
+		if err := applyImportChoices(app, req.Choices, req.Values, true, host); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	handleProductionImportsGet(w, app, host)
+}
+
 // importsSaveRequest carries either side of the POST. `bindings` rewrites
 // .env.dist wholesale, like the Export picker: a row the user removed must
 // disappear, which a merge could not express. `choices` and `values` carry the
@@ -540,7 +752,7 @@ func handleImportsSave(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	if len(req.Choices) > 0 || len(req.Values) > 0 {
-		if err := applyImportChoices(app, req.Choices, req.Values); err != nil {
+		if err := applyImportChoices(app, req.Choices, req.Values, false, ""); err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}

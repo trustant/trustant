@@ -130,28 +130,29 @@ Where `apihost`, `user`, `password` are optional (only sent when user provides t
 1. Validate `name` with the standard name pattern
 2. If config fields are provided, save them to `apps.<name>.production` as `OPS_APIHOST`, `OPS_USER`, `OPS_PASSWORD`
 3. Read all 3 from production config. If any are empty, return `{"needs_config": true}`
-3a. Check shared variables for the target host (`missingProductionShared`, see
-   [18-shared.md](18-shared.md)). A production variable this app declares that
-   another app produces, has no value of its own, and is absent from that host's
-   `predefined_env_production` pool, blocks the publish before anything touches
-   the cluster:
-   `{"needs_config": true, "missing_shared": [{"name","app","host"}]}`.
+3a. Resolve the app's imports for the target host (`pendingProductionImports`,
+   see [19-import.md](19-import.md#production-publish)): every `.env.dist`
+   binding and development `${{ref}}`, against that host's `shared_production`
+   pool. Anything pending blocks the publish before anything touches the
+   cluster (and before the licensed-host gate):
+   `{"needs_config": true, "pending_imports": [ImportResolution...], "host": "<apihost>"}`.
+   The app list opens the import popup in production mode for the host;
+   confirming POSTs `/api/imports/<name>?mode=production&host=<apihost>`, which
+   records the answers in `apps.<name>.production`, and retries the publish.
    Unlike the launch gate this **blocks**: a launch with a missing value costs a
-   broken dev server, a publish with one deploys an app pointed at nothing. The
-   user either publishes the producing app to this host or types the value in by
-   hand for it.
+   broken dev server, a publish with one deploys an app pointed at nothing.
 4. Check if workbench exists at `<WorkbenchDir>/<name>`:
    - If missing, clone from `<WorkspaceDir>/workspace/<name>`, run `npm install` if `package.json` exists
 5. Generate env files via `generateAppEnvFiles(name)` (always, to ensure `.env.production` is current)
 6. Delete `~/.ops/config.json` (`removeOpsConfig`, see [18-shared.md](18-shared.md))
    and run `ops ide login --mode=production` in the workbench directory
 6a. Resolve this app's own `.env.shared` against the production config the login
-   just wrote, and store the values under this apihost in
-   `predefined_env_production` (`resolveProductionShared`). Only the app being
+   just wrote, and store them as `shared_production[<apihost>][<name>]`,
+   replacing that app's previous values for the host (`resolveProductionShared`). Only the app being
    published is resolved — a production login is a real operation against a real
    cluster, and sweeping every producer would log into clusters the user never
    asked to touch. Non-fatal; taken under the runtime lifecycle lock.
-7. Run `ops ide deploy` in the workbench directory
+7. Run `ops ide deploy --mode=production` in the workbench directory, so the deploy loads `.env.production` (the ide plugin reads `.env.<mode>` before `.env`)
 8. Return `{"message": "Published successfully", "output": "..."}` on success, or
    `{"error": "...", "output": "..."}` on failure. On success `output` carries
    the accumulated command output (previously discarded), so the modal's

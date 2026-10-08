@@ -351,23 +351,28 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Shared variables another app produces must already have a value for THIS
-	// host before anything touches the cluster. Unlike the development gate this
-	// blocks: a launch with a missing value costs a broken dev server, a publish
-	// with one deploys an app pointed at nothing. Two ways out, both offered by
-	// the frontend — publish the producing app to this host, or type the value
-	// in by hand for it.
-	// The MERGED config: the production pool can come from either layer, and the
-	// gate must not block on a value the base layer already supplies.
+	// Every import must resolve on THIS host before anything touches the
+	// cluster: .env.dist bindings and development ${{ref}} choices, against the
+	// host's production pool. Unlike the development gate a missing value here
+	// would deploy an app pointed at nothing. The frontend opens the import
+	// popup in production mode for the host; confirming records the choice in
+	// apps.<name>.production and retries. A row naming a Producer means that app
+	// has to be published to this host first.
+	// The MERGED config: the production pool can come from either layer.
 	mergedCfg, err := loadTrustantConfig()
 	if err != nil {
 		mergedCfg = wsCfg
 	}
-	if missing := missingProductionShared(req.Name, prod["OPS_APIHOST"], mergedCfg); len(missing) > 0 {
-		log.Printf("Publish of %s blocked, unresolved shared values on %s: %+v", req.Name, prod["OPS_APIHOST"], missing)
+	if pending := pendingProductionImports(mergedCfg, req.Name, prod["OPS_APIHOST"]); len(pending) > 0 {
+		names := make([]string, 0, len(pending))
+		for _, p := range pending {
+			names = append(names, p.Name)
+		}
+		log.Printf("Publish of %s blocked, unresolved imports on %s: %v", req.Name, prod["OPS_APIHOST"], names)
 		writePublishJSON(w, http.StatusOK, map[string]interface{}{
-			"needs_config":   true,
-			"missing_shared": missing,
+			"needs_config":    true,
+			"pending_imports": pending,
+			"host":            prod["OPS_APIHOST"],
 		})
 		return
 	}
@@ -458,8 +463,8 @@ func handlePublishRemote(w http.ResponseWriter, r *http.Request) {
 
 	// Run ops ide deploy
 	reportProgress(w, 6, "Deploying application...")
-	log.Printf("Running ops ide deploy for %s...", req.Name)
-	deployCmd := exec.Command("ops", "ide", "deploy")
+	log.Printf("Running ops ide deploy --mode=production for %s...", req.Name)
+	deployCmd := exec.Command("ops", "ide", "deploy", "--mode=production")
 	deployCmd.Dir = workbenchPath
 	if err := runStreamingCommand(w, &output, deployCmd); err != nil {
 		log.Printf("ops ide deploy failed: %s, output: %s", err, output.String())

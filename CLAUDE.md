@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Plans live in GitHub issues, never only in the chat.** For any change bigger than 5 lines of code, create a GitHub issue first and write the plan in the issue body. If the change is 5 lines or smaller, update the wiki and change `main` directly.
 
+
+If you are not logged in github use the script ghlogin.sh to login into. If the script is missing, complain.
+
 Write the plan into the issue as soon as the plan is finished, then **stop. Do not implement.** A plan that exists only in the chat transcript is not a plan — if the planning is done and no issue has been created, create the issue before saying anything else.
 
 Wait for an express request from the user to implement. Only then create the branch issue-<issuenr> and start implementing.

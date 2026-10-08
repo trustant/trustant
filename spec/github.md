@@ -57,8 +57,9 @@ delay. Trustant does not retry the Git clone, pull, or push operation itself.
 ## Presentation
 
 The connect form is **one shared component**, `web/js/github-account.js`. It
-renders the status message, the device panel (one-time code, Copy Code, Open
-GitHub), the error line, and the Connect / Cancel / Disconnect actions, and owns
+renders the status message, the device panel (one-time code and Open
+GitHub; no copy button — the clipboard is unreliable on the plain-http
+nip.io origin), the error line, and the Connect / Cancel / Disconnect actions, and owns
 the polling loop against the endpoints above. Each mount prefixes its own
 element ids so several copies can coexist on one page, and publishes its
 instance on `window` under a caller-supplied name, because the rendered markup

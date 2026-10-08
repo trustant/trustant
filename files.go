@@ -255,9 +255,11 @@ func resolveWorkbenchPath(workbenchPath, rel string) (string, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Report a missing file as such rather than as a traversal attempt,
-			// but only once we know the unresolved path is lexically contained.
-			if withinRoot(root, target) {
-				return target, nil
+			// but only once we know the path is lexically contained. Join against
+			// the resolved root: comparing the unresolved target against it fails
+			// whenever the workbench itself sits under a symlink (macOS /var).
+			if missing := filepath.Join(root, filepath.FromSlash(rel)); withinRoot(root, missing) {
+				return missing, nil
 			}
 		}
 		return "", errInvalidPath

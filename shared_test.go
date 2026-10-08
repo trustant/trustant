@@ -361,52 +361,38 @@ func TestFoldIntoSharedPoolRespectsTheLimit(t *testing.T) {
 	}
 }
 
-func TestFoldIntoProductionPoolKeepsValuesPerHost(t *testing.T) {
-	apps := map[string]*AppConfig{"appsuite": {}}
+func TestSetProductionSharedKeepsValuesPerHost(t *testing.T) {
 	cfg := &trustantConfig{}
 
-	foldIntoProductionPool(cfg, "https://api.nuvolaris.io/", map[string]string{"APPSUITE__DB": "nuvolaris"}, apps)
-	foldIntoProductionPool(cfg, "openserverless.dev", map[string]string{"APPSUITE__DB": "openserverless"}, apps)
+	setProductionShared(cfg, "https://api.nuvolaris.io/", "appsuite", map[string]string{"APPSUITE__DB": "nuvolaris"})
+	setProductionShared(cfg, "openserverless.dev", "appsuite", map[string]string{"APPSUITE__DB": "openserverless"})
 
 	// Same name, different cluster, different secret. One flat map would hand an
 	// app the wrong cluster's credentials.
-	if got := cfg.PredefinedEnvProduction["api.nuvolaris.io"]["APPSUITE__DB"]; got != "nuvolaris" {
+	if got := cfg.SharedProduction["api.nuvolaris.io"]["appsuite"]["APPSUITE__DB"]; got != "nuvolaris" {
 		t.Fatalf("first host = %q", got)
 	}
-	if got := cfg.PredefinedEnvProduction["openserverless.dev"]["APPSUITE__DB"]; got != "openserverless" {
+	if got := cfg.SharedProduction["openserverless.dev"]["appsuite"]["APPSUITE__DB"]; got != "openserverless" {
 		t.Fatalf("second host = %q", got)
 	}
 }
 
-func TestFoldIntoProductionPoolKeepsAHandTypedHostValue(t *testing.T) {
-	// A value typed by hand is the escape hatch for a producer that lives on
-	// another installation; a later publish must not silently replace it.
-	apps := map[string]*AppConfig{}
-	cfg := &trustantConfig{PredefinedEnvProduction: map[string]map[string]string{
-		"api.nuvolaris.io": {"ELSEWHERE__DB": "typed by hand"},
+func TestSharedProductionSurvivesMergeConfigs(t *testing.T) {
+	base := &trustantConfig{SharedProduction: map[string]map[string]map[string]string{
+		"api.nuvolaris.io": {"base": {"BASE__A": "1"}},
 	}}
-	foldIntoProductionPool(cfg, "api.nuvolaris.io", map[string]string{"ELSEWHERE__DB": "resolved"}, apps)
-	if got := cfg.PredefinedEnvProduction["api.nuvolaris.io"]["ELSEWHERE__DB"]; got != "typed by hand" {
-		t.Fatalf("hand-typed production value was clobbered: %q", got)
-	}
-}
-
-func TestPredefinedEnvProductionSurvivesMergeConfigs(t *testing.T) {
-	base := &trustantConfig{PredefinedEnvProduction: map[string]map[string]string{
-		"api.nuvolaris.io": {"BASE__A": "1"},
-	}}
-	ws := &trustantConfig{PredefinedEnvProduction: map[string]map[string]string{
-		"api.nuvolaris.io":   {"WS__B": "2"},
-		"openserverless.dev": {"WS__C": "3"},
+	ws := &trustantConfig{SharedProduction: map[string]map[string]map[string]string{
+		"api.nuvolaris.io":   {"ws": {"WS__B": "2"}},
+		"openserverless.dev": {"ws": {"WS__C": "3"}},
 	}}
 	merged := mergeConfigs(base, ws)
-	if merged.PredefinedEnvProduction["api.nuvolaris.io"]["BASE__A"] != "1" {
+	if merged.SharedProduction["api.nuvolaris.io"]["base"]["BASE__A"] != "1" {
 		t.Fatalf("base value lost in merge")
 	}
-	if merged.PredefinedEnvProduction["api.nuvolaris.io"]["WS__B"] != "2" {
+	if merged.SharedProduction["api.nuvolaris.io"]["ws"]["WS__B"] != "2" {
 		t.Fatalf("workspace value lost in merge")
 	}
-	if merged.PredefinedEnvProduction["openserverless.dev"]["WS__C"] != "3" {
+	if merged.SharedProduction["openserverless.dev"]["ws"]["WS__C"] != "3" {
 		t.Fatalf("workspace-only host lost in merge")
 	}
 }
@@ -479,9 +465,9 @@ func TestGeneratedProductionEnvUsesTheAppsOwnHostPool(t *testing.T) {
 			"OPS_APIHOST":  "https://openserverless.dev",
 			"APPSUITE__DB": "",
 		}}},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"api.nuvolaris.io":   {"APPSUITE__DB": "WRONG CLUSTER"},
-			"openserverless.dev": {"APPSUITE__DB": "right cluster"},
+		SharedProduction: map[string]map[string]map[string]string{
+			"api.nuvolaris.io":   {"appsuite": {"APPSUITE__DB": "WRONG CLUSTER"}},
+			"openserverless.dev": {"appsuite": {"APPSUITE__DB": "right cluster"}},
 		},
 	}
 	if err := saveWorkspaceConfig(cfg); err != nil {
@@ -524,75 +510,6 @@ func TestGeneratedEnvDoesNotUseTheDevelopmentPoolForProduction(t *testing.T) {
 	// points the deployed app at the developer's own services.
 	if strings.Contains(string(body), "development secret") {
 		t.Fatalf("the development pool reached .env.production:\n%s", body)
-	}
-}
-
-// --- the publish gate -----------------------------------------------------
-
-func TestMissingProductionSharedBlocksAndNamesTheProducer(t *testing.T) {
-	cfg := &trustantConfig{Apps: map[string]*AppConfig{
-		"appsuite": {},
-		"consumer": {Production: map[string]string{"APPSUITE__DB": ""}},
-	}}
-	missing := missingProductionShared("consumer", "https://openserverless.dev/", cfg)
-	if len(missing) != 1 {
-		t.Fatalf("expected one blocking variable, got %#v", missing)
-	}
-	if missing[0].Name != "APPSUITE__DB" || missing[0].App != "appsuite" {
-		t.Fatalf("the message must name the producer: %#v", missing[0])
-	}
-	if missing[0].Host != "openserverless.dev" {
-		t.Fatalf("host not normalized: %q", missing[0].Host)
-	}
-}
-
-func TestMissingProductionSharedIsSatisfiedByTheHostPool(t *testing.T) {
-	cfg := &trustantConfig{
-		Apps: map[string]*AppConfig{
-			"appsuite": {},
-			"consumer": {Production: map[string]string{"APPSUITE__DB": ""}},
-		},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"openserverless.dev": {"APPSUITE__DB": "resolved"},
-		},
-	}
-	if missing := missingProductionShared("consumer", "openserverless.dev", cfg); len(missing) != 0 {
-		t.Fatalf("a host that has the value must not block: %#v", missing)
-	}
-	// ...but only for that host.
-	if missing := missingProductionShared("consumer", "api.nuvolaris.io", cfg); len(missing) != 1 {
-		t.Fatalf("another host must still block: %#v", missing)
-	}
-}
-
-func TestMissingProductionSharedIsSatisfiedByAHandTypedValue(t *testing.T) {
-	// The escape hatch for a producer on another installation.
-	cfg := &trustantConfig{Apps: map[string]*AppConfig{
-		"appsuite": {},
-		"consumer": {Production: map[string]string{"APPSUITE__DB": "typed by hand"}},
-	}}
-	if missing := missingProductionShared("consumer", "openserverless.dev", cfg); len(missing) != 0 {
-		t.Fatalf("a hand-typed value must satisfy the gate: %#v", missing)
-	}
-}
-
-func TestAnAppNeverBlocksOnAVariableItProducesItself(t *testing.T) {
-	// Its own publish resolves it in the same request.
-	cfg := &trustantConfig{Apps: map[string]*AppConfig{
-		"appsuite": {Production: map[string]string{"APPSUITE__DB": ""}},
-	}}
-	if missing := missingProductionShared("appsuite", "openserverless.dev", cfg); len(missing) != 0 {
-		t.Fatalf("an app blocked on its own variable: %#v", missing)
-	}
-}
-
-func TestOrdinaryProductionVariablesDoNotBlockPublish(t *testing.T) {
-	// An empty production value that no app produces is the user's business.
-	cfg := &trustantConfig{Apps: map[string]*AppConfig{
-		"consumer": {Production: map[string]string{"SOME_KEY": ""}},
-	}}
-	if missing := missingProductionShared("consumer", "openserverless.dev", cfg); len(missing) != 0 {
-		t.Fatalf("a plain empty variable must not block a publish: %#v", missing)
 	}
 }
 
@@ -746,8 +663,8 @@ func TestGetPredefinedEnvMarksAppProducedRows(t *testing.T) {
 	if err := saveWorkspaceConfig(&trustantConfig{
 		Apps:          map[string]*AppConfig{"appsuite": {}},
 		PredefinedEnv: map[string]string{"APPSUITE__DB": "resolved", "MINE": "typed"},
-		PredefinedEnvProduction: map[string]map[string]string{
-			"openserverless.dev": {"APPSUITE__DB": "prod"},
+		SharedProduction: map[string]map[string]map[string]string{
+			"openserverless.dev": {"appsuite": {"APPSUITE__DB": "prod"}},
 		},
 	}); err != nil {
 		t.Fatalf("save config: %s", err)
@@ -756,8 +673,8 @@ func TestGetPredefinedEnvMarksAppProducedRows(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handleGetPredefinedEnv(rec, httptest.NewRequest(http.MethodGet, "/api/predefined-env", nil))
 	var resp struct {
-		Vars       []PredefinedEnvVar            `json:"vars"`
-		Production map[string][]PredefinedEnvVar `json:"production"`
+		Vars       []PredefinedEnvVar                       `json:"vars"`
+		Production map[string]map[string][]PredefinedEnvVar `json:"production"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %s", err)
@@ -773,7 +690,7 @@ func TestGetPredefinedEnvMarksAppProducedRows(t *testing.T) {
 	if byName["MINE"].App != "" {
 		t.Fatalf("a hand-typed row must not be marked: %#v", byName["MINE"])
 	}
-	if len(resp.Production["openserverless.dev"]) != 1 {
+	if len(resp.Production["openserverless.dev"]["appsuite"]) != 1 {
 		t.Fatalf("production pool not exposed: %#v", resp.Production)
 	}
 }
