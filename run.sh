@@ -374,8 +374,10 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 echo ""
-echo "  Trustant is running — open this URL in your browser:"
+echo "Trustant is running. open this URL in your browser:"
 echo "    $URL"
+echo "Stop with Control-C"
+echo "Restart with ./start.sh"
 echo ""
 
 # wait until ^c
