@@ -723,7 +723,9 @@ Only files stored as LF but checked out as CRLF count as damage — a submodule
 that genuinely commits CRLF is left alone. Repair is skipped, with an actionable
 warning rather than a hard failure, when the submodule has uncommitted changes:
 the fix must never discard the user's work. The whole step is a no-op on macOS
-and Linux, where `autocrlf` is off to begin with.
+and Linux, where `autocrlf` is off to begin with. It is also skipped when the
+tree is not a git checkout (a tree unpacked from GitHub tarballs by `./install`,
+which fetches `mcp`, `acp` and `acp/pi-acp` at their pinned commits itself).
 
 ## The final step
 

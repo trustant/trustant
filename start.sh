@@ -176,6 +176,8 @@ ensure_source_submodules() {
 # Pin LF per submodule and repair any working tree that is still CRLF. A no-op on
 # macOS and Linux, where autocrlf is off to begin with.
 normalize_submodule_eol() {
+  # A tree downloaded by ./install as tarballs is not a git checkout: nothing to fix.
+  git -C "$MOUNT_DIR" rev-parse --is-inside-work-tree &>/dev/null || return 0
   git -C "$MOUNT_DIR" submodule foreach --quiet --recursive '
     git config core.autocrlf false
     git config core.eol lf
