@@ -98,7 +98,8 @@ host-reachable address, resolved in this order: the `current.ip` written by
 Linux host this is the LAN address, so the printed URL also works from another
 machine), then the lima0 address inside the VM, then 127.0.0.1;
 then print "Press Control-C to stop. Use ./start.sh to start again." (no
-deployment URL is printed);
+deployment URL is printed; `start.ps1` sets `TRUSTANT_START_CMD=.\start.ps1` so
+Windows users are told to rerun that instead);
 Trustant handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
 
 5. wait until you press ^c and terminate everything
