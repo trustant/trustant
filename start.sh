@@ -994,7 +994,8 @@ finish_native() {
   # stays in the foreground: run.sh owns kubefwd and `air`, so Ctrl-C here is how
   # you stop the dev server. `./start.sh -n` (or -v) stops before this point.
   if [[ "$RUN_APP" == 1 ]]; then
-    echo "--- Running ./run.sh as $(id -un) (Ctrl-C to stop) ---"
+    echo "--- Running ./run.sh as $(id -un) ---"
+    echo "Press Control-C to stop. Use ./start.sh to start again."
     bash ./run.sh
   else
     echo "  next:         ./run.sh"
@@ -1532,7 +1533,8 @@ open_vscode() {
 # This is the default finish and it stays in the foreground: run.sh owns kubefwd
 # and `air`, so Ctrl-C here is how you stop the dev server.
 run_in_vm() {
-  echo "--- Running ./run.sh in the VM as $HOST_USER (Ctrl-C to stop) ---"
+  echo "--- Running ./run.sh in the VM as $HOST_USER ---"
+  echo "Press Control-C to stop. Use ./start.sh to start again."
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./run.sh
 }
 

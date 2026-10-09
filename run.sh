@@ -377,9 +377,6 @@ echo ""
 echo "  Trustant is running — open this URL in your browser:"
 echo "    $URL"
 echo ""
-# start.ps1 sets TRUSTANT_START_CMD so Windows users are told to rerun .\start.ps1.
-echo "  Press Control-C to stop. Use ${TRUSTANT_START_CMD:-./start.sh} to start again."
-echo ""
 
 # wait until ^c
 wait "$AIR_PID"

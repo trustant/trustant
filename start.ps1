@@ -555,8 +555,9 @@ if ($NoRun) {
 # for the same reason as start.sh above: the exec bit on a Windows-hosted file
 # depends on the automount options, and this does not care. No arguments:
 # run.sh takes none.
-Write-Step "Running ./run.sh in '$Distro' as '$User' (Control-C to stop)"
-& wsl.exe -d $Distro -u $User --cd $RepoWsl -- env 'TRUSTANT_START_CMD=.\start.ps1' bash ./run.sh
+Write-Step "Running ./run.sh in '$Distro' as '$User'"
+Write-Host 'Press Control-C to stop. Use .\start.ps1 to start again.'
+& wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./run.sh
 $runExit = $LASTEXITCODE
 
 Show-NextSteps 'Trustant development environment ready'
