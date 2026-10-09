@@ -77,6 +77,7 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ## Common commands
 
 ```bash
+./install        # Polyglot bash/PowerShell installer (curl ... | bash, irm ... | iex): installs lima/git (mac, brew), git (apt), git (winget), clones with --recurse-submodules into ~/trustant, runs start.sh/start.ps1 — spec/install.md
 .\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 `trudev` distro (Ubuntu-24.04 image), mirrors the user with sudo, runs ./start.sh inside it over the /mnt mount, then ./run.sh; -v opens VS Code on the mount instead, -n neither; -Stop / -Destroy
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
@@ -109,8 +110,8 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 - `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustant Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
 - `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
 - `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
-- `ENABLE_LICENSE` — **optional feature flag, off by default**. When empty or unset the license gates on git push / publishing are skipped and the License card in `configure.html` stays hidden. Set only in [image/env](image/env), never in `.env.dist` or the `.env` `setup.sh` generates.
-- `ENABLE_REGOLO` — **optional feature flag, off by default**. When empty or unset the **Sovereign AI** (Regolo.AI) card is removed from the provider selector. Set only in [image/env](image/env).
+- `ENABLE_LICENSE` — **optional feature flag, off by default**. When empty or unset the license gates on git push / publishing are skipped and the License card in `configure.html` stays hidden. Set in [image/env](image/env), and as a `<0|1>` key in `.env.dist`; the `.env` that `install` writes sets it to `0` unless overridden (never the `.env` `setup.sh` generates).
+- `ENABLE_REGOLO` — **optional feature flag, off by default**. When empty or unset the **Sovereign AI** (Regolo.AI) card is removed from the provider selector. Set like `ENABLE_LICENSE`.
 
 Both flags are read by `envFlag` (unset/empty/`0`/`false`/`no`/`off` = off) and reported to the frontend as the `license` and `regolo` booleans on `/api/version`.
 
