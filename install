@@ -76,6 +76,20 @@ then
 fi
 
 cd "$DEST" || exit 1
+# Lima mounts this folder at the same path in the VM, so host paths work there.
+HERE="$(pwd)"
+cat > .env <<ENV
+WORKSPACE_DIR=$HERE/workspace
+WORKBENCH_DIR=$HERE/workbench
+OLLAMA_ENDPOINT=http://localhost:11434
+AIP_REGISTER_URL=https://api.nuvolaris.io/_register
+AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
+GIT_USER=TrustantUser
+GIT_EMAIL=noreply@example.com
+ENABLE_REGOLO=${ENABLE_REGOLO:-0}
+ENABLE_LICENSE=${ENABLE_LICENSE:-0}
+ENV
+mkdir -p workspace workbench || exit 1
 exec ./start.sh <"$TTY"
 
 exit 0
@@ -99,6 +113,12 @@ echo > /dev/null <<"out-null" ###
 
     $Url = 'https://github.com/trustant/trustant'
     $Dest = if ($env:TRUSTANT_DIR) { $env:TRUSTANT_DIR } else { Join-Path $HOME 'trustant' }
+    $Dest = [System.IO.Path]::GetFullPath($Dest)
+    # The folder is used from WSL over /mnt/<drive>: a space breaks .env and the scripts.
+    if ($Dest -match ' ') {
+        Write-Host "The install path '$Dest' contains spaces - set TRUSTANT_DIR to a path without spaces"
+        return
+    }
 
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
@@ -131,6 +151,23 @@ echo > /dev/null <<"out-null" ###
     }
 
     Set-Location $Dest
+    # .env is read inside WSL: use the /mnt/<drive> form of this folder, LF endings, no BOM.
+    $Wsl = '/mnt/' + $Dest.Substring(0, 1).ToLower() + ($Dest.Substring(2) -replace '\\', '/')
+    $Regolo = if ($env:ENABLE_REGOLO) { $env:ENABLE_REGOLO } else { '0' }
+    $License = if ($env:ENABLE_LICENSE) { $env:ENABLE_LICENSE } else { '0' }
+    $EnvText = @(
+        "WORKSPACE_DIR=$Wsl/workspace"
+        "WORKBENCH_DIR=$Wsl/workbench"
+        'OLLAMA_ENDPOINT=http://localhost:11434'
+        'AIP_REGISTER_URL=https://api.nuvolaris.io/_register'
+        'AIP_BASE_URL=https://api.nuvolaris.io/api/v2/'
+        'GIT_USER=TrustantUser'
+        'GIT_EMAIL=noreply@example.com'
+        "ENABLE_REGOLO=$Regolo"
+        "ENABLE_LICENSE=$License"
+    ) -join "`n"
+    [System.IO.File]::WriteAllText((Join-Path $Dest '.env'), "$EnvText`n")
+    New-Item -ItemType Directory -Force -Path (Join-Path $Dest 'workspace'), (Join-Path $Dest 'workbench') | Out-Null
     # A child process with Bypass: the default policy may refuse a local .ps1.
     $Shell = (Get-Process -Id $PID).Path
     & $Shell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1

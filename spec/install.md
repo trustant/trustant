@@ -43,6 +43,9 @@ Under `curl | bash`, stdin is the script itself. Every prompt (sudo, brew, and
 ## PowerShell part
 
 - Refuses on anything other than Windows (`OSVersion.Platform -eq 'Win32NT'`).
+- Refuses if the install path (`TRUSTANT_DIR` or `~\trustant`, made absolute)
+  contains a space. The folder is used from WSL over `/mnt/<drive>`, and a space
+  breaks `.env` and the scripts.
 - If `git` is missing it runs `winget install --id Git.Git -e`, then reloads
   `$env:Path` from the Machine and User registry values so the new `git`
   resolves in this session. If `winget` is missing, it points to git-scm.com.
@@ -50,3 +53,31 @@ Under `curl | bash`, stdin is the script itself. Every prompt (sudo, brew, and
   `-ExecutionPolicy Bypass`, because the default policy may refuse a local `.ps1`.
 - It never calls `exit`: under `irm | iex` that would close the user's window.
   The body is a scriptblock that stops with `return`.
+
+
+## .env
+
+Both parts write `<install>/.env` after the clone and before `start.sh`/`start.ps1`,
+then create `<install>/workspace` and `<install>/workbench`. All three are
+git-ignored, so the checkout stays clean.
+
+    WORKSPACE_DIR=<absolute-path-of-installation>/workspace
+    WORKBENCH_DIR=<absolute-path-of-installation>/workbench
+    OLLAMA_ENDPOINT=http://localhost:11434
+    AIP_REGISTER_URL=https://api.nuvolaris.io/_register
+    AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
+    GIT_USER=TrustantUser
+    GIT_EMAIL=noreply@example.com
+    ENABLE_REGOLO=<0|1>
+    ENABLE_LICENSE=<0|1>
+
+- `ENABLE_REGOLO` and `ENABLE_LICENSE` default to `0`. Setting the variable of the
+  same name when running the installer overrides the default.
+- **Bash**: the path is `pwd` of the clone. Lima mounts that folder at the same
+  path in the VM, so the same path works there.
+- **PowerShell**: `.env` is read inside WSL, so the path is the `/mnt/<drive>`
+  form of the install folder (`C:\Users\x\trustant` becomes
+  `/mnt/c/Users/x/trustant`). The file is written with LF endings and no BOM.
+- `.env.dist` also lists `GITHUB_TOKEN`, but this `.env` leaves it out.
+  `setup.sh` treats it as optional (see spec/setup.md), so its check that every
+  `.env.dist` key is set still passes.

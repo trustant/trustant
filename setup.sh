@@ -113,6 +113,7 @@ else
   while IFS='=' read -r key _; do
     [[ -z "$key" || "$key" =~ ^# ]] && continue
     key=$(echo "$key" | xargs)
+    [[ "$key" == GITHUB_TOKEN ]] && continue  # optional: only ghlogin.sh uses it
     val=$(grep "^${key}=" .env | cut -d'=' -f2-)
     if [[ -z "$val" || "$val" == "<"*">" ]]; then
       fail "Variable $key is not set in .env (still has placeholder or is empty)"

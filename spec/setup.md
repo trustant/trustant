@@ -85,7 +85,8 @@ the guest user's own $HOME).
   - GIT_EMAIL=noreply@example.com
 - If .env is PRESENT, do NOT overwrite it — validate it as before: every key in
   .env.dist must be set (no empty value, no leftover <placeholder>), warn/abort on
-  any missing.
+  any missing. `GITHUB_TOKEN` is the exception: it is optional (only the developer
+  `ghlogin.sh` reads it), so the `.env` written by `install` passes.
 - Then `mkdir -p "$WORKSPACE_DIR"` and `mkdir -p "$WORKBENCH_DIR"`, load .env with
   the bash loop, and confirm both dirs exist (they now will).
 
