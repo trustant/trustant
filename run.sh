@@ -366,8 +366,6 @@ IP="$(cat "$SUPPORT_IP_FILE" 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$IP" ]] || IP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)"
 [[ -n "$IP" ]] || IP="127.0.0.1"
 URL="http://trustant.${IP}.nip.io:8910/"
-# the deployment: same hostname on the cluster ingress port 8911
-DEPLOY_URL="http://trustant.${IP}.nip.io:8911/"
 
 # Wait until air has built and the server is actually listening on :8910, then
 # print the URL LAST so it is not buried under air's build output.
@@ -379,8 +377,7 @@ echo ""
 echo "  Trustant is running — open this URL in your browser:"
 echo "    $URL"
 echo ""
-echo "  Deployment:"
-echo "    $DEPLOY_URL"
+echo "  Press Control-C to stop. Use ./start.sh to start again."
 echo ""
 
 # wait until ^c
