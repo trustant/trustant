@@ -77,6 +77,7 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ## Common commands
 
 ```bash
+./install        # Polyglot bash/PowerShell installer (curl ... | bash, irm ... | iex): installs lima/git (mac, brew), git (apt), git (winget), clones with --recurse-submodules into ~/trustant, runs start.sh/start.ps1 — spec/install.md
 .\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 `trudev` distro (Ubuntu-24.04 image), mirrors the user with sudo, runs ./start.sh inside it over the /mnt mount, then ./run.sh; -v opens VS Code on the mount instead, -n neither; -Stop / -Destroy
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig

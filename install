@@ -1,0 +1,143 @@
+echo @'
+' > /dev/null
+#vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+# Bash Start -----------------------------------------------------------
+#
+# install - Trustant installer, one file for bash and PowerShell.
+#   curl -fsSL get.trustant.ai | bash      (macOS, Linux)
+#   irm get.trustant.ai | iex              (Windows)
+# Clones https://github.com/trustant/trustant with its submodules into
+# $TRUSTANT_DIR (default ~/trustant) and runs start.sh / start.ps1 there.
+# TRUSTANT_REF selects a branch or tag (default: the repo default branch).
+# See spec/install.md. Keep this file pure ASCII (Windows PowerShell 5.1).
+
+URL="https://github.com/trustant/trustant"
+DEST="${TRUSTANT_DIR:-$HOME/trustant}"
+# Under `curl | bash` stdin is the script itself: prompts (sudo, brew,
+# start.sh) must read the terminal instead.
+TTY=/dev/stdin
+if [ ! -t 0 ] && [ -r /dev/tty ]
+then TTY=/dev/tty
+fi
+
+case "$(uname -s)" in
+(Darwin)
+   if ! command -v brew >/dev/null
+   then
+      echo "brew is required to install Trustant"
+      echo "please install it from https://brew.sh"
+      exit 1
+   fi
+   command -v limactl >/dev/null || brew install lima <"$TTY" || exit 1
+   command -v git >/dev/null || brew install git <"$TTY" || exit 1
+;;
+(Linux)
+   for cmd in apt-get sudo
+   do
+      if ! command -v "$cmd" >/dev/null
+      then
+         echo "$cmd is required to install Trustant"
+         exit 1
+      fi
+   done
+   if [ "$(id -u)" != "0" ] && ! sudo -v <"$TTY"
+   then
+      echo "you need sudo powers to install Trustant"
+      exit 1
+   fi
+   if ! command -v git >/dev/null
+   then
+      { sudo apt-get update && sudo apt-get install -y git; } <"$TTY" || exit 1
+   fi
+;;
+(MINGW*|MSYS*|CYGWIN*)
+   echo "Please use PowerShell to install Trustant on Windows:"
+   echo "   irm get.trustant.ai | iex"
+   exit 1
+;;
+(*)
+   echo "unsupported system $(uname -s) - exiting"
+   exit 1
+;;
+esac
+
+if [ -e "$DEST" ]
+then
+   echo "$DEST already exists - remove it, or cd there and run ./start.sh"
+   exit 1
+fi
+
+echo "Cloning Trustant into $DEST"
+if ! git clone --recurse-submodules ${TRUSTANT_REF:+--branch "$TRUSTANT_REF"} "$URL" "$DEST"
+then
+   echo "git clone failed - exiting"
+   rm -rf "$DEST"
+   exit 1
+fi
+
+cd "$DEST" || exit 1
+exec ./start.sh <"$TTY"
+
+exit 0
+
+# Above this line is Bash Script -------------------------------------------
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+echo > /dev/null <<"out-null" ###
+'@ | out-null
+#vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+# Below this line is Powershell Script -------------------------------------
+#
+# Never `exit` here: under `irm | iex` it would close the user's window.
+# Everything runs in one scriptblock so `return` stops it in both modes.
+
+& {
+    if ([System.Environment]::OSVersion.Platform -ne 'Win32NT') {
+        Write-Host "This installer is for Windows PowerShell - on macOS/Linux run:"
+        Write-Host "   curl -fsSL get.trustant.ai | bash"
+        return
+    }
+
+    $Url = 'https://github.com/trustant/trustant'
+    $Dest = if ($env:TRUSTANT_DIR) { $env:TRUSTANT_DIR } else { Join-Path $HOME 'trustant' }
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Host "git is required: install it from https://git-scm.com and retry"
+            return
+        }
+        Write-Host "Installing git with winget"
+        winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
+        # winget updates the registry PATH, not this session's: reload it.
+        $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                    [Environment]::GetEnvironmentVariable('Path', 'User')
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Write-Host "git installed but not found - open a new PowerShell and retry"
+            return
+        }
+    }
+
+    if (Test-Path $Dest) {
+        Write-Host "$Dest already exists - remove it, or cd there and run .\start.ps1"
+        return
+    }
+
+    Write-Host "Cloning Trustant into $Dest"
+    $Branch = if ($env:TRUSTANT_REF) { @('--branch', $env:TRUSTANT_REF) } else { @() }
+    git clone --recurse-submodules @Branch $Url $Dest
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "git clone failed"
+        Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
+        return
+    }
+
+    Set-Location $Dest
+    # A child process with Bypass: the default policy may refuse a local .ps1.
+    $Shell = (Get-Process -Id $PID).Path
+    & $Shell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+}
+return
+
+# Powershell End -----------------------------------------------------------
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+out-null
+#---------------------------------------------------------------------------
