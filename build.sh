@@ -235,3 +235,9 @@ else
 fi
 
 ops truinst trustant redeploy
+
+# The ingress serves the UI at trustant.<apihost domain> (oplugins-truinst).
+APIHOST="$(ops util kubeget cm/config .metadata.annotations.apihost 2>/dev/null | tr -d '[:space:]' || true)"
+echo
+echo "Trustant is deployed. open this URL in your browser:"
+echo "    ${APIHOST%%://*}://trustant.${APIHOST#*://}/"
