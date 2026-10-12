@@ -74,6 +74,11 @@ make_tag() {
     TAG=$(jq ".config.images.$KEY" <"$OPSROOT" -r | awk -F: '{print $NF}')
     echo "Stored Tag: $TAG"
 
+    if [[ -f .env ]]; then
+        source ./.env
+        git config user.name "$GIT_USER"
+        git config user.email "$GIT_EMAIL"
+    fi
     git commit -m "build $TAG" -a || true
 }
 

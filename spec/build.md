@@ -29,7 +29,8 @@ for compatibility but is no longer the documented form.
 1. computes the tag, **deletes every existing git tag**, forces the new one, and
    writes `_build.txt`
 2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`, then
-   commits, so the deployment plugin always records the image just built
+  configures the local Git author from `GIT_USER` and `GIT_EMAIL` in `.env` and
+  commits, so the deployment plugin always records the image just built
 3. builds the Go binary for the **host architecture** (a single-arch local image
    never uses the other binary; `--buildx` is where both are built)
 4. builds the container image through `image/image.sh`
