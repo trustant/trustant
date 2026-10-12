@@ -163,8 +163,9 @@ case "$MODE" in
 --buildx)
     # CI path: the tag already exists and is pushed. Never tags, never commits,
     # no opsroot write -- CI runs on a detached checkout of that tag.
-    TAG="${TRUSTANT_BUILD_TAG:-${GITHUB_REF#refs/tags/}}"
-    if [ -z "$TAG" ] || [ "$TAG" = "${GITHUB_REF:-}" ]; then
+    REF="${GITHUB_REF:-}"
+    TAG="${TRUSTANT_BUILD_TAG:-${REF#refs/tags/}}"
+    if [ -z "$TAG" ] || [ "$TAG" = "$REF" ]; then
         echo "--buildx needs a tag: set TRUSTANT_BUILD_TAG or run from a tag ref" >&2
         exit 1
     fi
