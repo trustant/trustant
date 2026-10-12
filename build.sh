@@ -236,8 +236,25 @@ fi
 
 ops truinst trustant redeploy
 
-# The ingress serves the UI at trustant.<apihost domain> (oplugins-truinst).
+# Print where the deployed UI answers. The ingress serves it at
+# trustant.<apihost domain> (oplugins-truinst), so that is the URL on a real
+# cluster. A dev cluster's apihost is miniops.me, which resolves to 127.0.0.1
+# and so is only reachable on the k3s machine itself: there go through the
+# host-rewrite proxy start.sh deploys on :8080, at the address start.sh
+# recorded in current.ip (lima0 as a fallback -- never eth0, Lima's NAT-only
+# interface). Nothing here may fail the build: the deploy already succeeded.
 APIHOST="$(ops util kubeget cm/config .metadata.annotations.apihost 2>/dev/null | tr -d '[:space:]' || true)"
+URL=""
+[ -z "$APIHOST" ] || URL="${APIHOST%%://*}://trustant.${APIHOST#*://}/"
+if [ -z "$APIHOST" ] || [ "${APIHOST#*://}" = "miniops.me" ]; then
+    VMIP="$(cat "$MAC_IP" "${XDG_CONFIG_HOME:-$HOME/.config}/trustant/current.ip" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+    [ -n "$VMIP" ] || VMIP="$(ip -4 -o addr show lima0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)"
+    [ -z "$VMIP" ] || URL="http://trustant.${VMIP}.nip.io:8080/"
+fi
 echo
-echo "Trustant is deployed. open this URL in your browser:"
-echo "    ${APIHOST%%://*}://trustant.${APIHOST#*://}/"
+if [ -n "$URL" ]; then
+    echo "Trustant is deployed. open this URL in your browser:"
+    echo "    $URL"
+else
+    echo "Trustant is deployed, but its URL could not be determined."
+fi

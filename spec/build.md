@@ -36,8 +36,14 @@ for compatibility but is no longer the documented form.
 4. builds the container image through `image/image.sh`
 5. makes the image reachable by the cluster
 6. deploys with `ops truinst trustant redeploy`
-7. prints the URL of the deployed UI, `<scheme>://trustant.<domain>/`, derived
-   from the cluster's `apihost` annotation (the host the plugin's ingress uses)
+7. prints the URL of the deployed UI. Nothing in this step can fail the build.
+   - **real cluster**: `<scheme>://trustant.<domain>/`, from the cluster's
+     `apihost` annotation — the host the plugin's ingress uses
+   - **dev cluster** (apihost `miniops.me`, which resolves to `127.0.0.1`, or
+     apihost unreadable): `http://trustant.<ip>.nip.io:8080/`, the host-rewrite
+     proxy `start.sh` deploys. `<ip>` is the first of: the Mac support dir's
+     `current.ip`, the XDG `current.ip`, the `lima0` interface (never `eth0`,
+     Lima's NAT-only address). With no `<ip>` it falls back to the apihost URL.
 
 Only step 5 differs by host. On the macOS VM the cluster lives inside the VM
 and cannot see the local image store, so the image is exported and piped over
