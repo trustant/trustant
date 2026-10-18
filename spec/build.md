@@ -286,7 +286,7 @@ Both `--build` and `--buildx` also stage `LICENSE`, `NOTICE` and `DEPS` with
 | `LICENSE`, `NOTICE`, `DEPS` | `/usr/share/doc/trustant/` | root |
 
 That set covers a Go change, a container entrypoint fix, a flag flip in `.env`
-(`ENABLE_LICENSE`, `ENABLE_REGOLO`) and a base-config change — none of which
+(e.g. adding the hidden `ENABLE_LICENSE` / `ENABLE_REGOLO` overrides) and a base-config change — none of which
 need the MCP/TruACP stages rebuilt. Everything `image/image.sh` does before its
 first `docker build` line (submodule init, `npm install`/`build` for
 trustant-acp, `npm ci`/`test`/`build`/`pack` for the nested pi-acp fork, three

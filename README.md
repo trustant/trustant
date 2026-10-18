@@ -217,7 +217,7 @@ inside the VM to re-verify the toolchain).
 | `OPENAI_API_KEY` | ✅ | Provider API key |
 | `OLLAMA_ENDPOINT` | ✅ | Local Ollama endpoint for the Ollama provider |
 | `AIP_REGISTER_URL` | ✅ | ai-proxy registration UI base. The splash loads this in an iframe for Trustant Cloud sign-up; the top-up form lives at `<this>/top-up`. Dev: `http://localhost:8080/_register`; Prod: `https://api.nuvolaris.io/_register` |
-| `AIP_BASE_URL` | ✅ | ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL. Dev: `http://localhost:8080/api/v2/`; Prod: `https://api.nuvolaris.io/api/v2/` |
+| `AIP_BASE_URL` | ✅ | ai-proxy JSON API base. `/api/credits` and `/api/topup` proxy directly under this URL (`/api/status` reads `https://trustant.ai/status.json`). Dev: `http://localhost:8080/api/v2/`; Prod: `https://api.nuvolaris.io/api/v2/` |
 | `GIT_USER` | ✅ | Author name for commits made on behalf of the user |
 | `GIT_EMAIL` | ✅ | Author email for commits made on behalf of the user |
 

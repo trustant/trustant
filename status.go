@@ -20,14 +20,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 )
 
-// handleStatus proxies GET $AIP_BASE_URL/status?version=<appVersion> and
-// returns the response body, adding `trustant` from the legacy `trustable`
-// block when needed (see withLegacyTrustantCatalog). Used by the splash and applist pages
-// to receive per-provider model catalogs and operator banner messages.
+// defaultStatusURL is the static status file published with the website. It
+// carries the operator `messages` map and one model catalog per provider.
+// STATUS_URL in the environment overrides it (testing only).
+const defaultStatusURL = "https://trustant.ai/status.json"
+
+// handleStatus fetches the status file and returns it with the top-level
+// `messages` map replaced by a single `message` string for the running
+// version (see resolveStatus). Used by the splash and applist pages to receive
+// per-provider model catalogs (`ollama`, `trustant`) and the operator banner.
 func handleStatus(w http.ResponseWriter, r *http.Request) {
 	if expiredGuard(w) {
 		return
@@ -36,15 +40,9 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if AIPBaseURL == "" {
-		writeStatusError(w, "AIP_BASE_URL is not set")
-		return
-	}
-
-	endpoint := AIPBaseURL + "/status?version=" + url.QueryEscape(appVersion)
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(endpoint)
+	resp, err := client.Get(StatusURL)
 	if err != nil {
 		writeStatusError(w, fmt.Sprintf("status fetch failed: %s", err))
 		return
@@ -59,34 +57,41 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeStatusError(w, fmt.Sprintf("status returned HTTP %d", resp.StatusCode))
 		return
 	}
+	out, err := resolveStatus(body, appVersion)
+	if err != nil {
+		writeStatusError(w, fmt.Sprintf("status is not a JSON object: %s", err))
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(withLegacyTrustantCatalog(body))
+	_, _ = w.Write(out)
 }
 
-// withLegacyTrustantCatalog copies the pre-rebrand `trustable` provider block
-// to `trustant` when the ai-proxy has not been renamed yet, so every page can
-// read `status.trustant`. `trustant` wins when both exist; the legacy key is
-// kept. A body that is not a JSON object is returned unchanged.
-func withLegacyTrustantCatalog(body []byte) []byte {
+// resolveStatus drops the `messages` map and sets `message` to
+// messages[version], else messages["default"], else "". Every other key
+// (the provider catalogs) passes through unchanged.
+func resolveStatus(body []byte, version string) ([]byte, error) {
 	var status map[string]json.RawMessage
-	if err := json.Unmarshal(body, &status); err != nil || status == nil {
-		return body
+	if err := json.Unmarshal(body, &status); err != nil {
+		return nil, err
 	}
-	if _, ok := status["trustant"]; ok {
-		return body
+	if status == nil {
+		return nil, fmt.Errorf("null")
 	}
-	legacy, ok := status["trustable"]
+	var messages map[string]string
+	_ = json.Unmarshal(status["messages"], &messages)
+	message, ok := messages[version]
 	if !ok {
-		return body
+		message = messages["default"]
 	}
-	status["trustant"] = legacy
-	out, err := json.Marshal(status)
+	delete(status, "messages")
+	encoded, err := json.Marshal(message)
 	if err != nil {
-		return body
+		return nil, err
 	}
-	return out
+	status["message"] = encoded
+	return json.Marshal(status)
 }
 
 func writeStatusError(w http.ResponseWriter, msg string) {

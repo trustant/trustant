@@ -114,7 +114,7 @@ else
     [[ -z "$key" || "$key" =~ ^# ]] && continue
     key=$(echo "$key" | xargs)
     [[ "$key" == GITHUB_TOKEN ]] && continue  # optional: only ghlogin.sh uses it
-    val=$(grep "^${key}=" .env | cut -d'=' -f2-)
+    val=$(grep "^${key}=" .env | cut -d'=' -f2- || true)
     if [[ -z "$val" || "$val" == "<"*">" ]]; then
       fail "Variable $key is not set in .env (still has placeholder or is empty)"
     fi

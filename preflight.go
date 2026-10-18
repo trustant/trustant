@@ -41,21 +41,23 @@ var (
 	// by terminalEnvironment.
 	OllamaEndpoint string
 	AIPRegisterURL string // AIP_REGISTER_URL: registration UI base (top-up form lives at <this>/top-up)
-	AIPBaseURL     string // AIP_BASE_URL:     JSON API base (status/credits/top-up endpoints sit directly under this)
+	AIPBaseURL     string // AIP_BASE_URL:     JSON API base (credits/top-up endpoints sit directly under this)
+	StatusURL      string // STATUS_URL:       hidden override of defaultStatusURL (model catalogs + operator messages)
 	OpsSkills      string
-	// Feature flags. Both default to OFF: an empty or unset variable disables
-	// the feature, so a plain .env (see .env.dist) runs without the license
-	// gate and without the Sovereign AI provider. The distribution image
-	// enables them explicitly in image/env.
+	// Hidden feature flags: no configuration file sets them, so the defaults
+	// below are what every install runs with. ENABLE_LICENSE defaults ON,
+	// ENABLE_REGOLO defaults OFF; an explicit environment value overrides.
 	EnableLicense bool // ENABLE_LICENSE: gate git push / publishing on a valid license
 	EnableRegolo  bool // ENABLE_REGOLO:  offer the Sovereign AI (Regolo.AI) provider
 )
 
-// envFlag reports whether an environment variable is set to a non-empty,
-// non-false value. Anything unset, empty, "0", "false", "no" or "off" is off.
-func envFlag(key string) bool {
+// envFlag reads a boolean environment flag. Unset or empty returns def;
+// "0", "false", "no" or "off" is off; any other value is on.
+func envFlag(key string, def bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
-	case "", "0", "false", "no", "off":
+	case "":
+		return def
+	case "0", "false", "no", "off":
 		return false
 	}
 	return true
@@ -99,8 +101,12 @@ func loadEnv() error {
 	AIPRegisterURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AIP_REGISTER_URL")), "/")
 	AIPBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AIP_BASE_URL")), "/")
 	OpsSkills = os.Getenv("OPS_SKILLS")
-	EnableLicense = envFlag("ENABLE_LICENSE")
-	EnableRegolo = envFlag("ENABLE_REGOLO")
+	StatusURL = strings.TrimSpace(os.Getenv("STATUS_URL"))
+	if StatusURL == "" {
+		StatusURL = defaultStatusURL
+	}
+	EnableLicense = envFlag("ENABLE_LICENSE", true)
+	EnableRegolo = envFlag("ENABLE_REGOLO", false)
 	if OpsSkills == "" {
 		OpsSkills = "trustable-ai/skills"
 		os.Setenv("OPS_SKILLS", OpsSkills)
@@ -155,6 +161,7 @@ func runPreflight() error {
 	log.Printf("  OllamaEndpoint:     %s", OllamaEndpoint)
 	log.Printf("  AIPRegisterURL:     %s", AIPRegisterURL)
 	log.Printf("  AIPBaseURL:         %s", AIPBaseURL)
+	log.Printf("  StatusURL:          %s", StatusURL)
 	log.Printf("  OpsSkills:          %s", OpsSkills)
 	log.Println("✓ Environment loaded")
 

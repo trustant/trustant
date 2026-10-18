@@ -58,7 +58,7 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 - `OPENAI_BASE_URL`, `OPENAI_API_KEY` — provider credentials (overwritten when user picks a provider in the UI)
 - `OLLAMA_ENDPOINT` — local Ollama for the Ollama provider
 - `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustant Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
-- `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
+- `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits` and `/api/topup` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). `/api/status` does not use it: it reads `https://trustant.ai/status.json`. Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
 - `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
 
 

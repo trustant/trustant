@@ -97,26 +97,29 @@ func TestEnvFlag(t *testing.T) {
 	for _, tc := range []struct {
 		value string
 		set   bool
+		def   bool
 		want  bool
 	}{
-		{"", false, false},
-		{"", true, false},
-		{"  ", true, false},
-		{"0", true, false},
-		{"false", true, false},
-		{"FALSE", true, false},
-		{"no", true, false},
-		{"off", true, false},
-		{"1", true, true},
-		{"true", true, true},
-		{"yes", true, true},
+		{"", false, false, false},
+		{"", false, true, true},
+		{"", true, false, false},
+		{"", true, true, true},
+		{"  ", true, true, true},
+		{"0", true, true, false},
+		{"false", true, true, false},
+		{"FALSE", true, true, false},
+		{"no", true, true, false},
+		{"off", true, true, false},
+		{"1", true, false, true},
+		{"true", true, false, true},
+		{"yes", true, false, true},
 	} {
 		os.Unsetenv(key)
 		if tc.set {
 			os.Setenv(key, tc.value)
 		}
-		if got := envFlag(key); got != tc.want {
-			t.Errorf("envFlag(%q set=%v) = %v, want %v", tc.value, tc.set, got, tc.want)
+		if got := envFlag(key, tc.def); got != tc.want {
+			t.Errorf("envFlag(%q set=%v def=%v) = %v, want %v", tc.value, tc.set, tc.def, got, tc.want)
 		}
 	}
 	os.Unsetenv(key)

@@ -1,4 +1,38 @@
-# `GET /api/v2/status` — response format
+# `GET /api/status` — status file and response format
+
+## Trustant's `GET /api/status`
+
+Trustant does **not** call the ai-proxy for status. `handleStatus`
+([status.go](../status.go)) fetches the static file
+**`https://trustant.ai/status.json`** (hidden `STATUS_URL` override, testing
+only; 10 s timeout) and returns it with one transformation:
+
+- The file carries a top-level **`messages`** object, keyed by client version
+  plus the reserved key `default`. The backend resolves it for the running
+  version (`Version:` from `_build.txt`): `messages[<version>]` → else
+  `messages["default"]` → else `""`, and returns the result as the string
+  **`message`**. The `messages` map itself is not passed to the frontend.
+- Every other top-level key passes through unchanged: **`ollama`** is the
+  Cloud AI (Ollama) catalog, **`trustant`** the Sovereign AI (Regolo) catalog,
+  the former `trustable` options, now hidden unless `ENABLE_REGOLO` is set.
+
+```json
+{
+  "messages": { "v1.0beta": "You are running the current version of Trustant.", "default": "Welcome" },
+  "ollama":   { "modelsVersion": 4, "default": "glm-5.3:cloud", "small": "gpt-oss:20b-cloud", "models": { ... } },
+  "trustant": { "modelsVersion": 3, "default": "qwen3.8-27b", "small": "gpt-oss-20b", "models": { ... } }
+}
+```
+
+A fetch error, a non-200, or a body that is not a JSON object returns HTTP 502
+`{"error": "..."}`. The response the frontend sees has the shape documented
+below for the ai-proxy (`message` + provider blocks), so the frontend is the
+same for both sources.
+
+The rest of this document is the ai-proxy's `/api/v2/status` contract, which
+defines the provider-block shape that `status.json` follows.
+
+## ai-proxy `GET /api/v2/status`
 
 Public, unauthenticated endpoint that lets clients fetch:
 
@@ -188,13 +222,8 @@ If `default` were absent or empty, `message` would be `""`.
 
 The set of provider names is whatever the operator declares in `AIP_CONFIG`. `trustant` and `ollama` are the names used in v1 — clients should treat the set as **open-ended**: new providers may appear in future config edits without an API version bump. Iterate over the top-level keys excluding `message` rather than hard-coding the two names.
 
-**Legacy key fallback.** The ai-proxy may still publish the Sovereign AI
-catalog under the pre-rebrand key `trustable`. Trustant's `GET /api/status`
-proxy therefore returns the upstream body with one normalization: when
-`trustant` is absent and `trustable` is present, the `trustable` block is also
-exposed as `trustant`. `trustant` is preferred whenever both exist, the
-`trustable` key is left in place, and a body that is not a JSON object is passed
-through unchanged. The fallback becomes a no-op once the proxy is renamed.
+There is no legacy `trustable` key fallback any more: `status.json` publishes
+the Sovereign AI catalog as `trustant`.
 
 A given model id appears under **exactly one** provider: the proxy rejects collisions at startup.
 

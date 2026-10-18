@@ -111,8 +111,9 @@ Two gates, both in [license.go](../license.go), both returning **HTTP 402**.
 
 ## Feature flag: `ENABLE_LICENSE`
 
-The whole mechanism is **off unless `ENABLE_LICENSE` is set to a non-empty,
-non-false value** (see [0-preflight.md](0-preflight.md)). With it off:
+`ENABLE_LICENSE` is a hidden flag that defaults **on** when unset (see
+[0-preflight.md](0-preflight.md)). The mechanism is off only when it is
+explicitly set to `0`, `false`, `no` or `off`. With it off:
 
 - `requireValidLicense` and `requireLicensedHost` return `true` immediately,
   before loading or validating anything — git push and publishing are never

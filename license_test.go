@@ -38,8 +38,8 @@ func withTestMasterKey(t *testing.T) ed25519.PrivateKey {
 	}
 	original := masterKeyPub
 	masterKeyPub = base64.StdEncoding.EncodeToString(pub)
-	// Enforcement is opt-in via ENABLE_LICENSE; these tests are about what the
-	// gates do once it is on. TestLicenseGatesDisabled covers the off case.
+	// Enforcement is on unless ENABLE_LICENSE disables it; these tests are about
+	// what the gates do once it is on. TestLicenseGatesDisabled covers the off case.
 	originalEnable := EnableLicense
 	EnableLicense = true
 	t.Cleanup(func() {
@@ -552,7 +552,7 @@ func TestPublishHandlersGated(t *testing.T) {
 	})
 }
 
-// TestLicenseGatesDisabled covers ENABLE_LICENSE being unset or empty: both
+// TestLicenseGatesDisabled covers ENABLE_LICENSE=0 (or false/no/off): both
 // gates become no-ops, so an absent, expired, or host-mismatched license no
 // longer blocks git push or publishing.
 func TestLicenseGatesDisabled(t *testing.T) {

@@ -542,10 +542,10 @@ Two environment variables drive all ai-proxy URLs. They are read at process star
 
 | Env var | Purpose | Example |
 |---|---|---|
-| `AIP_BASE_URL` | JSON API base. `/api/credits`, `/api/topup`, and `/api/status` all forward directly under this URL. | `https://api.nuvolaris.io/api/v2/` |
+| `AIP_BASE_URL` | JSON API base. `/api/credits` and `/api/topup` forward directly under this URL (`/api/status` reads `https://trustant.ai/status.json` instead). | `https://api.nuvolaris.io/api/v2/` |
 | `AIP_REGISTER_URL` | Registration UI base. The splash page loads it in an iframe; the top-up form lives at `<this>/top-up`. Exposed to the frontend as `register_url` on `GET /api/configuration`. | `https://api.nuvolaris.io/_register` |
 
-The Trustant provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by TruACP/Pi and any model client — but it is **not** what the credit/top-up/status endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
+The Trustant provider's `base_url` field on the workspace config is still the OpenAI-compatible inference base used by TruACP/Pi and any model client — but it is **not** what the credit/top-up endpoints use. Those go through `AIP_BASE_URL`. The two are independent: changing the provider does not change `AIP_BASE_URL`.
 
 URL summary:
 
