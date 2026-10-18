@@ -68,11 +68,9 @@ git-ignored, so the checkout stays clean.
     AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
     GIT_USER=TrustantUser
     GIT_EMAIL=noreply@example.com
-    ENABLE_REGOLO=<0|1>
-    ENABLE_LICENSE=<0|1>
 
-- `ENABLE_REGOLO` and `ENABLE_LICENSE` default to `0`. Setting the variable of the
-  same name when running the installer overrides the default.
+- The hidden flags `ENABLE_LICENSE` and `ENABLE_REGOLO` are never written; the
+  code defaults apply (see spec/0-preflight.md).
 - **Bash**: the path is `pwd` of the clone. Lima mounts that folder at the same
   path in the VM, so the same path works there.
 - **PowerShell**: `.env` is read inside WSL, so the path is the `/mnt/<drive>`

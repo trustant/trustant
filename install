@@ -86,8 +86,6 @@ AIP_REGISTER_URL=https://api.nuvolaris.io/_register
 AIP_BASE_URL=https://api.nuvolaris.io/api/v2/
 GIT_USER=TrustantUser
 GIT_EMAIL=noreply@example.com
-ENABLE_REGOLO=${ENABLE_REGOLO:-0}
-ENABLE_LICENSE=${ENABLE_LICENSE:-0}
 ENV
 mkdir -p workspace workbench || exit 1
 exec ./start.sh <"$TTY"
@@ -153,8 +151,6 @@ echo > /dev/null <<"out-null" ###
     Set-Location $Dest
     # .env is read inside WSL: use the /mnt/<drive> form of this folder, LF endings, no BOM.
     $Wsl = '/mnt/' + $Dest.Substring(0, 1).ToLower() + ($Dest.Substring(2) -replace '\\', '/')
-    $Regolo = if ($env:ENABLE_REGOLO) { $env:ENABLE_REGOLO } else { '0' }
-    $License = if ($env:ENABLE_LICENSE) { $env:ENABLE_LICENSE } else { '0' }
     $EnvText = @(
         "WORKSPACE_DIR=$Wsl/workspace"
         "WORKBENCH_DIR=$Wsl/workbench"
@@ -163,8 +159,6 @@ echo > /dev/null <<"out-null" ###
         'AIP_BASE_URL=https://api.nuvolaris.io/api/v2/'
         'GIT_USER=TrustantUser'
         'GIT_EMAIL=noreply@example.com'
-        "ENABLE_REGOLO=$Regolo"
-        "ENABLE_LICENSE=$License"
     ) -join "`n"
     [System.IO.File]::WriteAllText((Join-Path $Dest '.env'), "$EnvText`n")
     New-Item -ItemType Directory -Force -Path (Join-Path $Dest 'workspace'), (Join-Path $Dest 'workbench') | Out-Null

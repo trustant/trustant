@@ -271,7 +271,7 @@ func writeLicenseError(w http.ResponseWriter, message string) {
 
 // requireValidLicense gates git push and publishing. On failure it writes a 402
 // JSON error and returns false; the caller must return immediately. With
-// ENABLE_LICENSE unset or empty the whole check is skipped.
+// ENABLE_LICENSE explicitly off the whole check is skipped.
 func requireValidLicense(w http.ResponseWriter) bool {
 	if !EnableLicense {
 		return true
@@ -286,7 +286,7 @@ func requireValidLicense(w http.ResponseWriter) bool {
 // requireLicensedHost gates production deploys to a specific apihost. It must
 // be called only after requireValidLicense has passed. Local apihosts are
 // always allowed; the license hosts list is consulted for everything else.
-// With ENABLE_LICENSE unset or empty the whole check is skipped.
+// With ENABLE_LICENSE explicitly off the whole check is skipped.
 func requireLicensedHost(w http.ResponseWriter, apihost string) bool {
 	if !EnableLicense {
 		return true

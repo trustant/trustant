@@ -20,8 +20,8 @@ import (
 	"testing"
 )
 
-func TestWithLegacyTrustantCatalog(t *testing.T) {
-	keys := func(t *testing.T, body []byte) map[string]json.RawMessage {
+func TestResolveStatus(t *testing.T) {
+	decode := func(t *testing.T, body []byte) map[string]json.RawMessage {
 		t.Helper()
 		var m map[string]json.RawMessage
 		if err := json.Unmarshal(body, &m); err != nil {
@@ -29,35 +29,47 @@ func TestWithLegacyTrustantCatalog(t *testing.T) {
 		}
 		return m
 	}
+	const file = `{"messages":{"v1.0beta":"current","default":"welcome"},"ollama":{"modelsVersion":4},"trustant":{"modelsVersion":3}}`
 
-	t.Run("copies trustable when trustant is missing", func(t *testing.T) {
-		got := keys(t, withLegacyTrustantCatalog([]byte(`{"message":"","trustable":{"modelsVersion":3}}`)))
-		if string(got["trustant"]) != `{"modelsVersion":3}` {
-			t.Fatalf("trustant = %s", got["trustant"])
+	for _, tc := range []struct {
+		name, body, version, want string
+	}{
+		{"exact version", file, "v1.0beta", `"current"`},
+		{"default fallback", file, "v9.9", `"welcome"`},
+		{"no default", `{"messages":{"v1.0beta":"current"}}`, "v9.9", `""`},
+		{"no messages", `{"ollama":{}}`, "v1.0beta", `""`},
+		{"malformed messages", `{"messages":[1]}`, "v1.0beta", `""`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := resolveStatus([]byte(tc.body), tc.version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := decode(t, out)
+			if string(got["message"]) != tc.want {
+				t.Fatalf("message = %s, want %s", got["message"], tc.want)
+			}
+			if _, ok := got["messages"]; ok {
+				t.Fatal("messages map was passed through")
+			}
+		})
+	}
+
+	t.Run("provider blocks pass through", func(t *testing.T) {
+		out, err := resolveStatus([]byte(file), "v1.0beta")
+		if err != nil {
+			t.Fatal(err)
 		}
-		if _, ok := got["trustable"]; !ok {
-			t.Fatal("legacy trustable key was removed")
+		got := decode(t, out)
+		if string(got["ollama"]) != `{"modelsVersion":4}` || string(got["trustant"]) != `{"modelsVersion":3}` {
+			t.Fatalf("providers changed: ollama=%s trustant=%s", got["ollama"], got["trustant"])
 		}
 	})
 
-	t.Run("prefers trustant when both exist", func(t *testing.T) {
-		in := `{"trustant":{"modelsVersion":5},"trustable":{"modelsVersion":3}}`
-		if got := string(withLegacyTrustantCatalog([]byte(in))); got != in {
-			t.Fatalf("body changed: %s", got)
-		}
-	})
-
-	t.Run("leaves a trustant-only body unchanged", func(t *testing.T) {
-		in := `{"trustant":{"modelsVersion":5},"ollama":{}}`
-		if got := string(withLegacyTrustantCatalog([]byte(in))); got != in {
-			t.Fatalf("body changed: %s", got)
-		}
-	})
-
-	t.Run("passes a non-object body through", func(t *testing.T) {
+	t.Run("rejects a non-object body", func(t *testing.T) {
 		for _, in := range []string{`[1,2]`, `not json`, `null`} {
-			if got := string(withLegacyTrustantCatalog([]byte(in))); got != in {
-				t.Fatalf("body %q changed to %q", in, got)
+			if _, err := resolveStatus([]byte(in), "v1"); err == nil {
+				t.Fatalf("body %q accepted", in)
 			}
 		}
 	})

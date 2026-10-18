@@ -108,13 +108,8 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 - `OPENAI_BASE_URL`, `OPENAI_API_KEY` — provider credentials (overwritten when user picks a provider in the UI)
 - `OLLAMA_ENDPOINT` — local Ollama for the Ollama provider
 - `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustant Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
-- `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits`, `/api/topup`, and `/api/status` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
+- `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits` and `/api/topup` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). `/api/status` does not use it: it reads `https://trustant.ai/status.json`. Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
 - `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
-- `ENABLE_LICENSE` — **optional feature flag, off by default**. When empty or unset the license gates on git push / publishing are skipped and the License card in `configure.html` stays hidden. Set in [image/env](image/env), and as a `<0|1>` key in `.env.dist`; the `.env` that `install` writes sets it to `0` unless overridden (never the `.env` `setup.sh` generates).
-- `ENABLE_REGOLO` — **optional feature flag, off by default**. When empty or unset the **Sovereign AI** (Regolo.AI) card is removed from the provider selector. Set like `ENABLE_LICENSE`.
-
-Both flags are read by `envFlag` (unset/empty/`0`/`false`/`no`/`off` = off) and reported to the frontend as the `license` and `regolo` booleans on `/api/version`.
-
 `.env.default` is a **different, optional** file in the same directory — not server configuration and not part of `.env`. When present at startup its variables are folded into the `predefined_env` palette shown on the Configure page (keep-existing, never overwriting a user edit). It never applies anything to an application. See [spec/2a-config.md](spec/2a-config.md).
 
 
@@ -140,7 +135,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [license.go](license.go) | [14-license.md](spec/14-license.md) | Offline Ed25519 license: `/api/license`, the valid-license and licensed-host publish gates |
 | [skills.go](skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones the skills repo into the app's `.agents/skills/` |
 | [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
-| [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog (powers the splash screen) |
+| [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — reads `trustant.ai/status.json`: provider model catalogs + per-version operator message (powers the splash screen) |
 | [memory.go](memory.go) | — | `/api/memory/` |
 | [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
 | [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |

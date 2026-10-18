@@ -83,7 +83,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   under `<WorkspaceDir>/.trustant/secrets/` and the API exposes only
   `notebook.has_token`.
 - `AIP_REGISTER_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy registration UI. The splash page loads it in an iframe when the user picks Trustant Cloud; the top-up form lives at `<AIP_REGISTER_URL>/top-up`. The registration URL is configured **only** via this env var; there is no JSON field. `loadTrustantConfig` exposes it on the returned config as `register_url` (read-only, not persisted) so the frontend can read it via `GET /api/configuration`.
-- `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits`, `/api/topup`, and `/api/status` — no `/v1`/`/v2` rewriting happens. Server-side only; not exposed on the config returned to the frontend.
+- `AIP_BASE_URL` (environment variable, **mandatory** at startup; preflight fails if unset) — base URL of the ai-proxy JSON API. The backend uses it directly for `/api/credits` and `/api/topup` — no `/v1`/`/v2` rewriting happens. `/api/status` does not use it (see [status_check.md](status_check.md)). Server-side only; not exposed on the config returned to the frontend.
 
 The base config has no `apps` or `provider` section. Those live only in the workspace config.
 
@@ -94,7 +94,7 @@ All fields in the workspace config use `omitempty` — absent fields inherit fro
 
 ## Model catalog
 
-The trustable-app fetches the per-provider model catalog via `GET /api/status`, which proxies the ai-proxy's `/api/v2/status` response (see [status_check.md](status_check.md)). Shape (one block per provider):
+The trustable-app fetches the per-provider model catalog via `GET /api/status`, which reads `https://trustant.ai/status.json` (see [status_check.md](status_check.md)). Shape (one block per provider):
 
 ```json
 {

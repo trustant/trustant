@@ -56,7 +56,7 @@ Two cases must not block the user:
 
 # Provider choice
 
-After the version check, fetch the merged config via `GET /api/configuration`, then fetch `GET /api/status` (the backend's pass-through of the ai-proxy `/api/v2/status` response — see [status_check.md](status_check.md)). The response carries a per-provider `modelsVersion` integer plus the canonical `models`, `default`, and `small` for each provider.
+After the version check, fetch the merged config via `GET /api/configuration`, then fetch `GET /api/status` (the backend reads `https://trustant.ai/status.json` and resolves the operator message — see [status_check.md](status_check.md)). The response carries a per-provider `modelsVersion` integer plus the canonical `models`, `default`, and `small` for each provider.
 
 Per-provider model-list freshness is tracked on the workspace config in `model_versions: { ollama?: int, trustant?: int }`. When `provider` is set, compare `status[provider].modelsVersion` against `config.model_versions[provider]`:
 
@@ -98,8 +98,8 @@ shows equal cards in a `grid-cols-1 md:grid-cols-3` row:
 | **Sovereign AI** | Credit-based AI. | Powered by Regolo.AI. | `regolo-head.png` | `trustant` |
 | **Private AI** | No token required. | Your own AI hardware. | `privateai-head.png` | `private` |
 
-**Sovereign AI is conditional on `ENABLE_REGOLO`** (see
-[0-preflight.md](0-preflight.md)). The boot code reads the `regolo` boolean from
+**Sovereign AI is conditional on `ENABLE_REGOLO`**, a hidden flag that is off
+by default (see [0-preflight.md](0-preflight.md)). The boot code reads the `regolo` boolean from
 `/api/version`; when it is false it removes the `providerTrustant` card from the
 DOM and switches `providerGrid` from `md:grid-cols-3` to `md:grid-cols-2`, so the
 two remaining cards fill the row instead of leaving a gap. Removing the card is

@@ -21,19 +21,25 @@ OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 
 ## Feature flags
 
-Two optional variables switch on features that are **off by default**. Both are
-read by `envFlag`, which treats unset, empty, `0`, `false`, `no` and `off` as
-off, and anything else as on:
+Two **hidden** variables toggle features. They are written in no
+configuration file — not [.env.dist](../.env.dist), not [image/env](../image/env),
+not the `.env` that `install` or `setup.sh` writes — so the code defaults below
+are what every installation runs with, in the image and locally alike. Both are
+read by `envFlag(key, default)`: unset or empty gives the default, `0`, `false`,
+`no` and `off` are off, anything else is on. Setting one in `.env` or the
+process environment overrides its default.
 
-| Variable | Internal | Effect when on |
-|---|---|---|
-| `ENABLE_LICENSE` | `EnableLicense` | Enforce the license gates on git push and publishing, and show the License card in `configure.html` |
-| `ENABLE_REGOLO` | `EnableRegolo` | Offer the **Sovereign AI** (Regolo.AI) card in the provider selector |
+| Variable | Internal | Default | Effect when on |
+|---|---|---|---|
+| `ENABLE_LICENSE` | `EnableLicense` | **on** | Enforce the license gates on git push and publishing, and show the License card in `configure.html` |
+| `ENABLE_REGOLO` | `EnableRegolo` | **off** | Offer the **Sovereign AI** (Regolo.AI) card in the provider selector |
 
-Neither variable appears in [.env.dist](../.env.dist) nor in the `.env` that
-`setup.sh` generates, so a development checkout runs with both features off: no
-license is needed to push, and the provider selector shows only Cloud AI and
-Private AI. The distribution image turns both on in [image/env](../image/env).
+So by default a license is required to push and publish, and the provider
+selector shows only Cloud AI and Private AI.
+
+`STATUS_URL` is hidden the same way: it overrides the status file
+`/api/status` reads (default `https://trustant.ai/status.json`, see
+[status_check.md](status_check.md)) and exists for testing only.
 
 Both flags are reported to the frontend by `/api/version` as the booleans
 `license` and `regolo` — every page already fetches that endpoint on boot. See
