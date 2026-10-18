@@ -260,7 +260,8 @@ func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
 		"image/Dockerfile": string(dockerContent),
 	} {
 		for _, required := range []string{
-			"postgres-mcp==0.3.0|--with|mcp<2",
+			"postgres-mcp==0.3.0|--with|mcp<2|--overrides|",
+			"pglast==7.21",
 			"redis-mcp-server==0.5.0|--with|mcp<2",
 			"|--with|mcp<2\"",
 			"postgres-mcp:postgres_mcp",
@@ -273,7 +274,7 @@ func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
 		}
 	}
 	// The interpreter pin belongs to the VM setup path: postgres-mcp requires
-	// pglast==7.2.0, which ships no cp313 wheel. The image already pins
+	// pglast 7.x, which ships no cp313 wheel. The image already pins
 	// /usr/bin/python3 explicitly.
 	if !strings.Contains(string(setupContent), `uv tool install --python "$UV_PYTHON_PIN"`) {
 		t.Fatal("setup.sh does not pin the uv interpreter for the Python MCP servers")

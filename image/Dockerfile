@@ -88,13 +88,16 @@ RUN \
 # renamed to `mcp.server.mcpserver`. Left unpinned they resolve mcp 2.x and die
 # at import, which surfaces only as a silent "7/9 servers connected" in
 # OpenCode. Keep this in step with setup.sh.
+# WHY the pglast override: postgres-mcp 0.3.0 pins pglast==7.2.0, which was
+# deleted from PyPI (only 7.20+ remain); 7.21 keeps the same 7.x API (issue #24).
 RUN set -eu ;\
+    echo 'pglast==7.21' > /tmp/uv-overrides.txt ;\
     curl -LsSf https://astral.sh/uv/install.sh | \
     env UV_INSTALL_DIR="/usr/bin" INSTALLER_NO_MODIFY_PATH=1 sh ;\
     for tool in \
         milvus-cli==1.2.1 \
         'python-lsp-server[yapf]' \
-        'postgres-mcp==0.3.0|--with|mcp<2' \
+        'postgres-mcp==0.3.0|--with|mcp<2|--overrides|/tmp/uv-overrides.txt' \
         'redis-mcp-server==0.5.0|--with|mcp<2' \
         "git+${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}|--with|mcp<2" ;\
     do \
@@ -119,7 +122,8 @@ RUN set -eu ;\
     do \
         /opt/uv/tools/"${probe%%:*}"/bin/python -c "import ${probe#*:}" \
         || { echo "FATAL: ${probe%%:*} fails at import" >&2 ; exit 1 ; } ;\
-    done
+    done ;\
+    rm -f /tmp/uv-overrides.txt
 
 COPY openserverless-mcp /tmp/openserverless-mcp
 COPY trustant-react-mcp /tmp/trustant-react-mcp
