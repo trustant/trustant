@@ -134,15 +134,19 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 //     build.sh/hotfix.sh/run.sh) and holds the tagged form "v0.4.0"; the deb
 //     filename needs the numeric "0.4.0". A hardcoded copy in start.sh drifts
 //     silently whenever the tag moves.
-func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
+func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 	content, err := os.ReadFile("start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
 	script := string(content)
 
-	if !strings.Contains(script, `OPENSERVERLESS_INDEX="https://openserverless.nuvolaris.download/index.json"`) {
-		t.Error("start.sh must resolve the package through the OpenServerless index.json")
+	if !strings.Contains(script, `OPENSERVERLESS_BASE_URL="https://pub.trustant.ai/openserverless"`) ||
+		!strings.Contains(script, `DEB_URL="${OPENSERVERLESS_BASE_URL}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"`) {
+		t.Error("start.sh must download openserverless_<version>_<arch>.deb from pub.trustant.ai")
+	}
+	if strings.Contains(script, "nuvolaris.download") {
+		t.Error("start.sh must not download from openserverless.nuvolaris.download")
 	}
 	// The landing endpoint served whatever the current release was, with no
 	// version selector, so nothing in the repo could pin what got installed.
@@ -156,27 +160,15 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 
 	// openserverless.txt selects what actually gets installed, so unlike
 	// version.txt it must be a hard pin: no "unknown" fallback, and no silent
-	// fallback onto the index's "latest" key.
+	// fallback onto another version.
 	if !strings.Contains(script, `OPENSERVERLESS_VERSION="$(head -n1 openserverless.txt`) {
 		t.Error("start.sh must read the pinned package version from openserverless.txt")
 	}
 	if !strings.Contains(script, `|| fail "openserverless.txt not found or empty`) {
 		t.Error("start.sh must fail (not warn) when openserverless.txt is missing or empty")
 	}
-	if !strings.Contains(script, `is not published.`) {
-		t.Error("start.sh must fail loudly when the pinned version is absent from the index")
-	}
-	if !strings.Contains(script, "index_versions_for") {
-		t.Error("start.sh must list the available versions when the pin does not resolve")
-	}
-
-	// ensure_deb runs on the HOST and before ensure_jq on both paths, and
-	// ensure_jq installs jq in the VM — so it can never help a Mac parse the
-	// index. A jq call inside the resolver would break provisioning on a clean
-	// Mac, which is exactly the host that cannot be caught by CI here.
-	resolver := script[strings.Index(script, "index_url_for()"):strings.Index(script, "# Copy the cached")]
-	if strings.Contains(resolver, "jq ") || strings.Contains(resolver, "jq\n") {
-		t.Error("the index resolver must not depend on jq — it runs on the host before jq exists")
+	if !strings.Contains(script, `could not be downloaded.`) {
+		t.Error("start.sh must fail loudly when the pinned version cannot be downloaded")
 	}
 
 	// The cache is keyed by the pinned version, and a cache hit must not need
@@ -186,7 +178,7 @@ func TestStartScriptResolvesPackageFromOpenServerlessIndex(t *testing.T) {
 	}
 	if !strings.Contains(script, `ok "Using cached package: $DEB_FILE"
     return 0`) {
-		t.Error("a cache hit must return before fetching the index (no network on cached runs)")
+		t.Error("a cache hit must return before downloading (no network on cached runs)")
 	}
 
 	// The package installed is now openserverless, so every installed-check must

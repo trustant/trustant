@@ -29,64 +29,25 @@ than duplicated per host.
 
 ## Download + cache the package (host side, before booting the VM)
 
-The cluster package is the Apache OpenServerless deb, published to a bucket that
-exposes a machine-readable index:
+The cluster package is the Apache OpenServerless deb, published on
+`pub.trustant.ai` under a fixed naming scheme:
 
-    https://openserverless.nuvolaris.download/index.json
+    https://pub.trustant.ai/openserverless/openserverless_<version>_<arch>.deb
 
-The index is a two-level object, keyed by architecture and then by version, whose
-values are the download URLs:
-
-```json
-{
-  "amd64": {
-    "0.1.0+f1553b": "https://openserverless.nuvolaris.download/openserverless_0.1.0+f1553b_amd64.deb",
-    "latest":       "https://openserverless.nuvolaris.download/openserverless_0.1.0+f1553b_amd64.deb"
-  },
-  "arm64": { ...same shape... }
-}
-```
-
-That bucket is a Cloudflare R2 custom domain and does **not** expose the S3
-`ListObjects` API — `?list-type=2` returns Cloudflare's own 404 page. `index.json`
-is the only supported way to discover what is published; never try to enumerate
-the bucket.
-
-Resolution order: detect the HOST arch, read the pinned version, look up
-`.[<arch>][<version>]` in the index, download that URL.
+where `<version>` is the content of `openserverless.txt` (e.g. `0.9.0+455258`,
+the `+` sent literally) and `<arch>` is `amd64` or `arm64`. There is no index:
+the URL is built directly from the pin and the HOST arch.
 
 `openserverless.txt` pins the version and is a **hard pin**. If the file is
 missing or empty, `start.sh` fails immediately — it must never install an
-unpinned package. If the pinned version is absent from the index, it fails with a
-message naming the requested version and listing the versions the index does
-offer, so a stale pin is loud and self-diagnosing. It must never silently fall
-back to the index's `latest` key.
+unpinned package. If the pinned version is not published, the download fails
+(HTTP 404) and `start.sh` fails with a message naming the requested version, the
+arch and the URL. It must never fall back to another version.
 
-Cache as `dist/openserverless_<version>_<arch>.deb`, mirroring the bucket's own
-naming. If it already exists, skip the ~3GB download **and skip fetching the
-index** — a fully-cached run must not depend on the bucket being reachable.
-Download to a `.part` file and move into place so an interrupted download never
-leaves a truncated cache entry.
-
-Resolve the index without `jq`. `ensure_deb` runs on the HOST and, on both the
-macOS and native-Linux paths, *before* `ensure_jq` — which in any case installs jq
-in the VM, so it cannot help a Mac parse the index. The index is a fixed,
-generated shape, so a targeted `sed` over the flattened text is sufficient and
-keeps the host dependency-free.
-
-**The version key is matched literally, with `grep -F`, never as a regex.** Real
-keys carry both `.` and `+` (`0.9.0+f8fbd3`), and escaping those portably for
-`sed` is a trap: the obvious `s/[.+]/\\&/g` emits a bare `&` under GNU sed, so
-the pattern became `0&9&0&f8fbd3` and matched nothing. Every pinned version then
-failed to resolve on Linux and WSL — while `latest`, which has no
-metacharacters, kept working — and the failure surfaced as the *"not published"*
-error listing the requested version among the available ones. The arch block is
-isolated first, its pairs are split onto separate lines, and the key is matched
-with quotes on both sides so `0.9.0` cannot hit `0.9.0+f8fbd3`.
-
-`start.sh` runs under `set -o pipefail`, so every `grep` in this lookup is
-guarded (`|| true`): an unmatched `grep` mid-pipeline would otherwise abort the
-script on exactly the path whose job is to print the diagnosis above.
+Cache as `dist/openserverless_<version>_<arch>.deb`, mirroring the published
+naming. If it already exists, skip the ~3GB download — a fully-cached run must
+not depend on `pub.trustant.ai` being reachable. Download to a `.part` file and
+move into place so an interrupted download never leaves a truncated cache entry.
 
 Two separate version files, deliberately not conflated:
 
@@ -507,8 +468,8 @@ will accept the package, and it stays correct on a multiarch host where `uname`
 reports the kernel's architecture. It emits exactly the strings the filenames
 use, so:
 
-- arm64 -> `dist/openserverless_<version>_arm64.deb` (index key `arm64`)
-- amd64 -> `dist/openserverless_<version>_amd64.deb` (index key `amd64`)
+- arm64 -> `dist/openserverless_<version>_arm64.deb` (URL suffix `_arm64.deb`)
+- amd64 -> `dist/openserverless_<version>_amd64.deb` (URL suffix `_amd64.deb`)
 
 macOS has no `dpkg` — the `.deb` is installed inside the VM, which runs the host
 architecture under vz — so the macOS path keeps mapping from `uname -m`
