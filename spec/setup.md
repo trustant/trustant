@@ -265,7 +265,7 @@ pointing the tool bin dir to ~/.local/bin:
 
 ```
 for tool in \
-    postgres-mcp==0.3.0 --with 'mcp<2' \
+    postgres-mcp==0.3.0 --with 'mcp<2' --overrides <(echo pglast==7.21) \
     redis-mcp-server==0.5.0 --with 'mcp<2' \
     git+https://github.com/trustable-ai/mcp-server-milvus.git@a7e624f3057a0d739528bca3ed92504943224ceb --with 'mcp<2' ;
 do
@@ -285,6 +285,12 @@ Pin the interpreter to 3.12 for the same class of reason: `postgres-mcp`
 requires `pglast==7.2.0`, which publishes no cp313 wheel, so a host whose
 default interpreter has moved to 3.13 silently resolves an incompatible pglast
 and fails with `cannot import name 'parse_sql' from 'pglast'`.
+
+`postgres-mcp==0.3.0` hard-pins `pglast==7.2.0`, but pglast 7.0–7.19 were
+deleted from PyPI, so that pin is unresolvable. Install it with a uv overrides
+file containing `pglast==7.21` (same 7.x / PG17 API; `postgres_mcp` imports and
+`parse_sql` works). Drop the override once a postgres-mcp release no longer pins
+a deleted pglast (issue #24).
 
 Because uv identifies tools by package name, an environment already holding the
 unconstrained resolution stays "already installed" and never re-resolves against

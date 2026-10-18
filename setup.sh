@@ -558,9 +558,15 @@ MILVUS_MCP_RECEIPT="$(uv tool dir)/mcp-server-milvus/uv-receipt.toml"
 # The interpreter is pinned for the same class of reason: postgres-mcp requires
 # pglast==7.2.0, which publishes no cp313 wheel, so a default interpreter that
 # has moved on to 3.13 silently yields an incompatible pglast.
+# WHY the pglast override: postgres-mcp 0.3.0 pins pglast==7.2.0, but pglast
+# 7.0-7.19 were deleted from PyPI, so that pin no longer resolves at all.
+# pglast==7.21 keeps the same 7.x (PG17) API postgres-mcp imports. Drop this
+# once a postgres-mcp release stops pinning a deleted pglast (issue #24).
 UV_PYTHON_PIN=3.12
+PGLAST_OVERRIDE="$(mktemp)"
+echo 'pglast==7.21' >"$PGLAST_OVERRIDE"
 declare -a MCP_TOOL_SPECS=(
-  "postgres-mcp==0.3.0|--with|mcp<2"
+  "postgres-mcp==0.3.0|--with|mcp<2|--overrides|$PGLAST_OVERRIDE"
   "redis-mcp-server==0.5.0|--with|mcp<2"
   "$MILVUS_MCP_SPEC|--with|mcp<2"
 )
@@ -589,6 +595,7 @@ for spec in "${MCP_TOOL_SPECS[@]}"; do
     uv tool install --python "$UV_PYTHON_PIN" "${UV_INSTALL_ARGS[@]}" "$tool" \
     || fail "uv tool install $tool failed"
 done
+rm -f "$PGLAST_OVERRIDE"
 grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
   grep -Fq "$MILVUS_MCP_REF" "$MILVUS_MCP_RECEIPT" \
   || fail "installed Milvus MCP does not match ${MILVUS_MCP_REPO}@${MILVUS_MCP_REF}"
