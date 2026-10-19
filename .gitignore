@@ -51,3 +51,4 @@ ghlogin.sh
 
 # deps.sh download cache
 legal/.cache/
+data/
