@@ -60,6 +60,30 @@ Two separate version files, deliberately not conflated:
 
 Keep `--retry` on the download.
 
+## Where the VM lives
+
+`start.sh` exports `LIMA_HOME=<checkout>/data/lima`, so the instance is
+`data/lima/trudev/` in the checkout rather than `~/.lima/trudev/`, and the Lima
+identity is `data/lima/_config/user`. Every `limactl` call inherits it. `data/`
+is git-ignored and in `.air.toml`'s `exclude_dir`. It sits inside the
+virtiofs-mounted checkout, so the guest can see its own disk files — harmless.
+
+- macOS caps a unix socket path at 103 bytes and Lima keeps its sockets in the
+  instance dir (`serialv.sock` is the longest), so `start.sh` fails up front
+  with "checkout path too long" instead of an obscure Lima error later.
+- A VM left in `~/.lima/trudev` by an older `start.sh` is silently **ignored,
+  not migrated**.
+
+## apt without a pty
+
+`run_privileged` (and the `install_package` block) always pass
+`DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a`, as do
+`setup.sh`'s `sudo apt-get install` lines and the `start.ps1` bootstrap. These
+apt runs have no pty, and needrestart's "Restarting services..." report then
+prints as a staircase (LF without CR); restarting services is pointless on a
+fresh machine anyway. Before `run.sh`, `restore_tty` runs `stty sane` when stdin
+is a terminal, so no provisioning child can leave it in a raw mode.
+
 ## Boot the VM, then install (NOT via cloud-init provision)
 
 Create an Ubuntu VM with Lima using vmType: vz and a vzNAT network. Do NOT install
@@ -166,7 +190,7 @@ Read the host-reachable ip (the lima0 / 192.168.252.x address from hostname -I) 
 
 - ~/Library/Application Support/Trustant/current.ip   -> <ip>
 - ~/Library/Application Support/Trustant/apihost      -> http://<ip>.nip.io:8080
-- ~/Library/Application Support/Trustant/id_ed25519   -> copy of the limactl key (~/.lima/_config/user)
+- ~/Library/Application Support/Trustant/id_ed25519   -> copy of the limactl key ($LIMA_HOME/_config/user)
 
 The apihost points through the host-rewrite proxy (see above), NOT bare <ip>:80 —
 a plain http://<ip>/api/info sends Host: <ip>, which traefik does not match (404).
@@ -598,7 +622,14 @@ Windows-aware, and none of them may be taught to be.
 - A WSL2 distribution named `trudev`, installed from the `Ubuntu-24.04` image
   with
 
-      wsl --install --distribution Ubuntu-24.04 --name trudev --no-launch
+      wsl --install --distribution Ubuntu-24.04 --name trudev --location <checkout>\data\wsl --no-launch
+
+  `--location` puts the distribution's virtual disk in `data\wsl` of the
+  checkout — the counterpart of `data/lima` — so it lands on whatever drive the
+  checkout is on (e.g. `D:\trustant\data\wsl`). Both `--name` and `--location`
+  are checked in the `--install` section of `wsl --help` before installing; an
+  older `wsl.exe` fails with "run wsl --update". An existing `trudev` is reused
+  wherever it lives (WSL has one per-user registry), silently.
 
   The **instance** name (`-Distro` to override) and the **image** it is
   installed from (`-BaseDistro` to override) are two separate identities. The

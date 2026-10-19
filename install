@@ -6,18 +6,44 @@ echo @'
 # install - Trustant installer, one file for bash and PowerShell.
 #   curl -fsSL get.trustant.ai | bash      (macOS, Linux)
 #   irm get.trustant.ai | iex              (Windows)
-# Clones https://github.com/trustant/trustant with its submodules into
-# $TRUSTANT_DIR (default ~/trustant) and runs start.sh / start.ps1 there.
+# Asks for a target folder (default: the current directory), creates it if
+# needed, clones https://github.com/trustant/trustant with its submodules into
+# <target>/trustant and runs start.sh / start.ps1 there. A <target>/dist (the
+# .deb and ollama downloads, preloaded) is copied into trustant/dist, so start.sh
+# downloads nothing again. TRUSTANT_DIR names the checkout
+# directly and skips the question (non-interactive installs).
 # TRUSTANT_REF selects a branch or tag (default: the repo default branch).
 # See spec/install.md. Keep this file pure ASCII (Windows PowerShell 5.1).
 
 URL="https://github.com/trustant/trustant"
-DEST="${TRUSTANT_DIR:-$HOME/trustant}"
 # Under `curl | bash` stdin is the script itself: prompts (sudo, brew,
 # start.sh) must read the terminal instead.
 TTY=/dev/stdin
 if [ ! -t 0 ] && [ -r /dev/tty ]
 then TTY=/dev/tty
+fi
+if [ -n "${TRUSTANT_DIR:-}" ]
+then DEST="$TRUSTANT_DIR"
+else
+   TARGET="$(pwd)"
+   # Ask only when there is a terminal to answer: reading /dev/stdin under a
+   # bare pipe would swallow the rest of this script.
+   if [ -t 0 ] || [ "$TTY" = /dev/tty ]
+   then
+      printf 'Install Trustant in [%s]: ' "$TARGET"
+      { read -r ANSWER <"$TTY"; } 2>/dev/null || { ANSWER=""; echo; }
+      case "$ANSWER" in
+      ("~") ANSWER="$HOME" ;;
+      ("~/"*) ANSWER="$HOME/${ANSWER#"~/"}" ;;
+      esac
+      [ -n "$ANSWER" ] && TARGET="$ANSWER"
+   fi
+   if ! mkdir -p "$TARGET" || ! cd "$TARGET"
+   then
+      echo "cannot use $TARGET - exiting"
+      exit 1
+   fi
+   DEST="$(pwd)/trustant"
 fi
 
 case "$(uname -s)" in
@@ -74,6 +100,15 @@ then
    rm -rf "$DEST"
    exit 1
 fi
+# A dist/ next to the checkout (the .deb and ollama downloads, preloaded) is
+# copied into trustant/dist, start.sh's cache, so nothing is downloaded again.
+SRC="$(dirname "$DEST")/dist"
+if [ -d "$SRC" ]
+then
+   echo "Copying $SRC into $DEST/dist"
+   mkdir -p "$DEST/dist" && cp -R "$SRC/." "$DEST/dist/" \
+      || echo "copying $SRC failed - start.sh will download what is missing"
+fi
 
 cd "$DEST" || exit 1
 # Lima mounts this folder at the same path in the VM, so host paths work there.
@@ -110,11 +145,33 @@ echo > /dev/null <<"out-null" ###
     }
 
     $Url = 'https://github.com/trustant/trustant'
-    $Dest = if ($env:TRUSTANT_DIR) { $env:TRUSTANT_DIR } else { Join-Path $HOME 'trustant' }
-    $Dest = [System.IO.Path]::GetFullPath($Dest)
-    # The folder is used from WSL over /mnt/<drive>: a space breaks .env and the scripts.
+    # Resolved against the PowerShell location, not the process directory that
+    # [IO.Path]::GetFullPath would use: they differ, e.g. after a cd to D:\.
+    $Resolve = { param($p) $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p) }
+    if ($env:TRUSTANT_DIR) {
+        $Dest = & $Resolve $env:TRUSTANT_DIR
+        $Target = Split-Path -Parent $Dest
+    } else {
+        $Target = (Get-Location).ProviderPath
+        $Answer = "$(Read-Host "Install Trustant in [$Target]")".Trim().Trim('"')
+        if ($Answer) { $Target = & $Resolve $Answer }
+        $Dest = Join-Path $Target 'trustant'
+    }
+    # The folder is used from WSL over /mnt/<drive>: a space breaks .env and the
+    # scripts, and only a drive-letter path (any drive) maps to /mnt/<drive>.
     if ($Dest -match ' ') {
-        Write-Host "The install path '$Dest' contains spaces - set TRUSTANT_DIR to a path without spaces"
+        Write-Host "The install path '$Dest' contains spaces - choose a folder without spaces"
+        return
+    }
+    if ($Dest -notmatch '^[A-Za-z]:\\') {
+        Write-Host "The install path '$Dest' is not on a drive letter (e.g. C:\ or D:\) - WSL cannot mount it"
+        return
+    }
+    try {
+        New-Item -ItemType Directory -Force -Path $Target -ErrorAction Stop | Out-Null
+        Set-Location $Target -ErrorAction Stop
+    } catch {
+        Write-Host "cannot use $Target - $_"
         return
     }
 
@@ -146,6 +203,18 @@ echo > /dev/null <<"out-null" ###
         Write-Host "git clone failed"
         Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
         return
+    }
+    # A dist\ next to the checkout (the .deb and ollama downloads, preloaded) is
+    # copied into trustant\dist, start.sh's cache, so nothing is downloaded again.
+    $Src = Join-Path $Target 'dist'
+    if (Test-Path -PathType Container $Src) {
+        Write-Host "Copying $Src into $Dest\dist"
+        try {
+            New-Item -ItemType Directory -Force -Path (Join-Path $Dest 'dist') -ErrorAction Stop | Out-Null
+            Copy-Item -Recurse -Force -ErrorAction Stop (Join-Path $Src '*') (Join-Path $Dest 'dist')
+        } catch {
+            Write-Host "copying $Src failed - start.sh will download what is missing"
+        }
     }
 
     Set-Location $Dest

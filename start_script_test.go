@@ -222,3 +222,43 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 		t.Error("start.sh must strip the leading v from version.txt (v0.4.0 -> 0.4.0)")
 	}
 }
+
+// The VM and the WSL distro live in the checkout's data/ folder, every apt run
+// silences needrestart (its pty-less report prints as a CR-less staircase), and
+// install copies a preloaded <target>/dist into the checkout's dist/ cache.
+func TestStartScriptsKeepVMInDataAndSeedDist(t *testing.T) {
+	read := func(name string) string {
+		content, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %s", name, err)
+		}
+		return string(content)
+	}
+	sh, ps1, setup := read("start.sh"), read("start.ps1"), read("setup.sh")
+
+	if !strings.Contains(sh, `export LIMA_HOME="$(pwd)/data/lima"`) ||
+		!strings.Contains(sh, `LIMA_KEY="$LIMA_HOME/_config/user"`) {
+		t.Error("start.sh must keep the Lima VM in ./data/lima and read its key from there")
+	}
+	if !strings.Contains(ps1, `--name $Distro --location $DistroDir`) ||
+		!strings.Contains(ps1, `Join-Path $RepoWin 'data\wsl'`) {
+		t.Error("start.ps1 must install the distro with --location <checkout>\\data\\wsl")
+	}
+
+	const quiet = `APT_QUIET=(DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a)`
+	if !strings.Contains(sh, quiet) || !strings.Contains(setup, quiet) {
+		t.Error("start.sh and setup.sh must define APT_QUIET")
+	}
+	if strings.Count(sh, `sudo env "${APT_QUIET[@]}"`) < 2 || strings.Count(setup, `sudo env "${APT_QUIET[@]}" apt-get`) < 2 {
+		t.Error("every privileged apt path must run with APT_QUIET")
+	}
+	if !strings.Contains(ps1, "NEEDRESTART_SUSPEND=1") {
+		t.Error("the start.ps1 bootstrap must silence needrestart too")
+	}
+
+	inst := read("install")
+	if !strings.Contains(inst, `cp -R "$SRC/." "$DEST/dist/"`) ||
+		!strings.Contains(inst, `Copy-Item -Recurse -Force -ErrorAction Stop (Join-Path $Src '*') (Join-Path $Dest 'dist')`) {
+		t.Error("install must copy a preloaded <target>/dist into trustant/dist (bash and PowerShell)")
+	}
+}

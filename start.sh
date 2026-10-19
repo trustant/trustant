@@ -56,6 +56,7 @@
 # VM boots, then copied in and installed over `limactl shell`. Installing this
 # way — rather than as a Lima `provision` script — avoids limactl start's ~10min
 # readiness timeout, and caching on the host makes re-runs skip the download.
+# The VM itself lives in ./data/lima (LIMA_HOME).
 # On Linux the same cached .deb is copied into /tmp, installed straight into
 # this machine with sudo, and the /tmp copy removed.
 #
@@ -90,7 +91,11 @@ if $NATIVE_LINUX; then
 else
   SUPPORT_DIR="$HOME/Library/Application Support/Trustant"
 fi
-LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
+# The VM lives in this checkout, under data/lima, not in ~/.lima: LIMA_HOME
+# moves Lima's whole home (instances and _config), and every limactl call below
+# inherits it. A VM left in ~/.lima by an older start.sh is ignored, not moved.
+export LIMA_HOME="$(pwd)/data/lima"
+LIMA_KEY="$LIMA_HOME/_config/user"           # shared identity limactl ssh uses
 # The cluster package is published on pub.trustant.ai under a fixed naming
 # scheme, openserverless_<version>_<arch>.deb, so the URL is built directly from
 # the pinned version and the host arch — there is no index to resolve.
@@ -201,12 +206,23 @@ normalize_submodule_eol() {
 #
 #   run_privileged VAR=val ... <<'GUEST'   — as root, in the VM (macOS) or here (Linux)
 #   run_guest      <cmd> [args...]         — as the normal user, same choice
+#
+# APT_QUIET is passed to every payload: these blocks run with no pty, and apt's
+# needrestart hook then prints its "Restarting services..." report as a
+# staircase (bare LF, no CR) — besides being pointless on a fresh machine.
+APT_QUIET=(DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a)
 run_privileged() {
   if $NATIVE_LINUX; then
-    sudo -n env "$@" bash -euo pipefail -s
+    sudo -n env "${APT_QUIET[@]}" "$@" bash -euo pipefail -s
   else
-    limactl shell "$VM_NAME" sudo env "$@" bash -euo pipefail -s
+    limactl shell "$VM_NAME" sudo env "${APT_QUIET[@]}" "$@" bash -euo pipefail -s
   fi
+}
+
+# Defensive: a provisioning child that leaves the terminal in a raw mode would
+# garble everything after it, run.sh included. No-op without a terminal.
+restore_tty() {
+  [[ -t 0 ]] && stty sane 2>/dev/null || true
 }
 
 run_guest() {
@@ -994,6 +1010,7 @@ finish_native() {
   # stays in the foreground: run.sh owns kubefwd and `air`, so Ctrl-C here is how
   # you stop the dev server. `./start.sh -n` (or -v) stops before this point.
   if [[ "$RUN_APP" == 1 ]]; then
+    restore_tty
     echo "--- Running ./run.sh as $(id -un) ---"
     echo "Press Control-C to stop. Use ./start.sh to start again."
     bash ./run.sh
@@ -1062,7 +1079,7 @@ install_package() {
     || fail "failed to copy $DEB_FILE into the VM"
 
   echo "--- Installing the OpenServerless package ---"
-  limactl shell "$VM_NAME" sudo bash -euo pipefail -s <<'GUEST'
+  limactl shell "$VM_NAME" sudo env "${APT_QUIET[@]}" bash -euo pipefail -s <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 
 if dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
@@ -1413,6 +1430,13 @@ if $NATIVE_LINUX; then
   esac
 else
   command -v limactl >/dev/null 2>&1 || fail "limactl not found (brew install lima)"
+  # Lima keeps its unix sockets in the instance dir (serialv.sock is the longest
+  # name) and macOS caps a socket path at 103 bytes, so a deep checkout would
+  # otherwise die later with an obscure Lima error.
+  LIMA_SOCK="$LIMA_HOME/$VM_NAME/serialv.sock"
+  (( ${#LIMA_SOCK} <= 103 )) \
+    || fail "checkout path too long for Lima sockets (${#LIMA_SOCK} > 103 bytes: $LIMA_SOCK) — move the checkout to a shorter path"
+  mkdir -p "$LIMA_HOME"
 fi
 
 # --- stop (keep the VM): ./start.sh -s --------------------------------------
@@ -1475,6 +1499,7 @@ open_vscode() {
 # This is the default finish and it stays in the foreground: run.sh owns kubefwd
 # and `air`, so Ctrl-C here is how you stop the dev server.
 run_in_vm() {
+  restore_tty
   echo "--- Running ./run.sh in the VM as $HOST_USER ---"
   echo "Press Control-C to stop. Use ./start.sh to start again."
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./run.sh

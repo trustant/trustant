@@ -25,8 +25,9 @@
 # installs the Trustant .deb (k3s), ollama, kubefwd, gh, the host-rewrite proxy,
 # writes the support files and runs ./setup.sh. The .deb and the ollama build are
 # cached under dist\ on the Windows side of the mount, so destroying the distro
-# and re-running re-downloads neither. Nothing in start.sh is
-# Windows-aware; this script only has to hand it an Ubuntu that satisfies its
+# and re-running re-downloads neither. The distro's disk lives in data\wsl of
+# this checkout (--location), on whatever drive the checkout is on. Nothing in
+# start.sh is Windows-aware; this script only has to hand it an Ubuntu that satisfies its
 # preflight (Ubuntu/Debian, amd64/arm64, passwordless sudo, systemd).
 #
 #   .\start.ps1                 provision, run ./start.sh, then ./run.sh in it
@@ -110,8 +111,9 @@ function Test-DistroExists {
     return [bool]$found
 }
 
-function Test-WslInstallSupportsName {
-    # Does this wsl.exe accept `--install ... --name <name>`?
+function Test-WslInstallSupportsOption {
+    # Does this wsl.exe accept `--install ... --<Option> <value>`? Used for
+    # --name and --location.
     #
     # Matched on the help TEXT and never on the exit code: `wsl --help` prints
     # the full, correct help and still exits non-zero (255), so an exit-code
@@ -126,6 +128,7 @@ function Test-WslInstallSupportsName {
     # Read raw, NOT through Invoke-WslText: the section is delimited by
     # indentation (top-level commands are less indented than their options) and
     # Invoke-WslText trims it away.
+    param([string]$Option)
     $lines = @(& wsl.exe --help) | ForEach-Object { ($_ -replace "`0", '').TrimEnd() }
     $sectionIndent = -1
     foreach ($line in $lines) {
@@ -138,7 +141,7 @@ function Test-WslInstallSupportsName {
         }
         # Back out to the command level: the --install section has ended.
         if ($indent -le $sectionIndent) { break }
-        if ($flag -eq 'name') { return $true }
+        if ($flag -eq $Option) { return $true }
     }
     return $false
 }
@@ -227,10 +230,12 @@ if ($VSCode) {
 # a distro down never installs one.
 $DistroExists = Test-DistroExists $Distro
 if (-not $DistroExists) {
-    if (-not (Test-WslInstallSupportsName)) {
-        Fail "this WSL is too old: 'wsl --install --name' is not supported. Run ""wsl --update"" in an Administrator terminal, then re-run this script."
+    foreach ($opt in 'name', 'location') {
+        if (-not (Test-WslInstallSupportsOption $opt)) {
+            Fail "this WSL is too old: 'wsl --install --$opt' is not supported. Run ""wsl --update"" in an Administrator terminal, then re-run this script."
+        }
+        Write-Ok "wsl --install supports --$opt"
     }
-    Write-Ok "wsl --install supports --name"
 }
 
 # A distro left behind by an earlier start.ps1, which installed under the base
@@ -294,18 +299,26 @@ localhostForwarding=true
 }
 
 # --- create the distribution -------------------------------------------------
+# The distro's disk lives in this checkout, under data\wsl - the counterpart of
+# start.sh's data/lima - so it sits on whatever drive the checkout is on (e.g.
+# D:\trustant\data\wsl) instead of the system drive.
+$DistroDir = Join-Path $RepoWin 'data\wsl'
 & wsl.exe --set-default-version 2 | Out-Null
 if ($DistroExists) {
+    # WSL has one per-user registry, so an existing '$Distro' is reused wherever
+    # it lives; it is never moved.
     Write-Ok "WSL distribution '$Distro' already exists"
 } else {
+    New-Item -ItemType Directory -Force -Path $DistroDir | Out-Null
     Write-Step "Installing WSL distribution '$Distro' from '$BaseDistro' (this downloads the Ubuntu image)"
     # --no-launch keeps the interactive first-run account wizard out of the way:
     # the account is created below, with the name and sudo rights we want.
     # --name registers the instance under OUR name, so nothing here can adopt or
     # later destroy a '$BaseDistro' the user installed for themselves.
-    & wsl.exe --install --distribution $BaseDistro --name $Distro --no-launch
+    # --location puts its virtual disk in data\wsl of this checkout.
+    & wsl.exe --install --distribution $BaseDistro --name $Distro --location $DistroDir --no-launch
     if ($LASTEXITCODE -ne 0) {
-        Fail "wsl --install --distribution $BaseDistro --name $Distro failed. Check the available images with: wsl --list --online"
+        Fail "wsl --install --distribution $BaseDistro --name $Distro --location $DistroDir failed. Check the available images with: wsl --list --online"
     }
     if (-not (Test-DistroExists $Distro)) {
         Fail "'$Distro' did not register. Check: wsl --list --verbose"
@@ -332,6 +345,8 @@ $bootstrap = @'
 set -euo pipefail
 : "${TRU_USER:?TRU_USER is not set}"
 export DEBIAN_FRONTEND=noninteractive
+# No pty here: apt's needrestart hook would print a CR-less staircase report.
+export NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a
 
 # 1. Packages start.sh's native path assumes are present (it shells out to
 #    dpkg, curl, git and `ip route`). Only touch apt when something is missing.
