@@ -8,9 +8,9 @@ echo @'
 #   irm get.trustant.ai | iex              (Windows)
 # Asks for a target folder (default: the current directory), creates it if
 # needed, clones https://github.com/trustant/trustant with its submodules into
-# <target>/trustant and runs start.sh / start.ps1 there. A <target>/trustant
-# holding only a preloaded dist/ (the .deb and ollama downloads) is kept, so
-# start.sh copies nothing from the network. TRUSTANT_DIR names the checkout
+# <target>/trustant and runs start.sh / start.ps1 there. A <target>/dist (the
+# .deb and ollama downloads, preloaded) is copied into trustant/dist, so start.sh
+# downloads nothing again. TRUSTANT_DIR names the checkout
 # directly and skips the question (non-interactive installs).
 # TRUSTANT_REF selects a branch or tag (default: the repo default branch).
 # See spec/install.md. Keep this file pure ASCII (Windows PowerShell 5.1).
@@ -87,15 +87,7 @@ case "$(uname -s)" in
 ;;
 esac
 
-# A $DEST holding only dist/ is a preload: set dist/ aside, clone, put it back
-# (git clone refuses a non-empty directory). Anything else there is refused.
-PRELOAD=""
-if [ -d "$DEST" ] && [ "$(ls -A "$DEST")" = "dist" ] && [ -d "$DEST/dist" ]
-then
-   PRELOAD="$(dirname "$DEST")/.trustant-dist.$$"
-   echo "Using the preloaded $DEST/dist"
-   mv "$DEST/dist" "$PRELOAD" && rmdir "$DEST" || exit 1
-elif [ -e "$DEST" ]
+if [ -e "$DEST" ]
 then
    echo "$DEST already exists - remove it, or cd there and run ./start.sh"
    exit 1
@@ -106,15 +98,16 @@ if ! git clone --recurse-submodules ${TRUSTANT_REF:+--branch "$TRUSTANT_REF"} "$
 then
    echo "git clone failed - exiting"
    rm -rf "$DEST"
-   if [ -n "$PRELOAD" ] && mkdir -p "$DEST" && mv "$PRELOAD" "$DEST/dist"
-   then echo "the preloaded files are back in $DEST/dist"
-   fi
    exit 1
 fi
-if [ -n "$PRELOAD" ] && ! mv "$PRELOAD" "$DEST/dist"
+# A dist/ next to the checkout (the .deb and ollama downloads, preloaded) is
+# copied into trustant/dist, start.sh's cache, so nothing is downloaded again.
+SRC="$(dirname "$DEST")/dist"
+if [ -d "$SRC" ]
 then
-   echo "could not move $PRELOAD back to $DEST/dist - move it there by hand"
-   exit 1
+   echo "Copying $SRC into $DEST/dist"
+   mkdir -p "$DEST/dist" && cp -R "$SRC/." "$DEST/dist/" \
+      || echo "copying $SRC failed - start.sh will download what is missing"
 fi
 
 cd "$DEST" || exit 1
@@ -198,25 +191,9 @@ echo > /dev/null <<"out-null" ###
         }
     }
 
-    # A $Dest holding only dist\ is a preload: set dist\ aside, clone, put it
-    # back (git clone refuses a non-empty directory). Anything else is refused.
-    $Preload = $null
     if (Test-Path $Dest) {
-        $Items = @(Get-ChildItem -Force $Dest)
-        if ($Items.Count -eq 1 -and $Items[0].Name -eq 'dist' -and $Items[0].PSIsContainer) {
-            $Preload = Join-Path $Target ".trustant-dist.$PID"
-            Write-Host "Using the preloaded $Dest\dist"
-            try {
-                Move-Item -ErrorAction Stop (Join-Path $Dest 'dist') $Preload
-                Remove-Item -ErrorAction Stop $Dest
-            } catch {
-                Write-Host "cannot set $Dest\dist aside - $_"
-                return
-            }
-        } else {
-            Write-Host "$Dest already exists - remove it, or cd there and run .\start.ps1"
-            return
-        }
+        Write-Host "$Dest already exists - remove it, or cd there and run .\start.ps1"
+        return
     }
 
     Write-Host "Cloning Trustant into $Dest"
@@ -225,18 +202,18 @@ echo > /dev/null <<"out-null" ###
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git clone failed"
         Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
-        if ($Preload) {
-            New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-            Move-Item $Preload (Join-Path $Dest 'dist')
-            Write-Host "the preloaded files are back in $Dest\dist"
-        }
         return
     }
-    if ($Preload) {
-        try { Move-Item -ErrorAction Stop $Preload (Join-Path $Dest 'dist') }
-        catch {
-            Write-Host "could not move $Preload back to $Dest\dist - move it there by hand"
-            return
+    # A dist\ next to the checkout (the .deb and ollama downloads, preloaded) is
+    # copied into trustant\dist, start.sh's cache, so nothing is downloaded again.
+    $Src = Join-Path $Target 'dist'
+    if (Test-Path -PathType Container $Src) {
+        Write-Host "Copying $Src into $Dest\dist"
+        try {
+            New-Item -ItemType Directory -Force -Path (Join-Path $Dest 'dist') -ErrorAction Stop | Out-Null
+            Copy-Item -Recurse -Force -ErrorAction Stop (Join-Path $Src '*') (Join-Path $Dest 'dist')
+        } catch {
+            Write-Host "copying $Src failed - start.sh will download what is missing"
         }
     }
 

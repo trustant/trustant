@@ -26,13 +26,13 @@ scripts as ANSI.
   `/dev/tty`); otherwise the default is used.
 - `TRUSTANT_DIR` names the checkout directly and skips the question
   (non-interactive installs).
-- **Preloaded `dist/`**: if `<target>/trustant` holds only a `dist/` folder,
-  `dist/` is set aside as `<target>/.trustant-dist.<pid>`, the clone runs into
-  the now-absent `<target>/trustant`, and `dist/` is moved back. If the clone
-  fails it is moved back anyway. `start.sh` then finds the `.deb` and ollama
-  tarball in its cache and downloads nothing. Any other existing
-  `<target>/trustant` makes the installer refuse and say to run
+- If `<target>/trustant` already exists the installer refuses and says to run
   `start.sh`/`start.ps1` there.
+- **Preloaded `dist/`**: after the clone, if `<target>/dist` exists its content
+  is copied (not moved) into `<target>/trustant/dist`, the cache `start.sh`
+  reads, so the `.deb` and ollama tarball are not downloaded again. A failed
+  copy only warns: `start.sh` downloads whatever is missing. With
+  `TRUSTANT_DIR`, `<target>` is its parent directory.
 - `TRUSTANT_REF` is an optional branch or tag, passed to `git clone --branch`.
 - Clone: `git clone --recurse-submodules https://github.com/trustant/trustant`.
   If the clone fails, the partial folder is removed.

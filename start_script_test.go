@@ -225,7 +225,7 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 
 // The VM and the WSL distro live in the checkout's data/ folder, every apt run
 // silences needrestart (its pty-less report prints as a CR-less staircase), and
-// a dist/ in the launch directory seeds the download cache. Guard all three.
+// install copies a preloaded <target>/dist into the checkout's dist/ cache.
 func TestStartScriptsKeepVMInDataAndSeedDist(t *testing.T) {
 	read := func(name string) string {
 		content, err := os.ReadFile(name)
@@ -256,14 +256,9 @@ func TestStartScriptsKeepVMInDataAndSeedDist(t *testing.T) {
 		t.Error("the start.ps1 bootstrap must silence needrestart too")
 	}
 
-	if !strings.Contains(sh, `SEED_DIST="${TRUSTANT_SEED_DIST:-$PWD/dist}"`) ||
-		strings.Index(sh, `SEED_DIST=`) > strings.Index(sh, `cd "$(dirname "$0")"`) {
-		t.Error("start.sh must capture the caller's ./dist before cd-ing to its own directory")
-	}
-	if !strings.Contains(sh, `seed_from_dist "$DEB_FILE"`) || !strings.Contains(sh, `seed_from_dist "$OLLAMA_TARBALL"`) {
-		t.Error("both cached downloads must be seeded from SEED_DIST")
-	}
-	if !strings.Contains(ps1, `TRUSTANT_SEED_DIST=`) {
-		t.Error("start.ps1 must hand its launch directory's dist\\ to start.sh")
+	inst := read("install")
+	if !strings.Contains(inst, `cp -R "$SRC/." "$DEST/dist/"`) ||
+		!strings.Contains(inst, `Copy-Item -Recurse -Force -ErrorAction Stop (Join-Path $Src '*') (Join-Path $Dest 'dist')`) {
+		t.Error("install must copy a preloaded <target>/dist into trustant/dist (bash and PowerShell)")
 	}
 }

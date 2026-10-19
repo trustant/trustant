@@ -60,18 +60,6 @@ Two separate version files, deliberately not conflated:
 
 Keep `--retry` on the download.
 
-## Seeding dist/ from the caller's directory
-
-`start.sh` `cd`s to its own directory first, so it records the caller's `./dist`
-**before** that: `SEED_DIST="${TRUSTANT_SEED_DIST:-$PWD/dist}"`, resolved to an
-absolute path (empty when it does not exist). Before each download,
-`seed_from_dist <cache-file>` copies `$SEED_DIST/<same basename>` into `dist/`
-when the cache entry is missing — via `.part` + `mv`, like a download. Only the
-exact pinned filename (version + arch) is copied, so a bundle holding other
-versions is ignored and the download runs as before. It is a no-op when
-`SEED_DIST` is the repo's own `dist/`. Applies to the `.deb` and the ollama
-tarball, on every host. `start.ps1` passes `TRUSTANT_SEED_DIST` (see below).
-
 ## Where the VM lives
 
 `start.sh` exports `LIMA_HOME=<checkout>/data/lima`, so the instance is
@@ -849,11 +837,3 @@ is the WSL2 default — the distribution's `eth0` address is routable from the
 host, and the apihost `start.sh` publishes is
 `http://<wsl-ip>.nip.io:8080`, on the host-rewrite proxy port, which the
 package's `:80/:443/:6443` firewall dropin does not cover.
-
-## Seeding dist\ on Windows
-
-`start.ps1` records the launch directory (`(Get-Location).ProviderPath`) at the
-very start. If it has a `dist\` that is not the checkout's own, its `/mnt/<drive>`
-form (via `wslpath`, so any drive works) is passed as
-`env TRUSTANT_SEED_DIST=<path>` on the `wsl.exe ... bash ./start.sh` line; the
-copying itself is `start.sh`'s `seed_from_dist`.

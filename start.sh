@@ -56,8 +56,7 @@
 # VM boots, then copied in and installed over `limactl shell`. Installing this
 # way — rather than as a Lima `provision` script — avoids limactl start's ~10min
 # readiness timeout, and caching on the host makes re-runs skip the download.
-# A dist/ in the directory start.sh is launched from seeds that cache (see
-# seed_from_dist), and the VM itself lives in ./data/lima (LIMA_HOME).
+# The VM itself lives in ./data/lima (LIMA_HOME).
 # On Linux the same cached .deb is copied into /tmp, installed straight into
 # this machine with sudo, and the /tmp copy removed.
 #
@@ -71,13 +70,6 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
-
-# A dist/ in the directory the user launched us from (an offline bundle, a USB
-# stick, a previous checkout) seeds the dist/ cache below, so the ~5.5GB of
-# downloads become local copies. Captured BEFORE the cd, which loses the caller's
-# directory. TRUSTANT_SEED_DIST overrides it (start.ps1 passes it that way).
-SEED_DIST="${TRUSTANT_SEED_DIST:-$PWD/dist}"
-SEED_DIST="$(cd "$SEED_DIST" 2>/dev/null && pwd || true)"
 
 cd "$(dirname "$0")"
 
@@ -399,28 +391,6 @@ GUEST
   ok "reverse proxy listening on :8080"
 }
 
-# Seed one dist/ cache entry from SEED_DIST (the caller's ./dist) when the
-# cache lacks it. Only the exact pinned filename is copied, so a bundle holding
-# other versions is ignored and the caller falls back to downloading. Copied via
-# .part + mv, like a download, so an interrupted copy is never trusted later.
-seed_from_dist() {
-  local CACHED="$1" SRC
-  [[ -s "$CACHED" ]] && return 0
-  [[ -n "$SEED_DIST" ]] || return 0
-  [[ "$SEED_DIST" -ef "$DIST_DIR" ]] && return 0
-  SRC="$SEED_DIST/$(basename "$CACHED")"
-  [[ -s "$SRC" ]] || return 0
-  echo "--- Copying $(basename "$CACHED") from $SEED_DIST ---"
-  mkdir -p "$(dirname "$CACHED")"
-  if cp "$SRC" "$CACHED.part"; then
-    mv "$CACHED.part" "$CACHED"
-    ok "Copied $CACHED from $SEED_DIST"
-  else
-    rm -f "$CACHED.part"
-    warn "copy from $SRC failed — downloading instead"
-  fi
-}
-
 # Resolve + cache the ollama release tarball for the guest arch into dist/,
 # downloading it only when the cache entry is absent. Sets the global
 # OLLAMA_TARBALL (empty when there is nothing usable, which leaves ensure_ollama
@@ -447,7 +417,6 @@ ensure_ollama_tarball() {
 
   OLLAMA_TARBALL="${DIST_DIR}/ollama-${OLLAMA_VERSION}-linux-${ARCH}.tar.zst"
   mkdir -p "$DIST_DIR"
-  seed_from_dist "$OLLAMA_TARBALL"
 
   if [[ -s "$OLLAMA_TARBALL" ]]; then
     ok "Using cached ollama tarball: $OLLAMA_TARBALL"
@@ -1079,7 +1048,6 @@ ensure_deb() {
 
   DEB_FILE="${DIST_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"
   mkdir -p "$DIST_DIR"
-  seed_from_dist "$DEB_FILE"
   if [[ -s "$DEB_FILE" ]]; then
     ok "Using cached package: $DEB_FILE"
     return 0

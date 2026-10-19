@@ -25,10 +25,9 @@
 # installs the Trustant .deb (k3s), ollama, kubefwd, gh, the host-rewrite proxy,
 # writes the support files and runs ./setup.sh. The .deb and the ollama build are
 # cached under dist\ on the Windows side of the mount, so destroying the distro
-# and re-running re-downloads neither; a dist\ in the launch directory seeds that
-# cache. The distro's disk lives in data\wsl of this checkout (--location), on
-# whatever drive the checkout is on. Nothing in start.sh is
-# Windows-aware; this script only has to hand it an Ubuntu that satisfies its
+# and re-running re-downloads neither. The distro's disk lives in data\wsl of
+# this checkout (--location), on whatever drive the checkout is on. Nothing in
+# start.sh is Windows-aware; this script only has to hand it an Ubuntu that satisfies its
 # preflight (Ubuntu/Debian, amd64/arm64, passwordless sudo, systemd).
 #
 #   .\start.ps1                 provision, run ./start.sh, then ./run.sh in it
@@ -69,11 +68,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
-# The directory the user launched us from, captured before anything moves: a
-# dist\ there (an offline bundle) seeds start.sh's dist/ cache. ProviderPath, so
-# a PSDrive alias still yields a real filesystem path.
-$CallerDir = (Get-Location).ProviderPath
 
 # The Trustant VM sizing from start.sh's Lima config, reused for the WSL2 VM.
 $VM_CPUS = 4
@@ -549,17 +543,7 @@ Write-Step "Running ./start.sh in '$Distro' as '$User'"
 # the warning reads as a per-run price and invites destroying the cache.
 Write-Warn 'start.sh downloads a ~4GB package plus a ~1.5GB ollama build and installs k3s inside the distribution'
 Write-Warn 'both are cached in dist\ on this drive - later runs reuse them and do not re-download'
-# A dist\ in the launch directory seeds the cache (see start.sh's SEED_DIST).
-# start.sh cannot see that directory itself - wsl.exe starts it in the mount -
-# so it is handed over as a Linux path; any drive maps (D:\x -> /mnt/d/x).
-$SeedEnv = @()
-$SeedWin = Join-Path $CallerDir 'dist'
-if ((Test-Path -PathType Container $SeedWin) -and
-    ((Resolve-Path $SeedWin).ProviderPath.TrimEnd('\') -ne (Join-Path $RepoWin 'dist').TrimEnd('\'))) {
-    $SeedEnv = @('env', "TRUSTANT_SEED_DIST=$(ConvertTo-WslPath $SeedWin)")
-    Write-Ok "seeding dist\ from $SeedWin"
-}
-& wsl.exe -d $Distro -u $User --cd $RepoWsl -- @SeedEnv bash ./start.sh
+& wsl.exe -d $Distro -u $User --cd $RepoWsl -- bash ./start.sh
 $startExit = $LASTEXITCODE
 if ($startExit -ne 0) {
     Restore-Console
