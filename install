@@ -154,6 +154,8 @@ echo > /dev/null <<"out-null" ###
     } else {
         $Target = (Get-Location).ProviderPath
         $Answer = "$(Read-Host "Install Trustant in [$Target]")".Trim().Trim('"')
+        # A bare drive (D:) means its root, not that drive's current folder.
+        if ($Answer -match '^[A-Za-z]:$') { $Answer += '\' }
         if ($Answer) { $Target = & $Resolve $Answer }
         $Dest = Join-Path $Target 'trustant'
     }
@@ -168,7 +170,10 @@ echo > /dev/null <<"out-null" ###
         return
     }
     try {
-        New-Item -ItemType Directory -Force -Path $Target -ErrorAction Stop | Out-Null
+        # New-Item rejects a drive root (D:\) even with -Force: create only if missing.
+        if (-not (Test-Path -PathType Container $Target)) {
+            New-Item -ItemType Directory -Force -Path $Target -ErrorAction Stop | Out-Null
+        }
         Set-Location $Target -ErrorAction Stop
     } catch {
         Write-Host "cannot use $Target - $_"

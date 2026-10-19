@@ -58,7 +58,9 @@ Under `curl | bash`, stdin is the script itself. Every prompt (sudo, brew, and
 - Refuses on anything other than Windows (`OSVersion.Platform -eq 'Win32NT'`).
 - Paths are resolved against the PowerShell location
   (`GetUnresolvedProviderPathFromPSPath`), not the process directory, so a
-  relative answer after a `cd D:\` lands on `D:`.
+  relative answer after a `cd D:\` lands on `D:`. A bare drive (`D:`) means its
+  root (`D:\`), and an existing folder (a drive root included) is used as-is:
+  `New-Item` is called only when it is missing, since it rejects `D:\`.
 - Refuses if the checkout path contains a space, or is not a drive-letter path
   (any drive: `C:\`, `D:\`...). The folder is used from WSL over
   `/mnt/<drive>`, and a space breaks `.env` and the scripts.
