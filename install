@@ -6,18 +6,44 @@ echo @'
 # install - Trustant installer, one file for bash and PowerShell.
 #   curl -fsSL get.trustant.ai | bash      (macOS, Linux)
 #   irm get.trustant.ai | iex              (Windows)
-# Clones https://github.com/trustant/trustant with its submodules into
-# $TRUSTANT_DIR (default ~/trustant) and runs start.sh / start.ps1 there.
+# Asks for a target folder (default: the current directory), creates it if
+# needed, clones https://github.com/trustant/trustant with its submodules into
+# <target>/trustant and runs start.sh / start.ps1 there. A <target>/trustant
+# holding only a preloaded dist/ (the .deb and ollama downloads) is kept, so
+# start.sh copies nothing from the network. TRUSTANT_DIR names the checkout
+# directly and skips the question (non-interactive installs).
 # TRUSTANT_REF selects a branch or tag (default: the repo default branch).
 # See spec/install.md. Keep this file pure ASCII (Windows PowerShell 5.1).
 
 URL="https://github.com/trustant/trustant"
-DEST="${TRUSTANT_DIR:-$HOME/trustant}"
 # Under `curl | bash` stdin is the script itself: prompts (sudo, brew,
 # start.sh) must read the terminal instead.
 TTY=/dev/stdin
 if [ ! -t 0 ] && [ -r /dev/tty ]
 then TTY=/dev/tty
+fi
+if [ -n "${TRUSTANT_DIR:-}" ]
+then DEST="$TRUSTANT_DIR"
+else
+   TARGET="$(pwd)"
+   # Ask only when there is a terminal to answer: reading /dev/stdin under a
+   # bare pipe would swallow the rest of this script.
+   if [ -t 0 ] || [ "$TTY" = /dev/tty ]
+   then
+      printf 'Install Trustant in [%s]: ' "$TARGET"
+      { read -r ANSWER <"$TTY"; } 2>/dev/null || { ANSWER=""; echo; }
+      case "$ANSWER" in
+      ("~") ANSWER="$HOME" ;;
+      ("~/"*) ANSWER="$HOME/${ANSWER#"~/"}" ;;
+      esac
+      [ -n "$ANSWER" ] && TARGET="$ANSWER"
+   fi
+   if ! mkdir -p "$TARGET" || ! cd "$TARGET"
+   then
+      echo "cannot use $TARGET - exiting"
+      exit 1
+   fi
+   DEST="$(pwd)/trustant"
 fi
 
 case "$(uname -s)" in
@@ -61,7 +87,15 @@ case "$(uname -s)" in
 ;;
 esac
 
-if [ -e "$DEST" ]
+# A $DEST holding only dist/ is a preload: set dist/ aside, clone, put it back
+# (git clone refuses a non-empty directory). Anything else there is refused.
+PRELOAD=""
+if [ -d "$DEST" ] && [ "$(ls -A "$DEST")" = "dist" ] && [ -d "$DEST/dist" ]
+then
+   PRELOAD="$(dirname "$DEST")/.trustant-dist.$$"
+   echo "Using the preloaded $DEST/dist"
+   mv "$DEST/dist" "$PRELOAD" && rmdir "$DEST" || exit 1
+elif [ -e "$DEST" ]
 then
    echo "$DEST already exists - remove it, or cd there and run ./start.sh"
    exit 1
@@ -72,6 +106,14 @@ if ! git clone --recurse-submodules ${TRUSTANT_REF:+--branch "$TRUSTANT_REF"} "$
 then
    echo "git clone failed - exiting"
    rm -rf "$DEST"
+   if [ -n "$PRELOAD" ] && mkdir -p "$DEST" && mv "$PRELOAD" "$DEST/dist"
+   then echo "the preloaded files are back in $DEST/dist"
+   fi
+   exit 1
+fi
+if [ -n "$PRELOAD" ] && ! mv "$PRELOAD" "$DEST/dist"
+then
+   echo "could not move $PRELOAD back to $DEST/dist - move it there by hand"
    exit 1
 fi
 
@@ -110,11 +152,33 @@ echo > /dev/null <<"out-null" ###
     }
 
     $Url = 'https://github.com/trustant/trustant'
-    $Dest = if ($env:TRUSTANT_DIR) { $env:TRUSTANT_DIR } else { Join-Path $HOME 'trustant' }
-    $Dest = [System.IO.Path]::GetFullPath($Dest)
-    # The folder is used from WSL over /mnt/<drive>: a space breaks .env and the scripts.
+    # Resolved against the PowerShell location, not the process directory that
+    # [IO.Path]::GetFullPath would use: they differ, e.g. after a cd to D:\.
+    $Resolve = { param($p) $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p) }
+    if ($env:TRUSTANT_DIR) {
+        $Dest = & $Resolve $env:TRUSTANT_DIR
+        $Target = Split-Path -Parent $Dest
+    } else {
+        $Target = (Get-Location).ProviderPath
+        $Answer = "$(Read-Host "Install Trustant in [$Target]")".Trim().Trim('"')
+        if ($Answer) { $Target = & $Resolve $Answer }
+        $Dest = Join-Path $Target 'trustant'
+    }
+    # The folder is used from WSL over /mnt/<drive>: a space breaks .env and the
+    # scripts, and only a drive-letter path (any drive) maps to /mnt/<drive>.
     if ($Dest -match ' ') {
-        Write-Host "The install path '$Dest' contains spaces - set TRUSTANT_DIR to a path without spaces"
+        Write-Host "The install path '$Dest' contains spaces - choose a folder without spaces"
+        return
+    }
+    if ($Dest -notmatch '^[A-Za-z]:\\') {
+        Write-Host "The install path '$Dest' is not on a drive letter (e.g. C:\ or D:\) - WSL cannot mount it"
+        return
+    }
+    try {
+        New-Item -ItemType Directory -Force -Path $Target -ErrorAction Stop | Out-Null
+        Set-Location $Target -ErrorAction Stop
+    } catch {
+        Write-Host "cannot use $Target - $_"
         return
     }
 
@@ -134,9 +198,25 @@ echo > /dev/null <<"out-null" ###
         }
     }
 
+    # A $Dest holding only dist\ is a preload: set dist\ aside, clone, put it
+    # back (git clone refuses a non-empty directory). Anything else is refused.
+    $Preload = $null
     if (Test-Path $Dest) {
-        Write-Host "$Dest already exists - remove it, or cd there and run .\start.ps1"
-        return
+        $Items = @(Get-ChildItem -Force $Dest)
+        if ($Items.Count -eq 1 -and $Items[0].Name -eq 'dist' -and $Items[0].PSIsContainer) {
+            $Preload = Join-Path $Target ".trustant-dist.$PID"
+            Write-Host "Using the preloaded $Dest\dist"
+            try {
+                Move-Item -ErrorAction Stop (Join-Path $Dest 'dist') $Preload
+                Remove-Item -ErrorAction Stop $Dest
+            } catch {
+                Write-Host "cannot set $Dest\dist aside - $_"
+                return
+            }
+        } else {
+            Write-Host "$Dest already exists - remove it, or cd there and run .\start.ps1"
+            return
+        }
     }
 
     Write-Host "Cloning Trustant into $Dest"
@@ -145,7 +225,19 @@ echo > /dev/null <<"out-null" ###
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git clone failed"
         Remove-Item -Recurse -Force $Dest -ErrorAction SilentlyContinue
+        if ($Preload) {
+            New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+            Move-Item $Preload (Join-Path $Dest 'dist')
+            Write-Host "the preloaded files are back in $Dest\dist"
+        }
         return
+    }
+    if ($Preload) {
+        try { Move-Item -ErrorAction Stop $Preload (Join-Path $Dest 'dist') }
+        catch {
+            Write-Host "could not move $Preload back to $Dest\dist - move it there by hand"
+            return
+        }
     }
 
     Set-Location $Dest

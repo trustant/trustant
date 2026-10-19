@@ -26,6 +26,7 @@ opencode.json
 _build.txt
 Trustant
 /dist/
+/data/
 /opencode.sh
 .ghtoken
 .1pw

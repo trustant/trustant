@@ -222,3 +222,48 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 		t.Error("start.sh must strip the leading v from version.txt (v0.4.0 -> 0.4.0)")
 	}
 }
+
+// The VM and the WSL distro live in the checkout's data/ folder, every apt run
+// silences needrestart (its pty-less report prints as a CR-less staircase), and
+// a dist/ in the launch directory seeds the download cache. Guard all three.
+func TestStartScriptsKeepVMInDataAndSeedDist(t *testing.T) {
+	read := func(name string) string {
+		content, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %s", name, err)
+		}
+		return string(content)
+	}
+	sh, ps1, setup := read("start.sh"), read("start.ps1"), read("setup.sh")
+
+	if !strings.Contains(sh, `export LIMA_HOME="$(pwd)/data/lima"`) ||
+		!strings.Contains(sh, `LIMA_KEY="$LIMA_HOME/_config/user"`) {
+		t.Error("start.sh must keep the Lima VM in ./data/lima and read its key from there")
+	}
+	if !strings.Contains(ps1, `--name $Distro --location $DistroDir`) ||
+		!strings.Contains(ps1, `Join-Path $RepoWin 'data\wsl'`) {
+		t.Error("start.ps1 must install the distro with --location <checkout>\\data\\wsl")
+	}
+
+	const quiet = `APT_QUIET=(DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a)`
+	if !strings.Contains(sh, quiet) || !strings.Contains(setup, quiet) {
+		t.Error("start.sh and setup.sh must define APT_QUIET")
+	}
+	if strings.Count(sh, `sudo env "${APT_QUIET[@]}"`) < 2 || strings.Count(setup, `sudo env "${APT_QUIET[@]}" apt-get`) < 2 {
+		t.Error("every privileged apt path must run with APT_QUIET")
+	}
+	if !strings.Contains(ps1, "NEEDRESTART_SUSPEND=1") {
+		t.Error("the start.ps1 bootstrap must silence needrestart too")
+	}
+
+	if !strings.Contains(sh, `SEED_DIST="${TRUSTANT_SEED_DIST:-$PWD/dist}"`) ||
+		strings.Index(sh, `SEED_DIST=`) > strings.Index(sh, `cd "$(dirname "$0")"`) {
+		t.Error("start.sh must capture the caller's ./dist before cd-ing to its own directory")
+	}
+	if !strings.Contains(sh, `seed_from_dist "$DEB_FILE"`) || !strings.Contains(sh, `seed_from_dist "$OLLAMA_TARBALL"`) {
+		t.Error("both cached downloads must be seeded from SEED_DIST")
+	}
+	if !strings.Contains(ps1, `TRUSTANT_SEED_DIST=`) {
+		t.Error("start.ps1 must hand its launch directory's dist\\ to start.sh")
+	}
+}

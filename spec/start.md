@@ -60,6 +60,43 @@ Two separate version files, deliberately not conflated:
 
 Keep `--retry` on the download.
 
+## Seeding dist/ from the caller's directory
+
+`start.sh` `cd`s to its own directory first, so it records the caller's `./dist`
+**before** that: `SEED_DIST="${TRUSTANT_SEED_DIST:-$PWD/dist}"`, resolved to an
+absolute path (empty when it does not exist). Before each download,
+`seed_from_dist <cache-file>` copies `$SEED_DIST/<same basename>` into `dist/`
+when the cache entry is missing — via `.part` + `mv`, like a download. Only the
+exact pinned filename (version + arch) is copied, so a bundle holding other
+versions is ignored and the download runs as before. It is a no-op when
+`SEED_DIST` is the repo's own `dist/`. Applies to the `.deb` and the ollama
+tarball, on every host. `start.ps1` passes `TRUSTANT_SEED_DIST` (see below).
+
+## Where the VM lives
+
+`start.sh` exports `LIMA_HOME=<checkout>/data/lima`, so the instance is
+`data/lima/trudev/` in the checkout rather than `~/.lima/trudev/`, and the Lima
+identity is `data/lima/_config/user`. Every `limactl` call inherits it. `data/`
+is git-ignored and in `.air.toml`'s `exclude_dir`. It sits inside the
+virtiofs-mounted checkout, so the guest can see its own disk files — harmless.
+
+- macOS caps a unix socket path at 103 bytes and Lima keeps its sockets in the
+  instance dir (`serialv.sock` is the longest), so `start.sh` fails up front
+  with "checkout path too long" instead of an obscure Lima error later.
+- A VM left in `~/.lima/trudev` by an older `start.sh` is **ignored, not
+  migrated**; `start.sh` warns and prints how to delete it
+  (`LIMA_HOME=~/.lima limactl delete -f trudev`).
+
+## apt without a pty
+
+`run_privileged` (and the `install_package` block) always pass
+`DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a`, as do
+`setup.sh`'s `sudo apt-get install` lines and the `start.ps1` bootstrap. These
+apt runs have no pty, and needrestart's "Restarting services..." report then
+prints as a staircase (LF without CR); restarting services is pointless on a
+fresh machine anyway. Before `run.sh`, `restore_tty` runs `stty sane` when stdin
+is a terminal, so no provisioning child can leave it in a raw mode.
+
 ## Boot the VM, then install (NOT via cloud-init provision)
 
 Create an Ubuntu VM with Lima using vmType: vz and a vzNAT network. Do NOT install
@@ -166,7 +203,7 @@ Read the host-reachable ip (the lima0 / 192.168.252.x address from hostname -I) 
 
 - ~/Library/Application Support/Trustant/current.ip   -> <ip>
 - ~/Library/Application Support/Trustant/apihost      -> http://<ip>.nip.io:8080
-- ~/Library/Application Support/Trustant/id_ed25519   -> copy of the limactl key (~/.lima/_config/user)
+- ~/Library/Application Support/Trustant/id_ed25519   -> copy of the limactl key ($LIMA_HOME/_config/user)
 
 The apihost points through the host-rewrite proxy (see above), NOT bare <ip>:80 —
 a plain http://<ip>/api/info sends Host: <ip>, which traefik does not match (404).
@@ -598,7 +635,15 @@ Windows-aware, and none of them may be taught to be.
 - A WSL2 distribution named `trudev`, installed from the `Ubuntu-24.04` image
   with
 
-      wsl --install --distribution Ubuntu-24.04 --name trudev --no-launch
+      wsl --install --distribution Ubuntu-24.04 --name trudev --location <checkout>\data\wsl --no-launch
+
+  `--location` puts the distribution's virtual disk in `data\wsl` of the
+  checkout — the counterpart of `data/lima` — so it lands on whatever drive the
+  checkout is on (e.g. `D:\trustant\data\wsl`). Both `--name` and `--location`
+  are checked in the `--install` section of `wsl --help` before installing; an
+  older `wsl.exe` fails with "run wsl --update". An existing `trudev` is reused
+  wherever it lives (WSL has one per-user registry); if its `BasePath` in
+  `HKCU:\...\Lxss` is not `data\wsl`, a warning says how to recreate it.
 
   The **instance** name (`-Distro` to override) and the **image** it is
   installed from (`-BaseDistro` to override) are two separate identities. The
@@ -806,3 +851,11 @@ is the WSL2 default — the distribution's `eth0` address is routable from the
 host, and the apihost `start.sh` publishes is
 `http://<wsl-ip>.nip.io:8080`, on the host-rewrite proxy port, which the
 package's `:80/:443/:6443` firewall dropin does not cover.
+
+## Seeding dist\ on Windows
+
+`start.ps1` records the launch directory (`(Get-Location).ProviderPath`) at the
+very start. If it has a `dist\` that is not the checkout's own, its `/mnt/<drive>`
+form (via `wslpath`, so any drive works) is passed as
+`env TRUSTANT_SEED_DIST=<path>` on the `wsl.exe ... bash ./start.sh` line; the
+copying itself is `start.sh`'s `seed_from_dist`.

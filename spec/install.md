@@ -18,8 +18,21 @@ scripts as ANSI.
 
 ## Common behaviour
 
-- `TRUSTANT_DIR` is the target folder (default `~/trustant`). If it already
-  exists the installer refuses and says to run `start.sh`/`start.ps1` there.
+- **Target folder**: the installer asks `Install Trustant in [<cwd>]:`,
+  defaulting to the current directory (Enter keeps it; `~` is expanded in
+  bash). A folder that does not exist is created, and the installer `cd`s
+  (`Set-Location`, which also switches drive) into it. The checkout is
+  `<target>/trustant`. Bash asks only when a terminal is available (stdin or
+  `/dev/tty`); otherwise the default is used.
+- `TRUSTANT_DIR` names the checkout directly and skips the question
+  (non-interactive installs).
+- **Preloaded `dist/`**: if `<target>/trustant` holds only a `dist/` folder,
+  `dist/` is set aside as `<target>/.trustant-dist.<pid>`, the clone runs into
+  the now-absent `<target>/trustant`, and `dist/` is moved back. If the clone
+  fails it is moved back anyway. `start.sh` then finds the `.deb` and ollama
+  tarball in its cache and downloads nothing. Any other existing
+  `<target>/trustant` makes the installer refuse and say to run
+  `start.sh`/`start.ps1` there.
 - `TRUSTANT_REF` is an optional branch or tag, passed to `git clone --branch`.
 - Clone: `git clone --recurse-submodules https://github.com/trustant/trustant`.
   If the clone fails, the partial folder is removed.
@@ -43,9 +56,12 @@ Under `curl | bash`, stdin is the script itself. Every prompt (sudo, brew, and
 ## PowerShell part
 
 - Refuses on anything other than Windows (`OSVersion.Platform -eq 'Win32NT'`).
-- Refuses if the install path (`TRUSTANT_DIR` or `~\trustant`, made absolute)
-  contains a space. The folder is used from WSL over `/mnt/<drive>`, and a space
-  breaks `.env` and the scripts.
+- Paths are resolved against the PowerShell location
+  (`GetUnresolvedProviderPathFromPSPath`), not the process directory, so a
+  relative answer after a `cd D:\` lands on `D:`.
+- Refuses if the checkout path contains a space, or is not a drive-letter path
+  (any drive: `C:\`, `D:\`...). The folder is used from WSL over
+  `/mnt/<drive>`, and a space breaks `.env` and the scripts.
 - If `git` is missing it runs `winget install --id Git.Git -e`, then reloads
   `$env:Path` from the Machine and User registry values so the new `git`
   resolves in this session. If `winget` is missing, it points to git-scm.com.

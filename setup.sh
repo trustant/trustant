@@ -33,6 +33,9 @@ NC='\033[0m'
 ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
+# Without a pty apt's needrestart hook prints a CR-less staircase report; it is
+# also pointless here. Same settings as start.sh's run_privileged.
+APT_QUIET=(DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a)
 
 cd "$(dirname "$0")"
 
@@ -265,7 +268,7 @@ echo "--- Checking npm ---"
 if ! command -v npm &>/dev/null; then
   warn "npm not found, installing Node 24 via NodeSource..."
   curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - || fail "NodeSource setup failed"
-  sudo apt-get install -y nodejs || fail "apt-get install nodejs failed"
+  sudo env "${APT_QUIET[@]}" apt-get install -y nodejs || fail "apt-get install nodejs failed"
 fi
 command -v npm &>/dev/null || fail "npm not in PATH after install"
 ok "npm is available"
@@ -423,7 +426,7 @@ command -v lsof      &>/dev/null || APT_MISSING+=(lsof)
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
-  sudo apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
+  sudo env "${APT_QUIET[@]}" apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
 ok "psql, redis-cli, rclone, lsof available"
 

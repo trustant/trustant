@@ -56,6 +56,8 @@
 # VM boots, then copied in and installed over `limactl shell`. Installing this
 # way — rather than as a Lima `provision` script — avoids limactl start's ~10min
 # readiness timeout, and caching on the host makes re-runs skip the download.
+# A dist/ in the directory start.sh is launched from seeds that cache (see
+# seed_from_dist), and the VM itself lives in ./data/lima (LIMA_HOME).
 # On Linux the same cached .deb is copied into /tmp, installed straight into
 # this machine with sudo, and the /tmp copy removed.
 #
@@ -69,6 +71,13 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
+
+# A dist/ in the directory the user launched us from (an offline bundle, a USB
+# stick, a previous checkout) seeds the dist/ cache below, so the ~5.5GB of
+# downloads become local copies. Captured BEFORE the cd, which loses the caller's
+# directory. TRUSTANT_SEED_DIST overrides it (start.ps1 passes it that way).
+SEED_DIST="${TRUSTANT_SEED_DIST:-$PWD/dist}"
+SEED_DIST="$(cd "$SEED_DIST" 2>/dev/null && pwd || true)"
 
 cd "$(dirname "$0")"
 
@@ -90,7 +99,11 @@ if $NATIVE_LINUX; then
 else
   SUPPORT_DIR="$HOME/Library/Application Support/Trustant"
 fi
-LIMA_KEY="$HOME/.lima/_config/user"          # shared identity limactl ssh uses
+# The VM lives in this checkout, under data/lima, not in ~/.lima: LIMA_HOME
+# moves Lima's whole home (instances and _config), and every limactl call below
+# inherits it. A VM left in ~/.lima by an older start.sh is ignored, not moved.
+export LIMA_HOME="$(pwd)/data/lima"
+LIMA_KEY="$LIMA_HOME/_config/user"           # shared identity limactl ssh uses
 # The cluster package is published on pub.trustant.ai under a fixed naming
 # scheme, openserverless_<version>_<arch>.deb, so the URL is built directly from
 # the pinned version and the host arch — there is no index to resolve.
@@ -201,12 +214,23 @@ normalize_submodule_eol() {
 #
 #   run_privileged VAR=val ... <<'GUEST'   — as root, in the VM (macOS) or here (Linux)
 #   run_guest      <cmd> [args...]         — as the normal user, same choice
+#
+# APT_QUIET is passed to every payload: these blocks run with no pty, and apt's
+# needrestart hook then prints its "Restarting services..." report as a
+# staircase (bare LF, no CR) — besides being pointless on a fresh machine.
+APT_QUIET=(DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 NEEDRESTART_MODE=a)
 run_privileged() {
   if $NATIVE_LINUX; then
-    sudo -n env "$@" bash -euo pipefail -s
+    sudo -n env "${APT_QUIET[@]}" "$@" bash -euo pipefail -s
   else
-    limactl shell "$VM_NAME" sudo env "$@" bash -euo pipefail -s
+    limactl shell "$VM_NAME" sudo env "${APT_QUIET[@]}" "$@" bash -euo pipefail -s
   fi
+}
+
+# Defensive: a provisioning child that leaves the terminal in a raw mode would
+# garble everything after it, run.sh included. No-op without a terminal.
+restore_tty() {
+  [[ -t 0 ]] && stty sane 2>/dev/null || true
 }
 
 run_guest() {
@@ -375,6 +399,28 @@ GUEST
   ok "reverse proxy listening on :8080"
 }
 
+# Seed one dist/ cache entry from SEED_DIST (the caller's ./dist) when the
+# cache lacks it. Only the exact pinned filename is copied, so a bundle holding
+# other versions is ignored and the caller falls back to downloading. Copied via
+# .part + mv, like a download, so an interrupted copy is never trusted later.
+seed_from_dist() {
+  local CACHED="$1" SRC
+  [[ -s "$CACHED" ]] && return 0
+  [[ -n "$SEED_DIST" ]] || return 0
+  [[ "$SEED_DIST" -ef "$DIST_DIR" ]] && return 0
+  SRC="$SEED_DIST/$(basename "$CACHED")"
+  [[ -s "$SRC" ]] || return 0
+  echo "--- Copying $(basename "$CACHED") from $SEED_DIST ---"
+  mkdir -p "$(dirname "$CACHED")"
+  if cp "$SRC" "$CACHED.part"; then
+    mv "$CACHED.part" "$CACHED"
+    ok "Copied $CACHED from $SEED_DIST"
+  else
+    rm -f "$CACHED.part"
+    warn "copy from $SRC failed — downloading instead"
+  fi
+}
+
 # Resolve + cache the ollama release tarball for the guest arch into dist/,
 # downloading it only when the cache entry is absent. Sets the global
 # OLLAMA_TARBALL (empty when there is nothing usable, which leaves ensure_ollama
@@ -401,6 +447,7 @@ ensure_ollama_tarball() {
 
   OLLAMA_TARBALL="${DIST_DIR}/ollama-${OLLAMA_VERSION}-linux-${ARCH}.tar.zst"
   mkdir -p "$DIST_DIR"
+  seed_from_dist "$OLLAMA_TARBALL"
 
   if [[ -s "$OLLAMA_TARBALL" ]]; then
     ok "Using cached ollama tarball: $OLLAMA_TARBALL"
@@ -994,6 +1041,7 @@ finish_native() {
   # stays in the foreground: run.sh owns kubefwd and `air`, so Ctrl-C here is how
   # you stop the dev server. `./start.sh -n` (or -v) stops before this point.
   if [[ "$RUN_APP" == 1 ]]; then
+    restore_tty
     echo "--- Running ./run.sh as $(id -un) ---"
     echo "Press Control-C to stop. Use ./start.sh to start again."
     bash ./run.sh
@@ -1031,6 +1079,7 @@ ensure_deb() {
 
   DEB_FILE="${DIST_DIR}/openserverless_${OPENSERVERLESS_VERSION}_${DEB_ARCH}.deb"
   mkdir -p "$DIST_DIR"
+  seed_from_dist "$DEB_FILE"
   if [[ -s "$DEB_FILE" ]]; then
     ok "Using cached package: $DEB_FILE"
     return 0
@@ -1062,7 +1111,7 @@ install_package() {
     || fail "failed to copy $DEB_FILE into the VM"
 
   echo "--- Installing the OpenServerless package ---"
-  limactl shell "$VM_NAME" sudo bash -euo pipefail -s <<'GUEST'
+  limactl shell "$VM_NAME" sudo env "${APT_QUIET[@]}" bash -euo pipefail -s <<'GUEST'
 export DEBIAN_FRONTEND=noninteractive
 
 if dpkg -l openserverless 2>/dev/null | grep -q '^ii'; then
@@ -1413,6 +1462,17 @@ if $NATIVE_LINUX; then
   esac
 else
   command -v limactl >/dev/null 2>&1 || fail "limactl not found (brew install lima)"
+  # Lima keeps its unix sockets in the instance dir (serialv.sock is the longest
+  # name) and macOS caps a socket path at 103 bytes, so a deep checkout would
+  # otherwise die later with an obscure Lima error.
+  LIMA_SOCK="$LIMA_HOME/$VM_NAME/serialv.sock"
+  (( ${#LIMA_SOCK} <= 103 )) \
+    || fail "checkout path too long for Lima sockets (${#LIMA_SOCK} > 103 bytes: $LIMA_SOCK) — move the checkout to a shorter path"
+  mkdir -p "$LIMA_HOME"
+  if [[ -d "$HOME/.lima/$VM_NAME" ]] && ! [[ "$HOME/.lima" -ef "$LIMA_HOME" ]]; then
+    warn "an older VM '$VM_NAME' in ~/.lima is ignored (this checkout keeps its VM in data/lima)"
+    warn "  remove it with: LIMA_HOME=~/.lima limactl delete -f $VM_NAME"
+  fi
 fi
 
 # --- stop (keep the VM): ./start.sh -s --------------------------------------
@@ -1475,6 +1535,7 @@ open_vscode() {
 # This is the default finish and it stays in the foreground: run.sh owns kubefwd
 # and `air`, so Ctrl-C here is how you stop the dev server.
 run_in_vm() {
+  restore_tty
   echo "--- Running ./run.sh in the VM as $HOST_USER ---"
   echo "Press Control-C to stop. Use ./start.sh to start again."
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./run.sh
