@@ -86,6 +86,13 @@ is a terminal, so no provisioning child can leave it in a raw mode.
 
 ## Boot the VM, then install (NOT via cloud-init provision)
 
+The Lima config turns off Lima's own containerd (`containerd: {system: false,
+user: false}`): k3s brings its own. With Lima's default rootless containerd the
+boot apt-installs `uidmap fuse3 dbus-user-session`, after which Ubuntu 24.04's
+`systemd-logind` (255.4-1ubuntu8.17) was seen spinning at 100% CPU on a stale
+pidfd. Every ssh/sudo login then waited 120s for logind and `limactl start`
+timed out after 10 minutes. Without it the VM is ready in about 15 seconds.
+
 Create an Ubuntu VM with Lima using vmType: vz and a vzNAT network. Do NOT install
 the package as a Lima `provision` script: that runs inside `limactl start`'s
 readiness wait, which times out after ~10min on the big package. Instead boot a

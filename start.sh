@@ -1594,6 +1594,13 @@ memory: "8GiB"
 disk: "60GiB"
 networks:
   - vzNAT: true
+# k3s brings its own containerd. Lima's (default: rootless, user) would apt
+# install uidmap/fuse3/dbus-user-session at boot, after which Ubuntu 24.04's
+# systemd-logind (255.4-1ubuntu8.17) can spin on a stale pidfd: every ssh/sudo
+# login then waits 120s and limactl start times out after 10 minutes.
+containerd:
+  system: false
+  user: false
 mountType: virtiofs
 mounts:
   - location: "${MOUNT_DIR}"
