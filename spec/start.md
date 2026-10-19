@@ -83,9 +83,8 @@ virtiofs-mounted checkout, so the guest can see its own disk files — harmless.
 - macOS caps a unix socket path at 103 bytes and Lima keeps its sockets in the
   instance dir (`serialv.sock` is the longest), so `start.sh` fails up front
   with "checkout path too long" instead of an obscure Lima error later.
-- A VM left in `~/.lima/trudev` by an older `start.sh` is **ignored, not
-  migrated**; `start.sh` warns and prints how to delete it
-  (`LIMA_HOME=~/.lima limactl delete -f trudev`).
+- A VM left in `~/.lima/trudev` by an older `start.sh` is silently **ignored,
+  not migrated**.
 
 ## apt without a pty
 
@@ -642,8 +641,7 @@ Windows-aware, and none of them may be taught to be.
   checkout is on (e.g. `D:\trustant\data\wsl`). Both `--name` and `--location`
   are checked in the `--install` section of `wsl --help` before installing; an
   older `wsl.exe` fails with "run wsl --update". An existing `trudev` is reused
-  wherever it lives (WSL has one per-user registry); if its `BasePath` in
-  `HKCU:\...\Lxss` is not `data\wsl`, a warning says how to recreate it.
+  wherever it lives (WSL has one per-user registry), silently.
 
   The **instance** name (`-Distro` to override) and the **image** it is
   installed from (`-BaseDistro` to override) are two separate identities. The

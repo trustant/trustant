@@ -311,19 +311,9 @@ localhostForwarding=true
 $DistroDir = Join-Path $RepoWin 'data\wsl'
 & wsl.exe --set-default-version 2 | Out-Null
 if ($DistroExists) {
-    Write-Ok "WSL distribution '$Distro' already exists"
     # WSL has one per-user registry, so an existing '$Distro' is reused wherever
-    # it lives. Report one that is not in this checkout; never move it.
-    $reg = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' -ErrorAction SilentlyContinue |
-        ForEach-Object { Get-ItemProperty $_.PSPath } |
-        Where-Object { $_.DistributionName -eq $Distro } | Select-Object -First 1
-    if ($reg -and $reg.BasePath) {
-        $base = ($reg.BasePath -replace '^\\\\\?\\', '').TrimEnd('\')
-        if ($base -ne $DistroDir.TrimEnd('\')) {
-            Write-Warn "'$Distro' lives in $base, not in $DistroDir - reusing it there"
-            Write-Warn "to recreate it in this checkout: .\start.ps1 -k, then .\start.ps1"
-        }
-    }
+    # it lives; it is never moved.
+    Write-Ok "WSL distribution '$Distro' already exists"
 } else {
     New-Item -ItemType Directory -Force -Path $DistroDir | Out-Null
     Write-Step "Installing WSL distribution '$Distro' from '$BaseDistro' (this downloads the Ubuntu image)"

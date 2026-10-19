@@ -1469,10 +1469,6 @@ else
   (( ${#LIMA_SOCK} <= 103 )) \
     || fail "checkout path too long for Lima sockets (${#LIMA_SOCK} > 103 bytes: $LIMA_SOCK) — move the checkout to a shorter path"
   mkdir -p "$LIMA_HOME"
-  if [[ -d "$HOME/.lima/$VM_NAME" ]] && ! [[ "$HOME/.lima" -ef "$LIMA_HOME" ]]; then
-    warn "an older VM '$VM_NAME' in ~/.lima is ignored (this checkout keeps its VM in data/lima)"
-    warn "  remove it with: LIMA_HOME=~/.lima limactl delete -f $VM_NAME"
-  fi
 fi
 
 # --- stop (keep the VM): ./start.sh -s --------------------------------------
