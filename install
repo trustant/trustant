@@ -169,6 +169,10 @@ echo > /dev/null <<"out-null" ###
         Write-Host "The install path '$Dest' is not on a drive letter (e.g. C:\ or D:\) - WSL cannot mount it"
         return
     }
+    if (-not (Test-Path ($Dest.Substring(0, 3)))) {
+        Write-Host "Drive $($Dest.Substring(0, 2)) is not available on this machine"
+        return
+    }
     try {
         # New-Item rejects a drive root (D:\) even with -Force: create only if missing.
         if (-not (Test-Path -PathType Container $Target)) {
