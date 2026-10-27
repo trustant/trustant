@@ -103,7 +103,29 @@ Registered in [main.go](../main.go).
   **before** storing. On success writes `license` into the workspace config and
   returns the GET shape. On failure returns 400
   `{"error": "Invalid license: <reason>"}` and stores nothing.
-- `DELETE /api/license` — removes it.
+- `DELETE /api/license` — removes it, together with `license_host` and
+  `license_email`. The provisioning token is kept.
+- Every GET/POST/DELETE answer also carries the provisioning settings:
+  `license_host`, `license_email`, `provisioning_token_set` (bool — the token
+  itself is never returned).
+- `POST /api/license/settings`
+  `{"license_host", "license_email", "provisioning_token", "clear_token"}` —
+  edits the provisioning settings from Configure. `license_host` must be a valid
+  apihost (`normalizeAPIHost`) and, when a valid license is installed and the
+  gate is on, covered by it (local hosts exempt); `license_email` must be an
+  ASCII `local@domain.tld` address. An empty `provisioning_token` keeps the
+  stored token; `clear_token: true` removes it. 400 `{"error"}` on invalid
+  input, otherwise the GET shape.
+
+## Provisioning settings
+
+Saving a license (`POST /api/license`) seeds two workspace fields from the
+payload, overwriting previous values: `license_host` = `hosts[0]` and
+`license_email` = the payload `email` field (licenses carry `email`, plus
+informational `subscription` and `uid`). Together with `provisioning_token` they
+drive "Create App on <host>" in the publish modal — see
+[6-publish.md](6-publish.md#post-apipublishprovision). All three are editable in
+the License card on Configure, below the license field.
 
 # Enforcement
 

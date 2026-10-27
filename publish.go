@@ -43,6 +43,8 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		handlePublishForcePush(w, r)
 	case "/api/publish/remote":
 		handlePublishRemote(w, r)
+	case "/api/publish/provision":
+		handlePublishProvision(w, r)
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)
 	}
