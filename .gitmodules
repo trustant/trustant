@@ -14,10 +14,6 @@
 	path = acp
 	url = https://github.com/trustant/trustant-acp.git
 	branch = main
-[submodule "packages"]
-	path = packages
-	url = https://github.com/trustant/openserverless-packages
-        branch = main
 [submodule "openserverless-mcp"]
 	path = mcp
 	url = https://github.com/trustant/openserverless-mcp
