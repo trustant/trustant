@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -46,6 +47,10 @@ var (
 	provisionUsersPath      = "/system/api/v1/users"
 	provisionDefaultService = "all"
 )
+
+// errInvalidProvisioningToken is a 401 from the Admin API. The stored token is
+// then removed so the publish modal asks for it again.
+var errInvalidProvisioningToken = errors.New("invalid provisioning token")
 
 // provisionedAppURL is the literal "<user>.<host>" for the license host,
 // keeping its scheme and port.
@@ -103,7 +108,7 @@ func createProvisionedUser(ctx context.Context, host, token, user, password, ema
 		case http.StatusConflict:
 			return true, nil
 		case http.StatusUnauthorized:
-			return false, fmt.Errorf("invalid provisioning token for %s (change it in Configuration)", normalized)
+			return false, errInvalidProvisioningToken
 		case http.StatusServiceUnavailable:
 			if attempt < provisionRetryAttempts && !strings.Contains(message, "route setup failed") {
 				delay := time.Duration(attempt) * time.Second
@@ -228,6 +233,19 @@ func handlePublishProvision(w http.ResponseWriter, r *http.Request) {
 
 	reportProgress(w, 1, "Creating app "+user+" on "+host+"...")
 	exists, err := createProvisionedUser(r.Context(), host, token, user, password, email)
+	if errors.Is(err, errInvalidProvisioningToken) {
+		log.Printf("Provisioning %s on %s: invalid token, removing it", user, host)
+		if cfg, loadErr := loadWorkspaceConfig(); loadErr == nil {
+			cfg.ProvisioningToken = ""
+			if saveErr := saveWorkspaceConfig(cfg); saveErr != nil {
+				log.Printf("Failed to remove the invalid provisioning token: %v", saveErr)
+			}
+		}
+		writePublishJSON(w, http.StatusOK, map[string]interface{}{
+			"needs_token": true, "token_invalid": true, "host": host,
+		})
+		return
+	}
 	if err != nil {
 		log.Printf("Provisioning %s on %s failed: %v", user, host, err)
 		writePublishJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})

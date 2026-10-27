@@ -565,6 +565,7 @@
                             class="nu-btn nu-btn-secondary w-full">Create App</button>
                     </div>
                     <div id="publishTokenPanel" class="hidden nu-banner p-3 space-y-2">
+                        <p id="publishTokenInvalid" class="hidden nu-feedback nu-feedback-error text-sm p-2">The provisioning token was rejected and has been removed. Please enter it again.</p>
                         <p class="text-sm font-medium">Please add your provisioning Token for <span id="publishTokenHost" class="nu-mono"></span></p>
                         <p class="text-sm">To provision an app you have to install the OpenServerless package
                             on the server pointed by <span id="publishTokenHost2" class="nu-mono"></span>
@@ -2023,7 +2024,8 @@
             }
         }
 
-        function showProvisionTokenPanel(host) {
+        function showProvisionTokenPanel(host, invalid) {
+            document.getElementById('publishTokenInvalid').classList.toggle('hidden', !invalid);
             document.getElementById('publishTokenHost').textContent = host;
             document.getElementById('publishTokenHost2').textContent = host;
             document.getElementById('publishProvisionToken').value = '';
@@ -2069,8 +2071,9 @@
                 const data = await response.json();
                 document.getElementById('publishSpinner').classList.add('hidden');
                 if (data.needs_token) {
+                    if (provisionLicense) provisionLicense.provisioning_token_set = false;
                     document.getElementById('publishForm').classList.remove('hidden');
-                    showProvisionTokenPanel(data.host || host);
+                    showProvisionTokenPanel(data.host || host, data.token_invalid);
                     return;
                 }
                 if (data.error) {

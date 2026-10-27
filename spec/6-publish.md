@@ -178,7 +178,9 @@ Request: `{"name": "<app>", "token": "<optional provisioning token>"}`.
    body `{"user": lower(name), "password": apps.<name>.password, "email":
    license_email, "services": "all"}` — the same user and password as the
    local app. 202 → created; **409 → the user already exists** (`exists: true`,
-   continue); 401 → "invalid provisioning token"; 503 is retried with backoff
+   continue); 401 → the stored token is **removed** and the answer is
+   `{"needs_token": true, "token_invalid": true, "host"}`, so the modal asks for
+   it again with a "token was rejected" note; 503 is retried with backoff
    (honouring `Retry-After`, up to 5 attempts) except the "route setup failed"
    partial failure; anything else is an error with the server message.
 5. Poll `<scheme>://<lower(name)>.<license host>` (the literal app name

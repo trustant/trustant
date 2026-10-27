@@ -186,8 +186,12 @@ func TestProvisionInvalidToken(t *testing.T) {
 	startFakeAdminAPI(t, &fakeAdminAPI{createStatus: http.StatusUnauthorized, readyAfter: 1})
 	setupProvisionWorkspace(t, "provtok")
 	_, out, raw := provision(t, `{"name":"MyApp01"}`)
-	if msg, _ := out["error"].(string); !strings.Contains(msg, "invalid provisioning token") {
+	if out["needs_token"] != true || out["token_invalid"] != true || out["error"] != nil {
 		t.Fatalf("out = %s", raw)
+	}
+	// The rejected token is removed so the modal asks for it again.
+	if cfg, _ := loadWorkspaceConfig(); cfg.ProvisioningToken != "" {
+		t.Errorf("invalid token kept: %q", cfg.ProvisioningToken)
 	}
 }
 
