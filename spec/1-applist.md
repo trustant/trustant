@@ -511,7 +511,7 @@ If the backend returns `{"needs_config": true}`, show a popup asking for:
 - OPS_APIHOST (placeholder: "https://your-openserverless-host.com")
 - OPS_USER
 - OPS_PASSWORD
-- A note: "You need an OpenServerless environment for publishing. Contact info@nuvolaris.io or check https://openserverless.apache.org"
+- A note: "You need a Nuvolaris OpenServerless for publishing. Get yours with Development or Enterprise on https://trustant.ai or contact us at sales@trustant.ai"
 
 Once configured, the backend ensures the workbench exists (clones from workspace if needed), generates env files including `.env.production`, runs `ops ide login --mode=production`, then `ops ide deploy`.
 
