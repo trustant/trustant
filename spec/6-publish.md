@@ -7,7 +7,7 @@ Authorization is an offline, Ed25519-signed **license**, fully specified in [14-
 
 Two gates, both answering **HTTP 402**:
 
-1. `requireValidLicense` runs at the top of **all three** handlers — `/api/publish/push`, `/api/publish/force-push` and `/api/publish/remote`. It verifies the stored license's signature and expiry; the license's `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`. An expired license is invalid outright, so git push stops too.
+1. `requireValidLicense` runs at the top of `/api/publish/remote` and `/api/publish/provision`. It verifies the stored license's signature and expiry; the license's `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`. **Git push (`/api/publish/push`, `/api/publish/force-push`) is not license-gated.**
 
 2. `requireLicensedHost` runs in `/api/publish/remote` only, **after** the production config is resolved (after the `needs_config` check) and **before** `ops ide login --mode=production`, so nothing touches the target cluster when the host is unlicensed. It matches `OPS_APIHOST` against the license `hosts` — exact match on scheme + host + port, no wildcards. On mismatch: `{"error": "Host not licensed: <apihost> is not covered by your license"}`.
 

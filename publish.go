@@ -97,12 +97,9 @@ func writePublishError(w http.ResponseWriter, message string, status int) {
 }
 
 // handlePublishPush handles POST /api/publish/push
-// Pushes code to a production GitHub repository. Requires a valid license; the
-// license `hosts` list is not consulted for push. See spec/14-license.md.
+// Pushes code to a production GitHub repository. Not license-gated: only
+// publishing to a server needs a license. See spec/14-license.md.
 func handlePublishPush(w http.ResponseWriter, r *http.Request) {
-	if !requireValidLicense(w) {
-		return
-	}
 	// The body must be decoded before the SSE upgrade: upgrading flushes the
 	// response, after which Go's server no longer serves the unread body.
 	var req struct {
@@ -199,12 +196,8 @@ func handlePublishPush(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePublishForcePush handles POST /api/publish/force-push
-// Force pushes code to the production GitHub repository. Requires a valid
-// license; the license `hosts` list is not consulted for push.
+// Force pushes code to the production GitHub repository. Not license-gated.
 func handlePublishForcePush(w http.ResponseWriter, r *http.Request) {
-	if !requireValidLicense(w) {
-		return
-	}
 	// Decode before upgrading; see handlePublishPush.
 	var req struct {
 		Name string `json:"name"`

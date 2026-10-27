@@ -137,14 +137,12 @@
             </div>
         </div>
 
-        <!-- License: gates git push and production publishing (spec/14-license.md).
+        <!-- License: gates production publishing (spec/14-license.md).
              Hidden unless ENABLE_LICENSE is set, since the gate is then off. -->
         <div id="licenseCard" class="nu-card p-5 mb-4 hidden">
             <h2 class="text-lg font-medium mb-1">License</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
-                A license enables Git push and publishing to production. To obtain one, write to
-                <a class="underline" href="mailto:info@nuvolaris.io">info@nuvolaris.io</a>
-                or visit <a class="underline" href="https://nuvolaris.io" target="_blank">nuvolaris.io</a>.
+                Publishing requires a destination server with Nuvolaris OpenServerless and a license - get yours on <a class="underline" href="https://trustant.ai" target="_blank">Trustant.ai</a> with the Developer and Enterprise subscriptions.
             </p>
             <div id="licenseStatus" class="text-sm mb-4 text-[color:var(--nu-muted)]">Loading...</div>
             <div class="space-y-3">
@@ -498,7 +496,7 @@
                 const st = await resp.json();
                 renderLicenseSettings(st);
                 if (!st.present) {
-                    el.textContent = 'No license installed. Git push and publishing are disabled.';
+                    el.textContent = 'No license installed. Publishing is disabled.';
                     removeBtn.classList.add('hidden');
                     return;
                 }
@@ -595,7 +593,7 @@
         }
 
         async function removeLicense() {
-            if (!confirm('Remove the installed license? Git push and publishing will be disabled.')) {
+            if (!confirm('Remove the installed license? Publishing will be disabled.')) {
                 return;
             }
             try {

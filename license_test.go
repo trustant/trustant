@@ -490,35 +490,22 @@ func TestRequireLicensedHost(t *testing.T) {
 func TestPublishHandlersGated(t *testing.T) {
 	priv := withTestMasterKey(t)
 
-	t.Run("push returns 402 without a license", func(t *testing.T) {
-		useTestWorkspace(t, "")
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/publish/push",
-			strings.NewReader(`{"name":"demoapp","repo":"git@github.com:x/y.git"}`))
-		handlePublishPush(rec, req)
-
-		if rec.Code != http.StatusPaymentRequired {
-			t.Fatalf("status = %d, want 402 (%s)", rec.Code, rec.Body.String())
-		}
-		if !strings.Contains(rec.Body.String(), "License required") {
-			t.Errorf("body = %q, want 'License required'", rec.Body.String())
-		}
-	})
-
-	t.Run("force-push returns 402 without a license", func(t *testing.T) {
-		useTestWorkspace(t, "")
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/publish/force-push",
-			strings.NewReader(`{"name":"demoapp"}`))
-		handlePublishForcePush(rec, req)
-
-		if rec.Code != http.StatusPaymentRequired {
-			t.Fatalf("status = %d, want 402", rec.Code)
-		}
-		if !strings.Contains(rec.Body.String(), "License required") {
-			t.Errorf("body = %q, want 'License required'", rec.Body.String())
-		}
-	})
+	// Git push is not license-gated: without a license the request reaches
+	// name validation (an invalid name gives 400, never 402).
+	for path, handler := range map[string]http.HandlerFunc{
+		"/api/publish/push":       handlePublishPush,
+		"/api/publish/force-push": handlePublishForcePush,
+	} {
+		t.Run(path+" is not license-gated", func(t *testing.T) {
+			useTestWorkspace(t, "")
+			rec := httptest.NewRecorder()
+			handler(rec, httptest.NewRequest(http.MethodPost, path,
+				strings.NewReader(`{"name":"x","repo":"git@github.com:x/y.git"}`)))
+			if rec.Code == http.StatusPaymentRequired || strings.Contains(rec.Body.String(), "License required") {
+				t.Fatalf("status = %d, body %q: push must not need a license", rec.Code, rec.Body.String())
+			}
+		})
+	}
 
 	t.Run("remote returns 402 and does not invoke ops for an unlicensed host", func(t *testing.T) {
 		token := makeLicense(t, priv, licensePayload{

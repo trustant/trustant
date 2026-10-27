@@ -173,7 +173,7 @@ You can
 - edit applications
 - env (configure application environment variables)
 - git pull (pull fast-forward updates from the configured production repository when available, otherwise the original application repository)
-- git push (push code to a production GitHub repository) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
+- git push (push code to a production GitHub repository) — not license-gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - publish (deploy to a production OpenServerless environment) — server-side gated, see "Publishing authorization" in [6-publish.md](6-publish.md)
 - undeploy (remove the application's deployed actions and packages) — see "Undeploy" below
 
@@ -195,7 +195,7 @@ in Work Sans.
 
 ## Publishing gate
 
-The Git Push and Publish buttons are always rendered and always call their respective backend APIs. The backend verifies the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) and returns HTTP 402 with `{"error": "License required: ..."}`, or `{"error": "Host not licensed: ..."}` when publishing to an apihost the license does not cover. `isLicenseError` recognizes both prefixes and `showLicenseModal` offers to paste a license; any other error is surfaced verbatim in the existing result modal.
+The Git Push and Publish buttons are always rendered and always call their respective backend APIs. Git Push needs no license. For Publish the backend verifies the installed license (see [6-publish.md](6-publish.md) and [14-license.md](14-license.md)) and returns HTTP 402 with `{"error": "License required: ..."}`, or `{"error": "Host not licensed: ..."}` when publishing to an apihost the license does not cover. `isLicenseError` recognizes both prefixes and `showLicenseModal` offers to paste a license; any other error is surfaced verbatim in the existing result modal.
 
 ## Adding an application
 

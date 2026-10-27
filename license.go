@@ -271,7 +271,7 @@ func writeLicenseError(w http.ResponseWriter, message string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
-// requireValidLicense gates git push and publishing. On failure it writes a 402
+// requireValidLicense gates publishing (remote and provision; not git push). On failure it writes a 402
 // JSON error and returns false; the caller must return immediately. With
 // ENABLE_LICENSE explicitly off the whole check is skipped.
 func requireValidLicense(w http.ResponseWriter) bool {
