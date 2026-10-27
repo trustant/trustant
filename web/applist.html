@@ -559,24 +559,44 @@
             <div id="publishForm">
                 <h3 class="text-lg font-medium mb-4">Publish to Production</h3>
                 <div class="text-left space-y-3">
+                    <!-- Create App on <license host>: user provisioning (spec/6-publish.md). -->
+                    <div id="publishCreateApp" class="hidden">
+                        <button type="button" id="publishCreateAppBtn" onclick="createAppOnLicenseHost()"
+                            class="nu-btn nu-btn-secondary w-full">Create App</button>
+                    </div>
+                    <div id="publishTokenPanel" class="hidden nu-banner p-3 space-y-2">
+                        <p id="publishTokenInvalid" class="hidden nu-feedback nu-feedback-error text-sm p-2">The provisioning token was rejected and has been removed. Please enter it again.</p>
+                        <p class="text-sm font-medium">Please add your provisioning Token for <span id="publishTokenHost" class="nu-mono"></span></p>
+                        <p class="text-sm">To provision an app you have to install the OpenServerless package
+                            on the server pointed by <span id="publishTokenHost2" class="nu-mono"></span>
+                            then get the token with the command <code class="nu-mono">trulicense</code></p>
+                        <input type="password" id="publishProvisionToken" autocomplete="off"
+                            placeholder="Provisioning token" class="nu-input w-full px-3 py-2">
+                        <p class="text-xs text-[color:var(--nu-muted)]">You can change this token later on Configuration.</p>
+                        <div class="flex gap-3">
+                            <button type="button" onclick="hideProvisionTokenPanel()" class="nu-btn nu-btn-secondary flex-1">Cancel</button>
+                            <button type="button" onclick="submitProvisionToken()" class="nu-btn nu-btn-primary flex-1">Create App</button>
+                        </div>
+                    </div>
+                    <div id="publishExistsWarning" class="hidden nu-feedback nu-feedback-warning text-sm p-3"></div>
                     <div>
                         <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">API Host</label>
-                        <input type="text" id="publishApiHost"
+                        <input type="text" id="publishApiHost" oninput="updatePublishButton()"
                             placeholder="https://your-openserverless-host.com"
                             class="nu-input w-full px-3 py-2">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">User</label>
-                        <input type="text" id="publishUser"
+                        <input type="text" id="publishUser" oninput="updatePublishButton()"
                             class="nu-input w-full px-3 py-2">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Password</label>
-                        <input type="password" id="publishPassword"
+                        <input type="password" id="publishPassword" oninput="updatePublishButton()"
                             class="nu-input w-full px-3 py-2">
                     </div>
                     <div class="nu-banner p-3">
-                        <p class="text-sm">You need an OpenServerless environment for publishing. Contact <a href="mailto:info@nuvolaris.io" class="nu-link">info@nuvolaris.io</a> or check <a href="https://openserverless.apache.org" target="_blank" class="nu-link">openserverless.apache.org</a></p>
+                        <p class="text-sm">You need a Nuvolaris OpenServerless for publishing. Get yours with Development or Enterprise on <a href="https://trustant.ai" target="_blank" class="nu-link">https://trustant.ai</a> or contact us at <a href="mailto:sales@trustant.ai" class="nu-link">sales@trustant.ai</a></p>
                     </div>
                 </div>
                 <div class="flex gap-3 mt-4">
@@ -584,8 +604,8 @@
                         class="nu-btn nu-btn-secondary flex-1">
                         Cancel
                     </button>
-                    <button onclick="confirmPublish()"
-                        class="nu-btn nu-btn-primary flex-1">
+                    <button id="publishConfirmBtn" onclick="confirmPublish()" disabled
+                        class="nu-btn nu-btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed">
                         Publish
                     </button>
                 </div>
@@ -703,9 +723,7 @@
                 class="nu-input w-full font-mono text-xs mb-2"></textarea>
             <div id="licenseModalFeedback" class="hidden mb-4"></div>
             <p class="text-[color:var(--nu-muted)] text-sm mb-6">
-                To obtain a license, write to
-                <a class="underline" href="mailto:info@nuvolaris.io">info@nuvolaris.io</a>
-                or visit <a class="underline" href="https://nuvolaris.io" target="_blank">nuvolaris.io</a>.
+                Publishing requires a destination server with Nuvolaris OpenServerless and a license - get yours on <a class="underline" href="https://trustant.ai" target="_blank">Trustant.ai</a> with the Developer and Enterprise subscriptions.
             </p>
             <div class="flex flex-wrap gap-3 justify-end">
                 <button onclick="saveLicense()" class="nu-btn nu-btn-primary">Save license</button>
@@ -1963,6 +1981,8 @@
             document.getElementById('publishResult').classList.add('hidden');
             document.getElementById('publishModal').classList.remove('hidden');
             document.getElementById('publishModal').classList.add('flex');
+            updatePublishButton();
+            loadProvisionLicense();
         }
 
         function hidePublishModal() {
@@ -1971,7 +1991,110 @@
             document.getElementById('publishApiHost').value = '';
             document.getElementById('publishUser').value = '';
             document.getElementById('publishPassword').value = '';
+            document.getElementById('publishExistsWarning').classList.add('hidden');
+            hideProvisionTokenPanel();
             publishApp = null;
+        }
+
+        // Publish stays disabled until every field is filled.
+        function updatePublishButton() {
+            const filled = ['publishApiHost', 'publishUser', 'publishPassword']
+                .every(id => document.getElementById(id).value.trim() !== '');
+            document.getElementById('publishConfirmBtn').disabled = !filled;
+        }
+
+        // ---- Create App on <license host> (spec/6-publish.md) ----
+        let provisionLicense = null;
+
+        // Shows "Create App on <host>" when a license host is configured.
+        async function loadProvisionLicense() {
+            const box = document.getElementById('publishCreateApp');
+            box.classList.add('hidden');
+            provisionLicense = null;
+            try {
+                const resp = await fetch('/api/license');
+                if (!resp.ok) return;
+                const st = await resp.json();
+                if (!st.license_host) return;
+                provisionLicense = st;
+                document.getElementById('publishCreateAppBtn').textContent = 'Create App on ' + st.license_host;
+                box.classList.remove('hidden');
+            } catch (e) {
+                console.error('Failed to load license:', e);
+            }
+        }
+
+        function showProvisionTokenPanel(host, invalid) {
+            document.getElementById('publishTokenInvalid').classList.toggle('hidden', !invalid);
+            document.getElementById('publishTokenHost').textContent = host;
+            document.getElementById('publishTokenHost2').textContent = host;
+            document.getElementById('publishProvisionToken').value = '';
+            document.getElementById('publishCreateApp').classList.add('hidden');
+            document.getElementById('publishTokenPanel').classList.remove('hidden');
+            document.getElementById('publishProvisionToken').focus();
+        }
+
+        function hideProvisionTokenPanel() {
+            document.getElementById('publishTokenPanel').classList.add('hidden');
+            document.getElementById('publishProvisionToken').value = '';
+            if (provisionLicense) document.getElementById('publishCreateApp').classList.remove('hidden');
+        }
+
+        function createAppOnLicenseHost() {
+            if (!provisionLicense) return;
+            if (!provisionLicense.provisioning_token_set) {
+                showProvisionTokenPanel(provisionLicense.license_host);
+                return;
+            }
+            runProvision('');
+        }
+
+        function submitProvisionToken() {
+            const token = document.getElementById('publishProvisionToken').value.trim();
+            if (!token) return;
+            runProvision(token);
+        }
+
+        // Creates the app's user on the license host, waits until the app
+        // answers, then fills the publish form with the new credentials.
+        async function runProvision(token) {
+            if (!publishApp) return;
+            const host = provisionLicense ? provisionLicense.license_host : '';
+            document.getElementById('publishTokenPanel').classList.add('hidden');
+            document.getElementById('publishExistsWarning').classList.add('hidden');
+            document.getElementById('publishForm').classList.add('hidden');
+            resetPublishProgress('publish', 'Creating app on ' + host + '...');
+            document.getElementById('publishSpinner').classList.remove('hidden');
+            try {
+                const response = await fetchPublishResponse('/api/publish/provision',
+                    { name: publishApp, token }, 'publish');
+                const data = await response.json();
+                document.getElementById('publishSpinner').classList.add('hidden');
+                if (data.needs_token) {
+                    if (provisionLicense) provisionLicense.provisioning_token_set = false;
+                    document.getElementById('publishForm').classList.remove('hidden');
+                    showProvisionTokenPanel(data.host || host, data.token_invalid);
+                    return;
+                }
+                if (data.error) {
+                    showPublishResult(data.error, 'error');
+                    return;
+                }
+                if (provisionLicense) provisionLicense.provisioning_token_set = true;
+                document.getElementById('publishApiHost').value = data.apihost || '';
+                document.getElementById('publishUser').value = data.user || '';
+                document.getElementById('publishPassword').value = data.password || '';
+                if (data.exists) {
+                    const warning = document.getElementById('publishExistsWarning');
+                    warning.textContent = 'The user ' + data.user + ' already exists on ' + data.apihost +
+                        '. Publishing will override the existing app.';
+                    warning.classList.remove('hidden');
+                }
+                document.getElementById('publishForm').classList.remove('hidden');
+                updatePublishButton();
+            } catch (error) {
+                showPublishResult('Failed: ' + error.message, 'error');
+            }
         }
 
         function showPublishResult(message, type) {
@@ -1994,10 +2117,7 @@
             const user = document.getElementById('publishUser').value.trim();
             const password = document.getElementById('publishPassword').value.trim();
 
-            if (!apihost || !user || !password) {
-                alert('Please fill in all fields');
-                return;
-            }
+            if (!apihost || !user || !password) return;
 
             document.getElementById('publishForm').classList.add('hidden');
             resetPublishProgress('publish', 'Publishing to production...');

@@ -137,14 +137,12 @@
             </div>
         </div>
 
-        <!-- License: gates git push and production publishing (spec/14-license.md).
+        <!-- License: gates production publishing (spec/14-license.md).
              Hidden unless ENABLE_LICENSE is set, since the gate is then off. -->
         <div id="licenseCard" class="nu-card p-5 mb-4 hidden">
             <h2 class="text-lg font-medium mb-1">License</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
-                A license enables Git push and publishing to production. To obtain one, write to
-                <a class="underline" href="mailto:info@nuvolaris.io">info@nuvolaris.io</a>
-                or visit <a class="underline" href="https://nuvolaris.io" target="_blank">nuvolaris.io</a>.
+                Publishing requires a destination server with Nuvolaris OpenServerless and a license - get yours on <a class="underline" href="https://trustant.ai" target="_blank">Trustant.ai</a> with the Developer and Enterprise subscriptions.
             </p>
             <div id="licenseStatus" class="text-sm mb-4 text-[color:var(--nu-muted)]">Loading...</div>
             <div class="space-y-3">
@@ -159,6 +157,36 @@
                     <button type="button" onclick="saveLicense()" class="nu-btn nu-btn-primary">Save license</button>
                     <button type="button" id="licenseRemoveBtn" onclick="removeLicense()"
                         class="nu-btn nu-btn-secondary hidden">Remove</button>
+                </div>
+                <!-- Used by "Create App on <host>" in the publish modal (spec/6-publish.md).
+                     Host and email are filled from the license when it is saved. -->
+                <div class="pt-3 space-y-3 border-t border-[color:var(--nu-rule)]">
+                    <div>
+                        <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1"
+                            for="licenseHost">License host</label>
+                        <input type="text" id="licenseHost" placeholder="https://api.example.com"
+                            class="nu-input w-full px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1"
+                            for="licenseEmail">License email</label>
+                        <input type="email" id="licenseEmail" placeholder="you@example.com"
+                            class="nu-input w-full px-3 py-2">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1"
+                            for="provisioningToken">Provisioning token</label>
+                        <input type="password" id="provisioningToken" autocomplete="off"
+                            class="nu-input w-full px-3 py-2">
+                        <p class="text-xs text-[color:var(--nu-muted)] mt-1">Get it with <code class="nu-mono">trulicense</code> on the server
+                            pointed by the license host. Leave empty to keep the stored token.</p>
+                    </div>
+                    <div id="licenseSettingsFeedback" class="hidden"></div>
+                    <div class="flex gap-3">
+                        <button type="button" onclick="saveLicenseSettings(false)" class="nu-btn nu-btn-primary">Save</button>
+                        <button type="button" id="provisioningTokenClearBtn" onclick="saveLicenseSettings(true)"
+                            class="nu-btn nu-btn-secondary hidden">Clear token</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -466,8 +494,9 @@
             try {
                 const resp = await fetch('/api/license');
                 const st = await resp.json();
+                renderLicenseSettings(st);
                 if (!st.present) {
-                    el.textContent = 'No license installed. Git push and publishing are disabled.';
+                    el.textContent = 'No license installed. Publishing is disabled.';
                     removeBtn.classList.add('hidden');
                     return;
                 }
@@ -484,6 +513,48 @@
             } catch (e) {
                 el.textContent = 'Failed to load license status: ' + e.message;
                 removeBtn.classList.add('hidden');
+            }
+        }
+
+        function renderLicenseSettings(st) {
+            document.getElementById('licenseHost').value = st.license_host || '';
+            document.getElementById('licenseEmail').value = st.license_email || '';
+            const token = document.getElementById('provisioningToken');
+            token.value = '';
+            token.placeholder = st.provisioning_token_set ? '•••••••• (set)' : 'Not set';
+            document.getElementById('provisioningTokenClearBtn').classList.toggle('hidden', !st.provisioning_token_set);
+        }
+
+        async function saveLicenseSettings(clearToken) {
+            const el = document.getElementById('licenseSettingsFeedback');
+            const show = (message, ok) => {
+                el.className = 'nu-feedback ' + (ok ? 'nu-feedback-success' : 'nu-feedback-error') +
+                    ' text-sm p-3 whitespace-pre-wrap';
+                el.textContent = message;
+                el.classList.remove('hidden');
+            };
+            try {
+                const resp = await fetch('/api/license/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        license_host: document.getElementById('licenseHost').value.trim(),
+                        license_email: document.getElementById('licenseEmail').value.trim(),
+                        provisioning_token: clearToken ? '' : document.getElementById('provisioningToken').value.trim(),
+                        clear_token: clearToken
+                    })
+                });
+                const text = await resp.text();
+                let data = {};
+                try { data = JSON.parse(text); } catch (e) { data = { error: text }; }
+                if (!resp.ok) {
+                    show(data.error || ('HTTP ' + resp.status), false);
+                    return;
+                }
+                renderLicenseSettings(data);
+                show(clearToken ? 'Provisioning token cleared.' : 'Settings saved.', true);
+            } catch (e) {
+                show('Failed to save settings: ' + e.message, false);
             }
         }
 
@@ -522,7 +593,7 @@
         }
 
         async function removeLicense() {
-            if (!confirm('Remove the installed license? Git push and publishing will be disabled.')) {
+            if (!confirm('Remove the installed license? Publishing will be disabled.')) {
                 return;
             }
             try {

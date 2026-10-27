@@ -16,6 +16,10 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
     "provider": "ollama" | "trustant" | "private",
     "base_url": "<provider base URL>",
     "api_key": "<provider API key>",
+    "license": "lic_...",
+    "license_host": "https://api.example.com",
+    "license_email": "you@example.com",
+    "provisioning_token": "<secret, never returned to the browser>",
     "models": {
         "<model-name>": {
             "maxToken": 262144,
@@ -55,6 +59,7 @@ Loading merges both layers: workspace fields override base fields. Maps (models,
   - **Trustant** — taken from the registration message posted by the ai-proxy iframe (`{ base_url, api_key }`), see [1-index.md](1-index.md).
   - **Private AI** — both are supplied by the user in the Private AI dialog on the splash (see [1-index.md](1-index.md)). `base_url` is any OpenAI-compatible endpoint matching `^https?://[^\s]+/v1/?$` — the `/v1` suffix is mandatory so `/models` and `/chat/completions` resolve. `api_key` is optional and is persisted as `"dummy"` when left empty, because Pi requires a non-empty value to consider the provider configured (see [pi.md](pi.md)).
   There is **no** global `env` section in `trustant.json`, and no global block is ever merged into an application. Environment variables live only inside each app under `apps.<name>.development` / `apps.<name>.production`. The separate `predefined_env` map is **not** an exception: it is a palette of values the user is *offered*, never applied — see "Predefined environment variables" below.
+- `license`, `license_host`, `license_email`, `provisioning_token` — workspace-only. The license and the "Create App on <host>" provisioning settings; host and email are seeded from the license when it is saved and are edited in the License card. See [14-license.md](14-license.md#provisioning-settings).
 - `models` — the model list for the **currently selected provider**, copied from the cached model catalog (see "Model catalog" below). The previous `ollama` key is removed; the same shape is now provider-agnostic and is rewritten when the user switches provider.
 
   Each entry is an object of optional limits. Two of them are **user-editable per model** in Configure, for every provider:

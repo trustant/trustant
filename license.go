@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,7 @@ type licensePayload struct {
 	V     int      `json:"v"`
 	Sub   string   `json:"sub"`
 	Hosts []string `json:"hosts"`
+	Email string   `json:"email,omitempty"`
 	Iat   string   `json:"iat,omitempty"`
 	Exp   string   `json:"exp,omitempty"`
 }
@@ -269,7 +271,7 @@ func writeLicenseError(w http.ResponseWriter, message string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
-// requireValidLicense gates git push and publishing. On failure it writes a 402
+// requireValidLicense gates publishing (remote and provision; not git push). On failure it writes a 402
 // JSON error and returns false; the caller must return immediately. With
 // ENABLE_LICENSE explicitly off the whole check is skipped.
 func requireValidLicense(w http.ResponseWriter) bool {
@@ -316,6 +318,10 @@ type licenseStatus struct {
 	Exp     string   `json:"exp,omitempty"`
 	Valid   bool     `json:"valid"`
 	Reason  string   `json:"reason,omitempty"`
+	// Editable settings for user provisioning, stored next to the license.
+	LicenseHost          string `json:"license_host,omitempty"`
+	LicenseEmail         string `json:"license_email,omitempty"`
+	ProvisioningTokenSet bool   `json:"provisioning_token_set"`
 }
 
 func currentLicenseStatus() licenseStatus {
@@ -324,10 +330,16 @@ func currentLicenseStatus() licenseStatus {
 		return licenseStatus{Reason: "failed to load configuration: " + err.Error()}
 	}
 	token := strings.TrimSpace(cfg.License)
-	if token == "" {
-		return licenseStatus{Reason: "no license is installed"}
+	status := licenseStatus{
+		LicenseHost:          cfg.LicenseHost,
+		LicenseEmail:         cfg.LicenseEmail,
+		ProvisioningTokenSet: strings.TrimSpace(cfg.ProvisioningToken) != "",
 	}
-	status := licenseStatus{Present: true}
+	if token == "" {
+		status.Reason = "no license is installed"
+		return status
+	}
+	status.Present = true
 	payload, err := validateLicense(token, time.Now())
 	if err != nil {
 		status.Reason = err.Error()
@@ -366,7 +378,8 @@ func handleLicense(w http.ResponseWriter, r *http.Request) {
 		}
 		token := strings.TrimSpace(req.License)
 		// Validate before storing: an invalid license never reaches the config.
-		if _, err := validateLicense(token, time.Now()); err != nil {
+		payload, err := validateLicense(token, time.Now())
+		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{
@@ -380,6 +393,13 @@ func handleLicense(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg.License = token
+		// The first licensed host and the license email seed the provisioning
+		// settings; both stay editable on Configure.
+		cfg.LicenseHost = ""
+		if len(payload.Hosts) > 0 {
+			cfg.LicenseHost = strings.TrimSpace(payload.Hosts[0])
+		}
+		cfg.LicenseEmail = strings.TrimSpace(payload.Email)
 		if err := saveWorkspaceConfig(cfg); err != nil {
 			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -394,6 +414,8 @@ func handleLicense(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg.License = ""
+		cfg.LicenseHost = ""
+		cfg.LicenseEmail = ""
 		if err := saveWorkspaceConfig(cfg); err != nil {
 			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -404,4 +426,69 @@ func handleLicense(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// provisioningEmailPattern mirrors the Admin API rule: an ASCII dot-atom
+// local@domain.tld address. See spec/user_provisioning.md.
+var provisioningEmailPattern = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+/=?^_{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_{|}~-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$`)
+
+// handleLicenseSettings serves POST /api/license/settings: the editable
+// license host, license email and provisioning token used by "Create App on
+// <host>". An empty token leaves the stored one unchanged; clear_token removes
+// it. See spec/14-license.md.
+func handleLicenseSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		LicenseHost       string `json:"license_host"`
+		LicenseEmail      string `json:"license_email"`
+		ProvisioningToken string `json:"provisioning_token"`
+		ClearToken        bool   `json:"clear_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	badRequest := func(message string) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": message})
+	}
+	host := strings.TrimSpace(req.LicenseHost)
+	if host != "" {
+		if _, err := normalizeAPIHost(host); err != nil {
+			badRequest("Invalid license host: " + err.Error())
+			return
+		}
+		if EnableLicense && !isLocalApihost(host) {
+			if payload, err := loadLicense(); err == nil && !licenseAllowsHost(payload, host) {
+				badRequest(hostNotLicensedPrefix + host + " is not covered by your license")
+				return
+			}
+		}
+	}
+	email := strings.TrimSpace(req.LicenseEmail)
+	if email != "" && (len(email) > 254 || !provisioningEmailPattern.MatchString(email)) {
+		badRequest("Invalid license email: " + email)
+		return
+	}
+	cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		http.Error(w, "Failed to load config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cfg.LicenseHost = host
+	cfg.LicenseEmail = email
+	if req.ClearToken {
+		cfg.ProvisioningToken = ""
+	} else if token := strings.TrimSpace(req.ProvisioningToken); token != "" {
+		cfg.ProvisioningToken = token
+	}
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeLicenseStatus(w, currentLicenseStatus())
 }

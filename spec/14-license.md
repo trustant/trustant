@@ -103,7 +103,29 @@ Registered in [main.go](../main.go).
   **before** storing. On success writes `license` into the workspace config and
   returns the GET shape. On failure returns 400
   `{"error": "Invalid license: <reason>"}` and stores nothing.
-- `DELETE /api/license` — removes it.
+- `DELETE /api/license` — removes it, together with `license_host` and
+  `license_email`. The provisioning token is kept.
+- Every GET/POST/DELETE answer also carries the provisioning settings:
+  `license_host`, `license_email`, `provisioning_token_set` (bool — the token
+  itself is never returned).
+- `POST /api/license/settings`
+  `{"license_host", "license_email", "provisioning_token", "clear_token"}` —
+  edits the provisioning settings from Configure. `license_host` must be a valid
+  apihost (`normalizeAPIHost`) and, when a valid license is installed and the
+  gate is on, covered by it (local hosts exempt); `license_email` must be an
+  ASCII `local@domain.tld` address. An empty `provisioning_token` keeps the
+  stored token; `clear_token: true` removes it. 400 `{"error"}` on invalid
+  input, otherwise the GET shape.
+
+## Provisioning settings
+
+Saving a license (`POST /api/license`) seeds two workspace fields from the
+payload, overwriting previous values: `license_host` = `hosts[0]` and
+`license_email` = the payload `email` field (licenses carry `email`, plus
+informational `subscription` and `uid`). Together with `provisioning_token` they
+drive "Create App on <host>" in the publish modal — see
+[6-publish.md](6-publish.md#post-apipublishprovision). All three are editable in
+the License card on Configure, below the license field.
 
 # Enforcement
 
@@ -116,7 +138,7 @@ Two gates, both in [license.go](../license.go), both returning **HTTP 402**.
 explicitly set to `0`, `false`, `no` or `off`. With it off:
 
 - `requireValidLicense` and `requireLicensedHost` return `true` immediately,
-  before loading or validating anything — git push and publishing are never
+  before loading or validating anything — publishing is never
   blocked, whatever is or is not stored in the workspace config.
 - `configure.html` keeps the License card hidden, so there is no UI for
   installing a license that would not be checked.
@@ -125,19 +147,19 @@ explicitly set to `0`, `false`, `no` or `off`. With it off:
 gates and the card are conditional. Everything below describes behaviour with
 the flag **on**.
 
-## 1. Valid-license gate — git push and publish
+## 1. Valid-license gate — publish
 
-`requireValidLicense(w)` is called at the top of `handlePublishPush`,
-`handlePublishForcePush` and `handlePublishRemote` (all in
-[publish.go](../publish.go)). With no license stored, or one that fails
+`requireValidLicense(w)` is called at the top of `handlePublishRemote`
+([publish.go](../publish.go)) and `handlePublishProvision`
+([provision.go](../provision.go)). With no license stored, or one that fails
 signature or expiry validation:
 
 ```json
 {"error": "License required: <reason>"}
 ```
 
-Once the license is valid, git push is unconditionally allowed — `hosts` is
-never consulted for push.
+**Git push is not license-gated**: `/api/publish/push` and
+`/api/publish/force-push` work with no license at all.
 
 ## 2. Host gate — production deploy only
 
@@ -154,8 +176,8 @@ the license `hosts`. On mismatch:
 Order inside `handlePublishRemote`: `requireValidLicense` → config resolution /
 `needs_config` → `requireLicensedHost` → env generation → login → deploy.
 
-`/api/git/deploy` (development launch) is **not** gated: the license covers git
-push and production deployment only.
+`/api/git/deploy` (development launch) is **not** gated: the license covers
+production deployment only.
 
 ## Local-host exemption — host gate only
 
@@ -171,7 +193,14 @@ scheme are accepted, while `https://x.miniops.me` and
 
 The exemption is deliberately narrow: it skips **only** the host gate, never
 `requireValidLicense`. A valid license is still required to publish to a local
-host, and git push stays gated as always.
+host.
+
+# User-facing text
+
+The License card on Configure and the license modal in the app list say:
+"Publishing requires a destination server with Nuvolaris OpenServerless and a
+license - get yours on Trustant.ai with the Developer and Enterprise
+subscriptions", linking to https://trustant.ai.
 
 # Frontend contract
 

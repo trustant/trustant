@@ -7,7 +7,7 @@ Authorization is an offline, Ed25519-signed **license**, fully specified in [14-
 
 Two gates, both answering **HTTP 402**:
 
-1. `requireValidLicense` runs at the top of **all three** handlers — `/api/publish/push`, `/api/publish/force-push` and `/api/publish/remote`. It verifies the stored license's signature and expiry; the license's `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`. An expired license is invalid outright, so git push stops too.
+1. `requireValidLicense` runs at the top of `/api/publish/remote` and `/api/publish/provision`. It verifies the stored license's signature and expiry; the license's `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`. **Git push (`/api/publish/push`, `/api/publish/force-push`) is not license-gated.**
 
 2. `requireLicensedHost` runs in `/api/publish/remote` only, **after** the production config is resolved (after the `needs_config` check) and **before** `ops ide login --mode=production`, so nothing touches the target cluster when the host is unlicensed. It matches `OPS_APIHOST` against the license `hosts` — exact match on scheme + host + port, no wildcards. On mismatch: `{"error": "Host not licensed: <apihost> is not covered by your license"}`.
 
@@ -157,6 +157,58 @@ Where `apihost`, `user`, `password` are optional (only sent when user provides t
    `{"error": "...", "output": "..."}` on failure. On success `output` carries
    the accumulated command output (previously discarded), so the modal's
    expandable pane keeps it after the run ends; `message` is the headline.
+
+# POST /api/publish/provision
+
+"Create App on <license host>": creates the app's OpenServerless user on the
+license host through the Admin API user-provisioning endpoint
+([user_provisioning.md](user_provisioning.md)). Implemented in
+[provision.go](../provision.go). Gated by `requireValidLicense`, then
+`requireLicensedHost(license_host)`.
+
+Request: `{"name": "<app>", "token": "<optional provisioning token>"}`.
+
+1. Validate `name`; read `license_host`, `license_email`, `provisioning_token`
+   from the workspace config ([14-license.md](14-license.md#provisioning-settings)).
+   No `license_host` → error.
+2. A non-empty `token` is saved as `provisioning_token` first. With no token
+   stored, answer `{"needs_token": true, "host": "<license_host>"}` and stop.
+3. No `license_email` → error ("set it in Configuration").
+4. `POST <license_host>/system/api/v1/users`, `Authorization: Bearer <token>`,
+   body `{"user": lower(name), "password": apps.<name>.password, "email":
+   license_email, "services": "all"}` — the same user and password as the
+   local app. 202 → created; **409 → the user already exists** (`exists: true`,
+   continue); 401 → the stored token is **removed** and the answer is
+   `{"needs_token": true, "token_invalid": true, "host"}`, so the modal asks for
+   it again with a "token was rejected" note; 503 is retried with backoff
+   (honouring `Retry-After`, up to 5 attempts) except the "route setup failed"
+   partial failure; anything else is an error with the server message.
+5. Poll `<scheme>://<lower(name)>.<license host>` (the literal app name
+   prefixed to the license host, scheme and port kept) every 3 s until it
+   answers **200**, for at most **2 minutes**; progress message "Waiting for
+   app to be provisioned...". Timeout → error, nothing saved.
+6. Save `apps.<name>.production` `OPS_APIHOST` = license host, `OPS_USER` =
+   lower(name), `OPS_PASSWORD` = local password, and return
+   `{"message", "apihost", "user", "password", "exists", "url"}`.
+
+Streams progress like the other publish endpoints (3 stages); the token and the
+password are registered with `redactSecrets`.
+
+## Publish form (`web/applist.html`)
+
+- The **Publish** button is disabled until API Host, User and Password are all
+  filled.
+- When `/api/license` reports a `license_host`, a **Create App on <host>**
+  button is shown above the fields.
+- Clicking it without a stored token opens an inline panel: "Please add your
+  provisioning Token for <host>. To provision an app you have to install the
+  OpenServerless package on the server pointed by <host> then get the token
+  with the command trulicense", a token field and "You can change this token
+  later on Configuration". Confirming calls the endpoint with the token.
+- During the call the modal shows the progress view. On success the form comes
+  back with API Host, User and Password filled and Publish enabled.
+- When `exists` is true a warning stays above the buttons: "The user <user>
+  already exists on <host>. Publishing will override the existing app."
 
 # Publish progress modal (`web/applist.html`)
 

@@ -121,6 +121,13 @@ type trustantConfig struct {
 	// production publishing. Workspace-only, like Provider and Apps: the base
 	// trustant.json never carries it. See spec/14-license.md.
 	License string `json:"license,omitempty"`
+	// LicenseHost, LicenseEmail and ProvisioningToken drive "Create App on
+	// <host>" in the publish modal. Host and email are filled from the license
+	// when one is saved and stay editable on Configure; the token is a secret
+	// and never returned to the browser. See spec/6-publish.md.
+	LicenseHost       string `json:"license_host,omitempty"`
+	LicenseEmail      string `json:"license_email,omitempty"`
+	ProvisioningToken string `json:"provisioning_token,omitempty"`
 	// ModelVersions is keyed by provider name ("ollama", "trustant", ...) and
 	// stores the last per-provider `modelsVersion` value seen from /api/v2/status.
 	// On every splash boot and every applist load the frontend compares the
