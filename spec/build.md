@@ -30,7 +30,8 @@ for compatibility but is no longer the documented form.
    writes `_build.txt`
 2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`
   (`config.images.trustant`), together with the version as
-  `config.trustant.image`: `version.txt` must match
+  `config.version.trustant` (the legacy `config.trustant` block is dropped):
+  `version.txt` must match
   `v<major>.<minor>(<letters>|.)<patch>` (else the build fails before any tag
   is touched) and is stored normalized to `v<major>.<minor>.<patch>`, e.g.
   `v1.0beta1` → `v1.0.1`; the image tag keeps the raw value. Then it

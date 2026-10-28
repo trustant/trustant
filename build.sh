@@ -78,12 +78,12 @@ make_tag() {
     write_build_txt "$TAG"
 
     jq --arg img "$IMAGE:$TAG" --arg ver "$opsver" \
-        ".config.images.$KEY = \$img | .config.$KEY.image = \$ver" "$OPSROOT" >"$OPSROOT.tmp" &&
+        ".config.images.$KEY = \$img | .config.version.$KEY = \$ver | del(.config.$KEY)" "$OPSROOT" >"$OPSROOT.tmp" &&
         mv "$OPSROOT.tmp" "$OPSROOT"
     # reread tag
     TAG=$(jq ".config.images.$KEY" <"$OPSROOT" -r | awk -F: '{print $NF}')
     echo "Stored Tag: $TAG"
-    echo "Stored Version: $(jq -r ".config.$KEY.image" <"$OPSROOT")"
+    echo "Stored Version: $(jq -r ".config.version.$KEY" <"$OPSROOT")"
 
     if [[ -f .env ]]; then
         source ./.env
