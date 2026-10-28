@@ -848,7 +848,8 @@ refresh_support_files() {
   [[ -f "$LIMA_KEY.pub" ]] && cp "$LIMA_KEY.pub" "$SUPPORT_DIR/id_ed25519.pub"
   ok "copied Lima key -> id_ed25519"
 
-  if probe_ssh "$IP"; then
+  echo "Checking ssh to $USER@$IP (one quick try, 10s)..."
+  if probe_ssh "$IP" 10; then
     ok "ssh reaches $USER@$IP"
   else
     warn "ssh could not connect yet (key auth may need a moment)"
@@ -872,31 +873,120 @@ refresh_support_files() {
 #
 # BatchMode keeps a missing or unauthorized key a failure instead of a password
 # prompt that would hang an unattended start.
+#
+# The whole attempt is bounded by $2 seconds (default 30), not just the TCP
+# connect: when systemd-logind is wedged in the guest, sshd accepts the
+# connection and authenticates, then pam_systemd stalls the session forever —
+# ConnectTimeout never fires and an unbounded probe hangs the start (#178).
 probe_ssh() {
-  local IP="$1"
-  ssh -i "$SUPPORT_DIR/id_ed25519" \
+  local IP="$1" secs="${2:-30}"
+  run_bounded "$secs" ssh -n -i "$SUPPORT_DIR/id_ed25519" \
       -o BatchMode=yes -o StrictHostKeyChecking=no \
       -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+      -o ServerAliveInterval=2 -o ServerAliveCountMax=3 \
       "$USER@$IP" true >/dev/null 2>&1
 }
 
-# Wait until a command can be executed in the VM over ssh. Used by the
-# existing-VM fast path after start, so VS Code Remote-SSH opens against a ready
-# endpoint instead of racing the guest boot.
-wait_for_ssh_ready() {
-  local retries=30
-  local delay_secs=2
-  local IP
-  IP="$(cat "$SUPPORT_DIR/current.ip")"
-  echo "--- Waiting for SSH readiness ---"
-  for _ in $(seq 1 "$retries"); do
-    if probe_ssh "$IP"; then
-      ok "SSH is ready"
+# Run "$@", killing it after $1 seconds. macOS has no coreutils `timeout`.
+# Returns the command's exit status, or non-zero when it was killed.
+run_bounded() {
+  local secs="$1"; shift
+  "$@" &
+  local pid=$!
+  ( sleep "$secs"; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watcher=$!
+  local rc=0
+  wait "$pid" || rc=$?
+  kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+  return "$rc"
+}
+
+# Three bounded ssh attempts against $1, each printed as it happens.
+ssh_attempts() {
+  local IP="$1" n
+  for n in 1 2 3; do
+    echo "  attempt $n/3: ssh $USER@$IP true (giving up after 30s)..."
+    if probe_ssh "$IP" 30; then
       return 0
     fi
-    sleep "$delay_secs"
+    echo "  attempt $n/3: no answer"
   done
-  fail "ssh could not reach the VM after $((retries * delay_secs))s"
+  return 1
+}
+
+# Ubuntu 24.04's systemd-logind (255.4) can wedge on a stale pidfd: every ssh
+# login then stalls in pam_systemd ("Failed to create session: Connection timed
+# out") while `limactl shell` keeps working over its ControlMaster connection.
+# Detect that through limactl and restart logind. Never fails the start itself.
+#
+# limactl may itself need a fresh ssh login, which a wedged logind stalls for
+# ~25s, so the bounds are generous, and success is judged by re-checking logind
+# rather than by the restart's exit status.
+logind_answers() {
+  run_bounded 60 limactl shell "$VM_NAME" sudo timeout 5 loginctl list-sessions >/dev/null 2>&1
+}
+
+heal_logind() {
+  echo "--- Checking systemd-logind in the VM (a wedged logind stalls every ssh login; up to 60s) ---"
+  if logind_answers; then
+    echo "  systemd-logind answers — it is not the cause"
+    return 0
+  fi
+  warn "systemd-logind is not answering — restarting it (sudo systemctl restart systemd-logind, up to 90s)"
+  run_bounded 90 limactl shell "$VM_NAME" sudo systemctl restart systemd-logind >/dev/null 2>&1 || true
+  echo "  re-checking systemd-logind after the restart..."
+  if logind_answers; then
+    ok "systemd-logind restarted and answering"
+  else
+    warn "systemd-logind still not answering after the restart"
+  fi
+}
+
+# Print what is known about why ssh is failing, then fail the start.
+ssh_diagnostic() {
+  local IP="$1"
+  echo "--- SSH diagnostic ---"
+  echo "  target:      $USER@$IP  (identity: $SUPPORT_DIR/id_ed25519)"
+  echo "  VM status:   $(limactl list --format '{{.Status}}' "$VM_NAME" 2>/dev/null || echo unknown)"
+  if nc -z -G 5 "$IP" 22 >/dev/null 2>&1; then
+    echo "  port 22:     open (sshd accepts connections — the stall is after login)"
+  else
+    echo "  port 22:     NOT reachable (wrong IP, VM network down, or sshd not running)"
+  fi
+  if logind_answers; then
+    echo "  logind:      answering"
+  else
+    echo "  logind:      NOT answering (even after a restart)"
+  fi
+  echo "  last sshd/pam errors in the VM:"
+  run_bounded 30 limactl shell "$VM_NAME" sudo journalctl -b --no-pager -n 200 2>/dev/null \
+    | grep -E 'sshd|pam_systemd' | tail -5 | sed 's/^/    /' || true
+  echo "  try:         ./start.sh -s && ./start.sh -v   (reboot the VM)"
+  echo "  or:          ./start.sh -k && ./start.sh      (rebuild it from scratch)"
+  fail "ssh could not reach the VM at $IP — see the diagnostic above"
+}
+
+# Wait until a command can be executed in the VM over ssh, so VS Code
+# Remote-SSH opens against a ready endpoint instead of racing the guest boot or
+# hanging on a wedged logind. Three bounded attempts; on failure restart logind
+# and try three more; then print a diagnostic and fail.
+wait_for_ssh_ready() {
+  local IP
+  IP="$(cat "$SUPPORT_DIR/current.ip")"
+  echo "--- Waiting for SSH on $USER@$IP (3 attempts, 30s each) ---"
+  if ssh_attempts "$IP"; then
+    ok "SSH is ready"
+    return 0
+  fi
+  warn "ssh did not answer after 3 attempts"
+  heal_logind
+  echo "--- Retrying SSH on $USER@$IP after the self-heal (3 attempts, 30s each) ---"
+  if ssh_attempts "$IP"; then
+    ok "SSH is ready (after restarting systemd-logind)"
+    return 0
+  fi
+  ssh_diagnostic "$IP"
 }
 
 # Read the host-reachable IP from the running VM and write the Trustant support
@@ -942,7 +1032,7 @@ finish() {
   echo "  stop:         ./start.sh -s   (keep the VM; restart with ./start.sh)"
   echo "  destroy:      ./start.sh -k"
 
-  if [[ "$OPEN_VSCODE" == 1 ]]; then open_vscode; fi
+  if [[ "$OPEN_VSCODE" == 1 ]]; then wait_for_ssh_ready; open_vscode; fi
   if [[ "$RUN_APP" == 1 ]]; then run_in_vm; fi
 }
 
@@ -1346,9 +1436,13 @@ ensure_ssh_config() {
   local IP="$1" CFG="$HOME/.ssh/config"
   local BEGIN="# >>> trustant trudev >>>" END="# <<< trustant trudev <<<"
   touch "$CFG"; chmod 0600 "$CFG"
-  # Drop any previous managed block, then append the current one.
-  awk -v b="$BEGIN" -v e="$END" '
-    $0==b {skip=1} !skip {print} $0==e {skip=0}' "$CFG" > "$CFG.tmp"
+  # Pre-rebrand block: ssh takes the first matching Host, so a stale one would
+  # keep claiming the `trudev` alias with an old IP.
+  local OLD_BEGIN="# >>> trustable trudev >>>" OLD_END="# <<< trustable trudev <<<"
+  # Drop any previous managed block (current or pre-rebrand), then append the
+  # current one.
+  awk -v b="$BEGIN" -v e="$END" -v ob="$OLD_BEGIN" -v oe="$OLD_END" '
+    $0==b || $0==ob {skip=1} !skip {print} $0==e || $0==oe {skip=0}' "$CFG" > "$CFG.tmp"
   {
     cat "$CFG.tmp"
     echo "$BEGIN"
