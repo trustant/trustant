@@ -97,8 +97,10 @@ host-reachable address, resolved in this order: the `current.ip` written by
 `start.sh` under `${XDG_CONFIG_HOME:-$HOME/.config}/trustant/` (on a native
 Linux host this is the LAN address, so the printed URL also works from another
 machine), then the lima0 address inside the VM, then 127.0.0.1;
-no deployment URL is printed. Right after the URL it prints "Stop with
-Control-C" and "Restart with ./start.sh";
+no deployment URL is printed. Right after the URL it prints "Interrupt with ^C"
+and how to restart: "Use .\start.ps1 to restart" inside WSL (detected by
+`WSL_DISTRO_NAME`, or `microsoft` in `/proc/version`), otherwise — the Lima VM
+or a native Ubuntu host — "Use ./start.sh to restart";
 Trustant handles Ollama Cloud sign-in from the web UI via `/api/ollama-connect`
 
 5. wait until you press ^c and terminate everything
