@@ -164,6 +164,32 @@ be proven is that *ssh with that identity* works, because that is the path VS
 Code Remote-SSH takes; `limactl` would succeed even when ssh could not connect,
 and the failure would surface later as a Remote-SSH error with no context.
 
+### Waiting for ssh, and the logind self-heal (#178)
+
+Ubuntu 24.04's systemd-logind (255.4) can wedge: sshd accepts and authenticates,
+then `pam_systemd` stalls every session ("Failed to create session: Connection
+timed out"), while `limactl shell` keeps working. `ConnectTimeout` never fires
+there, so every ssh attempt is bounded **as a whole** by `run_bounded` (a
+sleep-and-kill watcher, since macOS has no `timeout`).
+
+`wait_for_ssh_ready` runs before VS Code opens (existing-VM path always, fresh
+path with `-v`) and narrates each step:
+
+1. three ssh attempts, 30s each, each one printed;
+2. on failure, `heal_logind`: check `loginctl list-sessions` through `limactl
+   shell`; if it does not answer, `systemctl restart systemd-logind`, then
+   re-check (success is the re-check, not the restart's exit status);
+3. three more 30s attempts;
+4. still failing: `ssh_diagnostic` prints the target and identity, VM status,
+   whether port 22 is open, whether logind answers, the last sshd/pam journal
+   lines, and the reboot/rebuild commands — then fails.
+
+The one-off probe in `refresh_support_files` is bounded to 10s and only warns.
+
+`ensure_ssh_config` also removes the pre-rebrand `# >>> trustable trudev >>>`
+block: ssh takes the first matching `Host`, so a stale one kept claiming the
+`trudev` alias with an old IP.
+
 ## Mount the current folder
 
 Mount the folder start.sh runs from (`$(pwd)`) into the VM at the SAME path via a
@@ -411,7 +437,8 @@ exist yet at this point.
 `./start.sh` is idempotent — an existing VM is not an error:
 
 - Running: skip provisioning/setup, refresh support files, wait until a command
-	can be executed in the VM over ssh, then take the selected final step (`run.sh`
+	can be executed in the VM over ssh (bounded retries + logind self-heal, see
+	above), then take the selected final step (`run.sh`
 	by default, VS Code with `-v`, neither with `-n`).
 - Stopped: `limactl start` the existing instance, skip provisioning/setup,
 	refresh support files, wait for SSH readiness, then take the same final step.
