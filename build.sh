@@ -58,6 +58,15 @@ host_arch() {
 # on newlines and -r skips the call when there are none; same form image.sh
 # already uses.
 make_tag() {
+    # version.txt must be v<major>.<minor>(<letters>|.)<patch>; opsroot records
+    # it as v<major>.<minor>.<patch> (v1.0beta1 -> v1.0.1). Checked before any
+    # tag is touched.
+    if [[ ! "$VERSION" =~ ^v([0-9]+)\.([0-9]+)([A-Za-z]+|\.)([0-9]+)$ ]]; then
+        echo "version.txt: '$VERSION' must match v<major>.<minor>(<word>|.)<patch>" >&2
+        exit 1
+    fi
+    local opsver="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[4]}"
+
     TAG="${TRUSTANT_BUILD_TAG:-${KEY}_${VERSION}_$(date +%y.%j.%H%M)}"
     BRANCH="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     BRANCH="${BRANCH:-detached}"
@@ -68,11 +77,13 @@ make_tag() {
     git tag -f "$TAG"
     write_build_txt "$TAG"
 
-    jq --arg img "$IMAGE:$TAG" ".config.images.$KEY = \$img" "$OPSROOT" >"$OPSROOT.tmp" &&
+    jq --arg img "$IMAGE:$TAG" --arg ver "$opsver" \
+        ".config.images.$KEY = \$img | .config.$KEY.image = \$ver" "$OPSROOT" >"$OPSROOT.tmp" &&
         mv "$OPSROOT.tmp" "$OPSROOT"
     # reread tag
     TAG=$(jq ".config.images.$KEY" <"$OPSROOT" -r | awk -F: '{print $NF}')
     echo "Stored Tag: $TAG"
+    echo "Stored Version: $(jq -r ".config.$KEY.image" <"$OPSROOT")"
 
     if [[ -f .env ]]; then
         source ./.env
