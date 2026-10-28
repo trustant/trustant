@@ -376,8 +376,13 @@ done
 echo ""
 echo "Trustant is running. open this URL in your browser:"
 echo "    $URL"
-echo "Stop with Control-C"
-echo "Restart with ./start.sh"
+echo "Interrupt with ^C"
+# WSL is restarted from PowerShell; Lima and native Ubuntu from start.sh.
+if [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qi microsoft /proc/version 2>/dev/null; then
+    echo "Use .\\start.ps1 to restart"
+else
+    echo "Use ./start.sh to restart"
+fi
 echo ""
 
 # wait until ^c

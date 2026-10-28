@@ -221,8 +221,13 @@ the scheme and rejects a schemeless host because a license names hosts exactly.
 `shared_production[*][app]`; `removeSharedPoolVar(name)` deletes the name under
 every host and app. Variable names stay the expanded `APP__NAME`, so a
 development reference (`${{APPSUITE__POSTGRES_URL}}`) and a production lookup
-use the same key. `productionPool(cfg, host)` flattens one host across all apps
-for import matching.
+use the same key. `productionPool(cfg, host)` is what production imports match
+against: its base is every `predefined_env` entry that is **not** app-shaped
+(no `APP__` prefix — typed on Configure or from `.env.default`), since such a
+value is not tied to a cluster; on top goes the host's `shared_production`
+flattened across all apps, and a host value wins on a clash. An `APP__NAME`
+entry never falls back to its development value, whether or not its producer
+is installed: the same name on another cluster is a different secret.
 
 **Filled by the producer's own publish only.** After
 `ops ide login --mode=production`, `resolveProductionShared` resolves the
@@ -232,7 +237,8 @@ exporting disappears; an app with no `.env.shared` any more is removed from the
 host. No other app is logged into: a production login is a real operation
 against a real cluster, and sweeping every producer would log into clusters the
 user never asked to touch. A value typed by hand for production lives in the
-consumer's own `apps.<name>.production`, never in this store.
+consumer's own `apps.<name>.production`, never in this store; a global
+variable reaches production through `productionPool` instead.
 
 **Migration.** The pre-#9 flat `predefined_env_production: {host: {APP__NAME: v}}`
 is folded into `shared_production` when the config is loaded

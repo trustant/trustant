@@ -180,6 +180,14 @@ func parseVersion(content string) {
 			}
 		}
 	}
+	// "detached" is what the build scripts record for a checkout with no branch
+	// (CI builds a tag); it names nothing, so it is not shown.
+	if appBranch == "detached" {
+		appBranch = ""
+	}
+	if appStream == "detached" {
+		appStream = ""
+	}
 	// Development builds produced by air embed the last release metadata. When
 	// Branch/Stream are absent, show the mounted repository's active branch so
 	// the UI identifies the source tree actually being served. Release builds
