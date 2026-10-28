@@ -17,6 +17,9 @@ When an Air development build embeds older metadata without `Branch` or
 for both fields. Explicit release metadata always takes precedence. This lets
 the app-list badge identify the source branch without rewriting the tracked
 `_build.txt` during every local run.
+A `Branch` or `Stream` of `detached` (what the build scripts record for a
+checkout with no branch, e.g. CI building a tag) is treated as absent, so the
+version badge never shows it.
 
 Check if the current date is past the expiration date
 If the expiration date is overdue,

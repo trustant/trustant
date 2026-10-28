@@ -435,12 +435,25 @@ func setProductionShared(wsCfg *trustantConfig, host, app string, resolved map[s
 	wsCfg.SharedProduction[host][app] = copied
 }
 
-// productionPool flattens one host's secrets across every producing app, for
-// matching imports. Names carry the producer prefix, so two apps never collide.
+// productionPool is the pool imports match against when publishing to host. Its
+// base is every global variable no app produced (typed on Configure, or from
+// .env.default): such a value is not tied to a cluster, so it serves production
+// as it serves development. On top go the host's own secrets, flattened across
+// every producing app — names carry the producer prefix, so two apps never
+// collide, and a host value wins over a global one. An app-produced variable
+// never falls back to its development value: the same name on another cluster
+// is a different secret. That is judged by shape (APP__NAME), not by whether the
+// producer is installed, so a missing producer cannot leak its dev secret.
 func productionPool(cfg *trustantConfig, host string) map[string]string {
 	pool := make(map[string]string)
 	if cfg == nil {
 		return pool
+	}
+	for k, v := range cfg.PredefinedEnv {
+		if _, produced := splitSharedVarName(k); produced || strings.TrimSpace(v) == "" {
+			continue
+		}
+		pool[k] = v
 	}
 	for _, vars := range cfg.SharedProduction[sharedHostKey(host)] {
 		for k, v := range vars {
@@ -454,8 +467,9 @@ func productionPool(cfg *trustantConfig, host string) map[string]string {
 // (predefined_env_production: {host: {APP__NAME: value}}) into SharedProduction,
 // deriving the owner from the name prefix one last time. An entry whose prefix
 // matches no app is dropped: it is either an orphan of a deleted app or a
-// hand-typed value, and a hand-typed production value now belongs in the
-// consumer's own production config. The legacy field is cleared so the next
+// hand-typed value, and a hand-typed value now reaches production from the
+// global pool (productionPool) or the consumer's own production config. The
+// legacy field is cleared so the next
 // save drops the key.
 func migrateSharedProduction(cfg *trustantConfig) {
 	if cfg == nil || len(cfg.LegacyPredefinedEnvProduction) == 0 {

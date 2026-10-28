@@ -233,7 +233,11 @@ when nothing is staged, never pushes.
 Imports are resolved at publish too, against the **target host's** production
 pool (`productionPool`, from `shared_production` — see
 [18-shared.md](18-shared.md#production-host--app--secrets)), never another
-host's and never the development pool.
+host's. The only part of the development pool it sees is the global variables
+no app produced (typed on Configure, or from `.env.default`): they are not tied
+to a cluster, so a development choice of one (`${{OPENAI_API_KEY}}`) is followed
+at publish silently, exactly as at creation. App-produced `APP__*` values come
+from the target host only.
 
 `resolveProductionImports(app, host)` covers every `.env.dist` binding plus every
 development variable whose value is a `${{ref}}` (a reference is an import even

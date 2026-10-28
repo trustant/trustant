@@ -242,3 +242,15 @@ func TestVersionOmitsOpsInfoWhenProbeFailed(t *testing.T) {
 		t.Error("build missing: the rest of the payload must survive a failed probe")
 	}
 }
+
+func TestVersionMetadataHidesDetachedBranch(t *testing.T) {
+	oldGitBranch := gitBranch
+	gitBranch = func() string { return "" }
+	t.Cleanup(func() { gitBranch = oldGitBranch })
+
+	parseVersion("Version: v0.3.11\nBuild: local\nBranch: detached\nStream: detached\nExpiry: 2099/08/31\n")
+
+	if appBranch != "" || appStream != "" {
+		t.Fatalf("branch = %q, stream = %q, want both empty", appBranch, appStream)
+	}
+}

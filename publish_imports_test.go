@@ -414,3 +414,57 @@ func TestEnvEditorProductionPullDown(t *testing.T) {
 		t.Errorf("production DB saved as %q, want the reference kept", got)
 	}
 }
+
+// Issue #182: a global variable no app produced (typed on Configure, or from
+// .env.default) reaches production as it reaches development; an app-produced
+// one stays per host.
+func TestProductionPoolFallsBackToGlobalVariables(t *testing.T) {
+	cfg := productionTestConfig(
+		map[string]string{
+			"API_KEY":   importRef("OPENAI_API_KEY"),
+			"REDIS_URL": importRef("APPSUITE__REDIS"),
+		},
+		map[string]string{"OPS_APIHOST": "openserverless.dev"},
+	)
+	cfg.PredefinedEnv = map[string]string{
+		"OPENAI_API_KEY":      "sk-global",
+		"APPSUITE__REDIS":     "redis://dev",
+		"BILLING__POSTGRESDB": "postgres://billing-dev",
+		"SHARED_TOKEN":        "global-token",
+	}
+	cfg.SharedProduction["openserverless.dev"]["billing"]["SHARED_TOKEN"] = "host-token"
+	wb := setupProductionApp(t, cfg, "API_KEY=OPENAI_API_KEY\nREDIS_URL=*__REDIS\nTOKEN=SHARED_TOKEN\n")
+
+	pool := productionPool(cfg, "openserverless.dev")
+	if pool["OPENAI_API_KEY"] != "sk-global" {
+		t.Errorf("global variable missing from the production pool: %v", pool)
+	}
+	if pool["BILLING__POSTGRESDB"] != "postgres://billing-prod" {
+		t.Errorf("an app-produced dev value must not override the host's: %v", pool)
+	}
+	if pool["SHARED_TOKEN"] != "host-token" {
+		t.Errorf("the host value must win over a global one: %v", pool)
+	}
+	if _, ok := pool["APPSUITE__REDIS"]; ok {
+		t.Errorf("an app-produced dev value leaked into production: %v", pool)
+	}
+
+	byName := productionByName(t, "openserverless.dev")
+	if r := byName["API_KEY"]; r.Pending || r.Value != "sk-global" {
+		t.Errorf("dev choice of a global variable not followed: %+v", r)
+	}
+	if r := byName["REDIS_URL"]; !r.Pending || r.Producer != "appsuite" {
+		t.Errorf("app-produced import missing on host = %+v, want pending naming appsuite", r)
+	}
+
+	if err := generateAppEnvFiles("demoapp"); err != nil {
+		t.Fatalf("generate: %s", err)
+	}
+	body, err := os.ReadFile(filepath.Join(wb, ".env.production"))
+	if err != nil {
+		t.Fatalf("read .env.production: %s", err)
+	}
+	if !strings.Contains(string(body), "API_KEY=sk-global") {
+		t.Errorf("global variable not written to .env.production:\n%s", body)
+	}
+}
