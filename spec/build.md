@@ -28,7 +28,12 @@ for compatibility but is no longer the documented form.
 
 1. computes the tag, **deletes every existing git tag**, forces the new one, and
    writes `_build.txt`
-2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`, then
+2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`
+  (`config.images.trustant`), together with the version as
+  `config.trustant.image`: `version.txt` must match
+  `v<major>.<minor>(<letters>|.)<patch>` (else the build fails before any tag
+  is touched) and is stored normalized to `v<major>.<minor>.<patch>`, e.g.
+  `v1.0beta1` → `v1.0.1`; the image tag keeps the raw value. Then it
   configures the local Git author from `GIT_USER` and `GIT_EMAIL` in `.env` and
   commits, so the deployment plugin always records the image just built
 3. builds the Go binary for the **host architecture** (a single-arch local image
