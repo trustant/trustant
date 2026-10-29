@@ -327,3 +327,9 @@ Each selected notebook or ad-hoc node is sent through the same ACP prompt path
 as ordinary composer input. No notebook index, source metadata, GitHub token, or
 unexecuted prompt is injected into Pi or its model context. See
 [notebook.md](notebook.md).
+
+## Composer
+
+The TruACP composer textarea starts one row high and auto-grows with its
+content up to five rows, then scrolls; Enter sends, Shift+Enter adds a newline.
+The Send/Stop button stays one row high (issue #186; see `acp/SPEC.md`).
