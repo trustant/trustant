@@ -26,6 +26,24 @@ scripts as ANSI.
   `/dev/tty`); otherwise the default is used.
 - `TRUSTANT_DIR` names the checkout directly and skips the question
   (non-interactive installs).
+- **Requirements**, checked before anything is cloned (bash: after the
+  per-host prerequisites; PowerShell: after the path checks). Every failing
+  check is reported (`XX  ...`), then the installer stops:
+  - at least **8 GB of memory**: the threshold is 7.5 GiB, because an "8 GB"
+    machine reports a bit less (`hw.memsize`, `/proc/meminfo` `MemTotal`,
+    `Win32_ComputerSystem.TotalPhysicalMemory`);
+  - at least **4 CPUs** (`hw.ncpu`, `nproc`, `[Environment]::ProcessorCount`);
+  - at least **60 GB free** where the checkout goes (`df -Pk` on the nearest
+    existing ancestor of `<target>`; on Windows, the drive of the checkout);
+  - **`miniops.me` resolves to `127.0.0.1`** (`dscacheutil`, `getent
+    ahostsv4`, `[Net.Dns]::GetHostAddresses`). Otherwise the router is
+    blocking it, and the user is told to change their DNS to 8.8.8.8 and
+    1.1.1.1 or to add an exception for `miniops.me` to the router;
+  - **Linux only: ports 80 and 443 are free** (`sudo ss -ltnp`), since k3s runs
+    on the host. The listeners are printed and the user is pointed to e.g.
+    `sudo systemctl stop nginx`. The check is skipped when the `k3s` unit is
+    already active (Trustant's own k3s holds those ports), and only warns when
+    `ss` is missing.
 - If `<target>/trustant` already exists the installer refuses and says to run
   `start.sh`/`start.ps1` there.
 - **Preloaded `dist/`**: after the clone, if `<target>/dist` exists its content
@@ -45,7 +63,8 @@ Hosts are told apart by `uname -s`:
 - **Darwin**: requires `brew` (otherwise it points to https://brew.sh), then runs
   `brew install lima` if `limactl` is missing and `brew install git` if `git` is
   missing.
-- **Linux**: requires `apt-get` and `sudo` (`sudo -v` unless already root), then
+- **Linux**: requires `apt-get` and `sudo` (`sudo -v` unless already root; the
+  port check below relies on it), then
   runs `apt-get install -y git` if `git` is missing.
 - **MINGW/MSYS/CYGWIN**: tells the user to use PowerShell and exits.
 - Anything else: exits.
