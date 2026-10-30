@@ -596,6 +596,16 @@ if dpkg-query -W -f='${Status}' gh 2>/dev/null | grep -q 'install ok installed';
   echo "gh apt package already installed"
   exit 0
 fi
+# Some distro archives do not carry gh: use GitHub's own apt repository.
+type -p wget >/dev/null || { apt-get update -qq && apt-get install -y -qq wget; }
+mkdir -p -m 755 /etc/apt/keyrings
+out="$(mktemp)"
+wget -nv -O "$out" https://cli.github.com/packages/githubcli-archive-keyring.gpg
+install -m 0644 "$out" /etc/apt/keyrings/githubcli-archive-keyring.gpg
+rm -f "$out"
+mkdir -p -m 755 /etc/apt/sources.list.d
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  > /etc/apt/sources.list.d/github-cli.list
 apt-get update -qq
 apt-get install -y -qq gh
 GUEST
