@@ -28,7 +28,7 @@ scripts as ANSI.
   (non-interactive installs).
 - **Requirements**, checked before anything is cloned (bash: after the
   per-host prerequisites; PowerShell: after the path checks). Every failing
-  check is reported (`XX  ...`), then the installer stops:
+  check is reported (`ERROR: ...`), then the installer stops:
   - at least **8 GB of memory**: the threshold is 7.5 GiB, because an "8 GB"
     machine reports a bit less (`hw.memsize`, `/proc/meminfo` `MemTotal`,
     `Win32_ComputerSystem.TotalPhysicalMemory`);
