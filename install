@@ -110,8 +110,8 @@ DISK_KB=$(df -Pk "$DIR" | awk 'NR==2{print $4}')
    || fail "at least 8 GB of memory is required (found $(( ${MEM_KB:-0} / 1048576 )) GB)"
 [ "${CPUS:-0}" -ge 4 ] \
    || fail "at least 4 CPUs are required (found ${CPUS:-0})"
-[ "${DISK_KB:-0}" -ge 62914560 ] \
-   || fail "at least 60 GB of free disk space is required in $DIR (found $(( ${DISK_KB:-0} / 1048576 )) GB)"
+[ "${DISK_KB:-0}" -ge 52428800 ] \
+   || fail "at least 50 GB of free disk space is required in $DIR (found $(( ${DISK_KB:-0} / 1048576 )) GB)"
 if [ "$MINIOPS" != "127.0.0.1" ]
 then
    fail "miniops.me resolves to ${MINIOPS:-nothing}, not 127.0.0.1: your router is blocking miniops.me.
@@ -240,8 +240,8 @@ echo > /dev/null <<"out-null" ###
         Write-Host "ERROR: at least 4 CPUs are required (found $Cpus)"; $Failed = $true
     }
     $Free = ([System.IO.DriveInfo]::new($Dest.Substring(0, 1))).AvailableFreeSpace
-    if ($Free -lt 60 * $GB) {
-        Write-Host "ERROR: at least 60 GB of free disk space is required on $($Dest.Substring(0, 2)) (found $([math]::Floor($Free / $GB)) GB)"; $Failed = $true
+    if ($Free -lt 50 * $GB) {
+        Write-Host "ERROR: at least 50 GB of free disk space is required on $($Dest.Substring(0, 2)) (found $([math]::Floor($Free / $GB)) GB)"; $Failed = $true
     }
     $Miniops = try {
         [System.Net.Dns]::GetHostAddresses('miniops.me') |

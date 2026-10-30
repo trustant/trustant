@@ -33,7 +33,7 @@ scripts as ANSI.
     machine reports a bit less (`hw.memsize`, `/proc/meminfo` `MemTotal`,
     `Win32_ComputerSystem.TotalPhysicalMemory`);
   - at least **4 CPUs** (`hw.ncpu`, `nproc`, `[Environment]::ProcessorCount`);
-  - at least **60 GB free** where the checkout goes (`df -Pk` on the nearest
+  - at least **50 GB free** where the checkout goes (`df -Pk` on the nearest
     existing ancestor of `<target>`; on Windows, the drive of the checkout);
   - **`miniops.me` resolves to `127.0.0.1`** (`dscacheutil`, `getent
     ahostsv4`, `[Net.Dns]::GetHostAddresses`). Otherwise the router is
