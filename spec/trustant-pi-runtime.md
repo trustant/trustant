@@ -126,11 +126,11 @@ Version 2 revalidates the host contract inside Pi and:
   browser-visible application URL, and exact required MCP names as mandatory
   host context before every agent turn;
 - normalizes the supported `pi-mcp-adapter` call and discovery shapes,
-  including `mcp({server:"..."})` and `mcp({connect:"..."})`, and requires
-  successful MCP-proxy reachability plus tool discovery for every required
-  manifest server before shell, source-mutation, or MCP application work. A
-  successful `connect` proves both proxy reachability and discovery for that
-  server; `mcp({})` plus per-server `server` calls remains compatible;
+  including `mcp({server:"..."})` and `mcp({connect:"..."})`, and blocks a
+  tool call on a manifest server until that server was successfully
+  discovered with either form. Shell, file edits, and other servers' calls are
+  not held by it (issue #75: an up-front bootstrap of every server cost one
+  model round-trip per server before any work);
 - blocks `write` and `edit` calls outside the selected workbench;
 - blocks direct writes to generated `packages/**/__main__.py` wrappers and
   `packages/**/*.zip` artifacts, requiring OpenServerless MCP action/connectors
@@ -272,9 +272,10 @@ Tests must cover:
 - direct `!` prefix classification, active-session cwd resolution,
   stdout/stderr and nonzero-exit rendering, bounded timeout/output, exact ready
   composer text, and unchanged ordinary prompts for Pi and non-Pi agents;
-- successful per-server `connect` calls satisfying the managed MCP bootstrap
-  without being misclassified as global status, while failed connects advance
-  neither reachability nor server-discovery state;
+- file edits and shell commands allowed with no server discovered; a server's
+  tool calls blocked until a successful `connect`/`server` for that server
+  only, without being misclassified as global status, while failed connects
+  unlock nothing;
 - a real `action_new` result requiring one successful host redeploy before
   verification, while an idempotent no-op does not; successful, failed, and
   incomplete `/api/redeploy` SSE responses retain protocol-level status;
