@@ -32,9 +32,10 @@ metadata. Never search for, read, print, copy, or infer the host-private MCP
 configuration, and never launch a managed MCP server manually from a shell.
 
 Pi exposes every configured server through one lazy `mcp` proxy tool. Before
-the first shell command, file mutation, or application MCP operation, complete
-the mandatory capability bootstrap with `mcp({server: "<name>"})` or
-`mcp({connect: "<name>"})` for every name in `.mcp.json.mcpServers`. Codex and
+calling a server's tools for the first time, discover that server with
+`mcp({connect: "<name>"})` (or `mcp({server: "<name>"})`). Discover only the
+servers you are about to use; file edits and shell checks need no discovery.
+Codex and
 Claude receive the same host-selected servers as native MCP tools and must use
 those tools directly instead of starting server commands. Use the exact tool
 names and argument schemas exposed by the active agent. A successful Pi

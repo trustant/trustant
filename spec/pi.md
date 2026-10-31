@@ -170,11 +170,10 @@ application writes belong in setup or public OpenServerless actions.
 A global npm installation alone does not activate a Pi extension. The adapter
 exposes a single `mcp` proxy, but every generated server uses
 `lifecycle: "eager"` so connection is attempted when the Pi session starts.
-Before reporting binding availability, instructions require actual inspection
-of every `.mcp.json.mcpServers` entry. The compatible sequence is `mcp({})`
-plus `mcp({server:"<name>"})` per server; the adapter's successful
-`mcp({connect:"<name>"})` form proves both proxy reachability and discovery for
-that server, so successful connects for every required server are equivalent.
+Instructions require discovering a server with `mcp({connect:"<name>"})` (or
+`mcp({server:"<name>"})`) before its first tool call, and only the servers about
+to be used (issue #75); a successful `connect` proves both proxy reachability
+and discovery for that server.
 
 Codex and Claude receive the exact same host-selected private server set through
 the ACP `session/new`, `session/load`, `session/resume`, and `session/fork`
@@ -290,10 +289,11 @@ that contract is missing.
 
 The next issue #57 increment normalizes the real `pi-mcp-adapter` proxy shape
 (`openserverless_action_new`, JSON-string `args`, and the `server`/`connect`
-discovery forms) and enforces a capability bootstrap before application work:
-the MCP proxy must be proven reachable and every required manifest server must
-be successfully discovered. A successful `connect` proves both reachability
-and discovery for that server. It blocks
+discovery forms) and enforces per-server discovery: a tool call on a manifest
+server is blocked until that server was successfully discovered with `connect`
+or `server`. Issue #75 dropped the earlier up-front bootstrap of every server,
+which held file edits and shell commands for one model round-trip per server.
+It blocks
 raw action/service administration, manual wrapper/scaffold generation,
 ad-hoc dependency installation, service-MCP writes, shell-based source
 mutation/destructive Git recovery, and piecemeal Redis wiring for
