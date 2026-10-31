@@ -18,14 +18,25 @@ scripts as ANSI.
 
 ## Common behaviour
 
-- **Target folder**: the installer asks `Install Trustant in [<cwd>]:`,
-  defaulting to the current directory (Enter keeps it; `~` is expanded in
-  bash). A folder that does not exist is created, and the installer `cd`s
-  (`Set-Location`, which also switches drive) into it. The checkout is
-  `<target>/trustant`. Bash asks only when a terminal is available (stdin or
-  `/dev/tty`); otherwise the default is used.
+- **Target folder**: the installer prints `Trustant will be installed in
+  <cwd>/trustant.` and asks `Type ENTER to accept the proposed path or specify
+  another full path [<cwd>]:` (Enter keeps the current directory; `~` is
+  expanded in bash). The checkout is `<target>/trustant`. Bash asks only when a
+  terminal is available (stdin or `/dev/tty`); otherwise the default is used.
 - `TRUSTANT_DIR` names the checkout directly and skips the question
-  (non-interactive installs).
+  (non-interactive installs); its parent is the target.
+- **Path checks**, right after the answer and before anything is installed,
+  each exiting with an `ERROR: ...`:
+  - the target must be a full path: starting with `/` (bash) or a drive letter
+    `X:` (PowerShell);
+  - the target folder must already exist - it is never created; only
+    `trustant` is created inside it;
+  - `<target>/trustant` must not exist; the error suggests removing it
+    (`rm -rf <dest>` / `Remove-Item -Recurse -Force <dest>`) or running
+    `start.sh`/`start.ps1` there.
+
+  The installer then `cd`s (`Set-Location`, which also switches drive) into
+  the target.
 - **Requirements**, checked before anything is cloned (bash: after the
   per-host prerequisites; PowerShell: after the path checks). Every failing
   check is reported (`ERROR: ...`), then the installer stops:
@@ -44,8 +55,6 @@ scripts as ANSI.
     `sudo systemctl stop nginx`. The check is skipped when the `k3s` unit is
     already active (Trustant's own k3s holds those ports), and only warns when
     `ss` is missing.
-- If `<target>/trustant` already exists the installer refuses and says to run
-  `start.sh`/`start.ps1` there.
 - **Preloaded `dist/`**: after the clone, if `<target>/dist` exists its content
   is copied (not moved) into `<target>/trustant/dist`, the cache `start.sh`
   reads, so the `.deb` and ollama tarball are not downloaded again. A failed
@@ -76,10 +85,8 @@ Under `curl | bash`, stdin is the script itself. Every prompt (sudo, brew, and
 
 - Refuses on anything other than Windows (`OSVersion.Platform -eq 'Win32NT'`).
 - Paths are resolved against the PowerShell location
-  (`GetUnresolvedProviderPathFromPSPath`), not the process directory, so a
-  relative answer after a `cd D:\` lands on `D:`. A bare drive (`D:`) means its
-  root (`D:\`), and an existing folder (a drive root included) is used as-is:
-  `New-Item` is called only when it is missing, since it rejects `D:\`.
+  (`GetUnresolvedProviderPathFromPSPath`), not the process directory. A bare
+  drive (`D:`) means its root (`D:\`).
 - Refuses if the checkout path contains a space, or is not a drive-letter path
   (any drive: `C:\`, `D:\`...). The folder is used from WSL over
   `/mnt/<drive>`, and a space breaks `.env` and the scripts.
