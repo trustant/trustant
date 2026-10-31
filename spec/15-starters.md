@@ -36,6 +36,11 @@ cache. `sanitizeApplications` still accepts any `https://` icon and is
 deliberately not host-specific, so a future republish elsewhere needs no code
 change.
 
+In the Add Application modal starters back **New application**, while the
+`applications` catalog is presented as **templates** ("From a template": copy a
+ready-made application). That UI word is unrelated to the `templates` field
+below, which is a starter's notebook repository.
+
 # GET /api/starters
 
 Returns the sanitized index — both halves of it:
