@@ -1023,6 +1023,7 @@ finish() {
   # Provision the in-VM toolchain (ops/go/air/uv/node/pi + MCP servers) by
   # running setup.sh INSIDE the VM as the mirrored current user, in this repo dir
   # (Lima mounts it at the same path). Idempotent — re-runs just verify.
+  restore_tty
   echo "--- Running setup.sh in the VM as $HOST_USER ---"
   limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./setup.sh \
     || fail "setup.sh failed in the VM"
@@ -1084,6 +1085,7 @@ finish_native() {
 
   # Provision the toolchain (ops/go/air/uv/node/pi + MCP servers). Same script
   # the VM path runs, just invoked directly. Idempotent — re-runs just verify.
+  restore_tty
   echo "--- Running setup.sh as $(id -un) ---"
   bash ./setup.sh || fail "setup.sh failed"
   ok "setup.sh completed"

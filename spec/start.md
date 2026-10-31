@@ -81,7 +81,7 @@ virtiofs-mounted checkout, so the guest can see its own disk files — harmless.
 `setup.sh`'s `sudo apt-get install` lines and the `start.ps1` bootstrap. These
 apt runs have no pty, and needrestart's "Restarting services..." report then
 prints as a staircase (LF without CR); restarting services is pointless on a
-fresh machine anyway. Before `run.sh`, `restore_tty` runs `stty sane` when stdin
+fresh machine anyway. Before `setup.sh` and before `run.sh`, `restore_tty` runs `stty sane` when stdin
 is a terminal, so no provisioning child can leave it in a raw mode.
 
 ## Boot the VM, then install (NOT via cloud-init provision)
