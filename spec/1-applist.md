@@ -339,7 +339,7 @@ Selecting **"My Application Starter"** opens a warning dialog:
 
 > Warning: if you use your own starter, it must be derived by a standard
 > application starter or be compatible with
-> [Trustant Conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustant).
+> [Trustant Conventions](https://github.com/orgs/trustant/discussions/198).
 > The repo must exist. Connect your GitHub account below to access it; Trustant
 > reads and pushes over HTTPS with the connected account. If you use a standard
 > starter you can save it in your own repo later.
