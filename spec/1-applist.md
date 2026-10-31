@@ -199,30 +199,49 @@ The Git Push and Publish buttons are always rendered and always call their respe
 
 ## Adding an application
 
-The modal is a **tabbed browser** over the published index
-([15-starters.md](15-starters.md)). A horizontal, horizontally-scrollable tab
-strip sits above the body:
+The modal makes the user choose, explicitly, between two different things,
+both fed by the published index ([15-starters.md](15-starters.md)):
 
-- **Starter** — the first tab, selected by default, described below and
-  unchanged by the catalog;
-- one tab per group of `applications`, ordered by group name (which reproduces
-  the published order, since `index.py` sorts groups by name): `Apps`, `Chat`,
-  `Demo`, `Utilities`, …
+- **New application** — create a NEW application from a minimal **starter**
+  skeleton; the user then builds the features with the AI assistant. This is
+  the starter form described below.
+- **From a template** — copy an EXISTING, working application from the
+  catalog (`applications` in the index) and run and customize it as their own.
 
-When the index publishes no applications — or could not be loaded — **no tab
-strip is rendered at all** and the modal is exactly the Starter form.
+A two-button mode switch at the top of the modal selects between them. Each
+button carries a short subtitle ("start from a starter skeleton" / "copy a
+ready-made application"), and a one-line explanation under the switch follows
+the mode:
 
-Switching tabs never loses the other tab's state: the Starter tab keeps its
+- New: "Create a NEW application from a minimal starter. You build the
+  features with the AI assistant."
+- Template: "Copy an EXISTING working application, then run and customize it
+  as your own."
+
+The modal title follows the mode too: **"New Application"** /
+**"Application from Template"**.
+
+Under **From a template** a horizontal, horizontally-scrollable tab strip lists
+one tab per group of `applications`, ordered by group name (which reproduces
+the published order, since `index.py` sorts groups by name): `Apps`, `Chat`,
+`Demo`, `Utilities`, … The first group is selected on entering the mode. The
+strip is never shown under **New application**.
+
+When the index publishes no applications — or could not be loaded — **neither
+the mode switch nor the tab strip is rendered** and the modal is exactly the
+starter form, titled "New Application".
+
+Switching modes never loses the other mode's state: the starter form keeps its
 radio selection and any typed name. Reopening the modal always resets to
-**Starter** with the catalog back at its carousel.
+**New application**, with the catalog back at its first group and carousel.
 
-### Application tabs
+### Template mode
 
-While an application tab is active the modal grows to **half the viewport width
+While **From a template** is active the modal grows to **half the viewport width
 and 80% of the viewport height**. It is centred in a full-viewport scrim, so the
-80% height leaves **10% of the page free above and below**. The Starter tab
+80% height leaves **10% of the page free above and below**. The starter form
 keeps the default modal size, so the larger size lasts only as long as the
-catalog is being browsed — leaving the tab, closing the modal, or reopening it
+catalog is being browsed — switching to New application, closing the modal, or reopening it
 all restore the default. Below 900px wide, where half a viewport would be
 unusable, the width falls back to the near-full width the modal uses elsewhere.
 
@@ -231,11 +250,11 @@ right arrow** either side stepping through the group in published order. The
 arrows **wrap** at both ends — a group is a short ring, not a list with a start
 and a finish — and are hidden entirely for a group of one, where they would do
 nothing. `ArrowLeft` / `ArrowRight` step the carousel too, but only while the
-carousel is what the modal is showing: never on the Starter tab and never while
+carousel is what the modal is showing: never under New application and never while
 the name panel is up. A **"<n> of <total>"** counter sits under the carousel,
 and is omitted for a group of one.
 
-Switching tabs restarts at the first application of the group now showing.
+Switching groups restarts at the first application of the group now showing.
 
 The application on show is a card filling the height the modal gives it, holding,
 top to bottom:
@@ -260,7 +279,7 @@ or Space) and opens the name panel.
 ### Name panel
 
 Clicking the card replaces the carousel and its counter, in place, with a small
-panel: a line naming the chosen application and the repository it will be
+panel: a line reading "Creating a copy of <title> from <repo>" and the repository it will be
 created from, an **Application Name** field, and **Cancel** / **Confirm**.
 
 **Cancel returns to the carousel** rather than closing the modal — the user is
@@ -276,8 +295,8 @@ occupying all 20 characters is trimmed to leave room for the digits rather than
 producing a name the pattern would reject.
 
 The prefill is a starting point, not a constraint: the field is freely editable,
-and the same `[a-zA-Z][a-zA-Z0-9]{5,19}` and duplicate-name checks the Starter
-tab applies on Create run here on Confirm, rendering failures in the same inline
+and the same `[a-zA-Z][a-zA-Z0-9]{5,19}` and duplicate-name checks the starter
+form applies on Create run here on Confirm, rendering failures in the same inline
 style.
 
 On **Confirm** the application is created from **that entry's own repository**,
@@ -289,9 +308,9 @@ shared with the Starter path.
 The GitHub datalist notice, the GitHub connect form and the SSH key fallback are
 **Starter-only**; a catalog application's repository is fixed and public.
 
-### Starter tab
+### New application (starter form)
 
-The Starter tab is starter-driven. Under the heading **"Add an application
+The starter form is starter-driven. Under the heading **"Choose a
 starter"** it shows a vertical radio list built from `GET /api/starters`
 ([15-starters.md](15-starters.md)): one row per starter with the **Name** as a
 link to `https://github.com/<repo>` (opens in a new tab and must not toggle the
@@ -320,10 +339,10 @@ Selecting **"My Application Starter"** opens a warning dialog:
 
 > Warning: if you use your own starter, it must be derived by a standard
 > application starter or be compatible with
-> [Trustant Conventions](https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustant).
+> [Trustant Conventions](https://github.com/orgs/trustant/discussions/198).
 > The repo must exist. Connect your GitHub account below to access it; Trustant
 > reads and pushes over HTTPS with the connected account. If you use a standard
-> template you can save in your repo later.
+> starter you can save it in your own repo later.
 
 Connecting an account here is what grants access to the user's own private
 starter repository, so the dialog embeds the shared **GitHub account form**

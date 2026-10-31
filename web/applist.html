@@ -171,10 +171,26 @@
     <!-- Add Application Modal -->
     <div id="addModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-50">
         <div id="addModalPanel" class="nu-modal p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <h3 class="text-lg font-medium mb-4">Add Application</h3>
-            <!-- One tab per catalog group, plus Starter. Built by renderAddAppTabs();
-                 with no applications published only Starter exists and the modal is
-                 exactly what it was before the catalog. -->
+            <h3 id="addModalTitle" class="text-lg font-medium mb-4">New Application</h3>
+            <!-- New application (from a starter) vs. a copy of a ready-made application
+                 (from a template). Hidden when no applications are published: the
+                 modal is then just the starter form. -->
+            <div id="addAppModes" class="hidden mb-4">
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" data-add-app-mode="new" onclick="selectAddAppMode('new')"
+                        class="nu-btn flex flex-col items-center py-2">
+                        <span class="font-medium">New application</span>
+                        <span class="text-xs opacity-80">start from a starter skeleton</span>
+                    </button>
+                    <button type="button" data-add-app-mode="template" onclick="selectAddAppMode('template')"
+                        class="nu-btn flex flex-col items-center py-2">
+                        <span class="font-medium">From a template</span>
+                        <span class="text-xs opacity-80">copy a ready-made application</span>
+                    </button>
+                </div>
+                <p id="addAppModeHint" class="text-sm text-[color:var(--nu-muted)] mt-3"></p>
+            </div>
+            <!-- One tab per catalog group, shown only in template mode. Built by renderAddAppTabs(). -->
             <div id="addAppTabs" class="flex gap-1 mb-4 overflow-x-auto hidden"></div>
             <!-- Application pane: the tile row, replaced in place by the name panel. -->
             <div id="addAppApplicationPane" class="hidden">
@@ -189,7 +205,7 @@
                 <p id="applicationPosition" class="text-xs text-[color:var(--nu-muted)] text-center mt-2"></p>
                 <form id="applicationConfigForm" class="hidden space-y-4">
                     <p class="text-sm text-[color:var(--nu-muted)]">
-                        Creating <strong id="applicationConfigTitle" class="text-[color:var(--nu-ink)]"></strong>
+                        Creating a copy of <strong id="applicationConfigTitle" class="text-[color:var(--nu-ink)]"></strong>
                         from <span id="applicationConfigRepo" class="nu-code text-xs"></span>
                     </p>
                     <div>
@@ -215,7 +231,7 @@
             </div>
             <form id="addAppForm" class="space-y-4" data-pane="starter">
                 <div>
-                    <p class="block text-sm font-medium text-[color:var(--nu-ink)] mb-2">Add an application starter</p>
+                    <p class="block text-sm font-medium text-[color:var(--nu-ink)] mb-2">Choose a starter</p>
                     <div id="starterList" class="space-y-2 max-h-56 overflow-y-auto pr-1">
                         <p id="starterLoading" class="text-xs text-[color:var(--nu-muted)]">Loading application starters...</p>
                     </div>
@@ -297,11 +313,11 @@
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
                 If you use your own starter, it must be derived by a standard application
                 starter or be compatible with
-                <a href="https://github.com/trustable-ai#how-can-i-make-a-template-compatible-with-trustant"
+                <a href="https://github.com/orgs/trustant/discussions/198"
                     target="_blank" rel="noopener" class="nu-link">Trustant Conventions</a>.
                 The repo must exist. Connect your GitHub account below to access it;
                 Trustant reads and pushes over HTTPS with the connected account.
-                If you use a standard template you can save in your repo later.
+                If you use a standard starter you can save it in your own repo later.
             </p>
             <!-- Connecting here is what grants access to the user's own private
                  starter repo, so the form is in the modal rather than a page away. -->
@@ -867,12 +883,14 @@
         // OWN_STARTER is the sentinel radio value for "My Application Starter".
         const OWN_STARTER = '__own__';
         const OWN_STARTER_DEFAULT_NAME = 'myapp';
-        const STARTER_TAB = '';
         let starters = [];
         // The grouped application catalog from GET /api/starters, keyed by group.
         let applicationGroups = {};
-        // Active tab: '' is Starter, anything else is a catalog group name.
-        let activeAddAppTab = STARTER_TAB;
+        // 'new' creates an application from a starter, 'template' copies a
+        // ready-made application from the catalog.
+        let addAppMode = 'new';
+        // The catalog group shown in template mode.
+        let activeAddAppGroup = '';
         // The tile the user clicked, shown by the inline name panel.
         let selectedApplication = null;
         // Once the user edits the name field we never overwrite it again.
@@ -1052,54 +1070,87 @@
             return Object.keys(applicationGroups || {}).sort();
         }
 
+        const ADD_APP_MODES = {
+            new: {
+                title: 'New Application',
+                hint: 'Create a NEW application from a minimal starter. You build the features with the AI assistant.'
+            },
+            template: {
+                title: 'Application from Template',
+                hint: 'Copy an EXISTING working application, then run and customize it as your own.'
+            }
+        };
+
+        // The mode switch exists only when there is a catalog to copy from;
+        // with nothing published the modal is just the starter form.
+        function renderAddAppModes() {
+            const groups = applicationGroupNames();
+            if (groups.length === 0 && addAppMode === 'template') {
+                selectAddAppMode('new');
+                return;
+            }
+            document.getElementById('addAppModes').classList.toggle('hidden', groups.length === 0);
+            document.querySelectorAll('[data-add-app-mode]').forEach(btn => {
+                const active = btn.dataset.addAppMode === addAppMode;
+                btn.classList.toggle('nu-btn-primary', active);
+                btn.classList.toggle('nu-btn-secondary', !active);
+            });
+            document.getElementById('addModalTitle').textContent = ADD_APP_MODES[addAppMode].title;
+            document.getElementById('addAppModeHint').textContent = ADD_APP_MODES[addAppMode].hint;
+            renderAddAppTabs();
+        }
+
         function renderAddAppTabs() {
             const strip = document.getElementById('addAppTabs');
             const groups = applicationGroupNames();
             strip.innerHTML = '';
-            // With nothing published there is only one tab, so show no strip at
-            // all and leave the modal exactly as it was before the catalog.
-            if (groups.length === 0) {
+            if (addAppMode !== 'template' || groups.length === 0) {
                 strip.classList.add('hidden');
                 return;
             }
+            if (!groups.includes(activeAddAppGroup)) activeAddAppGroup = groups[0];
             strip.classList.remove('hidden');
-            for (const tab of [STARTER_TAB].concat(groups)) {
+            for (const group of groups) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'nu-btn nu-btn-compact whitespace-nowrap ' +
-                    (tab === activeAddAppTab ? 'nu-btn-primary' : 'nu-btn-secondary');
-                button.textContent = tab === STARTER_TAB ? 'Starter' : tab;
-                button.addEventListener('click', () => selectAddAppTab(tab));
+                    (group === activeAddAppGroup ? 'nu-btn-primary' : 'nu-btn-secondary');
+                button.textContent = group;
+                button.addEventListener('click', () => selectAddAppGroup(group));
                 strip.appendChild(button);
             }
         }
 
-        // Switching tabs only swaps which pane is visible: the Starter tab keeps
-        // its radio selection and typed name.
-        function selectAddAppTab(tab) {
-            activeAddAppTab = tab;
-            const starterPane = document.getElementById('addAppForm');
-            const applicationPane = document.getElementById('addAppApplicationPane');
-            const onStarter = tab === STARTER_TAB;
-            starterPane.classList.toggle('hidden', !onStarter);
-            applicationPane.classList.toggle('hidden', onStarter);
-            // The catalog needs room for a full-width application; the Starter
+        // Switching modes only swaps which pane is visible: the starter form
+        // keeps its radio selection and typed name.
+        function selectAddAppMode(mode) {
+            addAppMode = mode;
+            const onTemplate = mode === 'template';
+            document.getElementById('addAppForm').classList.toggle('hidden', onTemplate);
+            document.getElementById('addAppApplicationPane').classList.toggle('hidden', !onTemplate);
+            // The catalog needs room for a full-width application; the starter
             // form does not, so the larger size lasts only while browsing.
-            document.getElementById('addModalPanel').classList.toggle('nu-modal-browse', !onStarter);
+            document.getElementById('addModalPanel').classList.toggle('nu-modal-browse', onTemplate);
+            renderAddAppModes();
+            selectAddAppGroup(activeAddAppGroup);
+        }
+
+        function selectAddAppGroup(group) {
+            activeAddAppGroup = group;
             renderAddAppTabs();
-            // Leaving an application selected behind a tab switch would
+            // Leaving an application selected behind a group switch would
             // resurface it, so every switch returns to the carousel — at the
             // start of the group it is now showing.
             applicationSlideIndex = 0;
             showApplicationRow();
-            if (!onStarter) renderApplicationRow();
+            if (addAppMode === 'template') renderApplicationRow();
         }
 
         // Index of the application on show within the active group.
         let applicationSlideIndex = 0;
 
         function activeApplications() {
-            return applicationGroups[activeAddAppTab] || [];
+            return applicationGroups[activeAddAppGroup] || [];
         }
 
         // Steps the carousel, wrapping at both ends so the arrows are never
@@ -1234,12 +1285,12 @@
                 applicationGroups = (data.applications && typeof data.applications === 'object')
                     ? data.applications : {};
                 renderStarters(data.warning || '');
-                renderAddAppTabs();
+                renderAddAppModes();
             } catch (e) {
                 starters = [];
                 applicationGroups = {};
                 renderStarters('Could not load application starters: ' + e.message);
-                renderAddAppTabs();
+                renderAddAppModes();
             }
         }
 
@@ -1263,8 +1314,9 @@
             if (copied) copied.classList.add('hidden');
             appNameTouched = false;
             hideAppNameError();
-            // Always reopen on Starter with the catalog back at its tile row.
-            selectAddAppTab(STARTER_TAB);
+            // Always reopen on New application, the catalog back at its first group.
+            activeAddAppGroup = '';
+            selectAddAppMode('new');
             document.getElementById('starterList').innerHTML =
                 '<p class="text-xs text-[color:var(--nu-muted)]">Loading application starters...</p>';
             refreshAddAppSshKeyNotice();
@@ -1277,7 +1329,7 @@
             document.getElementById('addModal').classList.add('hidden');
             document.getElementById('addModal').classList.remove('flex');
             document.getElementById('addAppForm').reset();
-            // Drop the catalog size now: the modal always reopens on Starter,
+            // Drop the catalog size now: the modal always reopens on New application,
             // and a stale class would flash the browsing size on the way in.
             document.getElementById('addModalPanel').classList.remove('nu-modal-browse');
             appNameTouched = false;
@@ -3181,7 +3233,7 @@
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
             if (document.getElementById('addModal').classList.contains('hidden')) return;
-            if (activeAddAppTab === STARTER_TAB) return;
+            if (addAppMode !== 'template') return;
             if (!document.getElementById('applicationConfigForm').classList.contains('hidden')) return;
             e.preventDefault();
             stepApplication(e.key === 'ArrowLeft' ? -1 : 1);
