@@ -393,6 +393,11 @@ stage that timed out (the second one also reporting the last description seen).
 
 `start.sh` must explicitly ensure GitHub CLI is installed in the VM with
 `apt-get install gh` during provisioning, for both fresh and reused VMs.
+Not every distro archive carries `gh`, so `ensure_gh_apt` first adds GitHub's
+own apt repository (keyring at `/etc/apt/keyrings/githubcli-archive-keyring.gpg`,
+source `https://cli.github.com/packages stable main` in
+`/etc/apt/sources.list.d/github-cli.list`, `wget` installed if missing), then
+installs `gh` from it. An already-installed `gh` package skips all of this.
 
 Before printing the final "VM ready" summary, `start.sh` must also verify that
 `gh` resolves and matches the pinned runtime version. Runtime convergence is
@@ -695,14 +700,13 @@ Windows-aware, and none of them may be taught to be.
     npm into the distribution; a leaking Windows `PATH` would make `node` and
     `go` resolve to Windows `.exe` files inside Linux builds.
 - The base packages the native path shells out to and the WSL image may lack:
-  `sudo curl ca-certificates git iproute2 iptables zstd unzip gh`. `iptables` is
+  `sudo curl ca-certificates git iproute2 iptables zstd unzip`. `iptables` is
   what the package's postinst builds its `:80/:443/:6443` firewall dropin with;
-  `zstd` and `unzip` unpack what the flow downloads. `gh` is belt and braces:
-  the bootstrap runs as root before `start.sh` is invoked at all, so the
-  distribution has the CLI whatever `start.sh`'s internal ordering does.
-  If the Ubuntu archive ever stops carrying `gh`, `ensure_gh_apt` is what gets
-  fixed, not this list; `setup.sh` still owns the pinned-version convergence
-  from the release tarball afterwards.
+  `zstd` and `unzip` unpack what the flow downloads. `gh` is deliberately not
+  in this list: not every distro archive carries it, and a missing package
+  would fail the whole install. `start.sh`'s `ensure_gh_apt` installs it from
+  GitHub's own apt repository; `setup.sh` still owns the pinned-version
+  convergence from the release tarball afterwards.
 
 ## The mount
 

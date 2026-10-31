@@ -76,10 +76,10 @@ $VM_SWAP = '8GB'
 # What start.sh's native path shells out to and the base image may not have.
 # zstd and unzip are needed to unpack what the flow downloads (the Trustant
 # .deb payload and the zipped release archives); iptables is what the package's
-# postinst installs its firewall dropin with. gh is here as belt and braces: the
-# bootstrap runs as root before start.sh is invoked at all, so the distro has
-# the CLI whatever start.sh's own internal ordering does.
-$BASE_PACKAGES = 'sudo curl ca-certificates git iproute2 iptables zstd unzip gh'
+# postinst installs its firewall dropin with. gh is not here: not every distro
+# archive carries it, and start.sh's ensure_gh_apt installs it from GitHub's
+# own apt repository.
+$BASE_PACKAGES = 'sudo curl ca-certificates git iproute2 iptables zstd unzip'
 
 function Write-Ok   { param([string]$m) Write-Host "OK  $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "!!  $m" -ForegroundColor Yellow }

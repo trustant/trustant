@@ -87,6 +87,59 @@ case "$(uname -s)" in
 ;;
 esac
 
+# Requirements, checked before anything is cloned: report every problem, then
+# stop. Memory allows 7.5 GiB because an "8 GB" machine reports a bit less.
+FAIL=0
+fail() { echo "ERROR: $*"; FAIL=1; }
+if [ "$(uname -s)" = Darwin ]
+then
+   MEM_KB=$(( $(sysctl -n hw.memsize) / 1024 ))
+   CPUS=$(sysctl -n hw.ncpu)
+   MINIOPS=$(dscacheutil -q host -a name miniops.me | awk '/^ip_address:/{print $2; exit}')
+else
+   MEM_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+   CPUS=$(nproc)
+   MINIOPS=$(getent ahostsv4 miniops.me | awk '{print $1; exit}')
+fi
+DIR="$(dirname "$DEST")"
+while [ ! -d "$DIR" ]
+do DIR="$(dirname "$DIR")"
+done
+DISK_KB=$(df -Pk "$DIR" | awk 'NR==2{print $4}')
+[ "${MEM_KB:-0}" -ge 7864320 ] \
+   || fail "at least 8 GB of memory is required (found $(( ${MEM_KB:-0} / 1048576 )) GB)"
+[ "${CPUS:-0}" -ge 4 ] \
+   || fail "at least 4 CPUs are required (found ${CPUS:-0})"
+[ "${DISK_KB:-0}" -ge 52428800 ] \
+   || fail "at least 50 GB of free disk space is required in $DIR (found $(( ${DISK_KB:-0} / 1048576 )) GB)"
+if [ "$MINIOPS" != "127.0.0.1" ]
+then
+   fail "miniops.me resolves to ${MINIOPS:-nothing}, not 127.0.0.1: your router is blocking miniops.me.
+    Please either change your DNS to 8.8.8.8 and 1.1.1.1, or add an exception for miniops.me to the router."
+fi
+# Linux runs k3s on this host, which needs :80 and :443 - unless it is
+# Trustant's own k3s already holding them.
+if [ "$(uname -s)" = Linux ] && ! systemctl is-active --quiet k3s 2>/dev/null
+then
+   if command -v ss >/dev/null
+   then
+      BUSY=$(sudo ss -ltnpH '( sport = :80 or sport = :443 )' </dev/null | awk '{print "      " $4 "  " $NF}' | sort -u)
+      if [ -n "$BUSY" ]
+      then
+         fail "ports 80 and 443 must be free, but they are in use:
+$BUSY
+    Stop the service using them, e.g.: sudo systemctl stop nginx"
+      fi
+   else
+      echo "WARNING: ss not found - cannot check that ports 80 and 443 are free"
+   fi
+fi
+if [ "$FAIL" = 1 ]
+then
+   echo "This machine does not meet the Trustant requirements - exiting"
+   exit 1
+fi
+
 if [ -e "$DEST" ]
 then
    echo "$DEST already exists - remove it, or cd there and run ./start.sh"
@@ -171,6 +224,37 @@ echo > /dev/null <<"out-null" ###
     }
     if (-not (Test-Path ($Dest.Substring(0, 3)))) {
         Write-Host "Drive $($Dest.Substring(0, 2)) is not available on this machine"
+        return
+    }
+
+    # Requirements, checked before anything is cloned: report every problem,
+    # then stop. Memory allows 7.5 GiB because an "8 GB" machine reports a bit less.
+    $Failed = $false
+    $GB = 1024 * 1024 * 1024
+    $Mem = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+    if ($Mem -lt 7.5 * $GB) {
+        Write-Host "ERROR: at least 8 GB of memory is required (found $([math]::Floor($Mem / $GB)) GB)"; $Failed = $true
+    }
+    $Cpus = [Environment]::ProcessorCount
+    if ($Cpus -lt 4) {
+        Write-Host "ERROR: at least 4 CPUs are required (found $Cpus)"; $Failed = $true
+    }
+    $Free = ([System.IO.DriveInfo]::new($Dest.Substring(0, 1))).AvailableFreeSpace
+    if ($Free -lt 50 * $GB) {
+        Write-Host "ERROR: at least 50 GB of free disk space is required on $($Dest.Substring(0, 2)) (found $([math]::Floor($Free / $GB)) GB)"; $Failed = $true
+    }
+    $Miniops = try {
+        [System.Net.Dns]::GetHostAddresses('miniops.me') |
+            Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1
+    } catch { $null }
+    if ("$Miniops" -ne '127.0.0.1') {
+        $Got = if ($Miniops) { "$Miniops" } else { 'nothing' }
+        Write-Host "ERROR: miniops.me resolves to $Got, not 127.0.0.1: your router is blocking miniops.me."
+        Write-Host "    Please either change your DNS to 8.8.8.8 and 1.1.1.1, or add an exception for miniops.me to the router."
+        $Failed = $true
+    }
+    if ($Failed) {
+        Write-Host "This machine does not meet the Trustant requirements"
         return
     }
     try {
