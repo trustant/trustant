@@ -81,7 +81,7 @@ It is recommended your first enter in the development enviroment with:
 then switch to main and execute
 
 ```
-git swith main
+git switch main
 git pull origin main --recurse-submodules
 ./setup.sh
 ```
