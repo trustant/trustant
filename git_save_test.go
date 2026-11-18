@@ -110,3 +110,23 @@ func TestGitSaveGeneratedPathspecsExcludeRuntimeConfig(t *testing.T) {
 		}
 	}
 }
+
+// Issue #231: the Commit comment becomes the commit message shown on GitHub.
+func TestGitSaveCommitMessage(t *testing.T) {
+	cases := map[string]string{
+		"":                       "save from trustant",
+		"   \n\t ":               "save from trustant",
+		"  Add login page  ":     "Add login page",
+		"Title\r\n\r\nBody line": "Title\n\nBody line",
+		"-starts with dash":      "-starts with dash",
+	}
+	for in, want := range cases {
+		if got := gitSaveCommitMessage(in); got != want {
+			t.Fatalf("gitSaveCommitMessage(%q) = %q, want %q", in, got, want)
+		}
+	}
+	long := strings.Repeat("é", gitSaveMaxMessage+50)
+	if got := []rune(gitSaveCommitMessage(long)); len(got) != gitSaveMaxMessage {
+		t.Fatalf("long message not capped: %d runes", len(got))
+	}
+}

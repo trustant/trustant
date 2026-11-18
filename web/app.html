@@ -238,6 +238,15 @@
             </div>
             <h3 id="saveTitle" class="text-lg font-medium mb-2">Commit Changes</h3>
             <p id="saveMessage" class="text-[color:var(--nu-muted)] mb-4">Commit all changes to workspace?</p>
+            <!-- Issue #231: the comment becomes the git commit message shown on
+                 GitHub after Git Push. Empty falls back to "save from trustant". -->
+            <div id="saveCommitMessageBox" class="text-left mb-4">
+                <label for="saveCommitMessage" class="block text-sm font-medium text-[color:var(--nu-ink)] mb-1">Comment (shown on GitHub)</label>
+                <textarea id="saveCommitMessage" rows="3" maxlength="2000"
+                    onkeydown="if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); confirmSave(); }"
+                    placeholder="Describe what changed"
+                    class="nu-input w-full px-3 py-2 text-sm"></textarea>
+            </div>
             <div id="saveConfirmButtons" class="flex gap-3">
                 <button onclick="hideSaveModal()"
                     class="nu-btn nu-btn-secondary flex-1">
@@ -660,6 +669,10 @@
             document.getElementById('saveSpinner').classList.add('hidden');
             document.getElementById('saveTitle').textContent = 'Commit Changes';
             document.getElementById('saveMessage').classList.remove('hidden');
+            const commitMsg = document.getElementById('saveCommitMessage');
+            commitMsg.value = '';
+            document.getElementById('saveCommitMessageBox').classList.remove('hidden');
+            setTimeout(() => commitMsg.focus(), 0);
             document.getElementById('saveConfirmButtons').classList.remove('hidden');
             document.getElementById('saveResult').classList.add('hidden');
             document.getElementById('saveModal').classList.remove('hidden');
@@ -675,12 +688,14 @@
             document.getElementById('saveSpinner').classList.remove('hidden');
             document.getElementById('saveMessage').classList.add('hidden');
             document.getElementById('saveConfirmButtons').classList.add('hidden');
+            const commitMessage = document.getElementById('saveCommitMessage').value.trim();
+            document.getElementById('saveCommitMessageBox').classList.add('hidden');
 
             try {
                 const response = await fetch('/api/git/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: appName })
+                    body: JSON.stringify({ name: appName, message: commitMessage })
                 });
 
                 const data = await response.json();
