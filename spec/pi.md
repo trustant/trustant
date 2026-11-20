@@ -201,6 +201,15 @@ retried again. Setup validates the installed version and every source target
 before atomically replacing files, remains idempotent, and fails closed when the
 pinned package layout changes.
 
+Pi must not retry a turn that failed on a quota limit (issue #206). Ollama Cloud
+answers HTTP 429 with "session usage limit" when the session quota is
+exhausted; pi-ai's retry classifier treats any 429 as transient unless the text
+matches its non-retryable provider-limit list. Setup therefore adds
+`"session usage limit"` to that list in every installed copy of the pinned
+`@earendil-works/pi-ai` (`dist/utils/retry.js`), version-guarded, idempotent and
+fail-closed on a missing anchor. A plain 429 rate limit is still retried. Drop
+the patch once upstream Pi ships the pattern.
+
 The optional `agentireact` server is generated only when `vite.config.js` or
 `vite.config.ts` contains executable configuration that both references the
 `@agentic-react/vite` package and invokes `AgenticReact()`. Detection ignores

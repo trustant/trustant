@@ -379,6 +379,10 @@ its version-guarded Streamable HTTP session-recovery transform even when
 source targets before writing, remain idempotent, reconnect and refresh
 tools/resources after an expired server session, and retry a tool call at most
 once. A version or source-layout mismatch is a setup failure.
+After the global install it also patches every installed copy of the pinned
+`@earendil-works/pi-ai` so Ollama's 429 "session usage limit" is not retried
+(issue #206); see [pi.md](pi.md). It is idempotent and a missing anchor is a
+setup failure.
 The same setup installs the reviewed issue #57 extension at
 `~/.local/lib/truacp/extensions/trustant-runtime.ts`. A missing extension is
 a setup failure because managed Trustant must not start an unguarded Pi
