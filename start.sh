@@ -1467,9 +1467,17 @@ preflight_native() {
   [[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
   # shellcheck disable=SC1091
   source /etc/os-release
-  case " ${ID:-} ${ID_LIKE:-} " in
-    *ubuntu*|*debian*) ;;
-    *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
+  # Supported: Debian 12+ and Ubuntu 24.04+ (issue #234). Same check as setup.sh.
+  case "${ID:-}" in
+    debian) [[ -z "${VERSION_ID:-}" ]] && warn "Debian testing/sid: ${PRETTY_NAME:-debian} (supported: Debian 12+)"
+      [[ -z "${VERSION_ID:-}" || "${VERSION_ID%%.*}" -ge 12 ]] 2>/dev/null \
+      || fail "unsupported Linux distribution: ${PRETTY_NAME:-debian} (expected Debian 12+ or Ubuntu 24.04+)" ;;
+    ubuntu) [[ "${VERSION_ID%%.*}" -ge 24 ]] 2>/dev/null \
+      || fail "unsupported Linux distribution: ${PRETTY_NAME:-ubuntu} (expected Debian 12+ or Ubuntu 24.04+)" ;;
+    *) case " ${ID_LIKE:-} " in
+         *ubuntu*|*debian*) warn "untested derivative: ${PRETTY_NAME:-${ID:-unknown}} (supported: Debian 12+, Ubuntu 24.04+)" ;;
+         *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Debian 12+ or Ubuntu 24.04+)" ;;
+       esac ;;
   esac
   ok "distribution: ${PRETTY_NAME:-${ID:-unknown}}"
 

@@ -161,9 +161,11 @@ Ollama needs to stop returning tool calls as raw text.
 When a provider does not return policy metadata (for example Private AI or
 own-host Ollama discovery), Trustant applies a conservative local policy:
 embedding/rerank/vector models, obvious tiny/small non-agent models, vision,
-audio, TTS/Whisper-style models, and models below roughly 20B parameters are
-hidden from the Pi dropdown. They may still appear in the provider model
-table because availability and suitability are different facts.
+audio and TTS/Whisper-style models are hidden from the Pi dropdown. They may
+still appear in the provider model table because availability and suitability
+are different facts. Model **size is not filtered** (issue #233): any chat model
+the endpoint serves (e.g. `qwen3:14b`, `deepseek-r1:7b`) is offered, since the
+only real limit is the user's GPU VRAM, which Trustant does not police.
 
 There is no longer a top-level `version` field driving reselect — the previous `<WorkspaceDir>/models.json` cache and the catalog-level version check have been retired in favor of the per-provider `modelsVersion` mechanism below.
 
@@ -190,6 +192,20 @@ When `provider == "ollama"` **and** `base_url` resolves to a non-localhost host 
 Internal Ollama (localhost `base_url`) and Trustant are catalog-backed and **do** trigger the redirect when `modelsVersion` bumps. This is a deliberate change from the previous "all-Ollama is exempt" rule.
 
 The `Refresh` button in the configure UI is also hidden whenever the active config is own-host Ollama (it re-fetches the catalog and would otherwise overwrite the user's discovered model list).
+
+### Internal Ollama — locally installed models (issue #233)
+
+For internal Ollama the model list is the `status.ollama` catalog **plus every
+model installed on the built-in Ollama** (`GET <OLLAMA_ENDPOINT>/api/tags`), of
+any size — e.g. a user's `ollama pull deepseek-r1:7b`. The server merges them
+(`mergeLocalOllamaModels`) in `GET /api/configuration` and in `POST
+/api/configuration` before validation, so catalog re-seeds from splash/applist
+never drop them and a local model can be saved as `pi.default`. Names are
+matched with `:latest` normalisation; catalog entries keep their limits, new
+ones get the Pi defaults (128K context, 32K output). An unreachable Ollama is
+logged and ignored. A removed row that is still installed reappears on the next
+load — uninstall it from Ollama instead. Own-host Ollama and Private AI are not
+affected: they already list everything through `/api/discover-models`.
 
 ### Detecting own-host Ollama
 
