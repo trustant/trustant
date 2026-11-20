@@ -6,7 +6,7 @@ When the page loads invoke the version api and show the version.
 
 # Splash Screen
 
-The page shows centered the Trustant logo (`trustant-logo.svg`) in large size, the text "Trustant Cloud" in large font, the subtitle "powered by Regolo.AI" in smaller font, and below it the version (e.g. "v1.2.3") in large font.
+The page shows centered the Trustant logo (`trustant-logo.svg`) in large size, the text "Trustant Desktop" in large font, the subtitle "powered by Regolo.AI" in smaller font, and below it the version (e.g. "v1.2.3") in large font.
 
 Show also in smaller font "Expiration date: <date>"
 
