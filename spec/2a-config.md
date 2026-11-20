@@ -800,9 +800,9 @@ break a consumer until the next refresh.
 
 The `current` field in the workspace `trustant.json` stores the name of the currently launched app. It is set when an app is launched (`writeCurrentApp`) and cleared when the launch is stopped (`removeCurrentFile`). The `workbench/current` file is also maintained for backward compatibility.
 
-## OpenServerless CLI card
+## TruServerless CLI card
 
-`configure.html` shows a read-only **OpenServerless CLI** card with the full
+`configure.html` shows a read-only **TruServerless CLI** card with the full
 `ops -info` output, probed once at startup and delivered as the `opsinfo` array
 on `/api/version` (see [0-preflight.md](0-preflight.md)). The page already
 fetches that endpoint for the `license` flag, so no extra request is made.
