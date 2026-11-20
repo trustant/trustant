@@ -82,6 +82,10 @@ func TestModelAllowedForPiBlocksNonAgentModels(t *testing.T) {
 		"qwen3.6:35b",
 		"qwen3.6-27b",
 		"gpt-oss-20b",
+		// issue #233: no size floor
+		"qwen3:14b",
+		"deepseek-r1:7b",
+		"gemma4:e4b",
 	}
 	for _, model := range allowed {
 		if ok, reason := modelAllowedForPi("myhost", model, nil); !ok {
@@ -2596,5 +2600,46 @@ func TestModelLimitsUnmarshalsLegacyStringContextSize(t *testing.T) {
 	models := buildPiModels(cfg)
 	if len(models) != 1 || models[0]["contextWindow"] != 262144 {
 		t.Fatalf("legacy context size did not reach Pi: %#v", models)
+	}
+}
+
+// Issue #233: the built-in Ollama lists every installed model (any size) next
+// to the catalog; own-host Ollama is left to /api/discover-models.
+func TestMergeLocalOllamaModels(t *testing.T) {
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"models":[{"name":"glm-5.3:cloud"},{"name":"deepseek-r1:7b"},{"name":"qwen3:latest"}]}`)
+	}))
+	defer ollama.Close()
+	original := OllamaEndpoint
+	OllamaEndpoint = ollama.URL
+	t.Cleanup(func() { OllamaEndpoint = original })
+
+	cfg := &trustantConfig{
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434/v1",
+		Models: map[string]*ModelLimits{
+			"glm-5.3:cloud": {MaxInput: 200000},
+			"qwen3":         {MaxInput: 1},
+		},
+	}
+	mergeLocalOllamaModels(cfg)
+	if len(cfg.Models) != 3 {
+		t.Fatalf("want 3 models, got %v", cfg.Models)
+	}
+	if m := cfg.Models["deepseek-r1:7b"]; m == nil || m.MaxToken != piDefaultContextWindow {
+		t.Fatalf("deepseek-r1:7b not merged with defaults: %+v", m)
+	}
+	if cfg.Models["glm-5.3:cloud"].MaxInput != 200000 {
+		t.Fatalf("catalog limits overwritten")
+	}
+
+	own := &trustantConfig{Provider: "ollama", BaseURL: "http://192.168.1.232:11434/v1", Models: map[string]*ModelLimits{}}
+	mergeLocalOllamaModels(own)
+	if len(own.Models) != 0 {
+		t.Fatalf("own-host config must not be touched: %v", own.Models)
 	}
 }

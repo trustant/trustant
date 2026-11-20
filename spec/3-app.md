@@ -20,7 +20,7 @@ In the bar, aligned to the left:
 Aligned to the right:
 
 - a git status indicator (dot + text)
-- the button "Commit" (blue, checkmark icon, disabled when no changes)
+- the button "Commit" (blue, checkmark icon, disabled when no changes) — opens the **Commit Changes** dialog, which has an optional multi-line **Comment (shown on GitHub)** field (empty on open, focused, max 2000 chars, Ctrl/Cmd+Enter commits); its text is sent as `message` to `/api/git/save` and becomes the commit message (see [5-git.md](5-git.md))
 - the **device preview toggle** (three icon-only segmented buttons: desktop, tablet, phone) — see "Device Preview" below
 - the button "Route: /" (teal, home icon) — displays the current value of the ROUTE cookie (defaults to "/"); opens the combined Route & Query popup (see "Query & Route" below)
 - the button "Reload" (gray, circular-arrow icon), immediately to the right of Route — see "Reload" below

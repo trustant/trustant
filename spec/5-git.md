@@ -46,8 +46,15 @@ Return:
 # POST /api/git/save
 
 `{
-   "name": <name>
+   "name": <name>,
+   "message": <optional commit comment>
 }`
+
+`message` (issue #231) is the comment the user types in the **Commit Changes**
+dialog; it becomes the git commit message and is what GitHub shows after Git
+Push. CRLF is normalised to LF, the text is trimmed and capped at 2000
+characters; when empty or absent the default `save from trustant` is used. It
+is passed to git as an argument, never through a shell.
 
 Change to the folder `<workbenchdir>/<name>`.
 If the folder does not exist, return `{"error": "workbench not found"}`.
@@ -78,7 +85,7 @@ Execute the following git commands in sequence:
    there are app-owned changes to commit. Excluded generated files may remain
    in the worktree and do not make this check dirty.
    - If no staged changes remain, return `{"message": "nothing to save"}`
-3. `git commit -m "save from trustant"` to commit all changes
+3. `git commit -m <message>` to commit all changes (`save from trustant` when no comment was given)
 4. `git push origin` to push changes back to workspace/<name>
    (the origin remote points to workspace/<name> because workbench was cloned from it)
 
