@@ -986,10 +986,7 @@
             if (blocked.some(part => id.includes(part))) {
                 return { allowed: false, reason: 'not suitable for Pi agent work' };
             }
-            const match = /(^|[/:_-])([0-9]+(?:\.[0-9]+)?)b($|[/:_-])/i.exec(id);
-            if (match && parseFloat(match[2]) > 0 && parseFloat(match[2]) < 20) {
-                return { allowed: false, reason: 'below the recommended 20B minimum' };
-            }
+            // No parameter-size gate (issue #233): GPU VRAM is the only limit.
             return { allowed: true, reason: '' };
         }
 

@@ -741,8 +741,6 @@ func parseContextSize(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
-var modelParamSizePattern = regexp.MustCompile(`(?i)(^|[/:_-])([0-9]+(?:\.[0-9]+)?)b($|[/:_-])`)
-
 func modelHasRole(limits *ModelLimits, roles ...string) bool {
 	if limits == nil {
 		return false
@@ -801,13 +799,8 @@ func modelAllowedForPi(provider, modelID string, limits *ModelLimits) (bool, str
 		}
 	}
 
-	if match := modelParamSizePattern.FindStringSubmatch(name); len(match) >= 3 {
-		params, err := strconv.ParseFloat(match[2], 64)
-		if err == nil && params > 0 && params < 20 {
-			return false, "model is below the recommended 20B minimum for Pi agent work"
-		}
-	}
-
+	// No parameter-size gate (issue #233): any chat model the endpoint serves
+	// is offered; the user's hardware (GPU VRAM) is the only size limit.
 	return true, ""
 }
 
@@ -911,12 +904,9 @@ func normalizeOllamaModelName(name string) string {
 	return strings.TrimSuffix(strings.TrimSpace(name), ":latest")
 }
 
-// installedOllamaModels lists the model names already present on the target
-// Ollama endpoint via GET <root>/api/tags. A failure returns a nil set and a
-// non-nil error: callers fall back to pulling everything rather than silently
-// skipping an install that never happened.
-func installedOllamaModels(root string) (map[string]bool, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+// ollamaTagNames returns the raw model names reported by GET <root>/api/tags.
+func ollamaTagNames(root string, timeout time.Duration) ([]string, error) {
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Get(strings.TrimRight(root, "/") + "/api/tags")
 	if err != nil {
 		return nil, err
@@ -933,12 +923,61 @@ func installedOllamaModels(root string) (map[string]bool, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, err
 	}
-	installed := make(map[string]bool, len(payload.Models)*2)
+	names := make([]string, 0, len(payload.Models))
 	for _, m := range payload.Models {
-		name := strings.TrimSpace(m.Name)
-		if name == "" {
+		if name := strings.TrimSpace(m.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+// mergeLocalOllamaModels adds every model installed on the built-in Ollama to
+// cfg.Models (issue #233). The internal-Ollama list is otherwise only the
+// status.ollama catalog, so a model the user pulled themselves (any size) would
+// never be offered. Catalog entries keep their limits; new entries get the Pi
+// defaults. Own-host Ollama and other providers are untouched (they discover
+// their list via /api/discover-models). Failures are logged and ignored.
+func mergeLocalOllamaModels(cfg *trustantConfig) {
+	if cfg == nil || cfg.Provider != "ollama" {
+		return
+	}
+	root, isOwnHost := resolveOllamaRoot(cfg)
+	if isOwnHost || strings.TrimSpace(root) == "" {
+		return
+	}
+	names, err := ollamaTagNames(root, 3*time.Second)
+	if err != nil {
+		log.Printf("local ollama models: %s/api/tags: %v", root, err)
+		return
+	}
+	have := make(map[string]bool, len(cfg.Models))
+	for name := range cfg.Models {
+		have[normalizeOllamaModelName(name)] = true
+	}
+	for _, name := range names {
+		if have[normalizeOllamaModelName(name)] {
 			continue
 		}
+		if cfg.Models == nil {
+			cfg.Models = map[string]*ModelLimits{}
+		}
+		cfg.Models[name] = &ModelLimits{MaxToken: piDefaultContextWindow, MaxOutput: piDefaultMaxOutput}
+		have[normalizeOllamaModelName(name)] = true
+	}
+}
+
+// installedOllamaModels lists the model names already present on the target
+// Ollama endpoint via GET <root>/api/tags. A failure returns a nil set and a
+// non-nil error: callers fall back to pulling everything rather than silently
+// skipping an install that never happened.
+func installedOllamaModels(root string) (map[string]bool, error) {
+	names, err := ollamaTagNames(root, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	installed := make(map[string]bool, len(names)*2)
+	for _, name := range names {
 		installed[name] = true
 		installed[normalizeOllamaModelName(name)] = true
 	}
@@ -2558,6 +2597,7 @@ func handleGetConfiguration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid notebook configuration: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	mergeLocalOllamaModels(cfg)
 	payload, err := configurationPayload(cfg)
 	if err != nil {
 		http.Error(w, "Failed to prepare configuration: "+err.Error(), http.StatusInternalServerError)
@@ -2637,6 +2677,9 @@ func handlePostConfiguration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Catalog re-seeds (splash/applist) post only status.ollama; keep the
+	// models installed on the built-in Ollama so they are not dropped.
+	mergeLocalOllamaModels(&cfg)
 	if err := validatePiModelSelection(&cfg); err != nil {
 		http.Error(w, "Invalid model selection: "+err.Error(), http.StatusBadRequest)
 		return
