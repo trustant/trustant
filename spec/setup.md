@@ -4,9 +4,11 @@ This specification defines the repository-root `setup.sh`. The script recreates,
 inside a supported Ubuntu development
 target, the same environment that `image/Dockerfile` builds, so that `./run.sh`
 can be run with all MCP servers and references ready. Supported targets are the
-Ubuntu `trudev` Lima VM created by `./start.sh`, a native Ubuntu Linux host
-initialized by the same `./start.sh` (see [start.md](start.md)), and Ubuntu on
-WSL — each with local k3s, passwordless sudo, and systemd enabled.
+Ubuntu `trudev` Lima VM created by `./start.sh`, a native Debian 12+ or Ubuntu
+24.04+ host initialized by the same `./start.sh` (see [start.md](start.md)), and
+Ubuntu on WSL — each with local k3s, passwordless sudo, and systemd enabled.
+At startup setup.sh repeats start.sh's distribution check (Debian 12+ or Ubuntu
+24.04+, from `/etc/os-release`; issue #234) and aborts on anything older.
 
 setup.sh runs INSIDE the VM, as the mirrored guest user (the macOS user that
 `start.sh` recreated in the VM with the same UID + passwordless sudo). `start.sh`
@@ -223,7 +225,13 @@ ensuring `ops admin listuser` does not return error
 10. check the CLI tools the image ships are available; install any that are
 missing (apt via passwordless sudo, the pinned upstream Milvus CLI via uv):
 
-- psql       (postgresql-client-16)
+- psql       (postgresql-client-16). When the distribution has no candidate
+  for it (Debian 12 ships only 15), setup.sh first adds the PostgreSQL apt repo
+  idempotently: the key `ACCC4CF8.asc` into
+  `/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc` and
+  `/etc/apt/sources.list.d/pgdg.list` with
+  `deb [signed-by=…] https://apt.postgresql.org/pub/repos/apt <VERSION_CODENAME>-pgdg main`,
+  installing `curl ca-certificates` if missing. Ubuntu 24.04 needs no repo.
 - redis-cli  (redis-tools)
 - rclone
 - lsof, required by Trustant's orphaned TruACP/Vite listener recovery

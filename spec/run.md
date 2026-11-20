@@ -2,8 +2,8 @@
 
 This specification defines the repository-root `run.sh`, which invokes the app
 with Air inside the `trudev` VM (see [setup.md](setup.md)). On a native Ubuntu
-Linux host there is no VM, so the same dev loop runs directly: step 0's Ubuntu
-check passes and execution falls straight through to the steps below. That host
+or Debian 12+ Linux host there is no VM, so the same dev loop runs directly: step
+0's distribution check passes and execution falls straight through to the steps below. That host
 is initialized by the native path of `./start.sh` (see
 [start.md](start.md)), which supplies the same kubeconfig, `kubefwd`, and
 toolchain the VM path provides.
@@ -36,18 +36,23 @@ persisted `npm config get prefix`). `~/.local/bin` remains first and the selecte
 prefix, missing `pi`, or missing `pi-acp` is an immediate prerequisite failure,
 not a deferred browser-side `ACP connection closed`.
 
-0. `run.sh` runs on **Ubuntu only** and refuses to start anywhere else. The
-check reads `/etc/os-release` and requires `ubuntu` in `ID` or `ID_LIKE`, so the
-trudev Lima VM, a WSL2 trudev distro and a native Ubuntu host all pass, while
-Ubuntu derivatives do too. The toolchain paths, apt packages and local-k3s
-assumptions in the steps below hold nowhere else, so failing here is clearer
-than failing midway. The refusal names the detected system and says what to use
-instead, exiting 1:
-  a. another Linux distribution — report that this Linux is not supported and
-     point at Ubuntu 24.04 or the trudev VM.
-  b. macOS — point at `./start.sh`, which boots the VM and runs setup.sh and the
+0. `run.sh` runs on **Ubuntu or Debian 12+ only** — the same distributions
+`start.sh` provisions natively — and refuses to start anywhere else. The check
+sources `/etc/os-release` in a subshell and passes when `ID` is `ubuntu`, when
+`ID` is `debian` with a `VERSION_ID` major of 12 or more (or no `VERSION_ID`, i.e.
+testing/sid), or when `ID_LIKE` names `ubuntu` or `debian` (derivatives, which
+`start.sh` only warns about). So the trudev Lima VM, a WSL2 trudev distro and a
+native Ubuntu or Debian host all pass. The toolchain paths, apt packages and
+local-k3s assumptions in the steps below hold nowhere else, so failing here is
+clearer than failing midway. The refusal names the detected system and says what
+to use instead, exiting 1:
+  a. Debian older than 12 — report "Debian <ver> is too old (need Debian 12+ or
+     Ubuntu 24.04+)".
+  b. another Linux distribution — report that this Linux is not supported and
+     point at a Debian 12+ / Ubuntu 24.04+ host or the trudev VM.
+  c. macOS — point at `./start.sh`, which boots the VM and runs setup.sh and the
      dev loop inside it; `./ssh.sh ./run.sh` restarts only the dev loop.
-  c. Windows — point at `.\start.ps1`, which creates the WSL2 trudev distro and
+  d. Windows — point at `.\start.ps1`, which creates the WSL2 trudev distro and
      starts the dev loop inside it.
 
 1. terminate all the process listening in ports 8910, 5173 and 4096 found with lsof -i
