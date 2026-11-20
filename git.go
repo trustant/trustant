@@ -649,7 +649,8 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name    string `json:"name"`
+		Message string `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -722,7 +723,7 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// git commit
-	commitCmd := exec.Command("git", "commit", "-m", "save from trustant")
+	commitCmd := exec.Command("git", "commit", "-m", gitSaveCommitMessage(req.Message))
 	commitCmd.Dir = workbenchPath
 	if output, err := commitCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -761,6 +762,27 @@ func handleGitSave(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "committed and deployed successfully"})
+}
+
+const (
+	gitSaveDefaultMessage = "save from trustant"
+	gitSaveMaxMessage     = 2000 // runes
+)
+
+// gitSaveCommitMessage turns the user's Commit comment (issue #231) into the
+// git commit message: CRLF normalised, trimmed, capped; empty falls back to
+// the historical default. It is passed as an exec argument, never via a shell.
+func gitSaveCommitMessage(msg string) string {
+	msg = strings.ReplaceAll(msg, "\r\n", "\n")
+	msg = strings.ReplaceAll(msg, "\r", "\n")
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return gitSaveDefaultMessage
+	}
+	if runes := []rune(msg); len(runes) > gitSaveMaxMessage {
+		msg = strings.TrimSpace(string(runes[:gitSaveMaxMessage]))
+	}
+	return msg
 }
 
 func handleGit(w http.ResponseWriter, r *http.Request) {
