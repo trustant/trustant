@@ -47,13 +47,22 @@ case "$ARCH" in
   *) fail "unsupported architecture: $(uname -m) (expected amd64 or arm64)" ;;
 esac
 
-[[ "$OS" == "linux" ]] || fail "setup.sh supports Ubuntu Linux natively, in Lima, or in WSL, not ${OS}"
+[[ "$OS" == "linux" ]] || fail "setup.sh supports Debian 12+ or Ubuntu 24.04+ natively, in Lima, or in WSL, not ${OS}"
 [[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
 # shellcheck disable=SC1091
 source /etc/os-release
-case " ${ID:-} ${ID_LIKE:-} " in
-  *ubuntu*|*debian*) ;;
-  *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Ubuntu/Debian)" ;;
+# Supported: Debian 12+ and Ubuntu 24.04+ (issue #234). Same check as
+# start.sh's preflight_native.
+case "${ID:-}" in
+  debian) [[ -z "${VERSION_ID:-}" ]] && warn "Debian testing/sid: ${PRETTY_NAME:-debian} (supported: Debian 12+)"
+    [[ -z "${VERSION_ID:-}" || "${VERSION_ID%%.*}" -ge 12 ]] 2>/dev/null \
+    || fail "unsupported Linux distribution: ${PRETTY_NAME:-debian} (expected Debian 12+ or Ubuntu 24.04+)" ;;
+  ubuntu) [[ "${VERSION_ID%%.*}" -ge 24 ]] 2>/dev/null \
+    || fail "unsupported Linux distribution: ${PRETTY_NAME:-ubuntu} (expected Debian 12+ or Ubuntu 24.04+)" ;;
+  *) case " ${ID_LIKE:-} " in
+       *ubuntu*|*debian*) warn "untested derivative: ${PRETTY_NAME:-${ID:-unknown}} (supported: Debian 12+, Ubuntu 24.04+)" ;;
+       *) fail "unsupported Linux distribution: ${PRETTY_NAME:-${ID:-unknown}} (expected Debian 12+ or Ubuntu 24.04+)" ;;
+     esac ;;
 esac
 
 RC_FILES=("$HOME/.bashrc")
@@ -423,9 +432,29 @@ command -v rclone    &>/dev/null || APT_MISSING+=(rclone)
 # image and a clean VM must both reclaim an orphaned TruACP/Vite listener rather
 # than depend on lsof happening to exist in a developer's base environment.
 command -v lsof      &>/dev/null || APT_MISSING+=(lsof)
+# Debian 12 ships postgresql-client-15 only: add the PostgreSQL apt repo
+# (pgdg) when the distribution has no postgresql-client-16 (issue #234).
+ensure_pgdg() {
+  local key=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+  local list=/etc/apt/sources.list.d/pgdg.list
+  local line="deb [signed-by=$key] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME:?missing in /etc/os-release}-pgdg main"
+  [[ -s "$key" && "$(cat "$list" 2>/dev/null)" == "$line" ]] && return 0
+  warn "adding the PostgreSQL apt repo (pgdg) for postgresql-client-16"
+  if ! dpkg -s curl ca-certificates &>/dev/null; then
+    sudo env "${APT_QUIET[@]}" apt-get install -y curl ca-certificates || fail "apt-get install curl ca-certificates failed"
+  fi
+  sudo install -d /usr/share/postgresql-common/pgdg
+  sudo curl -fsSL -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc || fail "download of the pgdg key failed"
+  echo "$line" | sudo tee "$list" >/dev/null
+  sudo apt-get update -qq || fail "apt-get update failed"
+}
 if [[ ${#APT_MISSING[@]} -gt 0 ]]; then
   warn "installing missing apt packages: ${APT_MISSING[*]}"
   sudo apt-get update -qq || fail "apt-get update failed"
+  if [[ " ${APT_MISSING[*]} " == *" postgresql-client-16 "* ]] \
+    && ! apt-cache policy postgresql-client-16 2>/dev/null | grep -q 'Candidate: [0-9]'; then
+    ensure_pgdg
+  fi
   sudo env "${APT_QUIET[@]}" apt-get install -y "${APT_MISSING[@]}" || fail "apt-get install ${APT_MISSING[*]} failed"
 fi
 ok "psql, redis-cli, rclone, lsof available"

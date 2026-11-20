@@ -8,7 +8,7 @@ automatically by `uname -s`:
   rest of the tooling (ssh.sh, setup.sh, build.sh, publish.sh) finds it in
   ~/Library/Application Support/Trustant/ — the same place the macOS app writes.
   This is the whole of the "macOS (Lima VM)" section below.
-- **native Ubuntu Linux** — there is nothing to virtualize, so VM creation is
+- **native Linux (Debian 12+ or Ubuntu 24.04+)** — there is nothing to virtualize, so VM creation is
   skipped entirely and only the environment initialization runs, directly on
   this host. See "Native Ubuntu Linux" at the end.
 
@@ -503,8 +503,11 @@ does not apply there.
 
 Abort with an actionable message unless all of the following hold:
 
-- `/etc/os-release` identifies Ubuntu or Debian (`ID`/`ID_LIKE`). Every install
-  step below is `apt-get`/`dpkg`, and the Trustant Serverless package is a `.deb`.
+- `/etc/os-release` identifies **Debian 12+** or **Ubuntu 24.04+** (`ID` and the
+  major of `VERSION_ID`; issue #234). Debian testing/sid (no `VERSION_ID`) and
+  derivatives (`ID_LIKE` ubuntu/debian) only warn. Every install step below is
+  `apt-get`/`dpkg`, and the Trustant Serverless package is a `.deb`. `setup.sh`
+  repeats the same check.
 - the architecture reported by `dpkg --print-architecture` is amd64 or arm64.
   This is the same source `ensure_deb` uses, so the preflight gate and the
   package actually selected can never disagree.

@@ -71,30 +71,51 @@ ensure_build_metadata() {
     write_dev_build_metadata
 }
 
-# This script is the dev loop and runs on Ubuntu only: the trudev Lima VM, a
-# WSL2 trudev distro, or a native Ubuntu host. The toolchain paths, apt-installed
-# packages and local-k3s assumptions below hold nowhere else. Refuse anywhere
-# else, and say what to do instead — on macOS/Windows the VM or distro is what
-# provides Ubuntu, so the answer there is start.sh/start.ps1, not this script.
+# This script is the dev loop and runs on Ubuntu or Debian 12+ only: the trudev
+# Lima VM, a WSL2 trudev distro, or a native Ubuntu/Debian host (the same set
+# start.sh accepts). The toolchain paths, apt-installed packages and local-k3s
+# assumptions below hold nowhere else. Refuse anywhere else, and say what to do
+# instead — on macOS/Windows the VM or distro is what provides Linux, so the
+# answer there is start.sh/start.ps1, not this script.
 # Failing here is clearer than failing midway through the dev loop.
-if [[ ! -r /etc/os-release ]] || ! grep -Eq '^(ID|ID_LIKE)=.*ubuntu' /etc/os-release; then
+# Prints nothing and succeeds on a supported distro; otherwise prints why not.
+os_release_check() {
+    [[ -r "${OS_RELEASE:-/etc/os-release}" ]] || return 1
+    (
+        . "${OS_RELEASE:-/etc/os-release}" 2>/dev/null || exit 1
+        case "${ID:-}" in
+            ubuntu) exit 0 ;;
+            debian)
+                [[ -z "${VERSION_ID:-}" || "${VERSION_ID%%.*}" -ge 12 ]] 2>/dev/null && exit 0
+                echo "Debian ${VERSION_ID} is too old (need Debian 12+ or Ubuntu 24.04+)."
+                exit 1 ;;
+        esac
+        [[ " ${ID_LIKE:-} " =~ [[:space:]](ubuntu|debian)[[:space:]] ]] && exit 0
+        exit 1
+    )
+}
+if ! os_check_msg="$(os_release_check)"; then
     case "$(uname -s)" in
         Darwin)
-            echo "run.sh runs on Ubuntu only — this is macOS." >&2
+            echo "run.sh runs on Ubuntu or Debian 12+ only — this is macOS." >&2
             echo "Use ./start.sh: it boots the trudev VM, runs setup.sh and starts the dev loop inside it." >&2
             echo "To restart only the dev loop in a running VM: ./ssh.sh ./run.sh" >&2
             ;;
         CYGWIN*|MINGW*|MSYS*|Windows_NT)
-            echo "run.sh runs on Ubuntu only — this is Windows." >&2
+            echo "run.sh runs on Ubuntu or Debian 12+ only — this is Windows." >&2
             echo "Use .\\start.ps1 from PowerShell: it creates the WSL2 trudev distro and starts the dev loop inside it." >&2
             ;;
         Linux)
-            distro="$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-$ID}")"
-            echo "run.sh requires Ubuntu — this Linux is ${distro:-unsupported} and is not supported." >&2
-            echo "Use an Ubuntu 24.04 host, or run Trustant in the trudev VM (./start.sh on a supported host)." >&2
+            if [[ -n "$os_check_msg" ]]; then
+                echo "run.sh: $os_check_msg" >&2
+            else
+                distro="$(. "${OS_RELEASE:-/etc/os-release}" 2>/dev/null && echo "${PRETTY_NAME:-$ID}")"
+                echo "run.sh requires Ubuntu or Debian 12+ — this Linux is ${distro:-unsupported} and is not supported." >&2
+            fi
+            echo "Use a Debian 12+ or Ubuntu 24.04+ host, or run Trustant in the trudev VM (./start.sh on a supported host)." >&2
             ;;
         *)
-            echo "run.sh runs on Ubuntu only — this system ($(uname -s)) is not supported." >&2
+            echo "run.sh runs on Ubuntu or Debian 12+ only — this system ($(uname -s)) is not supported." >&2
             echo "Use ./start.sh (macOS/Linux) or .\\start.ps1 (Windows)." >&2
             ;;
     esac

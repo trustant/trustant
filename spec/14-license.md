@@ -198,7 +198,7 @@ host.
 # User-facing text
 
 The License card on Configure and the license modal in the app list say:
-"Publishing requires a destination server with Nuvolaris OpenServerless and a
+"Publishing requires a destination server with Nuvolaris TruServerless and a
 license - get yours on Trustant.ai with the Developer and Enterprise
 subscriptions", linking to https://trustant.ai.
 
