@@ -90,7 +90,13 @@ type AppConfig struct {
 	// application starter this app was created from. It overrides the global
 	// notebook.repository for this app only; empty means "use the global one".
 	// See spec/15-starters.md.
-	Templates   string            `json:"templates,omitempty"`
+	Templates string `json:"templates,omitempty"`
+	// Source records how the app was created; "lovable" for a converted
+	// Lovable project (spec/21-lovable.md). Empty for every other source.
+	Source string `json:"source,omitempty"`
+	// Bootstrap names a template.md the next launch auto-runs once in TruACP;
+	// launch clears it after starting TruACP (spec/4-launch.md).
+	Bootstrap   string            `json:"bootstrap,omitempty"`
 	Development map[string]string `json:"development"`
 	Production  map[string]string `json:"production"`
 }
@@ -985,8 +991,8 @@ func installedOllamaModels(root string) (map[string]bool, error) {
 }
 
 const (
-	piLocalProviderName     = "local"
-	piOllamaProviderName    = "ollama"
+	piLocalProviderName    = "local"
+	piOllamaProviderName   = "ollama"
 	piTrustantProviderName = "trustant"
 	// Pi resolves this reference through auth.json, keeping the real secret out
 	// of the model catalog regardless of the selected provider origin.

@@ -209,10 +209,10 @@ func buildMCPFromOpsConfig(cfg *opsConfig) map[string]interface{} {
 				"--password", cfg.Redis.Password,
 			},
 			"environment": map[string]string{
-				"REDIS_USERNAME":         redisUsername(cfg),
-				"REDIS_HOST":             cfg.Redis.Service,
-				"REDIS_PORT":             fmt.Sprintf("%d", cfg.Redis.Port),
-				"REDIS_PWD":              cfg.Redis.Password,
+				"REDIS_USERNAME":        redisUsername(cfg),
+				"REDIS_HOST":            cfg.Redis.Service,
+				"REDIS_PORT":            fmt.Sprintf("%d", cfg.Redis.Port),
+				"REDIS_PWD":             cfg.Redis.Password,
 				"TRUSTANT_REDIS_PREFIX": cfg.Redis.Prefix,
 			},
 			"enabled": true,
@@ -353,7 +353,7 @@ type trustantPiRuntimeWorkbench struct {
 // every consumer must validate one host contract instead of interpreting
 // incompatible files carried in the same TRUSTANT_RUNTIME_CONFIG variable.
 type trustantPiRuntimeManifest struct {
-	Version     int                           `json:"version"`
+	Version     int                          `json:"version"`
 	Workbenches []trustantPiRuntimeWorkbench `json:"workbenches"`
 }
 
@@ -1568,6 +1568,13 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 		"TRUACP_CLAUDE_PREFIX=" + stateDir("agents", "claude"),
 	}
 	managedEnv = append(managedEnv, notebookEnv...)
+	// One-shot bootstrap (spec/4-launch.md): an app created with a notebook to
+	// run on first launch (the Lovable conversion) asks TruACP to auto-run
+	// template.md. Cleared below once TruACP has started.
+	bootstrap := appBootstrapNotebook(app)
+	if bootstrap != "" {
+		managedEnv = append(managedEnv, "TRUSTANT_BOOTSTRAP_NOTEBOOK=1")
+	}
 	truacpCmd.Env = appendEnvironmentOverrides(truacpCmd.Env, managedEnv...)
 	// Keep truacp, pi-acp, Pi and ops ide devel in one process group.
 	truacpCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -1595,6 +1602,9 @@ func handleLaunchGet(w http.ResponseWriter, r *http.Request, app string) {
 	}
 
 	log.Printf("truacp: started pid=%d in directory: %s", truacpCmd.Process.Pid, workbenchPath)
+	if bootstrap != "" {
+		clearAppBootstrapNotebook(app)
+	}
 
 	// Get the process group ID
 	pgid, err := syscall.Getpgid(truacpCmd.Process.Pid)
@@ -2064,5 +2074,27 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 		handleLaunchDelete(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// appBootstrapNotebook returns apps.<app>.bootstrap from the workspace config.
+func appBootstrapNotebook(app string) string {
+	cfg, err := loadWorkspaceConfig()
+	if err != nil || cfg.Apps == nil || cfg.Apps[app] == nil {
+		return ""
+	}
+	return cfg.Apps[app].Bootstrap
+}
+
+// clearAppBootstrapNotebook makes the bootstrap one-shot: a relaunch must not
+// re-run the conversion notebook.
+func clearAppBootstrapNotebook(app string) {
+	cfg, err := loadWorkspaceConfig()
+	if err != nil || cfg.Apps == nil || cfg.Apps[app] == nil {
+		return
+	}
+	cfg.Apps[app].Bootstrap = ""
+	if err := saveWorkspaceConfig(cfg); err != nil {
+		log.Printf("Warning: failed to clear bootstrap for %s: %s", app, err)
 	}
 }

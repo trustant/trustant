@@ -32,10 +32,12 @@ Returns
 `{
   "name: <name>
   "repo": <repo>
-  "templates": <templates>
+  "templates": <templates>,
+  "source": <source>
 }`
 
-where `<templates>` is optional.
+where `<templates>` and `<source>` are optional. The only `<source>` value is
+`"lovable"` (any other value is a 400): see **Lovable source** below.
 
 `"password"` is still accepted in the body for backwards compatibility but is
 **ignored**: the browser never supplies a password (see below).
@@ -141,6 +143,28 @@ Failure to read `.env.dist` or to seed is logged and does not fail the creation 
 the launch gate ([4-launch.md](4-launch.md)) still catches the missing values.
 
 Return success
+
+## Lovable source
+
+With `source: "lovable"` ([21-lovable.md](21-lovable.md)):
+
+- `<repo>` is parsed first by `parseLovableRepo`: `owner/repo`,
+  `https://github.com/owner/repo[.git][/]`, `.../tree/<branch>`,
+  `github.com/...` and `git@github.com:owner/repo`, each with an optional
+  `@<branch>`. The normalized `owner/repo` then goes through the normal checks.
+  `templates` is ignored.
+- The clone is the normal bare clone. A requested branch must exist in it
+  (else 400) and becomes `HEAD`.
+- Before the app is registered, the branch is checked out in a temporary
+  directory, converted, committed and pushed **into the bare repository only**
+  (GitHub is not touched). A repository without Lovable markers is rejected with
+  **422** *"Not a Lovable project … Use "My Application Starter" instead"*; any
+  conversion failure is a 500. Both roll back like a failed clone: the user is
+  deleted if it was created here and the workspace folder is removed.
+- The `trustant.json` entry gets `source: "lovable"` and
+  `bootstrap: "lovable-conversion"`.
+- The 201 response adds `source: "lovable"` and
+  `report_summary: {applied: [...], flagged: [...]}`.
 
 # DELETE /api/repo
 `{

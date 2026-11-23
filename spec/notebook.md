@@ -302,6 +302,7 @@ TruACP exposes server-side routes:
 - `POST /api/notebooks/select`
 - `POST /api/notebooks/remove`
 - `POST /api/notebooks/local`
+- `POST /api/notebooks/bootstrap`
 - `PUT /api/notebooks/save-local`
 - `PUT /api/notebooks/save-template`
 - `POST /api/sessions/notebook/get`
@@ -312,6 +313,13 @@ local routes accept provenance and prompts only, and resolve the destination
 server-side from the active project directory; `save-template` accepts a name
 and file and reads the prompts from the working copy. The session routes persist
 a whitelisted notebook sidecar under `.acp-data`; unknown fields are discarded.
+
+`POST /api/notebooks/bootstrap` returns `{run: true}` exactly once per TruACP
+process, and only when Trustant started it with `TRUSTANT_BOOTSTRAP_NOTEBOOK=1`
+and `template.md` has at least one step. When the chat is ready the UI asks once;
+on `run: true` it loads the working copy, opens the Templates panel and runs
+**Run all steps**. A reload or a second tab gets `run: false`. Trustant uses this
+for the Lovable conversion ([21-lovable.md](21-lovable.md)).
 
 ## Session behavior
 

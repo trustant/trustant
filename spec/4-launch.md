@@ -903,6 +903,14 @@ stdio, which spawns the `pi` binary. Trustant never execs the agent directly,
 and there is no launch-time session bootstrap (truacp creates the ACP session, in
 the `--dir` cwd, on the first prompt; SPEC §10e).
 
+**One-shot bootstrap.** When `apps.<app>.bootstrap` is set in the workspace
+`trustant.json` (today only `lovable-conversion`, written by a Lovable import —
+[21-lovable.md](21-lovable.md)), TruACP is started with
+`TRUSTANT_BOOTSTRAP_NOTEBOOK=1`, and the field is cleared as soon as TruACP has
+started, so a relaunch never re-runs it. TruACP then auto-runs the workbench
+`template.md` once (trustant-acp SPEC §10f). This is not a session bootstrap:
+the session is still created by TruACP on connect.
+
 Managed notebook environment values are appended after the workbench
 environment and are server-authoritative. TruACP exposes only the normalized
 source and `hasToken`; the browser cannot override the managed repository/ref
