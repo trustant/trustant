@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -403,10 +404,29 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		// Templates is the starter's notebook/templates repository. Empty means
 		// the app inherits the global notebook.repository default.
 		Templates string `json:"templates"`
+		// Source "lovable" clones a Lovable project and converts it
+		// (spec/21-lovable.md); Repo may then be a URL and carry @branch.
+		Source string `json:"source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
+	}
+	lovable := req.Source == "lovable"
+	lovableBranch := ""
+	if req.Source != "" && !lovable {
+		http.Error(w, "Unknown source", http.StatusBadRequest)
+		return
+	}
+	if lovable {
+		repo, branch, err := parseLovableRepo(req.Repo)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.Repo, lovableBranch = repo, branch
+		// A Lovable app gets the conversion notebook, not a starter catalog.
+		req.Templates = ""
 	}
 
 	// Validate name: alphanumeric, starts with letter, 6-20 characters
@@ -536,6 +556,21 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to clone repository: "+strings.TrimSpace(cloneOutput), http.StatusInternalServerError)
 		return
 	}
+	rollbackCreate := func() {
+		if !userExisted {
+			deleteUserCmd := exec.Command("ops", "admin", "deleteuser", req.Name)
+			deleteUserCmd.Run()
+		}
+		os.RemoveAll(workspacePath)
+	}
+	if lovableBranch != "" {
+		if !bareHasBranch(workspacePath, lovableBranch) {
+			rollbackCreate()
+			http.Error(w, fmt.Sprintf("Branch %q not found in %s", lovableBranch, req.Repo), http.StatusBadRequest)
+			return
+		}
+		defaultBranch = lovableBranch
+	}
 	if defaultBranch != "" {
 		headCmd := gitCommand(workspacePath, "symbolic-ref", "HEAD", "refs/heads/"+defaultBranch)
 		if output, err := headCmd.CombinedOutput(); err != nil {
@@ -548,6 +583,31 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to preserve repository default branch", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	// Lovable: convert the deterministic phases and commit them into the bare
+	// repository before the app is registered. A repository without Lovable
+	// markers is rejected and leaves nothing behind.
+	var lovableSummary *lovableReport
+	if lovable {
+		branch := defaultBranch
+		if branch == "" {
+			branch = bareDefaultBranch(workspacePath)
+		}
+		report, err := importLovableIntoWorkspace(workspacePath, branch, req.Name)
+		if err != nil {
+			rollbackCreate()
+			status := http.StatusInternalServerError
+			msg := "Lovable conversion failed: " + err.Error()
+			if errors.Is(err, errNotLovable) {
+				status = http.StatusUnprocessableEntity
+				msg = err.Error()
+			}
+			log.Printf("Lovable import of %s failed: %s", req.Repo, err)
+			http.Error(w, msg, status)
+			return
+		}
+		lovableSummary = report
 	}
 
 	// Store the password and initial config in workspace trustant.json
@@ -563,6 +623,10 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 		Templates:   appTemplates,
 		Development: make(map[string]string),
 		Production:  make(map[string]string),
+	}
+	if lovable {
+		wsCfg.Apps[req.Name].Source = "lovable"
+		wsCfg.Apps[req.Name].Bootstrap = lovableBootstrapNotebook
 	}
 	if err := saveWorkspaceConfig(wsCfg); err != nil {
 		log.Printf("Warning: failed to save password to config: %s", err)
@@ -608,6 +672,13 @@ func handlePostRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	if userExisted {
 		result["warning"] = "A user with this name already existed. Its existing local password was reused."
+	}
+	if lovableSummary != nil {
+		result["source"] = "lovable"
+		result["report_summary"] = map[string]interface{}{
+			"applied": lovableSummary.Applied,
+			"flagged": lovableSummary.Flagged,
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

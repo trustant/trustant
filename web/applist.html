@@ -253,7 +253,7 @@
                         title="Format: org/repo (e.g., nuvolaris/trustant-workspace)"
                         class="nu-input w-full px-3 py-2">
                     <datalist id="githubRepoOptions"></datalist>
-                    <p class="text-xs text-[color:var(--nu-muted)] mt-1">Format: org/repo</p>
+                    <p id="appRepoHint" class="text-xs text-[color:var(--nu-muted)] mt-1">Format: org/repo</p>
                 </div>
                 <!-- GitHub account notice and SSH key only matter when the user
                      supplies their own repository. -->
@@ -309,7 +309,15 @@
     <div id="ownStarterModal" class="fixed inset-0 nu-modal-scrim hidden items-center justify-center z-[60]">
         <div class="nu-modal p-6 w-full max-w-md mx-4">
             <h3 class="text-lg font-medium mb-3">Warning</h3>
-            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+            <p id="lovableStarterIntro" class="text-sm text-[color:var(--nu-muted)] mb-4 hidden">
+                The repository must be a Lovable project (TanStack Start). Trustant clones it,
+                converts the build to a plain Vite app and commits the change; on the first
+                launch the agent finishes the conversion (routing, Supabase to OpenServerless
+                actions, validation) and writes LOVABLE_CONVERSION.md. Pushing later adds normal
+                commits to the Lovable branch, never a force-push. Connect your GitHub account
+                below if the repository is private.
+            </p>
+            <p id="ownStarterIntro" class="text-sm text-[color:var(--nu-muted)] mb-4">
                 If you use your own starter, it must be derived by a standard application
                 starter or be compatible with
                 <a href="https://github.com/orgs/trustant/discussions/198"
@@ -882,6 +890,13 @@
         // OWN_STARTER is the sentinel radio value for "My Application Starter".
         const OWN_STARTER = '__own__';
         const OWN_STARTER_DEFAULT_NAME = 'myapp';
+        // LOVABLE_STARTER clones a Lovable project and converts it to run in
+        // Trustant (spec/21-lovable.md). It takes a repository like the own
+        // starter, but also accepts a GitHub URL and an optional @branch.
+        const LOVABLE_STARTER = '__lovable__';
+        const LOVABLE_DEFAULT_NAME = 'lovableapp';
+        const REPO_PATTERN = '[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+';
+        const LOVABLE_REPO_PATTERN = '\\s*((https?://)?(www\\.)?github\\.com/|git@github\\.com:)?[a-zA-Z0-9_.\\-]+/[a-zA-Z0-9_.\\-]+(/tree/[A-Za-z0-9._\\/\\-]+)?/?(@[A-Za-z0-9._\\/\\-]+)?\\s*';
         let starters = [];
         // The grouped application catalog from GET /api/starters, keyed by group.
         let applicationGroups = {};
@@ -899,6 +914,7 @@
             const checked = document.querySelector('input[name="starterChoice"]:checked');
             if (!checked) return null;
             if (checked.value === OWN_STARTER) return { own: true };
+            if (checked.value === LOVABLE_STARTER) return { own: true, lovable: true };
             return starters.find(s => s.repo === checked.value) || null;
         }
 
@@ -909,6 +925,16 @@
             const nameField = document.getElementById('appName');
             const repoField = document.getElementById('appRepo');
             const own = !choice || choice.own === true;
+            const lovable = !!(choice && choice.lovable);
+
+            repoField.pattern = lovable ? LOVABLE_REPO_PATTERN : REPO_PATTERN;
+            repoField.placeholder = lovable ? 'https://github.com/user/my-app or user/my-app@branch' : 'org/repo';
+            repoField.title = lovable
+                ? 'A Lovable project repository: org/repo or a GitHub URL, optionally with @branch'
+                : 'Format: org/repo (e.g., nuvolaris/trustant-workspace)';
+            document.getElementById('appRepoHint').textContent = lovable
+                ? 'Lovable repository: org/repo or GitHub URL, optional @branch. It is cloned and converted to run in Trustant.'
+                : 'Format: org/repo';
 
             repoField.readOnly = !own;
             repoField.classList.toggle('opacity-60', !own);
@@ -922,7 +948,7 @@
             }
 
             if (!appNameTouched) {
-                nameField.value = own ? OWN_STARTER_DEFAULT_NAME : choice.name;
+                nameField.value = lovable ? LOVABLE_DEFAULT_NAME : (own ? OWN_STARTER_DEFAULT_NAME : choice.name);
             }
             hideAppNameError();
             // The GitHub picker, the connect form and the SSH key only apply to
@@ -948,13 +974,15 @@
 
         function onStarterChoice(value) {
             applyStarterSelection();
-            if (value === OWN_STARTER) showOwnStarterModal();
+            if (value === OWN_STARTER || value === LOVABLE_STARTER) showOwnStarterModal(value === LOVABLE_STARTER);
         }
 
         // Connecting an account here is what grants access to the user's own
         // private starter repo, so the connect form is offered in the modal
         // itself; the SSH key stays as the collapsed fallback beneath it.
-        async function showOwnStarterModal() {
+        async function showOwnStarterModal(lovable) {
+            document.getElementById('lovableStarterIntro').classList.toggle('hidden', !lovable);
+            document.getElementById('ownStarterIntro').classList.toggle('hidden', !!lovable);
             const modal = document.getElementById('ownStarterModal');
             modal.classList.remove('hidden');
             modal.classList.add('flex');
@@ -1024,6 +1052,25 @@
                 row.appendChild(text);
                 list.appendChild(row);
             }
+
+            // "Lovable project repo" sits right before "My Application Starter".
+            const lovableRow = document.createElement('label');
+            lovableRow.className = 'flex items-start gap-2 text-sm cursor-pointer';
+            const lovableInput = document.createElement('input');
+            lovableInput.type = 'radio';
+            lovableInput.name = 'starterChoice';
+            lovableInput.value = LOVABLE_STARTER;
+            lovableInput.className = 'mt-1';
+            lovableInput.addEventListener('change', () => onStarterChoice(LOVABLE_STARTER));
+            const lovableText = document.createElement('span');
+            const lovableLabel = document.createElement('span');
+            lovableLabel.className = 'font-medium';
+            lovableLabel.textContent = 'Lovable project repo';
+            lovableText.appendChild(lovableLabel);
+            lovableText.appendChild(document.createTextNode(' — clone a Lovable app and convert it to run in Trustant'));
+            lovableRow.appendChild(lovableInput);
+            lovableRow.appendChild(lovableText);
+            list.appendChild(lovableRow);
 
             const ownRow = document.createElement('label');
             ownRow.className = 'flex items-start gap-2 text-sm cursor-pointer';
@@ -2579,6 +2626,7 @@
         function showCreatingModal() {
             document.getElementById('creatingSpinner').classList.remove('hidden');
             document.getElementById('creatingTitle').textContent = 'Creating Application';
+            document.getElementById('creatingMessage').textContent = 'Please wait...';
             document.getElementById('creatingMessage').classList.remove('hidden');
             document.getElementById('creatingResult').classList.add('hidden');
             document.getElementById('creatingModal').classList.remove('hidden');
@@ -2630,6 +2678,9 @@
             if (choice && choice.own !== true && choice.templates) {
                 payload.templates = choice.templates;
             }
+            if (choice && choice.lovable) {
+                payload.source = 'lovable';
+            }
             await createApplication(payload);
         }
 
@@ -2654,12 +2705,30 @@
             await createApplication({ name, repo: selectedApplication.repo });
         }
 
+        // The Lovable import report: what Trustant converted now, what is left
+        // flagged, and that the agent finishes the conversion on first launch.
+        function lovableSummaryHtml(name, data) {
+            const summary = data.report_summary || {};
+            const items = list => (list || []).map(item => '• ' + escapeHtml(item)).join('\n');
+            let html = 'Lovable project "' + escapeHtml(name) + '" imported and converted.\n\n'
+                + 'Launch it: the agent finishes the conversion automatically (template.md) and writes LOVABLE_CONVERSION.md.\n\n'
+                + 'Applied:\n' + items(summary.applied);
+            if (summary.flagged && summary.flagged.length) {
+                html += '\n\nFlagged:\n' + items(summary.flagged);
+            }
+            if (data.warning) html += '\n\n' + escapeHtml(data.warning);
+            return html;
+        }
+
         // Shared by both panes: closes the modal, runs the create, and reports.
         async function createApplication(payload) {
             const name = payload.name;
 
             hideAddModal();
             showCreatingModal();
+            if (payload.source === 'lovable') {
+                document.getElementById('creatingMessage').textContent = 'Cloning and converting the Lovable project...';
+            }
 
             try {
                 const response = await fetch('/api/repo', {
@@ -2670,7 +2739,9 @@
 
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.warning) {
+                    if (data.report_summary) {
+                        showCreatingResult(lovableSummaryHtml(name, data), data.report_summary.flagged && data.report_summary.flagged.length ? 'warning' : 'success');
+                    } else if (data.warning) {
                         showCreatingResult(data.warning, 'warning');
                     } else {
                         showCreatingResult('Application "' + name + '" created successfully.', 'success');
@@ -2688,7 +2759,7 @@
                     }
                 } else {
                     const error = await response.text();
-                    showCreatingResult('Failed to add application: ' + error, 'error');
+                    showCreatingResult('Failed to add application: ' + escapeHtml(error), 'error');
                 }
             } catch (error) {
                 showCreatingResult('Failed to add application: ' + error.message, 'error');

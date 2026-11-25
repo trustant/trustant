@@ -312,8 +312,19 @@ The starter form is starter-driven. Under the heading **"Choose a
 starter"** it shows a vertical radio list built from `GET /api/starters`
 ([15-starters.md](15-starters.md)): one row per starter with the **Name** as a
 link to `https://github.com/<repo>` (opens in a new tab and must not toggle the
-radio), followed by the **Description**. The last row is always **"My
-Application Starter"**.
+radio), followed by the **Description**. The last two rows are always **"Lovable
+project repo"** and then **"My Application Starter"**.
+
+**"Lovable project repo"** behaves like "My Application Starter" (editable
+repository, GitHub datalist, connect form, SSH fallback, default name
+`lovableapp`) but the repository may also be a GitHub URL and carry an optional
+`@branch` (`https://github.com/user/my-app`, `user/my-app@dev`). Create sends
+`source: "lovable"`; the backend clones and converts the project
+([21-lovable.md](21-lovable.md)). While it works the creating modal reads
+*"Cloning and converting the Lovable project..."*; on success it shows the
+applied changes and the flagged items from `report_summary`, and says the agent
+finishes the conversion on the first launch. A non-Lovable repository fails with
+a message suggesting "My Application Starter".
 
 The first row is preselected. When the starter list cannot be loaded the
 endpoint returns a warning, which is shown under the list; "My Application
@@ -332,6 +343,11 @@ There is no password field: the backend reuses an existing user's password or
 generates one ([2-repo.md](2-repo.md)).
 
 with a button "Create" and "Cancel"
+
+Selecting **"Lovable project repo"** opens the same dialog with Lovable text
+instead: the repository must be a Lovable project, Trustant converts it and the
+agent finishes on first launch, and later pushes are normal commits, never a
+force-push.
 
 Selecting **"My Application Starter"** opens a warning dialog:
 
