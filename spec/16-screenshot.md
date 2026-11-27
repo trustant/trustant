@@ -699,8 +699,8 @@ not come back:
 
 - **Playwright + Chromium.** The VM no longer rasterizes app content at all, so a
   browser install here would gate every screenshot behind a ~150 MB download for
-  a code path that no longer exists. (`@playwright/test` stays in the repo's
-  `package.json` — the e2e suite under `tests/` still uses it. It is only the
+  a code path that no longer exists. (`@playwright/test` stays in
+  `tests/package.json` — the e2e suite under `tests/` still uses it. It is only the
   *recorder* that no longer needs it.)
 - **`fonts-noto-color-emoji`.** It existed because headless Chromium rendered the
   app with the VM's fonts, and a bare VM has none carrying emoji glyphs

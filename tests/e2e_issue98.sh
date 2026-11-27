@@ -94,13 +94,14 @@ echo "  pod:        $TRUSTANT_E2E_POD"
 echo "  app:        ${TRUSTANT_E2E_APP:-<create if TRUSTANT_E2E_REPO is set>}"
 echo
 
-if [ ! -d "$ROOT/node_modules/@playwright/test" ]; then
-  (cd "$ROOT" && npm install --no-audit --no-fund)
+# package.json and node_modules live in tests/, next to this script.
+if [ ! -d "$ROOT/tests/node_modules/@playwright/test" ]; then
+  (cd "$ROOT/tests" && npm install --no-audit --no-fund)
 fi
 
 if [ "${TRUSTANT_E2E_SKIP_BROWSER_INSTALL:-}" != "1" ]; then
-  (cd "$ROOT" && npx playwright install chromium)
+  (cd "$ROOT/tests" && npx playwright install chromium)
 fi
 
-cd "$ROOT"
-npx playwright test --config tests/playwright.config.mjs tests/issue98.spec.mjs "$@"
+cd "$ROOT/tests"
+npx playwright test --config playwright.config.mjs issue98.spec.mjs "$@"

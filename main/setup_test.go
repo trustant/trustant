@@ -44,7 +44,7 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	}
 	// WHY: the browser MCP and its Playwright/Chromium runtime were removed.
 	// The e2e harness keeps its own @playwright/test dependency, which lives in
-	// the root package.json and must never be reintroduced here.
+	// tests/package.json and must never be reintroduced here.
 	if strings.Contains(setup, "trustant-browser-mcp") ||
 		strings.Contains(setup, "playwright") ||
 		strings.Contains(setup, "chromium") {
