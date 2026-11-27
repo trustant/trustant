@@ -18,7 +18,7 @@
 # setup.sh — recreate the image/Dockerfile environment INSIDE the trudev VM.
 #
 # Runs as the mirrored guest user inside the Ubuntu VM created by ./start.sh
-# (invoke via `./ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
+# (invoke via `./util/ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
 # Everything is installed for the local user (~/.local/bin, ~/.local/lib),
 # no /opt/uv/*, no sudo except for system packages (the guest has passwordless
 # sudo). See spec/setup.md — that is the source of truth for these steps.
@@ -104,11 +104,20 @@ done
 # Three env sources: .env.dist (template), image/env (baked image), and the .env
 # we generate here (image layout but rooted at the guest user's own $HOME).
 echo "--- Checking .env ---"
-[[ -f .env.dist ]] || fail ".env.dist not found"
+[[ -f main/.env.dist ]] || fail "main/.env.dist not found"
 
-if [[ ! -f .env ]]; then
+# Pre-#250 checkouts kept .env (and .env.default) at the repo root. Move them
+# rather than seeding a fresh main/.env that points at an empty workspace.
+for f in .env .env.default; do
+  if [[ -f "$f" && ! -e "main/$f" ]]; then
+    mv "$f" "main/$f" || fail "could not move $f to main/$f"
+    warn "moved $f to main/$f (the server now lives in main/)"
+  fi
+done
+
+if [[ ! -f main/.env ]]; then
   warn ".env not found — creating an in-VM .env"
-  cat > .env <<ENV
+  cat > main/.env <<ENV
 WORKSPACE_DIR=$HOME/workspace
 WORKBENCH_DIR=$HOME/workbench
 OPENAI_BASE_URL=http://localhost:11434/v1
@@ -126,16 +135,16 @@ else
     [[ -z "$key" || "$key" =~ ^# ]] && continue
     key=$(echo "$key" | xargs)
     [[ "$key" == GITHUB_TOKEN ]] && continue  # optional: only ghlogin.sh uses it
-    val=$(grep "^${key}=" .env | cut -d'=' -f2- || true)
+    val=$(grep "^${key}=" main/.env | cut -d'=' -f2- || true)
     if [[ -z "$val" || "$val" == "<"*">" ]]; then
       fail "Variable $key is not set in .env (still has placeholder or is empty)"
     fi
-  done < .env.dist
+  done < main/.env.dist
   ok ".env is present and all variables from .env.dist are set"
 fi
 
 set -a
-source ./.env
+source ./main/.env
 set +a
 
 WORKSPACE_DIR_EXPANDED=$(eval echo "${WORKSPACE_DIR}")
@@ -183,7 +192,8 @@ if ! command -v ops &>/dev/null; then
   ok "ops installed"
 fi
 
-OPS_INFO=$(ops -info 2>/dev/null || true)
+# ops resolves its task root from the cwd; the server runs in main/, so check there.
+OPS_INFO=$(cd main && ops -info 2>/dev/null || true)
 # Values contain their own colons (OPS_REPO is a URL), so split on the FIRST only.
 ops_info_value() { echo "$OPS_INFO" | grep -i "^$1[:=]" | head -1 | cut -d: -f2- | xargs; }
 OPS_SOURCE_ACTUAL=$(ops_info_value OPS_REPO)
@@ -212,7 +222,7 @@ ok "uv is available"
 
 # --- 4. Check Go (install via g if missing), activate version from go.mod, air ---
 echo "--- Checking Go ---"
-GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+GO_VERSION=$(grep '^go ' main/go.mod | awk '{print $2}')
 
 # `g` persists both its own bin directory and the active Go toolchain in this
 # file. Non-interactive Lima/WSL shells do not source it automatically, so load
@@ -417,7 +427,7 @@ ok "kubefwd ${KUBEFWD_VERSION} is available"
 
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
-ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
+(cd main && ops admin listuser &>/dev/null) || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
 # --- 10. Ensure the image's CLI tools are available (install any missing) ---
@@ -511,9 +521,9 @@ ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 # one literal npm install spec per line, `#` comments and blank lines ignored,
 # every entry MUST carry a version.
 echo "--- Installing the pi coding-agent toolchain ---"
-PI_VERSIONS_FILE="acp/pi.version"
+PI_VERSIONS_FILE="main/acp/pi.version"
 [[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
-PI_INTEGRITY_FILE="acp/pi.integrity"
+PI_INTEGRITY_FILE="main/acp/pi.integrity"
 [[ -f "$PI_INTEGRITY_FILE" ]] || fail "$PI_INTEGRITY_FILE not found — it pins the reviewed upstream Pi artifacts"
 
 command -v npm &>/dev/null || fail "npm is required to install the pi toolchain"
@@ -636,9 +646,9 @@ grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
 # out sources so Lima/WSL runs exactly what the image build consumes; no guest
 # Git metadata is needed, which also supports host-mounted worktrees.
 command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"
-[[ -f mcp/package.json ]] || fail "mcp submodule is not initialized (run ./start.sh on the host or: git submodule update --init mcp)"
+[[ -f main/mcp/package.json ]] || fail "mcp submodule is not initialized (run ./start.sh on the host or: git submodule update --init main/mcp)"
 OPENSERVERLESS_MCP_PACK_DIR=$(mktemp -d)
-( cd mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
+( cd main/mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
   || fail "packing local openserverless-mcp failed"
 OPENSERVERLESS_MCP_PACKAGE=$(find "$OPENSERVERLESS_MCP_PACK_DIR" -maxdepth 1 -name 'openserverless-mcp-*.tgz' -print -quit)
 [[ -n "$OPENSERVERLESS_MCP_PACKAGE" ]] || fail "local openserverless-mcp package was not created"
@@ -651,9 +661,9 @@ grep -qF 'secret-unbind' "$NPM_GLOBAL_PREFIX/lib/node_modules/openserverless-mcp
 # Install the deterministic React analyzer separately from Agentic React. WHY:
 # the latter captures UI selection context and cannot validate router/auth AST
 # invariants required before a frontend change is considered done.
-[[ -f react-mcp/package.json ]] || fail "react-mcp source is missing"
+[[ -f main/react-mcp/package.json ]] || fail "main/react-mcp source is missing"
 REACT_MCP_PACK_DIR=$(mktemp -d)
-( cd react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
+( cd main/react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
   || fail "packing trustant-react-mcp failed"
 REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustant-react-mcp-*.tgz' -print -quit)
 [[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustant-react-mcp package was not created"
@@ -715,12 +725,12 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 # root policy; configuring another prefix inside the submodule would duplicate
 # packages and make clean VM behavior differ from the image workflow.
 echo "--- Building truacp ---"
-[[ -f acp/package.json && -f acp/pi.version ]] \
-  || fail "acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init acp)"
-[[ -f acp/pi-acp/package.json ]] \
-  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive acp)"
-[[ -x acp/setup.sh ]] || chmod +x acp/setup.sh
-(cd acp && ./setup.sh) || fail "truacp build/install failed"
+[[ -f main/acp/package.json && -f main/acp/pi.version ]] \
+  || fail "acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init main/acp)"
+[[ -f main/acp/pi-acp/package.json ]] \
+  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive main/acp)"
+[[ -x main/acp/setup.sh ]] || chmod +x main/acp/setup.sh
+(cd main/acp && ./setup.sh) || fail "truacp build/install failed"
 command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
 ok "truacp installed ($(command -v truacp))"
 

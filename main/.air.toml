@@ -20,8 +20,9 @@ tmp_dir = "tmp"
   cmd = "go build -o ./tmp/main ."
   bin = "./tmp/main"
   delay = 1000
-  # Every .go file in this program is at the top level (one package main,
-  # file-per-feature), so this list must name EVERY subdirectory. It prunes the
+  # Air runs from main/ (run.sh). Every .go file is at the top of main/ (one
+  # package main, file-per-feature), so this list must name EVERY subdirectory
+  # of main/. It prunes the
   # whole subtree, which is the only thing that keeps the nested node_modules
   # out: exclude_regex filters files but does not stop the walk, and include_dir
   # cannot express "the root only" — it treats each entry as a subtree root.
@@ -30,7 +31,7 @@ tmp_dir = "tmp"
   # ~11,000 Node files on every poll against the 64 that can trigger a rebuild.
   # These subrepos are built explicitly by setup.sh, and watching their build
   # artifacts also risks rebuild and permission loops.
-  exclude_dir = ["tmp", "dist", "data", "workspace", "workbench", "web", "node_modules", "image", "apps", "packages", "react-mcp", "mcp", "oplugins", "oplugins-truinst", "skills", "spec", "tests", "testing", "tn5250", "olaris", "olaris-bestia", "trustant-code", "acp", "legal"]
+  exclude_dir = ["tmp", "web", "node_modules", "react-mcp", "mcp", "oplugins", "oplugins-truinst", "skills", "acp", "apps", "packages", "workspace", "workbench"]
   exclude_regex = ["_test.go"]
   exclude_unchanged = true
   follow_symlink = false

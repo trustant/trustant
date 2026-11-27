@@ -23,7 +23,7 @@ import (
 
 func readScreenshotScript(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("screenshot.sh")
+	data, err := os.ReadFile("../util/screenshot.sh")
 	if err != nil {
 		t.Fatalf("read screenshot.sh: %s", err)
 	}
@@ -98,8 +98,8 @@ func TestScreenshotScriptGuardsVMOnly(t *testing.T) {
 	if !strings.Contains(script, "/etc/os-release") {
 		t.Error("screenshot.sh must verify the distribution is Ubuntu/Debian")
 	}
-	if !strings.Contains(script, "./ssh.sh ./screenshot.sh") {
-		t.Error("the macOS failure must point at ./ssh.sh, which is how the VM is reached")
+	if !strings.Contains(script, "./util/ssh.sh ./util/screenshot.sh") {
+		t.Error("the macOS failure must point at ./util/ssh.sh, which is how the VM is reached")
 	}
 }
 
@@ -342,7 +342,7 @@ func TestScreenshotScriptAlwaysPublishesAPreview(t *testing.T) {
 
 // The preview copy lands in the repo root and must never be committed.
 func TestScreenshotPreviewCopyIsGitignored(t *testing.T) {
-	data, err := os.ReadFile(".gitignore")
+	data, err := os.ReadFile("../.gitignore")
 	if err != nil {
 		t.Fatalf("read .gitignore: %s", err)
 	}

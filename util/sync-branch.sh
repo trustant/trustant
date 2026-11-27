@@ -14,10 +14,28 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-set -euo pipefail
-BRANCH=${1:?branch} 
-git fetch --all --prune
-git switch "$BRANCH" 
-git submodule sync --recursive
-git submodule update --init --recursive
-exec ./setup.sh
+me="$(realpath $0)"
+if test -z "$1"
+then
+    cd "$(dirname "$0")/.." # repo root
+    git submodule --quiet foreach --recursive "$me \$toplevel/.gitmodules \$name" 
+    #>_submodules
+    #cat _submodules
+else 
+    #echo "*** $1 - $2 ***"
+    #pwd
+    BRANCH=$(git config -f "$1" "submodule.$2.branch")
+    if test -z "$BRANCH"
+    then echo "??? $(pwd) no branch: $2"
+    else 
+        CUR=$(git rev-parse --abbrev-ref HEAD)
+        if test "$CUR" = "HEAD"
+        then git checkout "origin/$BRANCH" -B "$BRANCH"
+        else 
+	     if test "$CUR" = "$BRANCH"
+	     then echo "ok: $2@$CUR "
+	     else echo "!!! $2: found: $CUR expected: $BRANCH"
+             fi 
+        fi
+    fi
+fi

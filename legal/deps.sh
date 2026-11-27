@@ -19,13 +19,15 @@ set -euo pipefail
 # Regenerate DEPS, LICENSE and NOTICE (see spec/20-legal.md). Run it whenever a
 # dependency is added, removed or upgraded, and commit the three files.
 #
-# The inventory is read from legal/deps.manual.txt plus go.mod, the npm
-# lockfiles, acp/pi.version, acp/extensions/requirements.txt and
-# oplugins/prereq.yml. Components' own LICENSE/NOTICE files come from
+# Writes main/DEPS and the root LICENSE and NOTICE (copied into main/ at build
+# time by build.sh, hotfix.sh and run.sh). The inventory is read from
+# legal/deps.manual.txt plus, under main/, go.mod, the npm lockfiles,
+# acp/pi.version, acp/extensions/requirements.txt and oplugins/prereq.yml. Components' own LICENSE/NOTICE files come from
 # node_modules / the Go module cache, or are downloaded once into the
 # gitignored legal/.cache (npm, uv and network access needed). `--clean`
 # drops that cache first.
-cd "$(dirname "$0")"
+# Run from the repo root, whatever the caller's cwd.
+cd "$(dirname "$0")/.."
 
 if [ "${1:-}" = "--clean" ]; then
     rm -rf legal/.cache

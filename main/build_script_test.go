@@ -36,7 +36,7 @@ import (
 // newlines and -r skips the call entirely when there is nothing to delete.
 // image/image.sh has always used it; this test keeps build.sh from drifting back.
 func TestBuildScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("build.sh")
+	content, err := os.ReadFile("../util/build.sh")
 	if err != nil {
 		t.Fatalf("read build.sh: %s", err)
 	}
@@ -61,7 +61,7 @@ func TestBuildScriptDeletesEveryExistingTag(t *testing.T) {
 
 // The same invariant on the image build path, which gets the tag right today.
 func TestImageScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("image/image.sh")
+	content, err := os.ReadFile("../image/image.sh")
 	if err != nil {
 		t.Fatalf("read image/image.sh: %s", err)
 	}
@@ -89,7 +89,7 @@ func shellCode(script string) []string {
 // command-substitution spelling fails silently, so it is worth pinning here
 // too rather than trusting the comment in the script.
 func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("hotfix.sh")
+	content, err := os.ReadFile("../util/hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -121,7 +121,7 @@ func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
 // out the wrong thing. The moment this script writes opsroot, that whole design
 // stops making sense.
 func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
-	content, err := os.ReadFile("hotfix.sh")
+	content, err := os.ReadFile("../util/hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -144,13 +144,13 @@ func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
 // tell from /api/version whether the hotfix is actually running. Ordering is
 // the entire correctness argument here, so it is pinned rather than commented.
 func TestHotfixScriptWritesBuildTxtBeforeCompiling(t *testing.T) {
-	content, err := os.ReadFile("hotfix.sh")
+	content, err := os.ReadFile("../util/hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
 	hotfix := string(content)
 
-	if !strings.Contains(hotfix, ">_build.txt") {
+	if !strings.Contains(hotfix, ">main/_build.txt") {
 		t.Fatal("hotfix.sh must write _build.txt with the hotfix tag")
 	}
 
@@ -186,7 +186,7 @@ func TestHotfixScriptWritesBuildTxtBeforeCompiling(t *testing.T) {
 // "simplifies" the two conditioned steps down to one and silently breaks either
 // hotfix tags or normal ones.
 func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
-	content, err := os.ReadFile(".github/workflows/images.yml")
+	content, err := os.ReadFile("../.github/workflows/images.yml")
 	if err != nil {
 		t.Fatalf("read images.yml: %s", err)
 	}
@@ -198,8 +198,8 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"bash ./hotfix.sh --buildx",
-		"bash ./build.sh --buildx",
+		"bash ./util/hotfix.sh --buildx",
+		"bash ./util/build.sh --buildx",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("images.yml must call %q", want)
@@ -222,7 +222,7 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 // repository guidelines forbid, so the whole block has to sit behind the
 // not-a-hotfix guard.
 func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
-	content, err := os.ReadFile("publish.sh")
+	content, err := os.ReadFile("../util/publish.sh")
 	if err != nil {
 		t.Fatalf("read publish.sh: %s", err)
 	}
@@ -239,9 +239,37 @@ func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
 
 	// Every oplugins-truinst command must live after the hotfix branch has exited.
 	limit := guard + exit
-	for _, forbidden := range []string{"cd oplugins-truinst", "git push origin main"} {
+	for _, forbidden := range []string{"cd main/oplugins-truinst", "git push origin HEAD:main"} {
 		if at := strings.Index(publish, forbidden); at >= 0 && at < limit {
 			t.Errorf("%q is reachable on the hotfix path", forbidden)
 		}
+	}
+}
+
+// ops discovers its task root and local plugins in the cwd, and the oplugins
+// submodules live in main/. build.sh runs from the repo root, so a bare `ops
+// truinst …` there fails ("no command named truinst") or resolves a stale
+// ~/.ops copy. publish.sh must push HEAD:main because a submodule is normally
+// on a detached HEAD, where `git push origin main` ships nothing.
+func TestBuildRunsOpsFromMainAndPublishPushesHead(t *testing.T) {
+	build, err := os.ReadFile("../util/build.sh")
+	if err != nil {
+		t.Fatalf("read build.sh: %s", err)
+	}
+	if !strings.Contains(string(build), `ops_main() { ( cd main && ops "$@" ); }`) {
+		t.Error("build.sh must define ops_main, which runs ops from main/")
+	}
+	for _, line := range strings.Split(string(build), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ops ") || strings.Contains(trimmed, "$(ops ") {
+			t.Errorf("build.sh calls ops from the repo root: %s", trimmed)
+		}
+	}
+	publish, err := os.ReadFile("../util/publish.sh")
+	if err != nil {
+		t.Fatalf("read publish.sh: %s", err)
+	}
+	if !strings.Contains(string(publish), "git push origin HEAD:main --tags") {
+		t.Error("publish.sh must push HEAD:main from oplugins-truinst")
 	}
 }

@@ -3,7 +3,7 @@
 ## Trustant's `GET /api/status`
 
 Trustant does **not** call the ai-proxy for status. `handleStatus`
-([status.go](../status.go)) fetches the static file
+([status.go](../main/status.go)) fetches the static file
 **`https://trustant.ai/status.json`** (hidden `STATUS_URL` override, testing
 only; 10 s timeout) and returns it with one transformation:
 

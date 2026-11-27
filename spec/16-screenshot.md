@@ -8,7 +8,7 @@ collect the frames you have captured, Space to refresh the preview from the
 current app, Backspace/Delete to drop the last frame, `q` to quit.
 
 Every change rebuilds one artifact — an **animated PNG**, one second per frame,
-looping forever — in the app's own repo, then copies it next to `screenshot.sh`
+looping forever — in the app's own repo, then copies it to the repo root
 so it can be previewed in the editor.
 
 All the code lives in `screenshot.sh`: the loop, and the Vite plugin it injects
@@ -110,7 +110,7 @@ $WORKBENCH_DIR/<current>/
 
 ## The aaa-* links
 
-Two symlinks next to `screenshot.sh` point **into** the currently-launched app,
+Two symlinks at the repo root point **into** the currently-launched app,
 which is what distinguishes them from `./screenshot.png` — that one is a *copy*.
 Both exist on purpose: the copy is a stable preview that survives an app switch
 and can be opened even with no app launched, while the links always resolve to
@@ -214,7 +214,7 @@ the capture writes into the same directory.
 
 The guard is the same two-stage check as `setup.sh`: the OS must be Linux, and
 `/etc/os-release` must identify an Ubuntu/Debian family distribution. On macOS it
-fails with a pointer to `./ssh.sh ./screenshot.sh`.
+fails with a pointer to `./util/ssh.sh ./util/screenshot.sh`.
 
 It is deliberately **not** a Lima-specific probe. "The VM" in this repo also
 covers native Ubuntu development and WSL2 — `start.sh` supports both, and
@@ -699,8 +699,8 @@ not come back:
 
 - **Playwright + Chromium.** The VM no longer rasterizes app content at all, so a
   browser install here would gate every screenshot behind a ~150 MB download for
-  a code path that no longer exists. (`@playwright/test` stays in the repo's
-  `package.json` — the e2e suite under `tests/` still uses it. It is only the
+  a code path that no longer exists. (`@playwright/test` stays in
+  `tests/package.json` — the e2e suite under `tests/` still uses it. It is only the
   *recorder* that no longer needs it.)
 - **`fonts-noto-color-emoji`.** It existed because headless Chromium rendered the
   app with the VM's fonts, and a bare VM has none carrying emoji glyphs
@@ -715,7 +715,7 @@ that file contains `playwright` or `chromium`.
 # Preview
 
 **Nothing is drawn in the terminal.** After each regeneration the animated PNG is
-copied to `screenshot.png` beside `screenshot.sh`, and that file is the preview:
+copied to `screenshot.png` at the repo root, and that file is the preview:
 open it in the editor and it animates, refreshing every time the recorder
 rewrites it.
 
@@ -744,7 +744,7 @@ Without this the editor would show a missing file, or worse, keep displaying the
 Deleting the last frame blanks the preview rather than removing it, so an editor
 tab open on the file keeps working instead of breaking.
 
-The recording is copied next to `screenshot.sh` after every change, and the loop
+The recording is copied to the repo root after every change, and the loop
 prints that path:
 
 ```

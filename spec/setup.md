@@ -1,5 +1,7 @@
 # Repository-root `setup.sh`
 
+> **Paths.** `setup.sh` stays at the repo root. The `.env` it creates/validates is `main/.env` (against `main/.env.dist`); the sources it builds are `main/acp`, `main/mcp` and `main/react-mcp`.
+
 This specification defines the repository-root `setup.sh`. The script recreates,
 inside a supported Ubuntu development
 target, the same environment that `image/Dockerfile` builds, so that `./run.sh`
@@ -14,7 +16,7 @@ setup.sh runs INSIDE the VM, as the mirrored guest user (the macOS user that
 `start.sh` recreated in the VM with the same UID + passwordless sudo). `start.sh`
 invokes it automatically after provisioning (`limactl shell --workdir "$PWD"
 trudev ./setup.sh`), so the normal flow is just `./run.sh` on the host; you can
-also run it manually via `./ssh.sh ./setup.sh` or from a login shell in the VM
+also run it manually via `./util/ssh.sh ./setup.sh` or from a login shell in the VM
 (`limactl shell trudev`). It is idempotent — re-runs just verify. The repo is
 virtiofs-mounted at its host path and is writable by this user.
 
@@ -69,6 +71,9 @@ There are three env sources: `.env.dist` (the portable template), `image/env`
 api.nuvolaris.io), and the .env we generate here (the image layout, but rooted at
 the guest user's own $HOME).
 
+- A pre-#250 `.env` / `.env.default` at the repo root is first **moved** to
+  `main/` (when `main/` has none) — by `start.sh`, `setup.sh` and `run.sh` alike —
+  so an existing checkout keeps its workspace and credentials.
 - If .env is ABSENT, create it from the .env.dist key set with in-VM values:
   - WORKSPACE_DIR=$HOME/workspace
   - WORKBENCH_DIR=$HOME/workbench          (absolute, under the guest $HOME — not
@@ -350,7 +355,7 @@ The VM development packages also include `python3-pytest` and
 `python3-dotenv`, matching generated application tests without requiring the
 assistant to modify the system Python environment during a session.
 
-Pack `react-mcp/` and install the resulting `trustant-react-mcp` package
+Pack `main/react-mcp/` and install the resulting `trustant-react-mcp` package
 plus `tsx` under the selected npm prefix. The React MCP is a read-only deterministic
 validator and is separate from optional Agentic React. Setup must verify that the
 managed MCP command resolves on PATH before completing.

@@ -25,11 +25,16 @@
 # existing image with `FROM <that image>` takes a minute or two instead.
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.." # repo root
+
+# main/ embeds LICENSE and NOTICE (main/legal.go) but go:embed cannot reach the
+# repo root, where the only committed copies live. Stage them before any build;
+# main/LICENSE and main/NOTICE are gitignored.
+cp LICENSE NOTICE main/
 
 IMAGE="${TRUSTANT_IMAGE:-ghcr.io/trustant/trustant}"
 KEY=trustant
-OPSROOT="./oplugins-truinst/opsroot.json"
+OPSROOT="./main/oplugins-truinst/opsroot.json"
 DOCKERFILE="Dockerfile.hotfix"
 
 # ---------------------------------------------------------------- tag helpers
@@ -95,7 +100,7 @@ resolve_tag() {
     fi
     if ! [[ "$tag" =~ -[0-9]+$ ]]; then
         echo "Not a hotfix tag: '${tag:-<none>}'" >&2
-        echo "Run ./hotfix.sh --tag first." >&2
+        echo "Run ./util/hotfix.sh --tag first." >&2
         exit 1
     fi
     echo "$tag"
@@ -109,14 +114,14 @@ resolve_tag() {
 # _build.txt is gitignored, so writing it cannot dirty the tree.
 write_build_txt() {
     local tag="$1" version branch stream
-    version="$(cat version.txt)"
+    version="$(cat main/version.txt)"
     branch="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     branch="${branch:-detached}"
     stream="${TRUSTANT_BUILD_STREAM:-$branch}"
     # Four lines, matching build.sh: parseVersion reads Branch and Stream, and
     # without them the UI falls back to the mounted repo's branch.
     printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\n" \
-        "$version" "$tag" "$branch" "$stream" >_build.txt
+        "$version" "$tag" "$branch" "$stream" >main/_build.txt
 }
 
 host_arch() {
@@ -163,8 +168,8 @@ cleanup() {
 # without this the build ships a stale copy from an earlier build, or fails on
 # a clean checkout.
 stage_config() {
-    cp -v trustant.json image/trustant.json
-    cp -v LICENSE NOTICE DEPS image/
+    cp -v main/trustant.json image/trustant.json
+    cp -v LICENSE NOTICE main/DEPS image/
 }
 
 # ---------------------------------------------------------------- k8s rollout
@@ -199,7 +204,7 @@ usage() {
     local tag
     tag="$(git tag -l | head -1)"
     cat <<'USAGE'
-Usage: ./hotfix.sh <mode> [--no-deploy]
+Usage: ./util/hotfix.sh <mode> [--no-deploy]
 
 Layers the rebuilt binary, image/start.sh, image/env and trustant.json onto the
 image recorded in oplugins-truinst/opsroot.json -- a minute or two instead of the
@@ -222,9 +227,9 @@ USAGE
         echo "Run 'git push --tags' to build this hotfix in the cloud."
     elif [ -n "$tag" ]; then
         echo "Current tag '$tag' is not a hotfix tag."
-        echo "Run './hotfix.sh --tag' first."
+        echo "Run './util/hotfix.sh --tag' first."
     else
-        echo "No tag yet. Run './hotfix.sh --tag' first."
+        echo "No tag yet. Run './util/hotfix.sh --tag' first."
     fi
 }
 
@@ -278,8 +283,8 @@ case "$MODE" in
 
     write_build_txt "$TAG"
     mkdir -p image/bin
-    env GOOS=linux GOARCH=amd64 go build -o image/bin/trustant-amd64
-    env GOOS=linux GOARCH=arm64 go build -o image/bin/trustant-arm64
+    (cd main && env GOOS=linux GOARCH=amd64 go build -o "../image/bin/trustant-amd64")
+    (cd main && env GOOS=linux GOARCH=arm64 go build -o "../image/bin/trustant-arm64")
     stage_config
 
     # shellcheck source=image/runtime.sh
@@ -324,7 +329,7 @@ case "$MODE" in
     ARCH="$(host_arch)"
     mkdir -p image/bin
     # Host arch only: the other binary is never copied into a single-arch image.
-    env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustant-$ARCH"
+    (cd main && env GOOS=linux GOARCH="$ARCH" go build -o "../image/bin/trustant-$ARCH")
     stage_config
 
     # shellcheck source=image/runtime.sh

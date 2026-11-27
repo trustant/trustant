@@ -1,5 +1,7 @@
 # Repository-root `install`
 
+> **Paths.** The `.env` that `install` writes is `<target>/trustant/main/.env`; the server reads it from `main/`.
+
 One file that is both a bash and a PowerShell script (a polyglot), so a single
 URL prepares a Trustant checkout on every host: it clones, downloads the big
 artifacts into `trustant/dist`, and stops. Starting is left to the user:
@@ -74,7 +76,7 @@ scripts as ANSI.
   `ensure_ollama_tarball`), so `start.sh` finds them and downloads nothing:
   - `truserverless_<ver>_<arch>.deb` from
     `https://pub.trustant.ai/truserverless/`, `<ver>` being the first line of
-    the checkout's `truserverless.txt`. Missing pin or failed download: error,
+    the checkout's `main/truserverless.txt`. Missing pin or failed download: error,
     stop.
   - `ollama-<ver>-linux-<arch>.tar.zst` from the ollama GitHub release,
     `<ver>` from `ARG OLLAMA_VERSION=` in `image/Dockerfile`. A missing version

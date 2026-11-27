@@ -1,11 +1,11 @@
-# Repository-root `proxy.sh`
+# `util/proxy.sh`
 
-This specification defines the repository-root `proxy.sh`, which installs and
+This specification defines `util/proxy.sh`, which installs and
 configures nginx as a host-rewriting reverse proxy in front of the Go app.
 
 ## Why it exists
 
-[middleware.go](../middleware.go) routes by the **first label** of the request
+[middleware.go](../main/middleware.go) routes by the **first label** of the request
 hostname -- `trustant.`, `opencode.`, `vite.` -- and rejects every other prefix
 with a 400 that names the corrected URL (see
 [0-preflight.md](0-preflight.md)). The rest of the hostname is not free: the app

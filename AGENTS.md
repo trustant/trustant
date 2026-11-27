@@ -1,57 +1,107 @@
-# CLAUDE.md
+# AGENTS.md
 
 Be brief. Update the specs under spec/*.md when change code.
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (Claude Code, Codex, Pi, …) when working with code in this repository. It is the single source: `CLAUDE.md` only imports it with `@AGENTS.md`, so edit this file, never CLAUDE.md.
 
-## Developemt process
+## Development process
 
-Never implement anything unless you wrote a plan in an issue.
+**Plans live in GitHub issues, never only in the chat.** For any change bigger than 5 lines of code, create a GitHub issue first and write the plan in the issue body. If the change is 5 lines or smaller, update the wiki and change `main` directly.
 
-When the user ask for a new feature create an issue in the main repo (trustable-app) and store the plan in it.
 
-Implement only the plan writte in the issue.
+If you are not logged in github use the script util/ghlogin.sh to login into. If the script is missing, complain.
 
-Once implemented, commit all the subodules to a branch issue-<issuenr> and create a pull request to main to the top level to link everything to the main.
+Write the plan into the issue as soon as the plan is finished, then **stop. Do not implement.** A plan that exists only in the chat transcript is not a plan — if the planning is done and no issue has been created, create the issue before saying anything else.
 
-When I ask to merge, merge all the submodules and the main module to the main branch.
+Wait for an express request from the user to implement. Only then create the branch issue-<issuenr> and start implementing.
+
+Implement only the plan written in the issue. If the plan changes while planning, update the issue body so it stays the current plan. Stay in the current issue and in current branch unless the uses asks to open another issue.
+
+Once implemented, update the issue with what was actually done (deviations from the plan included), commit all the subodules to the branch issue-<issuenr>
+and create a pull request to main to the top level to link everything to the main.
+
+When creating a PR always add a comment listing all the open PR related to the implemented issue, and add to the comment `close #<issue>` so that mergint the prs closes also the issue.
+
+When I ask to merge, merge all the submodules and the main module to the main branch, ensure it is pushed on remote and  and remove the local branch.
+
+## Naming: Trustant
+
+The product is **Trustant** and the website is [trustant.ai](https://trustant.ai). Use that name in all prose, UI text and new code.
+
+The `trustable` -> `trustant` rebrand is complete (issue #1): config file,
+workspace state directory, hostname prefixes, k8s objects, the container user
+and its home, the k3s node name, the published image, and every identifier,
+filename and env var across all submodules.
+
+**The one exception is the `trustable-ai` GitHub org**, which must NOT be
+renamed. It still hosts the `oplugins` and `skills` submodules and the
+starter/template repos. Concretely, these stay literally `trustable`:
+
+- `github.com/trustable-ai/*` — the `oplugins` and `skills` submodules, and
+  `trustable-ai/templates` (the default notebook source)
+- `module github.com/trustable-ai/trustable-app` in [go.mod](main/go.mod) — a
+  module path, never fetched, and nothing imports it (all `package main`)
+
+This repo itself now lives at `github.com/trustant/trustant`; CI runs there and
+`publish.sh` watches it.
+
+The published **image** is not part of that exception: it is
+`ghcr.io/trustant/trustant`.
+
+Two rebrand decisions worth knowing before touching upgrade paths:
+
+- A pre-rebrand `.trustable/` workspace state directory is **ignored, not
+  migrated** — `.trustant/` is created fresh and the ssh key and GitHub auth
+  inside it are regenerated. Same for `trustable.json`.
+- The **unix user** is the exception to that: `oplugins-truinst/trustant/opsfile.yml`
+  runs an idempotent `usermod -l trustant -d /home/trustant -m trustable`
+  before applying the StatefulSet, because `/home/trustable/workspace` is a
+  hostPath volume holding all user data.
 
 ## What this is
 
-`trustable-app` is a Go single-binary web server that hosts a "Lovable-like" development environment on top of OpenServerless. It serves the local UI (`web/`), proxies the user's running app (Vite) and TruACP/Pi, drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
+`trustant` is a Go single-binary web server that hosts a "Lovable-like" development environment on top of OpenServerless. It serves the local UI (`web/`), proxies the user's running app (Vite) and TruACP/Pi, drives `ops` CLI subprocesses, and manages per-app workspaces and publishing.
 
-The binary embeds `web/`, `_build.txt`, and `openserverless-instructions.md` (see [main.go](main.go)) so a production build is a single executable. `_build.txt` is generated by [build.sh](build.sh) from `version.txt` and holds the multi-line `Version:` / `Build:` / `Branch:` / `Stream:` block parsed by `parseVersion` at startup. There is no build expiry.
+The binary embeds `web/`, `_build.txt`, and `openserverless-instructions.md` (see [main.go](main/main.go)) so a production build is a single executable. `_build.txt` is generated by [util/build.sh](util/build.sh) from `version.txt` and holds the multi-line `Version:` / `Build:` / `Branch:` / `Stream:` block parsed by `parseVersion` at startup. There is no build expiry.
 
 ## Prerequisites
 
-macOS development uses a **running Trustant VM** on the local machine — the macOS app from `https://trustant.ai` provisions a k3s VM and writes its credentials to `~/Library/Application Support/Trustant/` (`id_ed25519`, `current.ip`, `apihost`).
+macOS development uses a **running Trustant VM** on the local machine — the start.sh or start.ps1 scripts  provisions a VM with k3s and writes its credentials (`id_ed25519`, `current.ip`, `apihost`) to `~/Library/Application Support/Trustant/`.
 
 Linux server development uses local access to the Trustant k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` is the single build entrypoint for both hosts and detects which one it is on.
 
-`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustant-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
+Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at the repo root) creates a `trudev` distribution (from the `Ubuntu-24.04` image, via `wsl --install --name`, mirroring Lima's `VM_NAME`) with systemd, mirrors the Windows user into it with passwordless sudo, and runs `./start.sh` there over the `/mnt/<drive>` mount — the worktree stays on Windows, only the environment lives in WSL. `start.sh` stays Windows-unaware; it just takes its native-Linux path. This is why the repo ships a `.gitattributes` forcing `eol=lf`: bash cannot run a CRLF script. See [spec/start.md](spec/start.md).
+
+`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./util/ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi/Codex (**never Claude Code**: it is proprietary, so TruACP installs it on demand into `$WORKSPACE_DIR/.trustant/agents/claude` after the user accepts Anthropic's terms — issue #12), and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustant-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
 
 ## Common commands
 
 ```bash
-./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
+./install        # Polyglot bash/PowerShell installer (curl ... | bash, irm ... | iex): installs lima/git (mac, brew), git (apt), git (winget), asks for the full path of an existing target folder (default: cwd; refuses relative paths, a missing folder or an existing <target>/trustant), checks requirements (8 GB RAM, 4 CPUs, 50 GB free, miniops.me -> 127.0.0.1, free :80/:443 on Linux), clones with --recurse-submodules into <target>/trustant, copies a preloaded <target>/dist into trustant/dist, downloads the missing truserverless .deb (main/truserverless.txt) + ollama tarball (image/Dockerfile) there, then stops and tells the user to cd and run start.sh/start.ps1 — spec/install.md
+.\start.ps1      # WINDOWS ONLY (PowerShell): creates the WSL2 `trudev` distro (Ubuntu-24.04 image), mirrors the user with sudo, runs ./start.sh inside it over the /mnt mount, then ./run.sh; -v opens VS Code on the mount instead, -n neither; -Stop / -Destroy
+./start.sh       # Provision the dev VM (Lima `trudev`, kept in ./data/lima; the WSL distro is in .\data\wsl); downloads are cached in ./dist; -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
-./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
-./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
-./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
-./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
-go test ./...    # Unit tests (currently only configure_test.go)
-go test -run TestGenerateProjectAssetsForTruACP  # Single test
+./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu or debian 12+; from a Mac host use ./util/ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
+./util/screenshot.sh  # Run INSIDE the VM: interactive recorder — click the ● at the top right of the launched app to capture, then ENTER here to collect; SPACE refreshes, DEL removes the last frame, q quits; stages (never commits) <app>/screenshot.png (APNG, 1s/frame) so it ships with your own push, and copies it to ./screenshot.png to preview in the editor
+./util/build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
+./util/hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
+./legal/deps.sh        # Regenerate DEPS, LICENSE, NOTICE from legal/deps.manual.txt + go.mod/lockfiles/pi.version/requirements.txt/prereq.yml; rerun on any dependency change
+./util/publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
+cd main && go test ./...    # Unit tests (after ./util/build.sh or ./run.sh has staged LICENSE/NOTICE into main/) (currently only configure_test.go)
+cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 ```
 
-`air` (config in [.air.toml](.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
+`air` (config in [.air.toml](main/.air.toml)) builds `tmp/main` on every `.go` change. Symbol-level reload: edit a `.go` file, save, air rebuilds and restarts on `:8910`.
 
-`build.sh --build` produces a single image and **always** writes the image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustant redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+**It runs from `main/` (`run.sh` does `pushd main`) and watches `main/` and nothing else.** Every `.go` file is at the top of `main/`, so `exclude_dir` names *every* subdirectory of `main/` — that is what prunes the walk, since `exclude_regex` filters files without stopping traversal and `include_dir` cannot express "root only". **Adding a directory under `main/` means adding it to `exclude_dir`**, or air will checksum its `node_modules` on every poll; leaving `apps/`, `packages/` and `react-mcp/` off the list once cost ~11,000 files per poll against the 64 that can trigger a rebuild. `include_ext` is `go` and `txt` only — a `web/` edit needs a browser reload, not a rebuild, because the running binary serves `web/` from disk and embeds it only at build time.
 
-[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
+`build.sh --build` produces a single image and **always** writes the image tag into `main/oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustant redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
+
+[util/hotfix.sh](util/hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
 ## Required environment
 
-`.env` is mandatory — preflight fails at startup if absent. In the VM, `setup.sh` creates one (create-if-missing) with in-VM values (`WORKSPACE_DIR`/`WORKBENCH_DIR` under the guest `$HOME`, Ollama on `localhost:11434`, AIP at `api.nuvolaris.io`); otherwise copy [.env.dist](.env.dist):
+`main/.env` is mandatory (the server runs with `main/` as its working directory) — preflight fails at startup if absent. A pre-#250 root `.env`/`.env.default` is moved to `main/` by `start.sh`, `setup.sh` and `run.sh`. Scripts at the root must run `ops` from `main/` (`ops` finds `oplugins`/`oplugins-truinst` in the cwd). In the VM, `setup.sh` creates one (create-if-missing) with in-VM values (`WORKSPACE_DIR`/`WORKBENCH_DIR` under the guest `$HOME`, Ollama on `localhost:11434`, AIP at `api.nuvolaris.io`); otherwise copy [.env.dist](main/.env.dist):
 
 - `WORKSPACE_DIR` — must exist (created by `ops setup mini`, or `mkdir`'d by `setup.sh`); per-app bare repos live in `$WORKSPACE_DIR/workspace/<name>`
 - `WORKBENCH_DIR` — checkout area for the currently-launched app
@@ -60,7 +110,14 @@ go test -run TestGenerateProjectAssetsForTruACP  # Single test
 - `AIP_REGISTER_URL` — **mandatory**, ai-proxy registration UI base. The splash page loads this in an iframe for Trustant Cloud sign-up, and the top-up form lives at `<this>/top-up`. Dev default: `http://localhost:8080/_register`. Production: `https://api.nuvolaris.io/_register`.
 - `AIP_BASE_URL` — **mandatory**, ai-proxy JSON API base. `/api/credits` and `/api/topup` proxy directly under this URL (no `/v1`-suffix contract — that has been removed). `/api/status` does not use it: it reads `https://trustant.ai/status.json`. Dev default: `http://localhost:8080/api/v2/`. Production: `https://api.nuvolaris.io/api/v2/`.
 - `GIT_USER`, `GIT_EMAIL` — used for commits made on behalf of the user
+`.env.default` is a **different, optional** file in the same directory — not server configuration and not part of `.env`. When present at startup its variables are folded into the `predefined_env` palette shown on the Configure page (keep-existing, never overwriting a user edit). It never applies anything to an application. See [spec/2a-config.md](spec/2a-config.md).
 
+
+## Repository layout
+
+The Go server and everything it builds from live under [main/](main/): every `*.go` file and test, `go.mod`, `web/`, the embedded files (`_build.txt`, `DEPS`, `master_key_pub`, the embedded `*.md`/`*.sh`/`*.tmpl`), `trustant.json`, `version.txt`, `.air.toml`, `.env`/`.env.dist`, `react-mcp/` and all the submodules. The repo root keeps the scripts (`install`, `start.sh`, `setup.sh`, `run.sh`, …), `util/` (developer helpers: `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, `prep.sh`, `publish.sh`, `hotfix.sh`, `build.sh`, `ghlogin.sh` (local, gitignored), `hotfix.sh` — each `cd`s to the repo root first, so they run the same from any directory), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/`, and `README.md`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`.
+
+`LICENSE` and `NOTICE` are committed **only at the root**, but `main/legal.go` embeds them and `go:embed` cannot reach `../`. So `build.sh`, `hotfix.sh` and `run.sh` copy them into `main/` before compiling (`main/LICENSE`, `main/NOTICE` are gitignored). A bare `go test` in a fresh clone fails to embed until one of those has run once, or `cp LICENSE NOTICE main/`. Go tests run with `main/` as cwd, so tests that read root scripts use `../`.
 
 ## Architecture
 
@@ -72,27 +129,54 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 
 | File | Spec | Responsibility |
 |---|---|---|
-| [main.go](main.go) | — | Embeds `web/`, registers `/api/*` routes, starts `:8910` with `hostnameMiddleware` |
-| [preflight.go](preflight.go) | [0-preflight.md](spec/0-preflight.md) | Loads `.env`, kills leftover processes on 8910/5173/4096, checks ssh key, runs the workspace `trustant.json` migration |
-| [middleware.go](middleware.go) | [0-preflight.md](spec/0-preflight.md) | **Host-based routing** — the same `:8910` handles three apps by hostname prefix |
-| [repo.go](repo.go) | [2-repo.md](spec/2-repo.md) | `/api/repo`, `/api/upload`, `/api/git*` — manages per-app bare git repos under `$WORKSPACE_DIR/workspace/<name>` |
-| [configure.go](configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config (base `trustant.json` + workspace `trustant.json`), `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` — also writes per-app `.env`/`.env.production` files |
-| [launch.go](launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clones workspace → workbench, runs `ops ide login/clean/deploy`, owns the pgid file for orderly shutdown |
-| [git.go](git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
-| [publish.go](publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote}` — **every endpoint calls `requireValidLicense` first** |
-| [license.go](license.go) | [14-license.md](spec/14-license.md) | Offline Ed25519 license: `/api/license`, the valid-license and licensed-host publish gates |
-| [skills.go](skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones the skills repo into the app's `.agents/skills/` |
-| [credits.go](credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
-| [status.go](status.go) | [status_check.md](spec/status_check.md) | `/api/status` — provider model catalog (powers the splash screen) |
-| [memory.go](memory.go) | — | `/api/memory/` |
-| [files.go](files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
-| [terminal.go](terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
+| [main.go](main/main.go) | — | Embeds `web/`, registers `/api/*` routes, starts `:8910` with `hostnameMiddleware` |
+| [preflight.go](main/preflight.go) | [0-preflight.md](spec/0-preflight.md) | Loads `.env`, kills leftover processes on 8910/5173/4096, checks ssh key, runs the workspace `trustant.json` migration |
+| [middleware.go](main/middleware.go) | [0-preflight.md](spec/0-preflight.md) | **Host-based routing** — the same `:8910` handles three apps by hostname prefix |
+| [repo.go](main/repo.go) | [2-repo.md](spec/2-repo.md) | `/api/repo`, `/api/upload`, `/api/git*` — manages per-app bare git repos under `$WORKSPACE_DIR/workspace/<name>` |
+| [configure.go](main/configure.go) | [2a-config.md](spec/2a-config.md) | Two-layer config (base `trustant.json` + workspace `trustant.json`), `/api/configuration`, `/api/configure`, `/api/testmodel`, `/api/appconfig/` — also writes per-app `.env`/`.env.production` files |
+| [launch.go](main/launch.go) | [4-launch.md](spec/4-launch.md) | `/api/launch/<name>` — clones workspace → workbench, runs `ops ide login/clean/deploy`, owns the pgid file for orderly shutdown |
+| [git.go](main/git.go) | [5-git.md](spec/5-git.md) | Git save / status APIs |
+| [publish.go](main/publish.go) | [6-publish.md](spec/6-publish.md) | `/api/publish/{push,force-push,remote,provision}` — **`remote` and `provision` call `requireValidLicense` first**; git push is not license-gated |
+| [legal.go](main/legal.go) | [20-legal.md](spec/20-legal.md) | Embeds `DEPS`, `NOTICE`, `LICENSE` (generated by `legal/deps.sh`); `/api/legal/{deps,notice,license}` for the applist License modal |
+| [license.go](main/license.go) | [14-license.md](spec/14-license.md) | Offline Ed25519 license: `/api/license`, the valid-license and licensed-host publish gates |
+| [skills.go](main/skills.go) | [7-skills.md](spec/7-skills.md) | `/api/skills/<name>` — clones the skills repo into the app's `.agents/skills/` |
+| [credits.go](main/credits.go) | [credit_check.md](spec/credit_check.md) | `/api/credits`, `/api/topup` — proxy to `$AIP_BASE_URL` |
+| [status.go](main/status.go) | [status_check.md](spec/status_check.md) | `/api/status` — reads `trustant.ai/status.json`: provider model catalogs + per-version operator message (powers the splash screen) |
+| [memory.go](main/memory.go) | — | `/api/memory/` |
+| [files.go](main/files.go) | [11-files.md](spec/11-files.md) | `/api/files/` — read-only workbench file viewer (GET only, path-containment checked) |
+| [terminal.go](main/terminal.go) | [12-terminal.md](spec/12-terminal.md) | `/api/terminal/<name>` — PTY-backed shell over a WebSocket |
+| [bind.go](main/bind.go) | [19-import.md](spec/19-import.md) | `/api/imports/` — `.env.dist` as the import declaration: wildcard matching against the shared pool, and the launch-time resolution popup |
+| [gitignore.go](main/gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
+| [lovable.go](main/lovable.go) | [21-lovable.md](spec/21-lovable.md) | "Lovable project repo" Add App source: parses the repo/branch, detects and converts a Lovable (TanStack Start) project deterministically, commits it into the bare repo with `template.md` (embedded `lovable-conversion.md`), which TruACP auto-runs once on first launch |
+| [shared.go](main/shared.go) | [18-shared.md](spec/18-shared.md) | `.env.shared` — apps publish service secrets as pointers into `~/.ops/config.json`; resolved into the workspace pool at launch, and per apihost at publish; pruned from the pool when the producing app is deleted |
+
+The one feature that is a shell script rather than a Go file is the screenshot
+recorder: [util/screenshot.sh](util/screenshot.sh), specced in
+[spec/16-screenshot.md](spec/16-screenshot.md). **The app captures itself.** To
+record the user's actual tab — form state, open modals, scroll position and all,
+none of which a fresh headless browser reproduces — it **temporarily injects a
+Vite plugin into the app's own `vite.config.ts`** that renders a shutter button
+and mounts an upload endpoint on the dev server. The page captures itself with
+`getDisplayMedia` and POSTs the PNG; the recorder collects it with `curl`. It
+hides that config change with `git update-index --skip-worktree`
+— `.gitignore` cannot hide a *tracked* file. The injection is removed and the
+flags cleared on every exit path, and stale state from a killed session is
+cleaned up on the next run. **Its animations are
+written by calling ffmpeg directly, never through ImageMagick** — ImageMagick 6
+has no APNG encoder and delegates `apng:` to ffmpeg, which re-times every frame
+at 25fps and destroys the one-second frame delay. `screenshot_script_test.go`
+fails the build if the script grows an `apng:` reference, loses `-nostdin` (ffmpeg
+otherwise eats the interactive loop's keystrokes), switches the frame input
+back to a glob or the concat demuxer (both miscount frames here), or loses the
+fixed-canvas normalization — `getDisplayMedia` returns the tab's real size, which
+varies per machine and changes on window resize, while ffmpeg's APNG encoder
+requires every frame to match.
 
 When a spec doc and a `.go` file disagree, **the spec is the source of truth** — the user iterates on specs first.
 
 ### Host-based routing (the non-obvious bit)
 
-[middleware.go](middleware.go) inspects the request hostname and routes by the first label:
+[middleware.go](main/middleware.go) inspects the request hostname and routes by the first label:
 
 - `trustant.<domain>` → serves static `web/` + Go APIs (`http.DefaultServeMux`)
 - `opencode.<domain>` → reverse-proxies to `localhost:4096` (the AI coding assistant)
@@ -106,19 +190,27 @@ Bare `localhost` or IP requests are 307-redirected to `trustant.<ip>.nip.io:<por
 - `$WORKSPACE_DIR/workspace/<name>/` — the **bare git repo** for each app (durable state, what gets published)
 - `$WORKBENCH_DIR/<name>/` — the **active checkout** of whichever app the user is editing (regenerated on launch, holds `.env`/`.env.production`, `node_modules`, `.agents/skills/`)
 
+Inside a workbench checkout, `CLAUDE.md` is a **symlink to `AGENTS.md`** and `.claude` a symlink to `.agents`, so Pi, Codex, and Claude Code share one set of instructions and skills. Everything launch regenerates (`.mcp.json`, `.env`, `.openserverless-contract.md`, the links themselves) is ignored by a managed `.gitignore` block, which is what makes `git status` clean after a launch and stops revert's `git clean -fd` from destroying MCP wiring and agent sessions — see [spec/13-gitignore.md](spec/13-gitignore.md).
+
 Launching an app clones workspace → workbench when missing and regenerates env files every time so config edits propagate. `pgid` in workbench tracks the running ops process group for clean teardown.
 
 ### Frontend (`web/`)
 
-Plain HTML + Tailwind (via [web/tailwind.js](web/tailwind.js)) — **no build step**, no React. Each page corresponds to a spec doc:
+Plain HTML + Tailwind (via [web/tailwind.js](main/web/tailwind.js)) — **no build step**, no React. Each page corresponds to a spec doc:
 
-- [index.html](web/index.html) → splash + provider choice ([spec/1-index.md](spec/1-index.md))
-- [applist.html](web/applist.html) → app list ([spec/1-applist.md](spec/1-applist.md))
-- [app.html](web/app.html) → per-app workbench/editor ([spec/3-app.md](spec/3-app.md))
-- [appconfig.html](web/appconfig.html) → env editor
-- [configure.html](web/configure.html) → provider/model config
+- [index.html](main/web/index.html) → splash + provider choice ([spec/1-index.md](spec/1-index.md))
+- [applist.html](main/web/applist.html) → app list ([spec/1-applist.md](spec/1-applist.md))
+- [app.html](main/web/app.html) → per-app workbench/editor ([spec/3-app.md](spec/3-app.md))
+- [appconfig.html](main/web/appconfig.html) → env editor
+- [configure.html](main/web/configure.html) → provider/model config
 
 Pages talk to the backend only through `/api/*` JSON endpoints.
+
+[web/js/tutorial.js](main/web/js/tutorial.js) ([spec/16-tutorial.md](spec/16-tutorial.md)) adds the
+spotlight tutorials started from the Tutorial pulldown in `app.html`; `applist.html` loads it too
+because the Commit and Push tutorial resumes there. Steps that point inside the TruACP iframe are
+served by the tour bridge in the `acp` submodule ([acp/web/tour-bridge.ts](main/acp/web/tour-bridge.ts)), which reports
+`data-tour` rects and notebook state across the origin boundary.
 
 ### Configuration layering
 
@@ -131,29 +223,43 @@ Maps merge key-by-key. The workspace file uses `omitempty` so it stays small. `p
 
 ### Publishing authorization (server-side, license-based)
 
-There is **no client-side gate** on publishing. The frontend always renders Git Push / Publish and always calls the backend. Authorization is an offline, Ed25519-signed **license** (`lic_<payload>.<sig>`) stored in the workspace config and verified against `master_key_pub`, which is committed and embedded in the binary — no network access. Two gates live in [license.go](license.go), both returning HTTP 402:
+There is **no client-side gate** on publishing. The frontend always renders Git Push / Publish and always calls the backend. Git push is **not** license-gated. Authorization is an offline, Ed25519-signed **license** (`lic_<payload>.<sig>`) stored in the workspace config and verified against `master_key_pub`, which is committed and embedded in the binary — no network access. Two gates live in [license.go](main/license.go), both returning HTTP 402:
 
-1. `requireValidLicense` — called by **all three** `/api/publish/*` handlers. Signature + expiry only; the `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`
+1. `requireValidLicense` — called by `/api/publish/remote` and `/api/publish/provision` (not by push/force-push). Signature + expiry only; the `hosts` list is not consulted. On failure: `{"error": "License required: <reason>"}`
 2. `requireLicensedHost` — called by `handlePublishRemote` only, after config resolution and before `ops ide login`, so nothing touches an unlicensed cluster. On mismatch: `{"error": "Host not licensed: <apihost> is not covered by your license"}`
 
-An expired license invalidates everything, git push included. Local apihosts (`miniops.me`, `localhost`, `127.0.0.1`, `::1`) skip **only** the host gate — a valid license is still required. `/api/git/deploy` is not gated at all.
+An expired license blocks publishing; git push never needs a license. Local apihosts (`miniops.me`, `localhost`, `127.0.0.1`, `::1`) skip **only** the host gate — a valid license is still required. `/api/git/deploy` is not gated at all.
 
-The frontend recognizes the `"License required"` and `"Host not licensed"` prefixes and shows a license modal (see `showLicenseModal` in [web/applist.html](web/applist.html)). When changing the error wording, keep those prefixes intact or the frontend gate breaks.
+The frontend recognizes the `"License required"` and `"Host not licensed"` prefixes and shows a license modal (see `showLicenseModal` in [web/applist.html](main/web/applist.html)). When changing the error wording, keep those prefixes intact or the frontend gate breaks.
 
 Licenses are issued by the `trulicense` CLI, which lives in the **trustant-installer** repo (run `./trulicense.sh` there). It keeps the signing key in 1Password (vault `TrustantLicenses`) and archives every license it issues. This repo only *verifies* licenses, offline, against the embedded `master_key_pub`. See [spec/14-license.md](spec/14-license.md).
 
 ## Submodules
 
-Five git submodules in [.gitmodules](.gitmodules) — `mcp`, `oplugins`, `oplugins-truinst`, `skills`, and `trustant-acp`. The build flow writes the new image tag into `oplugins-truinst/opsroot.json`.
+Six git submodules in [.gitmodules](.gitmodules), all checked out under `main/`. The rebrand to Trustant is **partial at the org level** — check `.gitmodules` rather than assuming an org from a repo name:
+
+| Submodule | Upstream | Org |
+|---|---|---|
+| `oplugins-truinst` | `trustant/oplugins-truinst` | migrated |
+| `acp` | `trustant/trustant-acp` | migrated |
+| `packages` | `trustant/openserverless-packages` | migrated |
+| `oplugins` | `trustable-ai/openserverless-task` (branch `0.9.0`) | **still `trustable-ai`** |
+| `skills` | `trustable-ai/skills` | **still `trustable-ai`** |
+| `mcp` (submodule name `openserverless-mcp`) | `trustant/openserverless-mcp` | migrated (fork of `apache/openserverless-mcp`) |
+
+`acp` holds the TruACP/Pi runtime sources, checked out at path `main/acp`; it was formerly at path `trustant-acp`, a name much of the repo still uses — see below. The build flow writes the new image tag into `main/oplugins-truinst/opsroot.json`.
 Never push to any plugin repository without explicit user authorization, including `oplugins`, `oplugins-truinst`, local plugin copies, submodules, and scripts that would push those repos.
+
+The `acp` submodule is checked out at path `main/acp` (it was formerly `trustable-acp`; that rename is now complete throughout the repo).
 
 ## Tests
 
-- `go test ./...` runs Go unit tests (`*_test.go`) — coverage is minimal; mostly `configure_test.go`.
+- `cd main && go test ./...` runs Go unit tests (`*_test.go`) — coverage is minimal; mostly `configure_test.go`.
 - [tests/](tests/) holds **manual end-to-end test scenarios** (spec markdown + a runnable script per scenario, e.g. `1-reset.sh` wipes miniops users and workspace, then runs `air`). These are not part of `go test`.
+- Some `*_test.go` files assert on the *content* of shell scripts rather than on Go behaviour — `setup_test.go` guards `setup.sh`, and `screenshot_script_test.go` guards `screenshot.sh` (including the Vite plugin it injects). They exist to stop invariants that are easy to regress and hard to notice (browser runtimes creeping into `setup.sh`, ImageMagick replacing the direct ffmpeg call, an unscoped `git commit` sweeping the user's workbench, a frame size that varies with the user's window).
 
 ## Conventions worth knowing
 
-- Adding a new API: register the route in [main.go](main.go), add a handler in the matching feature file, and update the spec doc under [spec/](spec/) — the spec is what's iterated on first.
-- `openserverless-instructions.md` at the repo root is **embedded into the binary** and shown to the AI assistant running inside *user-created* apps. It is not guidance for editing this repo — do not confuse it with this file.
+- Adding a new API: register the route in [main.go](main/main.go), add a handler in the matching feature file, and update the spec doc under [spec/](spec/) — the spec is what's iterated on first.
+- `main/openserverless-instructions.md` is **embedded into the binary** and shown to the AI assistant running inside *user-created* apps. It is not guidance for editing this repo — do not confuse it with this file.
 - Long-running subprocesses (`ops ide deploy`, `npm install`, `git push`) are spawned with their own process group; the `pgid` file in `$WORKBENCH_DIR` is how cleanup finds them.

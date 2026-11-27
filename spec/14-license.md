@@ -1,6 +1,6 @@
 # License and publishing authorization
 
-Implemented by [license.go](../license.go). The issuing CLI, `trulicense`, lives
+Implemented by [license.go](../main/license.go). The issuing CLI, `trulicense`, lives
 in the **trustant-installer** repo (`cmd/trulicense/`, run via `./trulicense.sh`)
 — this repo only *verifies* licenses and never signs one. Replaces the ai-proxy
 key check that used to live in `validate_key.go` (deleted; its spec was
@@ -92,7 +92,7 @@ sibling `../trustable-app` checkout exists and warns loudly when they differ.
 
 # APIs
 
-Registered in [main.go](../main.go).
+Registered in [main.go](../main/main.go).
 
 - `GET /api/license` →
   `{"present": bool, "sub": "...", "hosts": [...], "iat": "...", "exp": "...", "valid": bool, "reason": "..."}`.
@@ -129,7 +129,7 @@ the License card on Configure, below the license field.
 
 # Enforcement
 
-Two gates, both in [license.go](../license.go), both returning **HTTP 402**.
+Two gates, both in [license.go](../main/license.go), both returning **HTTP 402**.
 
 ## Feature flag: `ENABLE_LICENSE`
 
@@ -150,8 +150,8 @@ the flag **on**.
 ## 1. Valid-license gate — publish
 
 `requireValidLicense(w)` is called at the top of `handlePublishRemote`
-([publish.go](../publish.go)) and `handlePublishProvision`
-([provision.go](../provision.go)). With no license stored, or one that fails
+([publish.go](../main/publish.go)) and `handlePublishProvision`
+([provision.go](../main/provision.go)). With no license stored, or one that fails
 signature or expiry validation:
 
 ```json
@@ -205,14 +205,14 @@ subscriptions", linking to https://trustant.ai.
 # Frontend contract
 
 The error prefixes `License required` and `Host not licensed` are a **contract**
-with [web/applist.html](../web/applist.html): `isLicenseError` keys off them, and
+with [web/applist.html](../main/web/applist.html): `isLicenseError` keys off them, and
 `showLicenseModal` picks which explanation to show. Changing the wording
 server-side breaks the modal.
 
 The modal offers a textarea that POSTs to `/api/license` and shows the purchase
 path (info@nuvolaris.io / nuvolaris.io). For the host case it names the rejected
 apihost and lists the licensed hosts.
-[web/configure.html](../web/configure.html) carries a License card showing `sub`,
+[web/configure.html](../main/web/configure.html) carries a License card showing `sub`,
 covered hosts and expiry, with controls to replace or remove the license.
 
 # CLI: `trulicense`
@@ -352,7 +352,7 @@ already exist and the token must be scoped to it with write access.
 
 # Tests
 
-[license_test.go](../license_test.go) covers sign/verify round trip, tampered
+[license_test.go](../main/license_test.go) covers sign/verify round trip, tampered
 payload and signature, foreign signing key, expiry boundaries, host matching
 (scheme, case, port, trailing slash, path, no-wildcard), the local-host
 exemption and its lookalike rejections, the `/api/license` round trip, and the

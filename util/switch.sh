@@ -1,3 +1,4 @@
+#!/bin/bash
 # Copyright 2025-2026 Nuvolaris Inc
 #
 # This program is free software: you can redistribute it and/or modify
@@ -13,4 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-ssh -i ~/Library/Application\ Support/Trustant/id_ed25519 trustant@$(cat ~/Library/Application\ Support/Trustant/current.ip)  sudo cat /etc/rancher/k3s/k3s.yaml >~/.ops/tmp/kubeconfig
+# Always run from the repo root, wherever this is invoked from.
+cd "$(dirname "$0")/.." || exit 1
+
+set -euo pipefail
+BRANCH=${1:?branch} 
+git fetch --all --prune
+git switch "$BRANCH" 
+git submodule sync --recursive
+git submodule update --init --recursive
+exec ./setup.sh

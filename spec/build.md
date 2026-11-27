@@ -1,5 +1,7 @@
 # Build Scripts
 
+> **Paths.** The script runs from the repo root; the Go server lives in `main/`. It reads `main/version.txt`, writes `main/_build.txt`, compiles with `(cd main && go build -o ../image/bin/trustant-<arch>)`, stages `main/trustant.json`, `main/DEPS` and the root `LICENSE`/`NOTICE` into `image/`, and first copies `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. `hotfix.sh` does the same.
+
 `build.sh` is the entrypoint for building the full Trustant image, on both the
 macOS Trustant VM and the Linux k3s server. There is no separate server script:
 the host is detected from the presence of
@@ -28,7 +30,7 @@ for compatibility but is no longer the documented form.
 
 1. computes the tag, **deletes every existing git tag**, forces the new one, and
    writes `_build.txt`
-2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`
+2. **writes the image tag into `main/oplugins-truinst/opsroot.json`** via `jq`
   (`config.images.trustant`), together with the version as
   `config.version.trustant` (the legacy `config.trustant` block is dropped):
   `version.txt` must match
@@ -62,6 +64,14 @@ it is imported with `save ... | sudo -n k3s ctr images import -`.
 Deployment is always `ops truinst trustant redeploy`, which is `undeploy` +
 `deploy`; `deploy` reads the image from `opsroot.json`. The StatefulSet is
 never patched directly with `kubectl set image`.
+
+`build.sh` runs from the repo root but calls `ops` through `ops_main`, which
+`cd`s to `main/`: `ops` discovers its task root (`oplugins`) and local plugins
+(`oplugins-truinst`) in the current directory, and both submodules live there.
+
+`util/publish.sh` pushes `oplugins-truinst` with `git push origin HEAD:main`,
+not `main`: a submodule is normally on a detached HEAD, where the `opsroot.json`
+commit is not on the local `main` branch.
 
 `--no-deploy` stops after the image build, leaving the tag, `_build.txt` and the
 `opsroot.json` update in place.
@@ -264,12 +274,15 @@ Publishing environment:
 
 - `TRUSTANT_PUBLISH_BRANCH`: branch ref updated by `publish.sh`, defaulting to
   the current branch. Release branches can publish to `main` with
-  `TRUSTANT_PUBLISH_BRANCH=main ./publish.sh`.
-  After image CI succeeds, `publish.sh` may push `oplugins-truinst`, but any push
-  to `oplugins`, `oplugins-truinst`, or another plugin repo
-  requires explicit user authorization first. If there are no local changes in
-  that subrepo it skips the commit step and only pushes.
-Every build updates `oplugins-truinst/opsroot.json`, so the deployment plugin and
+  `TRUSTANT_PUBLISH_BRANCH=main ./util/publish.sh`.
+  After image CI succeeds, `util/publish.sh` shows the `opsroot.json` diff and
+  asks `[y/N]` on the terminal before committing and pushing `oplugins-truinst`
+  (no terminal → it refuses); any push to `oplugins`, `oplugins-truinst`, or
+  another plugin repo requires explicit user authorization first. It commits
+  only `opsroot.json` (other dirty files in the submodule are listed, never
+  included); with no `opsroot.json` change it skips the commit and only pushes.
+  It `cd`s to the repo root first, so it runs from any directory.
+Every build updates `main/oplugins-truinst/opsroot.json`, so the deployment plugin and
 the running cluster always agree on which image was built. Recording the tag is
 local; publishing it is a separate, authorization-gated push of the submodule.
 
@@ -281,7 +294,7 @@ Both `--build` and `--buildx` also stage `LICENSE`, `NOTICE` and `DEPS` with
 [20-legal.md](20-legal.md).
 
 `hotfix.sh` layers four files onto the image already recorded in
-`oplugins-truinst/opsroot.json` via `FROM <that image>`:
+`main/oplugins-truinst/opsroot.json` via `FROM <that image>`:
 
 | Source (context `image/`) | Destination | Owner |
 |---|---|---|
@@ -399,11 +412,11 @@ calls one of the two scripts:
 ```yaml
 - name: Build hotfix image
   if: steps.tag.outputs.hotfix == 'true'
-  run: bash ./hotfix.sh --buildx
+  run: bash ./util/hotfix.sh --buildx
 
 - name: Build full image
   if: steps.tag.outputs.hotfix == 'false'
-  run: bash ./build.sh --buildx
+  run: bash ./util/build.sh --buildx
 ```
 
 The classification happens in a step, not in `on:`, because the

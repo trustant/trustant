@@ -9,12 +9,17 @@ files at the repo root:
 | `LICENSE` | Trustant's AGPL-3.0 text first, then the full text of **every** license identifier that appears in `DEPS`, each under a `License: <id>` header |
 | `NOTICE` | Trustant's own notice (`legal/NOTICE.head`), then per component the copyright lines extracted from its license files and its NOTICE file(s) verbatim |
 
-## Generation: `./deps.sh`
+## Generation: `./legal/deps.sh`
 
-The three files are **generated, never edited by hand**. `deps.sh` runs
-`legal/deps.py`, which reads:
+The three files are **generated, never edited by hand**. `legal/deps.sh` runs
+`legal/deps.py` from the repo root. It writes `main/DEPS` and the root
+`LICENSE` and `NOTICE`. The root copies are the only committed ones: the
+binary embeds all three (`main/legal.go`), and since `go:embed` cannot reach
+`../`, `build.sh`, `hotfix.sh` and `run.sh` copy `LICENSE` and `NOTICE` into
+`main/` before compiling (`main/LICENSE` and `main/NOTICE` are gitignored).
+Input paths below are relative to `main/`. It reads:
 
-- `legal/deps.manual.txt` — hand-maintained components (vendored web assets,
+- `legal/deps.manual.txt` (repo root) — hand-maintained components (vendored web assets,
   submodules, Ubuntu packages, downloaded binaries, ops prerequisites, global
   npm and Python tools, the license of each pinned Python package, dev-only
   tools). Format and fetch kinds are documented at the top of the file.
@@ -28,7 +33,7 @@ The three files are **generated, never edited by hand**. `deps.sh` runs
 - `oplugins/prereq.yml` — versions of the binaries `ops` downloads.
 
 Components' own LICENSE/NOTICE files are downloaded once into `legal/.cache`
-(gitignored; `./deps.sh --clean` empties it). License texts live in
+(gitignored; `./legal/deps.sh --clean` empties it). License texts live in
 `legal/licenses/<id>.txt` and are committed: a missing SPDX text is fetched from
 `spdx/license-list-data`; `LicenseRef-*` texts are written by hand.
 
@@ -43,7 +48,7 @@ Claude Code is deliberately absent: it is proprietary and is never shipped
 
 ## Embedding and API
 
-[legal.go](../legal.go) embeds the three files with `//go:embed`.
+[legal.go](../main/legal.go) embeds the three files with `//go:embed`.
 
 `GET /api/legal/{deps,notice,license}` returns the text as
 `text/plain; charset=utf-8`. Unknown names are 404, non-GET methods 405.
@@ -63,7 +68,7 @@ to `/usr/share/doc/trustant/`.
 
 ## Tests
 
-[legal_test.go](../legal_test.go): the endpoints serve the embedded texts;
+[legal_test.go](../main/legal_test.go): the endpoints serve the embedded texts;
 every license id in a DEPS table row has a `License: <id>` section in LICENSE;
 NOTICE and LICENSE start with Trustant's own texts; build.sh, hotfix.sh and the
 Dockerfile ship the files into the image.

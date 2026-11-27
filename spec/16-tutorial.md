@@ -1,6 +1,6 @@
 This file describes the interactive guided tutorials, implemented in
 `web/js/tutorial.js` and loaded by `app.html` and `applist.html`. The engine is
-unit-tested by `tests/tutorial-spotlight.test.mjs` (`npm run test:tutorial`).
+unit-tested by `tests/tutorial-spotlight.test.mjs` (`npm --prefix tests run test:tutorial`).
 
 # Tutorial pulldown
 

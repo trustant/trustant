@@ -17,6 +17,9 @@
 # Publish: push tag, watch CI build, then push oplugins-truinst
 set -euo pipefail
 
+# Always run from the repo root, wherever this is invoked from.
+cd "$(dirname "$0")/.."
+
 # Ensure gh is authenticated
 if ! gh auth status >/dev/null 2>&1; then
     echo "Error: not logged in to GitHub. Run 'gh auth login' first."
@@ -83,18 +86,44 @@ if $HOTFIX; then
     echo
     echo "opsroot.json still points at the base image: a hotfix patches the"
     echo "running StatefulSet and is not a release. To promote it, run"
-    echo "./build.sh --build and push oplugins-truinst with explicit authorization."
+    echo "./util/build.sh --build and push oplugins-truinst with explicit authorization."
     echo "Done. Published $TAG successfully."
     exit 0
 fi
 
-echo "CI passed. Pushing oplugins-truinst..."
-cd oplugins-truinst
-if git diff --quiet && git diff --cached --quiet; then
-    echo "No oplugins-truinst changes to commit."
-else
-    git commit -m "$TAG" -a
+echo "CI passed."
+cd main/oplugins-truinst
+
+# Pushing the plugin repo is what ships the release, so it needs an explicit
+# yes from the operator. Only opsroot.json (the image tag build.sh wrote) is
+# committed; any other dirty file in the submodule is left alone, never swept
+# into a commit named after the release tag.
+OTHER=$(git status --porcelain | grep -v ' opsroot\.json$' || true)
+if [ -n "$OTHER" ]; then
+    echo "Note: other uncommitted changes in oplugins-truinst are NOT included:"
+    echo "$OTHER"
 fi
-git push origin main --tags
+git --no-pager diff -- opsroot.json
+# Open /dev/tty for real: its permission bits say nothing about whether this
+# session has a controlling terminal (cron, CI, nohup do not).
+if ! { : </dev/tty; } 2>/dev/null; then
+    echo "Error: pushing oplugins-truinst needs confirmation, but there is no terminal."
+    exit 1
+fi
+read -r -p "Commit opsroot.json as $TAG and push oplugins-truinst to origin main? [y/N] " ANSWER </dev/tty
+if [[ ! "$ANSWER" =~ ^[Yy]$ ]]; then
+    echo "Not pushed. The image $TAG is in the registry; oplugins-truinst is unchanged."
+    exit 1
+fi
+
+if git diff --quiet -- opsroot.json && git diff --cached --quiet -- opsroot.json; then
+    echo "No opsroot.json change to commit."
+else
+    git commit -m "$TAG" -- opsroot.json
+fi
+# HEAD:main, not main: a submodule is normally on a detached HEAD, where the
+# commit above is not on the local main branch and `git push origin main` would
+# report success while shipping nothing.
+git push origin HEAD:main --tags
 
 echo "Done. Published $TAG successfully."

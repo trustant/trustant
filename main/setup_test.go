@@ -24,7 +24,7 @@ import (
 )
 
 func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
-	content, err := os.ReadFile("setup.sh")
+	content, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -33,7 +33,7 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 		strings.Contains(setup, "github:apache/openserverless-mcp") {
 		t.Fatal("setup.sh must not overwrite the local OpenServerless MCP with a direct GitHub install")
 	}
-	if !strings.Contains(setup, `cd mcp && npm pack`) {
+	if !strings.Contains(setup, `cd main/mcp && npm pack`) {
 		t.Fatal("setup.sh must package the checked-out mcp submodule")
 	}
 	if !strings.Contains(setup, `secret-unbind`) {
@@ -44,7 +44,7 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	}
 	// WHY: the browser MCP and its Playwright/Chromium runtime were removed.
 	// The e2e harness keeps its own @playwright/test dependency, which lives in
-	// the root package.json and must never be reintroduced here.
+	// tests/package.json and must never be reintroduced here.
 	if strings.Contains(setup, "trustant-browser-mcp") ||
 		strings.Contains(setup, "playwright") ||
 		strings.Contains(setup, "chromium") {
@@ -56,17 +56,17 @@ func TestSetupInstallsCheckedOutOpenServerlessMCP(t *testing.T) {
 	if strings.Contains(setup, `git -C acp`) || strings.Contains(setup, `git -C mcp`) {
 		t.Fatal("setup.sh must consume mounted source without following host-only Git metadata")
 	}
-	if !strings.Contains(setup, `(cd acp && ./setup.sh)`) {
+	if !strings.Contains(setup, `(cd main/acp && ./setup.sh)`) {
 		t.Fatal("setup.sh must build TruACP from the checked-out submodule")
 	}
 }
 
 func TestRedisMCPNamespaceWrapperIsInstalledInVMAndImage(t *testing.T) {
-	setupContent, err := os.ReadFile("setup.sh")
+	setupContent, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
-	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	dockerContent, err := os.ReadFile(filepath.Join("..", "image", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -79,7 +79,7 @@ func TestRedisMCPNamespaceWrapperIsInstalledInVMAndImage(t *testing.T) {
 }
 
 func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
-	content, err := os.ReadFile("setup.sh")
+	content, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -129,13 +129,13 @@ func TestSetupConfiguresUserOwnedNPMGlobalPrefix(t *testing.T) {
 // pi.version owns the integrity-pinned upstream Pi CLI, so repository setup
 // must install and verify it before the nested installer builds only pi-acp.
 func TestSetupChecksUpstreamPiBeforeNestedACPBuild(t *testing.T) {
-	content, err := os.ReadFile("setup.sh")
+	content, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
 	setup := string(content)
 
-	nestedBuildAt := strings.Index(setup, `(cd acp && ./setup.sh)`)
+	nestedBuildAt := strings.Index(setup, `(cd main/acp && ./setup.sh)`)
 	if nestedBuildAt < 0 {
 		t.Fatal("setup.sh must build the nested acp installer")
 	}
@@ -184,7 +184,7 @@ func TestSetupNeverInstallsClaudeCode(t *testing.T) {
 			t.Fatalf("acp/pi.version must not install Claude Code: %q", spec)
 		}
 	}
-	setup, err := os.ReadFile("setup.sh")
+	setup, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -197,7 +197,7 @@ func TestSetupNeverInstallsClaudeCode(t *testing.T) {
 // line appended only there never runs under `bash -lc`. ~/.profile is what
 // actually carries the toolchain into a login shell.
 func TestSetupWritesImagePathToProfileNotOnlyBashrc(t *testing.T) {
-	content, err := os.ReadFile("setup.sh")
+	content, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -217,7 +217,7 @@ func TestSetupWritesImagePathToProfileNotOnlyBashrc(t *testing.T) {
 }
 
 func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
-	setupContent, err := os.ReadFile("setup.sh")
+	setupContent, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -231,7 +231,7 @@ func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 		}
 	}
 
-	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	dockerContent, err := os.ReadFile(filepath.Join("..", "image", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -247,11 +247,11 @@ func TestRuntimeInstallsPortRecoveryDependencyInVMAndImage(t *testing.T) {
 // as a reduced server count in the agent runtime. The import probe is asserted
 // for the same reason: without it a broken resolution passes setup silently.
 func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
-	setupContent, err := os.ReadFile("setup.sh")
+	setupContent, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
-	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	dockerContent, err := os.ReadFile(filepath.Join("..", "image", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -285,11 +285,11 @@ func TestPythonMCPServersPinTheMCPSDK(t *testing.T) {
 }
 
 func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
-	setupContent, err := os.ReadFile("setup.sh")
+	setupContent, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
-	dockerContent, err := os.ReadFile(filepath.Join("image", "Dockerfile"))
+	dockerContent, err := os.ReadFile(filepath.Join("..", "image", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -336,7 +336,7 @@ func TestGitHubCLIIsPinnedForVMAndImage(t *testing.T) {
 }
 
 func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
-	content, err := os.ReadFile("setup.sh")
+	content, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -367,7 +367,7 @@ func TestSetupSelectsAvailableKubernetesClient(t *testing.T) {
 }
 
 func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -377,9 +377,9 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 		// -c core.eol=lf` between `git -C "$MOUNT_DIR"` and the subcommand so a
 		// fresh Windows checkout lands as LF. What must hold is that both
 		// source submodules are initialised recursively, not the exact flags.
-		`submodule update --init --recursive mcp acp`,
-		`[[ -f "$MOUNT_DIR/mcp/package.json" ]]`,
-		`[[ -f "$MOUNT_DIR/acp/package.json" ]]`,
+		`submodule update --init --recursive main/mcp main/acp`,
+		`[[ -f "$MOUNT_DIR/main/mcp/package.json" ]]`,
+		`[[ -f "$MOUNT_DIR/main/acp/package.json" ]]`,
 		`ensure_source_submodules`,
 	} {
 		if !strings.Contains(start, required) {
@@ -393,12 +393,12 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 }
 
 // WHY: ssh.sh is the user-facing wrapper — it takes no command and always ends
-// in `exec bash`. start.sh once probed reachability with `./ssh.sh true`, whose
+// in `exec bash`. start.sh once probed reachability with `./util/ssh.sh true`, whose
 // argument was ignored, so the probe opened an interactive shell and blocked the
 // rest of the run: `./start.sh -v` never reached the step that opens VS Code and
 // the user was dropped into a VM shell with no error explaining it.
 func TestStartDoesNotShellOutToSSHScript(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -411,9 +411,9 @@ func TestStartDoesNotShellOutToSSHScript(t *testing.T) {
 	}
 	start := strings.Join(code, "\n")
 
-	// The echoed help line naming ./ssh.sh for the user is fine; invoking it is
+	// The echoed help line naming ./util/ssh.sh for the user is fine; invoking it is
 	// not. Only the call forms are rejected.
-	for _, forbidden := range []string{`./ssh.sh true`, `if ./ssh.sh`, `./ssh.sh >`} {
+	for _, forbidden := range []string{`./util/ssh.sh true`, `if ./util/ssh.sh`, `./util/ssh.sh >`} {
 		if strings.Contains(start, forbidden) {
 			t.Fatalf("start.sh must not invoke ssh.sh (%q): it always execs an interactive shell and would block the start", forbidden)
 		}
@@ -432,7 +432,7 @@ func TestStartDoesNotShellOutToSSHScript(t *testing.T) {
 }
 
 func TestStartAllocatesBuildCapableLimaDisk(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -446,7 +446,7 @@ func TestStartAllocatesBuildCapableLimaDisk(t *testing.T) {
 }
 
 func TestStartProxyPreservesTruACPWebSocketUpgrades(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -466,7 +466,7 @@ func TestStartProxyPreservesTruACPWebSocketUpgrades(t *testing.T) {
 }
 
 func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
-	content, err := os.ReadFile("run.sh")
+	content, err := os.ReadFile("../run.sh")
 	if err != nil {
 		t.Fatalf("read run.sh: %s", err)
 	}
@@ -474,19 +474,19 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 	for _, required := range []string{
 		`write_dev_build_metadata`,
 		`TRUSTANT_BUILD_BRANCH`,
-		`> _build.txt`,
+		`> main/_build.txt`,
 	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("run.sh is missing clean-worktree build metadata fragment %q", required)
 		}
 	}
 	// The metadata used to be written only when _build.txt was missing or
-	// empty (`[[ -s _build.txt ]] || write_dev_build_metadata`). A reused
+	// empty (`[[ -s main/_build.txt ]] || write_dev_build_metadata`). A reused
 	// worktree carries an ignored _build.txt from an earlier image build, so
 	// that left Air running with stale release metadata. Size alone is still
 	// not a valid reason to skip; the only sanctioned skip is an exact HEAD
 	// tag match, below.
-	if strings.Contains(run, `[[ -s _build.txt ]] || write_dev_build_metadata`) {
+	if strings.Contains(run, `[[ -s main/_build.txt ]] || write_dev_build_metadata`) {
 		t.Fatal("run.sh must not skip _build.txt regeneration merely because one already exists")
 	}
 	// Regeneration now runs through ensure_build_metadata, which keeps release
@@ -502,10 +502,10 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 		// keep whatever stale release metadata the worktree carried.
 		`[[ -n "$tag" ]] || return 1`,
 		// Missing/empty _build.txt must still regenerate.
-		`[[ -s _build.txt ]] || return 1`,
+		`[[ -s main/_build.txt ]] || return 1`,
 		// -F: a tag like v0.4.0 is a literal; as a regex the dots would match
 		// unrelated builds.
-		`grep -qF "$tag" _build.txt`,
+		`grep -qF "$tag" main/_build.txt`,
 	} {
 		if !strings.Contains(run, required) {
 			t.Fatalf("run.sh is missing HEAD-tag build metadata guard fragment %q", required)
@@ -514,7 +514,7 @@ func TestRunGeneratesBuildMetadataForCleanWorktree(t *testing.T) {
 }
 
 func TestRunRestoresSelectedNPMGlobalPrefix(t *testing.T) {
-	content, err := os.ReadFile("run.sh")
+	content, err := os.ReadFile("../run.sh")
 	if err != nil {
 		t.Fatalf("read run.sh: %s", err)
 	}
@@ -533,7 +533,7 @@ func TestRunRestoresSelectedNPMGlobalPrefix(t *testing.T) {
 }
 
 func TestStartInstallsPinnedKubefwdForSupportedArchitectures(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -554,7 +554,7 @@ func TestStartInstallsPinnedKubefwdForSupportedArchitectures(t *testing.T) {
 }
 
 func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
-	content, err := os.ReadFile("run.sh")
+	content, err := os.ReadFile("../run.sh")
 	if err != nil {
 		t.Fatalf("read run.sh: %s", err)
 	}
@@ -618,10 +618,10 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 // sourced or never invoked directly, and those must stay non-executable.
 func TestDocumentedEntrypointsAreExecutableInGit(t *testing.T) {
 	for _, name := range []string{
-		"run.sh", "screenshot.sh", "start.sh", "setup.sh",
-		"build.sh", "hotfix.sh", "publish.sh", "ssh.sh",
+		"run.sh", "util/screenshot.sh", "start.sh", "setup.sh",
+		"util/build.sh", "util/hotfix.sh", "util/publish.sh", "util/ssh.sh",
 	} {
-		out, err := exec.Command("git", "ls-files", "-s", "--", name).Output()
+		out, err := exec.Command("git", "ls-files", "-s", "--", "../"+name).Output()
 		if err != nil {
 			t.Skipf("git ls-files unavailable: %s", err)
 		}
@@ -638,7 +638,7 @@ func TestDocumentedEntrypointsAreExecutableInGit(t *testing.T) {
 }
 
 func TestSetupInstallsGlobalPinnedMilvusCli(t *testing.T) {
-	content, err := os.ReadFile("setup.sh")
+	content, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
@@ -659,11 +659,11 @@ func TestSetupInstallsGlobalPinnedMilvusCli(t *testing.T) {
 }
 
 func TestMilvusMCPUsesPinnedTrustantFork(t *testing.T) {
-	setupData, err := os.ReadFile("setup.sh")
+	setupData, err := os.ReadFile("../setup.sh")
 	if err != nil {
 		t.Fatalf("read setup.sh: %s", err)
 	}
-	dockerData, err := os.ReadFile("image/Dockerfile")
+	dockerData, err := os.ReadFile("../image/Dockerfile")
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -698,7 +698,7 @@ func TestMilvusMCPUsesPinnedTrustantFork(t *testing.T) {
 }
 
 func TestLocalE2ERequiresRunKubefwd(t *testing.T) {
-	data, err := os.ReadFile("tests/e2e_issue98.sh")
+	data, err := os.ReadFile("../tests/e2e_issue98.sh")
 	if err != nil {
 		t.Fatalf("read local E2E runner: %s", err)
 	}
@@ -720,10 +720,10 @@ func TestLocalE2ERequiresRunKubefwd(t *testing.T) {
 
 func TestScriptSpecificationsLiveUnderSpec(t *testing.T) {
 	for _, name := range []string{"setup.md", "run.md", "start.md"} {
-		if _, err := os.Stat(name); !os.IsNotExist(err) {
+		if _, err := os.Stat("../" + name); !os.IsNotExist(err) {
 			t.Fatalf("obsolete root specification %s still exists", name)
 		}
-		path := filepath.Join("spec", name)
+		path := filepath.Join("..", "spec", name)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read relocated specification %s: %s", path, err)
@@ -748,7 +748,7 @@ func TestOpsInstallsFromTrustantSourceWithoutObsoleteEnvVars(t *testing.T) {
 		"start.sh":                           "",
 	}
 	for name := range files {
-		content, err := os.ReadFile(name)
+		content, err := os.ReadFile(filepath.Join("..", name))
 		if err != nil {
 			t.Fatalf("read %s: %s", name, err)
 		}
@@ -802,5 +802,17 @@ func TestOpsInstallsFromTrustantSourceWithoutObsoleteEnvVars(t *testing.T) {
 	// setup.sh asserts against the wired-in source, not a Dockerfile ARG.
 	if !strings.Contains(files["setup.sh"], "https://github.com/trustable-ai/openserverless-task") {
 		t.Fatal("setup.sh must assert ops resolves the Trustant task source")
+	}
+}
+
+// setup.sh runs from the repo root, but go.mod lives in main/ since #250. A
+// bare `go.mod` there made "Checking Go" fail in the VM.
+func TestSetupReadsGoVersionFromMainGoMod(t *testing.T) {
+	content, err := os.ReadFile("../setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	if !strings.Contains(string(content), "grep '^go ' main/go.mod") {
+		t.Fatal("setup.sh must read the Go version from main/go.mod (it runs from the repo root)")
 	}
 }

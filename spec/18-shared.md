@@ -1,6 +1,6 @@
 # Shared service secrets
 
-Implemented in [shared.go](../shared.go) and [web/js/shared.js](../web/js/shared.js).
+Implemented in [shared.go](../main/shared.go) and [web/js/shared.js](../main/web/js/shared.js).
 
 ## Why
 
@@ -300,9 +300,9 @@ works for its author and nobody else. The same file drives MCP generation and
 
 `removeOpsConfig()` therefore runs before **every** `ops ide login` call site:
 
-- `handleLaunchGet` ([launch.go](../launch.go))
-- `handlePublishRemote` ([publish.go](../publish.go))
-- `opsLoginForApp` ([shared.go](../shared.go))
+- `handleLaunchGet` ([launch.go](../main/launch.go))
+- `handlePublishRemote` ([publish.go](../main/publish.go))
+- `opsLoginForApp` ([shared.go](../main/shared.go))
 
 `opsLoginForApp` regenerates the workbench env files with the **full**
 `generateAppEnvFiles`, shared values included. It runs when the Share dialog

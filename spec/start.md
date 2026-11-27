@@ -1,5 +1,7 @@
 # Repository-root `start.sh`
 
+> **Paths.** The release identity is `main/version.txt`, the seeded env file is `main/.env` (from `main/.env.dist`), and the runtime submodules it initialises are `main/mcp` and `main/acp`.
+
 This specification defines the repository-root `start.sh`, which brings up a
 Trustant development environment. It supports two hosts, selected
 automatically by `uname -s`:
@@ -34,11 +36,11 @@ The cluster package is the Trustant Serverless deb, published on
 
     https://pub.trustant.ai/truserverless/truserverless_<version>_<arch>.deb
 
-where `<version>` is the content of `truserverless.txt` (e.g. `0.9.0+455258`,
+where `<version>` is the content of `main/truserverless.txt` (e.g. `0.9.0+455258`,
 the `+` sent literally) and `<arch>` is `amd64` or `arm64`. There is no index:
 the URL is built directly from the pin and the HOST arch.
 
-`truserverless.txt` pins the version and is a **hard pin**. If the file is
+`main/truserverless.txt` pins the version and is a **hard pin**. If the file is
 missing or empty, `start.sh` fails immediately — it must never install an
 unpinned package. If the pinned version is not published, the download fails
 (HTTP 404) and `start.sh` fails with a message naming the requested version, the
@@ -61,7 +63,7 @@ move into place so an interrupted download never leaves a truncated cache entry.
 
 Two separate version files, deliberately not conflated:
 
-- `truserverless.txt` — the **cluster package** version (`0.1.0+f1553b`). Selects
+- `main/truserverless.txt` — the **cluster package** version (`0.1.0+f1553b`). Selects
   what gets installed. Hard pin, no fallback.
 - `version.txt` — the **Trustant app** release identity in tagged form (`v0.4.0`),
   the single source shared with `build.sh`/`hotfix.sh`/`run.sh`; `TRUSTANT_VERSION`
@@ -149,7 +151,8 @@ flag because there are three distinct places to land: your own development
 files, the `trustant` user's installation, and the container running inside it.
 
 - `-d` — **development access**. Logs in as the mirrored guest user (`$USER`)
-  and `cd`s to `$PWD`, so the shell opens on your development files at the same
+  and `cd`s to the directory `ssh.sh` was called from (captured before the
+  script moves to the repo root), so the shell opens on your development files at the same
   path as on the host.
 - `-p` — **production access**. Logs in as `trustant`, the user that owns the
   Trustant folder and the deployed installation. No `cd`; you land in that
@@ -164,18 +167,18 @@ files, the `trustant` user's installation, and the container running inside it.
 
 **Called with no arguments at all, `ssh.sh` prints the help and exits** rather
 than opening a shell — the modes are not interchangeable, so which one you want
-is always stated. `./ssh.sh -d` is the interactive development shell.
+is always stated. `./util/ssh.sh -d` is the interactive development shell.
 
 Extra arguments after the flag are run as a command instead of opening an
 interactive shell — under `-i` they run inside the container. The flag is
 optional and dev is the fallback mode, so the existing flagless command
-invocations (`./ssh.sh ./setup.sh`, `./ssh.sh ./run.sh`, `./ssh.sh
-./screenshot.sh`) keep their previous meaning.
+invocations (`./util/ssh.sh ./setup.sh`, `./util/ssh.sh ./run.sh`, `./util/ssh.sh
+./util/screenshot.sh`) keep their previous meaning.
 
-### start.sh must never call ./ssh.sh
+### start.sh must never call ./util/ssh.sh
 
 `ssh.sh` is the **user-facing** wrapper: with no command it always ends in an
-interactive shell. `start.sh` once probed reachability with `./ssh.sh true` — the
+interactive shell. `start.sh` once probed reachability with `./util/ssh.sh true` — the
 argument was ignored, so the probe opened a shell and blocked the rest of the
 run. `./start.sh -v` therefore never reached the step that opens VS Code, and the
 user was dropped into a VM shell instead, with no error to explain it.
@@ -381,7 +384,7 @@ reachable from here; it clears on the next image build.
 ## Host-rewrite proxy catch-all
 
 After `setup.sh` completes, on every finish path, `start.sh` runs the repository's
-own [`./proxy.sh`](17-proxy.md) -- **not** `ops truinst proxy install`. The
+own [`./util/proxy.sh`](17-proxy.md) -- **not** `ops truinst proxy install`. The
 configuration then lives in this repo, where it is reviewable and versioned with
 the code it fronts, instead of inside the plugin.
 
@@ -441,7 +444,7 @@ mirrored user); `./start.sh -v` opens VS Code over Remote-SSH instead, and
 
 ## .env seeding (first step)
 
-Before anything else on either host, `start.sh` ensures a repository-root `.env`
+Before anything else on either host, `start.sh` ensures a `main/.env`
 exists, seeding it from `.env.dist` when absent. An existing `.env` is **never**
 overwritten — it holds the user's real credentials. A missing `.env.dist` is a
 hard failure.

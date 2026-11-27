@@ -28,7 +28,7 @@ import (
 // to regress in a shell script and hard to notice at runtime — the pod just
 // quietly keeps state again — so guard the entrypoint's content directly.
 func TestStartScriptKeepsWorkbenchEphemeral(t *testing.T) {
-	content, err := os.ReadFile("image/start.sh")
+	content, err := os.ReadFile("../image/start.sh")
 	if err != nil {
 		t.Fatalf("read image/start.sh: %s", err)
 	}
@@ -62,7 +62,7 @@ func TestStartScriptKeepsWorkbenchEphemeral(t *testing.T) {
 // properties are one-line regressions in a shell script and invisible at
 // runtime (the pod just boots slowly again), so guard the entrypoint directly.
 func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
-	content, err := os.ReadFile("image/start.sh")
+	content, err := os.ReadFile("../image/start.sh")
 	if err != nil {
 		t.Fatalf("read image/start.sh: %s", err)
 	}
@@ -135,7 +135,7 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 //     filename needs the numeric "0.4.0". A hardcoded copy in start.sh drifts
 //     silently whenever the tag moves.
 func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -158,14 +158,14 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 		t.Error("start.sh must not use landing2.nuvolaris.org — it serves an older release")
 	}
 
-	// truserverless.txt selects what actually gets installed, so unlike
+	// main/truserverless.txt selects what actually gets installed, so unlike
 	// version.txt it must be a hard pin: no "unknown" fallback, and no silent
 	// fallback onto another version.
-	if !strings.Contains(script, `TRUSERVERLESS_VERSION="$(head -n1 truserverless.txt`) {
-		t.Error("start.sh must read the pinned package version from truserverless.txt")
+	if !strings.Contains(script, `TRUSERVERLESS_VERSION="$(head -n1 main/truserverless.txt`) {
+		t.Error("start.sh must read the pinned package version from main/truserverless.txt")
 	}
-	if !strings.Contains(script, `|| fail "truserverless.txt not found or empty`) {
-		t.Error("start.sh must fail (not warn) when truserverless.txt is missing or empty")
+	if !strings.Contains(script, `|| fail "main/truserverless.txt not found or empty`) {
+		t.Error("start.sh must fail (not warn) when main/truserverless.txt is missing or empty")
 	}
 	if !strings.Contains(script, `could not be downloaded.`) {
 		t.Error("start.sh must fail loudly when the pinned version cannot be downloaded")
@@ -220,7 +220,7 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 	// version.txt keeps its own, separate meaning (the app release identity
 	// shared with build.sh/hotfix.sh/run.sh) and must not be conflated with the
 	// package pin above.
-	if !strings.Contains(script, `TRUSTANT_VERSION="$(head -n1 version.txt`) {
+	if !strings.Contains(script, `TRUSTANT_VERSION="$(head -n1 main/version.txt`) {
 		t.Error("start.sh must still derive TRUSTANT_VERSION from version.txt")
 	}
 	if !strings.Contains(script, `TRUSTANT_VERSION="${TRUSTANT_VERSION#v}"`) {
@@ -233,7 +233,7 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 // install copies a preloaded <target>/dist into the checkout's dist/ cache.
 func TestStartScriptsKeepVMInDataAndSeedDist(t *testing.T) {
 	read := func(name string) string {
-		content, err := os.ReadFile(name)
+		content, err := os.ReadFile("../" + name)
 		if err != nil {
 			t.Fatalf("read %s: %s", name, err)
 		}

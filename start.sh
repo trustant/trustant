@@ -101,23 +101,23 @@ LIMA_KEY="$LIMA_HOME/_config/user"           # shared identity limactl ssh uses
 # scheme, truserverless_<version>_<arch>.deb, so the URL is built directly from
 # the pinned version and the host arch — there is no index to resolve.
 TRUSERVERLESS_BASE_URL="https://pub.trustant.ai/truserverless"
-# truserverless.txt pins WHICH package version gets installed, so it is a hard
+# main/truserverless.txt pins WHICH package version gets installed, so it is a hard
 # pin: unlike TRUSTANT_VERSION below there is no "unknown" fallback, because an
 # empty value here would silently install something other than what the repo
 # declares. A missing or bogus pin must fail loudly instead.
-TRUSERVERLESS_VERSION="$(head -n1 truserverless.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSERVERLESS_VERSION="$(head -n1 main/truserverless.txt 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$TRUSERVERLESS_VERSION" ]] \
-  || fail "truserverless.txt not found or empty — it must pin the Trustant Serverless package version (e.g. 0.1.0+f1553b)"
-# The release identity lives in version.txt (tagged form, e.g. v0.4.0) and is the
+  || fail "main/truserverless.txt not found or empty — it must pin the Trustant Serverless package version (e.g. 0.1.0+f1553b)"
+# The release identity lives in main/version.txt (tagged form, e.g. v0.4.0) and is the
 # single source shared with build.sh/hotfix.sh/run.sh. It identifies the Trustant
 # APP release and is unrelated to TRUSERVERLESS_VERSION above, which identifies
 # the cluster package — the two version files are deliberately separate. The
 # numeric form is used, so strip the leading "v".
-TRUSTANT_VERSION="$(head -n1 version.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSTANT_VERSION="$(head -n1 main/version.txt 2>/dev/null | tr -d '[:space:]')"
 TRUSTANT_VERSION="${TRUSTANT_VERSION#v}"
 if [[ -z "$TRUSTANT_VERSION" ]]; then
   TRUSTANT_VERSION="unknown"
-  warn "version.txt not found or empty"
+  warn "main/version.txt not found or empty"
 fi
 DIST_DIR="dist"                              # host-side cache (.deb + ollama tarball)
 
@@ -143,8 +143,8 @@ KUBEFWD_SHA_ARM64="e01ade02d919be2c7e306543f0a65de2e629c254ef16b51ecb45830b0044a
 HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
-ENV_FILE="$MOUNT_DIR/.env"
-ENV_DIST_FILE="$MOUNT_DIR/.env.dist"
+ENV_FILE="$MOUNT_DIR/main/.env"
+ENV_DIST_FILE="$MOUNT_DIR/main/.env.dist"
 
 # setup.sh runs inside a VM that only mounts this worktree. A worktree's .git
 # file may point outside that mount, so source submodules must be initialized on
@@ -154,19 +154,19 @@ ensure_source_submodules() {
   # WHY: acp may already be populated while its nested pi-acp fork is
   # still empty. Test the leaf explicitly so a reused worktree cannot reach the
   # VM setup with an incomplete runtime source tree.
-  if [[ ! -f "$MOUNT_DIR/mcp/package.json" ||
-        ! -f "$MOUNT_DIR/acp/package.json" ||
-        ! -f "$MOUNT_DIR/acp/pi-acp/package.json" ]]; then
+  if [[ ! -f "$MOUNT_DIR/main/mcp/package.json" ||
+        ! -f "$MOUNT_DIR/main/acp/package.json" ||
+        ! -f "$MOUNT_DIR/main/acp/pi-acp/package.json" ]]; then
     echo "--- Initializing runtime source submodules on the host ---"
     # -c ... is inherited by the clone/checkout git runs per submodule, so a
     # fresh Windows checkout lands as LF instead of needing the repair below.
     git -C "$MOUNT_DIR" -c core.autocrlf=false -c core.eol=lf \
-      submodule update --init --recursive mcp acp \
+      submodule update --init --recursive main/mcp main/acp \
       || fail "failed to initialize mcp/acp submodules"
   fi
-  [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
-  [[ -f "$MOUNT_DIR/acp/package.json" ]] || fail "acp submodule source is unavailable"
-  [[ -f "$MOUNT_DIR/acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
+  [[ -f "$MOUNT_DIR/main/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/main/acp/package.json" ]] || fail "acp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/main/acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
   ok "runtime source submodules are available"
   normalize_submodule_eol
 }
@@ -737,7 +737,7 @@ GUEST
   ok "obsolete OPS_BRANCH/OPS_REPO exports removed from .profile/.bashrc"
 }
 
-# Install the host-rewrite proxy catch-all with ./proxy.sh (see
+# Install the host-rewrite proxy catch-all with ./util/proxy.sh (see
 # spec/17-proxy.md) rather than `ops truinst proxy install`, so the configuration
 # lives in this repo and is reviewable here. It installs nginx with apt-get and
 # serves :8911, rewriting Host to <label>.miniops.me for the upstream.
@@ -752,15 +752,15 @@ ensure_openserverless_proxy() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
   echo "--- Installing the host-rewrite proxy catch-all${where} ---"
-  # `bash ./proxy.sh` rather than `./proxy.sh`: on WSL the exec bit of a
+  # `bash ./util/proxy.sh` rather than `./util/proxy.sh`: on WSL the exec bit of a
   # Windows-hosted file depends on the automount options, so a checkout can
   # present the script as non-executable however git records its mode.
   if $NATIVE_LINUX; then
-    bash ./proxy.sh || fail "proxy.sh failed"
+    bash ./util/proxy.sh || fail "proxy.sh failed"
   else
     # Same invocation style as the setup.sh call: as the mirrored user, in the
     # mounted repo dir, so the script is the worktree's own copy.
-    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./proxy.sh </dev/null \
+    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./util/proxy.sh </dev/null \
       || fail "proxy.sh failed in the VM"
   fi
   ok "host-rewrite proxy catch-all installed"
@@ -842,6 +842,15 @@ GUEST
 # rather than letting setup.sh abort mid-run.
 ensure_env_file() {
   echo "--- Checking .env ---"
+  # Pre-#250 checkouts kept .env (and .env.default) at the repo root. Move them
+  # rather than seeding a fresh main/.env that points at an empty workspace.
+  local f
+  for f in .env .env.default; do
+    if [[ -f "$MOUNT_DIR/$f" && ! -e "$MOUNT_DIR/main/$f" ]]; then
+      mv "$MOUNT_DIR/$f" "$MOUNT_DIR/main/$f" || fail "could not move $f to main/$f"
+      warn "moved $f to main/$f (the server now lives in main/)"
+    fi
+  done
   if [[ -f "$ENV_FILE" ]]; then
     ok ".env already present at $ENV_FILE"
     return 0
@@ -906,7 +915,7 @@ refresh_support_files() {
 # Can we run a command in the VM over plain ssh, with the identity that was just
 # copied into the support dir?
 #
-# This deliberately does NOT go through ./ssh.sh. That script is the user-facing
+# This deliberately does NOT go through ./util/ssh.sh. That script is the user-facing
 # wrapper: it takes no command and always `exec bash`, so calling it here opened
 # an interactive shell and blocked the rest of the start — `./start.sh -v` never
 # reached the step that opens VS Code, and the user was left in a VM shell.
@@ -1070,7 +1079,7 @@ finish() {
   echo -e "${GREEN}=== Trustant VM ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
-  echo "  ssh:          ./ssh.sh   |   ssh $HOST_USER@$IP   |   ssh trudev"
+  echo "  ssh:          ./util/ssh.sh   |   ssh $HOST_USER@$IP   |   ssh trudev"
   echo "  next:         ./run.sh in the VM, started below (./start.sh -n to skip)"
   echo "  vscode:       ./start.sh -v (opens this folder over Remote-SSH instead)"
   echo "  ollama:       http://localhost:11434  (CPU, in-VM)"
@@ -1164,7 +1173,7 @@ finish_native() {
 # Sets the global DEB_FILE. The deb arch matches the HOST arch (the VM runs the
 # host arch under vz): arm64 on Apple Silicon, amd64 on Intel.
 #
-# The version installed is pinned by truserverless.txt (TRUSERVERLESS_VERSION)
+# The version installed is pinned by main/truserverless.txt (TRUSERVERLESS_VERSION)
 # and names the file on pub.trustant.ai, so what lands on the machine is
 # reproducible — a given checkout always installs the same package.
 ensure_deb() {
@@ -1200,11 +1209,11 @@ ensure_deb() {
   # Download to a temp file then move into place, so an interrupted download
   # never leaves a truncated cache entry.
   TMP_DEB="${DEB_FILE}.part"
-  # Hard pin: a stale or mistyped truserverless.txt 404s here and must fail
+  # Hard pin: a stale or mistyped main/truserverless.txt 404s here and must fail
   # loudly, never fall back to some other version.
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL" \
     || { rm -f "$TMP_DEB"; fail "Trustant Serverless version '$TRUSERVERLESS_VERSION' ($DEB_ARCH) could not be downloaded.
-    Requested by: truserverless.txt
+    Requested by: main/truserverless.txt
     URL:          $DEB_URL"; }
   mv "$TMP_DEB" "$DEB_FILE"
   ok "Downloaded $DEB_FILE"
@@ -1435,13 +1444,13 @@ require_sudo() {
 }
 
 # Installed truserverless version, or empty when it is not installed. The
-# package's Version: field equals truserverless.txt (package.sh writes both).
+# package's Version: field equals main/truserverless.txt (package.sh writes both).
 installed_truserverless_version() {
   dpkg-query -W -f='${db:Status-Abbrev} ${Version}' truserverless 2>/dev/null \
     | awk '$1 == "ii" { print $2 }' || true   # not installed: dpkg-query exits 1
 }
 
-# Enforce the truserverless.txt pin on an existing native install. Runs right
+# Enforce the main/truserverless.txt pin on an existing native install. Runs right
 # after preflight_native, before anything is installed, so answering No leaves
 # the host untouched. Purge wipes /var/lib/rancher/k3s, /home/trustant and the
 # trustant account (see the package's postrm), i.e. all data — hence the
@@ -1450,7 +1459,7 @@ check_truserverless_version() {
   local installed answer
   installed="$(installed_truserverless_version)"
   [[ -n "$installed" && "$installed" != "$TRUSERVERLESS_VERSION" ]] || return 0
-  warn "Installed truserverless $installed, but truserverless.txt pins $TRUSERVERLESS_VERSION"
+  warn "Installed truserverless $installed, but main/truserverless.txt pins $TRUSERVERLESS_VERSION"
   echo "I need to uninstall the existing truserverless package"
   echo "WARNING: I am going to remove all data, interrupt if you did not save it yet."
   [[ -t 0 ]] || fail "not a terminal — cannot confirm; purge it with: sudo apt-get purge -y truserverless"

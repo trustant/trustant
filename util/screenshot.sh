@@ -38,7 +38,7 @@ ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.." # repo root
 ROOT="$PWD"
 
 # --- 1. Run inside the VM only ---
@@ -48,7 +48,7 @@ ROOT="$PWD"
 # start.sh supports, and a hostname or /mnt/lima-* check would break them.
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 [[ "$OS" == "linux" ]] \
-  || fail "screenshot.sh runs inside the VM (Ubuntu natively, in Lima, or in WSL), not ${OS} — try ./ssh.sh ./screenshot.sh"
+  || fail "screenshot.sh runs inside the VM (Ubuntu natively, in Lima, or in WSL), not ${OS} — try ./util/ssh.sh ./util/screenshot.sh"
 [[ -r /etc/os-release ]] || fail "cannot identify the Linux distribution: /etc/os-release is missing"
 # shellcheck disable=SC1091
 source /etc/os-release
@@ -64,11 +64,11 @@ esac
 # once — which looks like a crash, and is the confusing half of running this
 # through a pipe or a non-interactive ssh. Refuse up front, before anything is
 # injected into the user's config, and name the fix.
-[[ -t 0 ]] || fail "screenshot.sh needs an interactive terminal — run it in a shell (./ssh.sh, then ./screenshot.sh), not piped or through 'ssh <host> ./screenshot.sh'"
+[[ -t 0 ]] || fail "screenshot.sh needs an interactive terminal — run it in a shell (./util/ssh.sh, then ./util/screenshot.sh), not piped or through 'ssh <host> ./util/screenshot.sh'"
 
-[[ -f .env ]] || fail ".env not found — run ./setup.sh first"
+[[ -f main/.env ]] || fail "main/.env not found — run ./setup.sh first"
 # shellcheck disable=SC1091
-source ./.env
+source ./main/.env
 [[ -n "${WORKBENCH_DIR:-}" ]] || fail "WORKBENCH_DIR is not set in .env"
 WORKBENCH_DIR="$(eval echo "$WORKBENCH_DIR")"
 [[ -d "$WORKBENCH_DIR" ]] || fail "WORKBENCH_DIR does not exist: $WORKBENCH_DIR"

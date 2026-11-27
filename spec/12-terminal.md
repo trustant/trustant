@@ -242,7 +242,7 @@ It is shell embedded in a Dockerfile, so nothing compiles it and no test ran it;
 `dockerfile_test.go` now asserts on its content the way `setup_test.go` and
 `screenshot_script_test.go` guard their scripts.
 
-Note that a change here ships only with a **full `./build.sh --build`**.
+Note that a change here ships only with a **full `./util/build.sh --build`**.
 `hotfix.sh` layers the binary plus `image/start.sh`, `image/env` and
 `trustant.json` onto the existing image and never re-runs the Dockerfile stage
 that writes `.bashrc`.

@@ -1,5 +1,7 @@
 # Repository-root `run.sh`
 
+> **Paths.** `run.sh` stays at the repo root but the server lives in `main/`: it writes `main/_build.txt` from `main/version.txt`, copies the root `LICENSE`/`NOTICE` into `main/` (embedded, gitignored there), sources `main/.env`, and starts `air` from inside `main/` (`pushd main`), where `.air.toml` and `tmp/` live.
+
 This specification defines the repository-root `run.sh`, which invokes the app
 with Air inside the `trudev` VM (see [setup.md](setup.md)). On a native Ubuntu
 or Debian 12+ Linux host there is no VM, so the same dev loop runs directly: step
@@ -51,7 +53,7 @@ to use instead, exiting 1:
   b. another Linux distribution — report that this Linux is not supported and
      point at a Debian 12+ / Ubuntu 24.04+ host or the trudev VM.
   c. macOS — point at `./start.sh`, which boots the VM and runs setup.sh and the
-     dev loop inside it; `./ssh.sh ./run.sh` restarts only the dev loop.
+     dev loop inside it; `./util/ssh.sh ./run.sh` restarts only the dev loop.
   d. Windows — point at `.\start.ps1`, which creates the WSL2 trudev distro and
      starts the dev loop inside it.
 

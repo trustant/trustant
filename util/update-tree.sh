@@ -14,28 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-me="$(realpath $0)"
-if test -z "$1"
-then
-    cd "$(dirname $0)"
-    git submodule --quiet foreach --recursive "$me \$toplevel/.gitmodules \$name" 
-    #>_submodules
-    #cat _submodules
-else 
-    #echo "*** $1 - $2 ***"
-    #pwd
-    BRANCH=$(git config -f "$1" "submodule.$2.branch")
-    if test -z "$BRANCH"
-    then echo "??? $(pwd) no branch: $2"
-    else 
-        CUR=$(git rev-parse --abbrev-ref HEAD)
-        if test "$CUR" = "HEAD"
-        then git checkout "origin/$BRANCH" -B "$BRANCH"
-        else 
-	     if test "$CUR" = "$BRANCH"
-	     then echo "ok: $2@$CUR "
-	     else echo "!!! $2: found: $CUR expected: $BRANCH"
-             fi 
-        fi
-    fi
-fi
+# Always run from the repo root, wherever this is invoked from.
+cd "$(dirname "$0")/.." || exit 1
+
+git pull origin main --rebase
+git submodule update --recursive --remote
+bash util/sync-branch.sh
