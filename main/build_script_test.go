@@ -36,7 +36,7 @@ import (
 // newlines and -r skips the call entirely when there is nothing to delete.
 // image/image.sh has always used it; this test keeps build.sh from drifting back.
 func TestBuildScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("../build.sh")
+	content, err := os.ReadFile("../util/build.sh")
 	if err != nil {
 		t.Fatalf("read build.sh: %s", err)
 	}
@@ -199,7 +199,7 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 	}
 	for _, want := range []string{
 		"bash ./util/hotfix.sh --buildx",
-		"bash ./build.sh --buildx",
+		"bash ./util/build.sh --buildx",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("images.yml must call %q", want)

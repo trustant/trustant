@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.." # repo root
 
 # main/ embeds LICENSE and NOTICE (main/legal.go) but go:embed cannot reach the
 # repo root, where the only committed copies live. Stage them before any build;
@@ -113,7 +113,7 @@ usage() {
     local tag
     tag="$(git tag -l | head -1)"
     cat <<'USAGE'
-Usage: ./build.sh <mode> [--no-deploy]
+Usage: ./util/build.sh <mode> [--no-deploy]
 
 Builds the full Trustant image (~20 minutes: submodules, TruACP/pi-acp and the
 MCP stages). For a binary-only change see ./util/hotfix.sh, which layers onto the
@@ -132,7 +132,7 @@ USAGE
         echo "Current tag: $tag"
         echo "Run 'git push --tags' to build this in the cloud."
     else
-        echo "No tag yet. Run './build.sh --tag' first."
+        echo "No tag yet. Run './util/build.sh --tag' first."
     fi
 }
 

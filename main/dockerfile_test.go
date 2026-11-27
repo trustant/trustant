@@ -23,7 +23,7 @@ import (
 
 // The image's .bashrc snippet is what puts a new terminal into the launched
 // app's checkout. It is shell embedded in a Dockerfile, so nothing compiles it
-// and nothing runs it until a full `./build.sh --build` reaches a user — a
+// and nothing runs it until a full `./util/build.sh --build` reaches a user — a
 // `hotfix.sh` cannot even ship it, because that never re-runs this stage. It
 // regressed once already, silently, and the only symptom was a `cat:` error in
 // the terminal banner that had to be reported by a user.

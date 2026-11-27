@@ -408,7 +408,7 @@ calls one of the two scripts:
 
 - name: Build full image
   if: steps.tag.outputs.hotfix == 'false'
-  run: bash ./build.sh --buildx
+  run: bash ./util/build.sh --buildx
 ```
 
 The classification happens in a step, not in `on:`, because the

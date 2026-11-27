@@ -118,7 +118,7 @@ func TestLegalTextsShipInTheImage(t *testing.T) {
 	}
 	const stage = "cp -v LICENSE NOTICE main/DEPS image/"
 	const copyLine = "COPY LICENSE NOTICE DEPS /usr/share/doc/trustant/"
-	if n := strings.Count(read("build.sh"), stage); n != 2 {
+	if n := strings.Count(read("util/build.sh"), stage); n != 2 {
 		t.Errorf("build.sh stages the legal texts %d times, want 2 (--build and --buildx)", n)
 	}
 	hotfix := read("util/hotfix.sh")

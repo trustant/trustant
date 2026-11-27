@@ -86,7 +86,7 @@ if $HOTFIX; then
     echo
     echo "opsroot.json still points at the base image: a hotfix patches the"
     echo "running StatefulSet and is not a release. To promote it, run"
-    echo "./build.sh --build and push oplugins-truinst with explicit authorization."
+    echo "./util/build.sh --build and push oplugins-truinst with explicit authorization."
     echo "Done. Published $TAG successfully."
     exit 0
 fi
