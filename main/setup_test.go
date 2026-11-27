@@ -804,3 +804,15 @@ func TestOpsInstallsFromTrustantSourceWithoutObsoleteEnvVars(t *testing.T) {
 		t.Fatal("setup.sh must assert ops resolves the Trustant task source")
 	}
 }
+
+// setup.sh runs from the repo root, but go.mod lives in main/ since #250. A
+// bare `go.mod` there made "Checking Go" fail in the VM.
+func TestSetupReadsGoVersionFromMainGoMod(t *testing.T) {
+	content, err := os.ReadFile("../setup.sh")
+	if err != nil {
+		t.Fatalf("read setup.sh: %s", err)
+	}
+	if !strings.Contains(string(content), "grep '^go ' main/go.mod") {
+		t.Fatal("setup.sh must read the Go version from main/go.mod (it runs from the repo root)")
+	}
+}

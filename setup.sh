@@ -212,7 +212,7 @@ ok "uv is available"
 
 # --- 4. Check Go (install via g if missing), activate version from go.mod, air ---
 echo "--- Checking Go ---"
-GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+GO_VERSION=$(grep '^go ' main/go.mod | awk '{print $2}')
 
 # `g` persists both its own bin directory and the active Go toolchain in this
 # file. Non-interactive Lima/WSL shells do not source it automatically, so load
