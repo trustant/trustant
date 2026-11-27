@@ -62,3 +62,4 @@ data/
 # and go:embed cannot reach ../.
 /main/LICENSE
 /main/NOTICE
+.vscode/
