@@ -101,13 +101,13 @@ LIMA_KEY="$LIMA_HOME/_config/user"           # shared identity limactl ssh uses
 # scheme, truserverless_<version>_<arch>.deb, so the URL is built directly from
 # the pinned version and the host arch — there is no index to resolve.
 TRUSERVERLESS_BASE_URL="https://pub.trustant.ai/truserverless"
-# truserverless.txt pins WHICH package version gets installed, so it is a hard
+# main/truserverless.txt pins WHICH package version gets installed, so it is a hard
 # pin: unlike TRUSTANT_VERSION below there is no "unknown" fallback, because an
 # empty value here would silently install something other than what the repo
 # declares. A missing or bogus pin must fail loudly instead.
-TRUSERVERLESS_VERSION="$(head -n1 truserverless.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSERVERLESS_VERSION="$(head -n1 main/truserverless.txt 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$TRUSERVERLESS_VERSION" ]] \
-  || fail "truserverless.txt not found or empty — it must pin the Trustant Serverless package version (e.g. 0.1.0+f1553b)"
+  || fail "main/truserverless.txt not found or empty — it must pin the Trustant Serverless package version (e.g. 0.1.0+f1553b)"
 # The release identity lives in main/version.txt (tagged form, e.g. v0.4.0) and is the
 # single source shared with build.sh/hotfix.sh/run.sh. It identifies the Trustant
 # APP release and is unrelated to TRUSERVERLESS_VERSION above, which identifies
@@ -1164,7 +1164,7 @@ finish_native() {
 # Sets the global DEB_FILE. The deb arch matches the HOST arch (the VM runs the
 # host arch under vz): arm64 on Apple Silicon, amd64 on Intel.
 #
-# The version installed is pinned by truserverless.txt (TRUSERVERLESS_VERSION)
+# The version installed is pinned by main/truserverless.txt (TRUSERVERLESS_VERSION)
 # and names the file on pub.trustant.ai, so what lands on the machine is
 # reproducible — a given checkout always installs the same package.
 ensure_deb() {
@@ -1200,11 +1200,11 @@ ensure_deb() {
   # Download to a temp file then move into place, so an interrupted download
   # never leaves a truncated cache entry.
   TMP_DEB="${DEB_FILE}.part"
-  # Hard pin: a stale or mistyped truserverless.txt 404s here and must fail
+  # Hard pin: a stale or mistyped main/truserverless.txt 404s here and must fail
   # loudly, never fall back to some other version.
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL" \
     || { rm -f "$TMP_DEB"; fail "Trustant Serverless version '$TRUSERVERLESS_VERSION' ($DEB_ARCH) could not be downloaded.
-    Requested by: truserverless.txt
+    Requested by: main/truserverless.txt
     URL:          $DEB_URL"; }
   mv "$TMP_DEB" "$DEB_FILE"
   ok "Downloaded $DEB_FILE"
@@ -1435,13 +1435,13 @@ require_sudo() {
 }
 
 # Installed truserverless version, or empty when it is not installed. The
-# package's Version: field equals truserverless.txt (package.sh writes both).
+# package's Version: field equals main/truserverless.txt (package.sh writes both).
 installed_truserverless_version() {
   dpkg-query -W -f='${db:Status-Abbrev} ${Version}' truserverless 2>/dev/null \
     | awk '$1 == "ii" { print $2 }' || true   # not installed: dpkg-query exits 1
 }
 
-# Enforce the truserverless.txt pin on an existing native install. Runs right
+# Enforce the main/truserverless.txt pin on an existing native install. Runs right
 # after preflight_native, before anything is installed, so answering No leaves
 # the host untouched. Purge wipes /var/lib/rancher/k3s, /home/trustant and the
 # trustant account (see the package's postrm), i.e. all data — hence the
@@ -1450,7 +1450,7 @@ check_truserverless_version() {
   local installed answer
   installed="$(installed_truserverless_version)"
   [[ -n "$installed" && "$installed" != "$TRUSERVERLESS_VERSION" ]] || return 0
-  warn "Installed truserverless $installed, but truserverless.txt pins $TRUSERVERLESS_VERSION"
+  warn "Installed truserverless $installed, but main/truserverless.txt pins $TRUSERVERLESS_VERSION"
   echo "I need to uninstall the existing truserverless package"
   echo "WARNING: I am going to remove all data, interrupt if you did not save it yet."
   [[ -t 0 ]] || fail "not a terminal — cannot confirm; purge it with: sudo apt-get purge -y truserverless"

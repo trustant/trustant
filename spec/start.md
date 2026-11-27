@@ -36,11 +36,11 @@ The cluster package is the Trustant Serverless deb, published on
 
     https://pub.trustant.ai/truserverless/truserverless_<version>_<arch>.deb
 
-where `<version>` is the content of `truserverless.txt` (e.g. `0.9.0+455258`,
+where `<version>` is the content of `main/truserverless.txt` (e.g. `0.9.0+455258`,
 the `+` sent literally) and `<arch>` is `amd64` or `arm64`. There is no index:
 the URL is built directly from the pin and the HOST arch.
 
-`truserverless.txt` pins the version and is a **hard pin**. If the file is
+`main/truserverless.txt` pins the version and is a **hard pin**. If the file is
 missing or empty, `start.sh` fails immediately — it must never install an
 unpinned package. If the pinned version is not published, the download fails
 (HTTP 404) and `start.sh` fails with a message naming the requested version, the
@@ -63,7 +63,7 @@ move into place so an interrupted download never leaves a truncated cache entry.
 
 Two separate version files, deliberately not conflated:
 
-- `truserverless.txt` — the **cluster package** version (`0.1.0+f1553b`). Selects
+- `main/truserverless.txt` — the **cluster package** version (`0.1.0+f1553b`). Selects
   what gets installed. Hard pin, no fallback.
 - `version.txt` — the **Trustant app** release identity in tagged form (`v0.4.0`),
   the single source shared with `build.sh`/`hotfix.sh`/`run.sh`; `TRUSTANT_VERSION`

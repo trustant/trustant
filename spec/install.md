@@ -76,7 +76,7 @@ scripts as ANSI.
   `ensure_ollama_tarball`), so `start.sh` finds them and downloads nothing:
   - `truserverless_<ver>_<arch>.deb` from
     `https://pub.trustant.ai/truserverless/`, `<ver>` being the first line of
-    the checkout's `truserverless.txt`. Missing pin or failed download: error,
+    the checkout's `main/truserverless.txt`. Missing pin or failed download: error,
     stop.
   - `ollama-<ver>-linux-<arch>.tar.zst` from the ollama GitHub release,
     `<ver>` from `ARG OLLAMA_VERSION=` in `image/Dockerfile`. A missing version

@@ -9,7 +9,7 @@ echo @'
 # Asks for a target folder (default: the current directory), creates it if
 # needed, clones https://github.com/trustant/trustant with its submodules into
 # <target>/trustant, downloads the Trustant Serverless .deb (version in
-# truserverless.txt) and the ollama tarball (version in image/Dockerfile) into
+# main/truserverless.txt) and the ollama tarball (version in image/Dockerfile) into
 # trustant/dist, then stops: the user runs start.sh / start.ps1 there. A
 # <target>/dist (the same downloads, preloaded) is copied into trustant/dist
 # first, so only what is missing is downloaded. TRUSTANT_DIR names the checkout
@@ -198,10 +198,10 @@ mkdir -p workspace workbench || exit 1
 # them and downloads nothing. A file already there (preloaded) is kept.
 # start.sh is not run from here: under `curl | bash` its children can leave the
 # terminal in raw mode (staircase output, no Ctrl-C).
-TRUSERVERLESS_VERSION="$(head -n1 truserverless.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSERVERLESS_VERSION="$(head -n1 main/truserverless.txt 2>/dev/null | tr -d '[:space:]')"
 if [ -z "$TRUSERVERLESS_VERSION" ]
 then
-   echo "ERROR: truserverless.txt not found or empty in $DEST"
+   echo "ERROR: main/truserverless.txt not found or empty in $DEST"
    exit 1
 fi
 OLLAMA_VERSION="$(grep -m1 '^ARG OLLAMA_VERSION=' image/Dockerfile 2>/dev/null | cut -d= -f2 | tr -d ' ')"
@@ -409,9 +409,9 @@ echo > /dev/null <<"out-null" ###
     # Download the two big artifacts into dist\, start.sh's cache, with the
     # names and URLs start.sh uses, so it downloads nothing inside WSL. A file
     # already there (preloaded) is kept. start.ps1 is not run from here.
-    $TsVersion = "$(Get-Content -TotalCount 1 (Join-Path $Dest 'truserverless.txt') -ErrorAction SilentlyContinue)".Trim()
+    $TsVersion = "$(Get-Content -TotalCount 1 (Join-Path $Dest 'main/truserverless.txt') -ErrorAction SilentlyContinue)".Trim()
     if (-not $TsVersion) {
-        Write-Host "ERROR: truserverless.txt not found or empty in $Dest"
+        Write-Host "ERROR: main/truserverless.txt not found or empty in $Dest"
         return
     }
     $OllamaLine = Select-String -Path (Join-Path $Dest 'image\Dockerfile') -Pattern '^ARG OLLAMA_VERSION=' -ErrorAction SilentlyContinue | Select-Object -First 1

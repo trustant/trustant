@@ -158,14 +158,14 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 		t.Error("start.sh must not use landing2.nuvolaris.org — it serves an older release")
 	}
 
-	// truserverless.txt selects what actually gets installed, so unlike
+	// main/truserverless.txt selects what actually gets installed, so unlike
 	// version.txt it must be a hard pin: no "unknown" fallback, and no silent
 	// fallback onto another version.
-	if !strings.Contains(script, `TRUSERVERLESS_VERSION="$(head -n1 truserverless.txt`) {
-		t.Error("start.sh must read the pinned package version from truserverless.txt")
+	if !strings.Contains(script, `TRUSERVERLESS_VERSION="$(head -n1 main/truserverless.txt`) {
+		t.Error("start.sh must read the pinned package version from main/truserverless.txt")
 	}
-	if !strings.Contains(script, `|| fail "truserverless.txt not found or empty`) {
-		t.Error("start.sh must fail (not warn) when truserverless.txt is missing or empty")
+	if !strings.Contains(script, `|| fail "main/truserverless.txt not found or empty`) {
+		t.Error("start.sh must fail (not warn) when main/truserverless.txt is missing or empty")
 	}
 	if !strings.Contains(script, `could not be downloaded.`) {
 		t.Error("start.sh must fail loudly when the pinned version cannot be downloaded")
