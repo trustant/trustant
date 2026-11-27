@@ -64,7 +64,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 ## Repository layout
 
-The Go server lives under [main/](main/): all `*.go` files and tests, `go.mod`, `web/`, embedded files, `trustant.json`, `version.txt`, `.air.toml`, `.env`, `react-mcp/` and every submodule. Scripts, `util/` (developer helpers `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, each `cd`-ing to the repo root first), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/` and the root docs plus `LICENSE`/`NOTICE` stay at the root; `build.sh`/`hotfix.sh`/`run.sh` copy `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. Run Go commands from `main/`.
+The Go server lives under [main/](main/): all `*.go` files and tests, `go.mod`, `web/`, embedded files, `trustant.json`, `version.txt`, `.air.toml`, `.env`, `react-mcp/` and every submodule. Scripts, `util/` (developer helpers `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, each `cd`-ing to the repo root first), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/` and the root docs plus `LICENSE`/`NOTICE` stay at the root; `build.sh`/`hotfix.sh`/`run.sh` copy `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. Run Go commands from `main/`.
 
 ## Architecture
 

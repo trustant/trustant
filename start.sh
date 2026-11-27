@@ -737,7 +737,7 @@ GUEST
   ok "obsolete OPS_BRANCH/OPS_REPO exports removed from .profile/.bashrc"
 }
 
-# Install the host-rewrite proxy catch-all with ./proxy.sh (see
+# Install the host-rewrite proxy catch-all with ./util/proxy.sh (see
 # spec/17-proxy.md) rather than `ops truinst proxy install`, so the configuration
 # lives in this repo and is reviewable here. It installs nginx with apt-get and
 # serves :8911, rewriting Host to <label>.miniops.me for the upstream.
@@ -752,15 +752,15 @@ ensure_openserverless_proxy() {
   local where=" in the VM"
   if $NATIVE_LINUX; then where=""; fi
   echo "--- Installing the host-rewrite proxy catch-all${where} ---"
-  # `bash ./proxy.sh` rather than `./proxy.sh`: on WSL the exec bit of a
+  # `bash ./util/proxy.sh` rather than `./util/proxy.sh`: on WSL the exec bit of a
   # Windows-hosted file depends on the automount options, so a checkout can
   # present the script as non-executable however git records its mode.
   if $NATIVE_LINUX; then
-    bash ./proxy.sh || fail "proxy.sh failed"
+    bash ./util/proxy.sh || fail "proxy.sh failed"
   else
     # Same invocation style as the setup.sh call: as the mirrored user, in the
     # mounted repo dir, so the script is the worktree's own copy.
-    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./proxy.sh </dev/null \
+    limactl shell --workdir "$MOUNT_DIR" "$VM_NAME" bash ./util/proxy.sh </dev/null \
       || fail "proxy.sh failed in the VM"
   fi
   ok "host-rewrite proxy catch-all installed"

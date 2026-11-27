@@ -383,7 +383,7 @@ reachable from here; it clears on the next image build.
 ## Host-rewrite proxy catch-all
 
 After `setup.sh` completes, on every finish path, `start.sh` runs the repository's
-own [`./proxy.sh`](17-proxy.md) -- **not** `ops truinst proxy install`. The
+own [`./util/proxy.sh`](17-proxy.md) -- **not** `ops truinst proxy install`. The
 configuration then lives in this repo, where it is reviewable and versioned with
 the code it fronts, instead of inside the plugin.
 

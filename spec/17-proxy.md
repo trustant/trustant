@@ -1,6 +1,6 @@
-# Repository-root `proxy.sh`
+# `util/proxy.sh`
 
-This specification defines the repository-root `proxy.sh`, which installs and
+This specification defines `util/proxy.sh`, which installs and
 configures nginx as a host-rewriting reverse proxy in front of the Go app.
 
 ## Why it exists

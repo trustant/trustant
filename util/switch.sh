@@ -14,6 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Always run from the repo root, wherever this is invoked from.
+cd "$(dirname "$0")/.." || exit 1
+
 set -euo pipefail
 BRANCH=${1:?branch} 
 git fetch --all --prune
