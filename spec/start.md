@@ -151,7 +151,8 @@ flag because there are three distinct places to land: your own development
 files, the `trustant` user's installation, and the container running inside it.
 
 - `-d` — **development access**. Logs in as the mirrored guest user (`$USER`)
-  and `cd`s to `$PWD`, so the shell opens on your development files at the same
+  and `cd`s to the directory `ssh.sh` was called from (captured before the
+  script moves to the repo root), so the shell opens on your development files at the same
   path as on the host.
 - `-p` — **production access**. Logs in as `trustant`, the user that owns the
   Trustant folder and the deployed installation. No `cd`; you land in that

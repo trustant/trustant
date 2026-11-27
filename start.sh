@@ -842,6 +842,15 @@ GUEST
 # rather than letting setup.sh abort mid-run.
 ensure_env_file() {
   echo "--- Checking .env ---"
+  # Pre-#250 checkouts kept .env (and .env.default) at the repo root. Move them
+  # rather than seeding a fresh main/.env that points at an empty workspace.
+  local f
+  for f in .env .env.default; do
+    if [[ -f "$MOUNT_DIR/$f" && ! -e "$MOUNT_DIR/main/$f" ]]; then
+      mv "$MOUNT_DIR/$f" "$MOUNT_DIR/main/$f" || fail "could not move $f to main/$f"
+      warn "moved $f to main/$f (the server now lives in main/)"
+    fi
+  done
   if [[ -f "$ENV_FILE" ]]; then
     ok ".env already present at $ENV_FILE"
     return 0

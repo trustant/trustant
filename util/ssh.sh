@@ -14,7 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Always run from the repo root, wherever this is invoked from.
+# The -d mode starts the remote shell/command in the directory this was called
+# from (the worktree is mounted at the same path in the VM), so remember it
+# before moving to the repo root like every other util/ script.
+CALLER_PWD="$PWD"
 cd "$(dirname "$0")/.." || exit 1
 
 
@@ -71,8 +74,8 @@ case "$MODE" in
     ;;
   *)
     if test $# -gt 0
-    then ssh -i "$ID" -t $USER@$IP "cd '$PWD' && $*"
-    else ssh -i "$ID" -t $USER@$IP "cd '$PWD' && exec bash"
+    then ssh -i "$ID" -t $USER@$IP "cd '$CALLER_PWD' && $*"
+    else ssh -i "$ID" -t $USER@$IP "cd '$CALLER_PWD' && exec bash"
     fi
     ;;
 esac

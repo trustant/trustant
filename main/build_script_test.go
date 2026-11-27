@@ -239,9 +239,37 @@ func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
 
 	// Every oplugins-truinst command must live after the hotfix branch has exited.
 	limit := guard + exit
-	for _, forbidden := range []string{"cd main/oplugins-truinst", "git push origin main"} {
+	for _, forbidden := range []string{"cd main/oplugins-truinst", "git push origin HEAD:main"} {
 		if at := strings.Index(publish, forbidden); at >= 0 && at < limit {
 			t.Errorf("%q is reachable on the hotfix path", forbidden)
 		}
+	}
+}
+
+// ops discovers its task root and local plugins in the cwd, and the oplugins
+// submodules live in main/. build.sh runs from the repo root, so a bare `ops
+// truinst …` there fails ("no command named truinst") or resolves a stale
+// ~/.ops copy. publish.sh must push HEAD:main because a submodule is normally
+// on a detached HEAD, where `git push origin main` ships nothing.
+func TestBuildRunsOpsFromMainAndPublishPushesHead(t *testing.T) {
+	build, err := os.ReadFile("../util/build.sh")
+	if err != nil {
+		t.Fatalf("read build.sh: %s", err)
+	}
+	if !strings.Contains(string(build), `ops_main() { ( cd main && ops "$@" ); }`) {
+		t.Error("build.sh must define ops_main, which runs ops from main/")
+	}
+	for _, line := range strings.Split(string(build), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ops ") || strings.Contains(trimmed, "$(ops ") {
+			t.Errorf("build.sh calls ops from the repo root: %s", trimmed)
+		}
+	}
+	publish, err := os.ReadFile("../util/publish.sh")
+	if err != nil {
+		t.Fatalf("read publish.sh: %s", err)
+	}
+	if !strings.Contains(string(publish), "git push origin HEAD:main --tags") {
+		t.Error("publish.sh must push HEAD:main from oplugins-truinst")
 	}
 }

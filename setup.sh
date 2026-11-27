@@ -106,6 +106,15 @@ done
 echo "--- Checking .env ---"
 [[ -f main/.env.dist ]] || fail "main/.env.dist not found"
 
+# Pre-#250 checkouts kept .env (and .env.default) at the repo root. Move them
+# rather than seeding a fresh main/.env that points at an empty workspace.
+for f in .env .env.default; do
+  if [[ -f "$f" && ! -e "main/$f" ]]; then
+    mv "$f" "main/$f" || fail "could not move $f to main/$f"
+    warn "moved $f to main/$f (the server now lives in main/)"
+  fi
+done
+
 if [[ ! -f main/.env ]]; then
   warn ".env not found — creating an in-VM .env"
   cat > main/.env <<ENV
@@ -183,7 +192,8 @@ if ! command -v ops &>/dev/null; then
   ok "ops installed"
 fi
 
-OPS_INFO=$(ops -info 2>/dev/null || true)
+# ops resolves its task root from the cwd; the server runs in main/, so check there.
+OPS_INFO=$(cd main && ops -info 2>/dev/null || true)
 # Values contain their own colons (OPS_REPO is a URL), so split on the FIRST only.
 ops_info_value() { echo "$OPS_INFO" | grep -i "^$1[:=]" | head -1 | cut -d: -f2- | xargs; }
 OPS_SOURCE_ACTUAL=$(ops_info_value OPS_REPO)
@@ -417,7 +427,7 @@ ok "kubefwd ${KUBEFWD_VERSION} is available"
 
 # --- 9. Check admin power ---
 echo "--- Checking admin access ---"
-ops admin listuser &>/dev/null || fail "No administrative power (ops admin listuser failed)"
+(cd main && ops admin listuser &>/dev/null) || fail "No administrative power (ops admin listuser failed)"
 ok "Admin access confirmed"
 
 # --- 10. Ensure the image's CLI tools are available (install any missing) ---

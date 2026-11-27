@@ -18,6 +18,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.." # repo root
 
+# ops discovers its task root (oplugins) and local plugins (oplugins-truinst) in
+# the current directory, and both submodules live in main/. From the repo root
+# `ops truinst` does not exist, or resolves a stale copy under ~/.ops.
+ops_main() { ( cd main && ops "$@" ); }
+
 # main/ embeds LICENSE and NOTICE (main/legal.go) but go:embed cannot reach the
 # repo root, where the only committed copies live. Stage them before any build;
 # main/LICENSE and main/NOTICE are gitignored.
@@ -233,7 +238,7 @@ fi
 if $MAC_VM; then
     # The VM cluster cannot see the local image store, so export and import.
     # Prune first: the VM disk is small and old images accumulate.
-    ops truinst trustant undeploy
+    ops_main truinst trustant undeploy
     ssh -i "$ID" trustant@"$IP" sudo k3s ctr images prune --all
 
     echo "Saving $IMAGE:$TAG"
@@ -250,7 +255,7 @@ else
     echo "Image $IMAGE:$TAG already in local k3s (built via $RUNTIME)"
 fi
 
-ops truinst trustant redeploy
+ops_main truinst trustant redeploy
 
 # Print where the deployed UI answers. The ingress serves it at
 # trustant.<apihost domain> (oplugins-truinst), so that is the URL on a real
@@ -259,7 +264,7 @@ ops truinst trustant redeploy
 # host-rewrite proxy start.sh deploys on :8080, at the address start.sh
 # recorded in current.ip (lima0 as a fallback -- never eth0, Lima's NAT-only
 # interface). Nothing here may fail the build: the deploy already succeeded.
-APIHOST="$(ops util kubeget cm/config .metadata.annotations.apihost 2>/dev/null | tr -d '[:space:]' || true)"
+APIHOST="$(ops_main util kubeget cm/config .metadata.annotations.apihost 2>/dev/null | tr -d '[:space:]' || true)"
 URL=""
 [ -z "$APIHOST" ] || URL="${APIHOST%%://*}://trustant.${APIHOST#*://}/"
 if [ -z "$APIHOST" ] || [ "${APIHOST#*://}" = "miniops.me" ]; then

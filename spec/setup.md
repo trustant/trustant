@@ -71,6 +71,9 @@ There are three env sources: `.env.dist` (the portable template), `image/env`
 api.nuvolaris.io), and the .env we generate here (the image layout, but rooted at
 the guest user's own $HOME).
 
+- A pre-#250 `.env` / `.env.default` at the repo root is first **moved** to
+  `main/` (when `main/` has none) — by `start.sh`, `setup.sh` and `run.sh` alike —
+  so an existing checkout keeps its workspace and credentials.
 - If .env is ABSENT, create it from the .env.dist key set with in-VM values:
   - WORKSPACE_DIR=$HOME/workspace
   - WORKBENCH_DIR=$HOME/workbench          (absolute, under the guest $HOME — not

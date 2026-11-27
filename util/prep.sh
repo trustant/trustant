@@ -30,6 +30,7 @@ ID="$DIR/id_ed25519"
 test -e "$ID" || { echo "prep.sh: $ID not found — run ./start.sh first (macOS host only)" >&2; exit 1; }
 IP="$(cat "$DIR/current.ip")"
 OUT=~/.ops/tmp/kubeconfig
+trap 'rm -f "$OUT.tmp"' EXIT
 
 mkdir -p "$(dirname "$OUT")"
 ssh -i "$ID" "trustant@$IP" sudo cat /etc/rancher/k3s/k3s.yaml </dev/null \

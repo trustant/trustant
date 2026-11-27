@@ -132,6 +132,14 @@ ensure_build_metadata
 # gitignored in main/.
 cp LICENSE NOTICE main/
 
+# Pre-#250 checkouts kept .env (and .env.default) at the repo root.
+for f in .env .env.default; do
+  if [[ -f "$f" && ! -e "main/$f" ]]; then
+    mv "$f" "main/$f"
+    echo "moved $f to main/$f (the server now lives in main/)"
+  fi
+done
+
 source ./main/.env
 
 # setup.sh persists the selected user-owned npm prefix, but running this script

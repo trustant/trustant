@@ -104,7 +104,9 @@ if [ -n "$OTHER" ]; then
     echo "$OTHER"
 fi
 git --no-pager diff -- opsroot.json
-if [ ! -t 0 ] && [ ! -r /dev/tty ]; then
+# Open /dev/tty for real: its permission bits say nothing about whether this
+# session has a controlling terminal (cron, CI, nohup do not).
+if ! { : </dev/tty; } 2>/dev/null; then
     echo "Error: pushing oplugins-truinst needs confirmation, but there is no terminal."
     exit 1
 fi
@@ -119,6 +121,9 @@ if git diff --quiet -- opsroot.json && git diff --cached --quiet -- opsroot.json
 else
     git commit -m "$TAG" -- opsroot.json
 fi
-git push origin main --tags
+# HEAD:main, not main: a submodule is normally on a detached HEAD, where the
+# commit above is not on the local main branch and `git push origin main` would
+# report success while shipping nothing.
+git push origin HEAD:main --tags
 
 echo "Done. Published $TAG successfully."

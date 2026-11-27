@@ -65,6 +65,14 @@ Deployment is always `ops truinst trustant redeploy`, which is `undeploy` +
 `deploy`; `deploy` reads the image from `opsroot.json`. The StatefulSet is
 never patched directly with `kubectl set image`.
 
+`build.sh` runs from the repo root but calls `ops` through `ops_main`, which
+`cd`s to `main/`: `ops` discovers its task root (`oplugins`) and local plugins
+(`oplugins-truinst`) in the current directory, and both submodules live there.
+
+`util/publish.sh` pushes `oplugins-truinst` with `git push origin HEAD:main`,
+not `main`: a submodule is normally on a detached HEAD, where the `opsroot.json`
+commit is not on the local `main` branch.
+
 `--no-deploy` stops after the image build, leaving the tag, `_build.txt` and the
 `opsroot.json` update in place.
 

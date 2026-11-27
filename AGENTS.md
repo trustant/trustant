@@ -101,7 +101,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 ## Required environment
 
-`main/.env` is mandatory (the server runs with `main/` as its working directory) — preflight fails at startup if absent. In the VM, `setup.sh` creates one (create-if-missing) with in-VM values (`WORKSPACE_DIR`/`WORKBENCH_DIR` under the guest `$HOME`, Ollama on `localhost:11434`, AIP at `api.nuvolaris.io`); otherwise copy [.env.dist](main/.env.dist):
+`main/.env` is mandatory (the server runs with `main/` as its working directory) — preflight fails at startup if absent. A pre-#250 root `.env`/`.env.default` is moved to `main/` by `start.sh`, `setup.sh` and `run.sh`. Scripts at the root must run `ops` from `main/` (`ops` finds `oplugins`/`oplugins-truinst` in the cwd). In the VM, `setup.sh` creates one (create-if-missing) with in-VM values (`WORKSPACE_DIR`/`WORKBENCH_DIR` under the guest `$HOME`, Ollama on `localhost:11434`, AIP at `api.nuvolaris.io`); otherwise copy [.env.dist](main/.env.dist):
 
 - `WORKSPACE_DIR` — must exist (created by `ops setup mini`, or `mkdir`'d by `setup.sh`); per-app bare repos live in `$WORKSPACE_DIR/workspace/<name>`
 - `WORKBENCH_DIR` — checkout area for the currently-launched app
