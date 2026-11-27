@@ -1,5 +1,7 @@
 # Repository-root `setup.sh`
 
+> **Paths.** `setup.sh` stays at the repo root. The `.env` it creates/validates is `main/.env` (against `main/.env.dist`); the sources it builds are `main/acp`, `main/mcp` and `main/react-mcp`.
+
 This specification defines the repository-root `setup.sh`. The script recreates,
 inside a supported Ubuntu development
 target, the same environment that `image/Dockerfile` builds, so that `./run.sh`
@@ -350,7 +352,7 @@ The VM development packages also include `python3-pytest` and
 `python3-dotenv`, matching generated application tests without requiring the
 assistant to modify the system Python environment during a session.
 
-Pack `react-mcp/` and install the resulting `trustant-react-mcp` package
+Pack `main/react-mcp/` and install the resulting `trustant-react-mcp` package
 plus `tsx` under the selected npm prefix. The React MCP is a read-only deterministic
 validator and is separate from optional Agentic React. Setup must verify that the
 managed MCP command resolves on PATH before completing.

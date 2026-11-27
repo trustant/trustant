@@ -163,7 +163,7 @@ Where `apihost`, `user`, `password` are optional (only sent when user provides t
 "Create App on <license host>": creates the app's OpenServerless user on the
 license host through the Admin API user-provisioning endpoint
 ([user_provisioning.md](user_provisioning.md)). Implemented in
-[provision.go](../provision.go). Gated by `requireValidLicense`, then
+[provision.go](../main/provision.go). Gated by `requireValidLicense`, then
 `requireLicensedHost(license_host)`.
 
 Request: `{"name": "<app>", "token": "<optional provisioning token>"}`.

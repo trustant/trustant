@@ -31,7 +31,7 @@ cd "$(dirname "$0")"
 # an explicit override or a truthful development fallback is used there.
 write_dev_build_metadata() {
     local version branch stream build worktree
-    version="$(cat version.txt 2>/dev/null || printf 'dev')"
+    version="$(cat main/version.txt 2>/dev/null || printf 'dev')"
     branch="${TRUSTANT_BUILD_BRANCH:-$(git branch --show-current 2>/dev/null || true)}"
     if [[ -z "$branch" ]]; then
         worktree="$(basename "$PWD")"
@@ -43,7 +43,7 @@ write_dev_build_metadata() {
     stream="${TRUSTANT_BUILD_STREAM:-$branch}"
     build="${TRUSTANT_BUILD_TAG:-local_$(date +%y.%j.%H%M)}"
     printf 'Version: %s\nBuild: %s\nBranch: %s\nStream: %s\n' \
-        "$version" "$build" "$branch" "$stream" > _build.txt
+        "$version" "$build" "$branch" "$stream" > main/_build.txt
 }
 
 # Keep release metadata when the checkout is exactly the commit that produced
@@ -56,9 +56,9 @@ build_metadata_matches_head_tag() {
     # non-empty file -- without this guard a normal dev checkout would keep
     # stale release metadata forever.
     [[ -n "$tag" ]] || return 1
-    [[ -s _build.txt ]] || return 1
+    [[ -s main/_build.txt ]] || return 1
     # -F: a tag like v0.4.0 is a literal, not a regex.
-    grep -qF "$tag" _build.txt
+    grep -qF "$tag" main/_build.txt
 }
 
 ensure_build_metadata() {
@@ -127,7 +127,12 @@ fi
 # carry an ignored _build.txt from an earlier, unrelated image build.
 ensure_build_metadata
 
-source ./.env
+# main/ embeds LICENSE and NOTICE, whose only committed copies are at the repo
+# root (go:embed cannot reach ../). Stage them so air can build; they are
+# gitignored in main/.
+cp LICENSE NOTICE main/
+
+source ./main/.env
 
 # setup.sh persists the selected user-owned npm prefix, but running this script
 # from the same non-interactive shell does not reload ~/.bashrc. Reconstruct the
@@ -367,8 +372,12 @@ fi
 sudo chown -Rf "$(id -u):$(id -g)" "$WORKSPACE_DIR" "$WORKBENCH_DIR"
 
 # 3. launch air in background (hot-reloads the Go binary on :8910)
+# air builds main/ (its .air.toml and tmp/ live there); pushd keeps the job in
+# this shell so AIR_PID is air itself, not a subshell.
+pushd main >/dev/null
 air &
 AIR_PID=$!
+popd >/dev/null
 
 # 5. Trustant handles Ollama Cloud sign-in from the web UI via
 #    /api/ollama-connect. Do not call `ops trustant signin` here: that helper

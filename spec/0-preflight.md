@@ -22,7 +22,7 @@ OpsSkills (defaults to "trustable-ai/skills", not editable in development)
 ## Feature flags
 
 Two **hidden** variables toggle features. They are written in no
-configuration file — not [.env.dist](../.env.dist), not [image/env](../image/env),
+configuration file — not [.env.dist](../main/.env.dist), not [image/env](../image/env),
 not the `.env` that `install` or `setup.sh` writes — so the code defaults below
 are what every installation runs with, in the image and locally alike. Both are
 read by `envFlag(key, default)`: unset or empty gives the default, `0`, `false`,
@@ -120,7 +120,7 @@ migrated, read, or deleted.
 # startup ownership of the workspace
 
 `$HOME/workspace` is the only mounted `hostPath` volume
-([oplugins-truinst/trustant/sts.yaml](../oplugins-truinst/trustant/sts.yaml)), so it
+([oplugins-truinst/trustant/sts.yaml](../main/oplugins-truinst/trustant/sts.yaml)), so it
 is the only tree whose ownership can actually be wrong on a container start.
 The entrypoint ([image/start.sh](../image/start.sh)) therefore chowns **that
 path only**. It MUST NOT recursively chown bare `$HOME`: everything else in the

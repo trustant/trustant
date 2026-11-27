@@ -59,9 +59,9 @@ header:
 
   paths-ignore:
     # Upstream Apache-2.0 submodules — never relicense third-party code.
-    - 'oplugins'
-    - 'mcp'
-    - 'skills'
+    - 'main/oplugins'
+    - 'main/mcp'
+    - 'main/skills'
 
     # VCS / tooling metadata
     - '.licenserc.yaml'
@@ -89,7 +89,7 @@ header:
     - '**/NOTICE'
     - '**/DISCLAIMER'
     - '**/*.lic'
-    - 'master_key_pub'
+    - 'main/master_key_pub'
 
     # Dependencies and build output
     - '**/node_modules'
@@ -98,17 +98,17 @@ header:
     - '**/dist'
     - '**/dist-bin'
     - '**/dist-web'
-    - 'tmp'
+    - 'main/tmp'
     - '**/*.lock'
-    - 'go.sum'
+    - 'main/go.sum'
     - '**/package-lock.json'
     - '**/*.min.js'
     - '**/*.min.css'
-    - 'web/tailwind.js'
+    - 'main/web/tailwind.js'
 
     # Generated / data files with no comment syntax
-    - '_build.txt'
-    - 'version.txt'
+    - 'main/_build.txt'
+    - 'main/version.txt'
     - '**/*.json'
     - '**/*.txt'
     - '**/*.svg'
@@ -148,5 +148,5 @@ header:
 # `license-eye dep resolve` — dependency license compatibility.
 dependency:
   files:
-    - go.mod
+    - main/go.mod
     - package.json

@@ -79,7 +79,7 @@ func TestTruACPProxiesItsOwnHostnameWithoutRewriting(t *testing.T) {
 }
 
 func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
-	dockerfile, err := os.ReadFile("image/Dockerfile")
+	dockerfile, err := os.ReadFile("../image/Dockerfile")
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -104,7 +104,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		}
 	}
 
-	imageScript, err := os.ReadFile("image/image.sh")
+	imageScript, err := os.ReadFile("../image/image.sh")
 	if err != nil {
 		t.Fatalf("read image/image.sh: %s", err)
 	}
@@ -112,12 +112,12 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 	for _, required := range []string{
 		`TRUACP_ARTIFACT_DIR="truacp-runtime"`,
 		`npm run build`,
-		`cp ../acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"`,
-		`cp ../acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
-		`cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
-		`cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
-		`cp ../acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"`,
-		`cp ../acp/extensions/requirements.txt "$TRUACP_ARTIFACT_DIR/extensions/requirements.txt"`,
+		`cp ../main/acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"`,
+		`cp ../main/acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"`,
+		`cp ../main/acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"`,
+		`cp ../main/acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"`,
+		`cp ../main/acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"`,
+		`cp ../main/acp/extensions/requirements.txt "$TRUACP_ARTIFACT_DIR/extensions/requirements.txt"`,
 		// The staged artifact must still be identified by the submodule commit
 		// it came from and by a content hash of what was actually staged.
 		// These used to feed `printf 'acp=%s:%s\n'` into a BASE_HASH
@@ -125,7 +125,7 @@ func TestRuntimeImageBuildsPinnedTruACPInsteadOfOpenCode(t *testing.T) {
 		// removed in 0bebc41 because buildkit cannot resolve `FROM base`
 		// against an image it has just built, so the key it fed is gone with
 		// it. What must not regress is that both values are still derived.
-		`TRUACP_REF="$(git -C ../acp rev-parse HEAD)"`,
+		`TRUACP_REF="$(git -C ../main/acp rev-parse HEAD)"`,
 		`TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"`,
 	} {
 		if !strings.Contains(staging, required) {

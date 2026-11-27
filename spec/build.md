@@ -1,5 +1,7 @@
 # Build Scripts
 
+> **Paths.** The script runs from the repo root; the Go server lives in `main/`. It reads `main/version.txt`, writes `main/_build.txt`, compiles with `(cd main && go build -o ../image/bin/trustant-<arch>)`, stages `main/trustant.json`, `main/DEPS` and the root `LICENSE`/`NOTICE` into `image/`, and first copies `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. `hotfix.sh` does the same.
+
 `build.sh` is the entrypoint for building the full Trustant image, on both the
 macOS Trustant VM and the Linux k3s server. There is no separate server script:
 the host is detected from the presence of
@@ -28,7 +30,7 @@ for compatibility but is no longer the documented form.
 
 1. computes the tag, **deletes every existing git tag**, forces the new one, and
    writes `_build.txt`
-2. **writes the image tag into `oplugins-truinst/opsroot.json`** via `jq`
+2. **writes the image tag into `main/oplugins-truinst/opsroot.json`** via `jq`
   (`config.images.trustant`), together with the version as
   `config.version.trustant` (the legacy `config.trustant` block is dropped):
   `version.txt` must match
@@ -269,7 +271,7 @@ Publishing environment:
   to `oplugins`, `oplugins-truinst`, or another plugin repo
   requires explicit user authorization first. If there are no local changes in
   that subrepo it skips the commit step and only pushes.
-Every build updates `oplugins-truinst/opsroot.json`, so the deployment plugin and
+Every build updates `main/oplugins-truinst/opsroot.json`, so the deployment plugin and
 the running cluster always agree on which image was built. Recording the tag is
 local; publishing it is a separate, authorization-gated push of the submodule.
 
@@ -281,7 +283,7 @@ Both `--build` and `--buildx` also stage `LICENSE`, `NOTICE` and `DEPS` with
 [20-legal.md](20-legal.md).
 
 `hotfix.sh` layers four files onto the image already recorded in
-`oplugins-truinst/opsroot.json` via `FROM <that image>`:
+`main/oplugins-truinst/opsroot.json` via `FROM <that image>`:
 
 | Source (context `image/`) | Destination | Owner |
 |---|---|---|

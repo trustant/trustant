@@ -98,39 +98,39 @@ case "$NERDCTL_ARCH" in
     x86_64)        NERDCTL_ARCH="amd64" ;;
     aarch64|arm64) NERDCTL_ARCH="arm64" ;;
 esac
-git submodule update --init ../mcp
+git submodule update --init ../main/mcp
 # WHY: acp owns pinned Pi and pi-acp forks. Recursive initialization
 # is required so image builds cannot silently fall back to npm runtimes.
-git submodule update --init --recursive ../acp
+git submodule update --init --recursive ../main/acp
 
-if [ ! -f ../mcp/package.json ]; then
-    echo "Error: ../mcp is not initialized. Run: git submodule update --init mcp" >&2
+if [ ! -f ../main/mcp/package.json ]; then
+    echo "Error: ../main/mcp is not initialized. Run: git submodule update --init main/mcp" >&2
     exit 1
 fi
 
-MCP_REF="$(git -C ../mcp rev-parse HEAD)"
+MCP_REF="$(git -C ../main/mcp rev-parse HEAD)"
 echo "Using openserverless-mcp submodule: $MCP_REF"
 rm -rf "$MCP_CONTEXT_DIR"
 mkdir -p "$MCP_CONTEXT_DIR"
-git -C ../mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
+git -C ../main/mcp archive HEAD | tar -x -C "$MCP_CONTEXT_DIR"
 
-if [ ! -f ../acp/package.json ]; then
-    echo "Error: ../acp is not initialized. Run: git submodule update --init acp" >&2
+if [ ! -f ../main/acp/package.json ]; then
+    echo "Error: ../main/acp is not initialized. Run: git submodule update --init main/acp" >&2
     exit 1
 fi
-TRUACP_REF="$(git -C ../acp rev-parse HEAD)"
+TRUACP_REF="$(git -C ../main/acp rev-parse HEAD)"
 echo "Using acp submodule: $TRUACP_REF"
 # WHY: the managed runtime must package the issue #57 policy extension beside
 # the exact TruACP and pi-acp versions that negotiate its typed launch path.
 for required in setup.sh pi.version pi.integrity package-lock.json extensions/trustant-runtime.ts extensions/requirements.txt; do
-    if [ ! -f "../acp/$required" ]; then
-        echo "Error: ../acp/$required is missing." >&2
+    if [ ! -f "../main/acp/$required" ]; then
+        echo "Error: ../main/acp/$required is missing." >&2
         exit 1
     fi
 done
 for required in package.json package-lock.json; do
-    if [ ! -f "../acp/pi-acp/$required" ]; then
-        echo "Error: nested acp/pi-acp/$required is missing." >&2
+    if [ ! -f "../main/acp/pi-acp/$required" ]; then
+        echo "Error: nested main/acp/pi-acp/$required is missing." >&2
         exit 1
     fi
 done
@@ -140,27 +140,27 @@ done
 # retain them even after rm and would let Docker and VM installation paths drift
 # apart.
 (
-    cd ../acp
+    cd ../main/acp
     npm install
     npm run build
 )
-if [ ! -s ../acp/dist-bin/truacp.cjs ]; then
+if [ ! -s ../main/acp/dist-bin/truacp.cjs ]; then
     echo "Error: acp build did not produce dist-bin/truacp.cjs" >&2
     exit 1
 fi
 
 rm -rf "$TRUACP_ARTIFACT_DIR"
 mkdir -p "$TRUACP_ARTIFACT_DIR/dist-bin"
-cp ../acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
-cp ../acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
-cp ../acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"
-cp ../acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
+cp ../main/acp/setup.sh "$TRUACP_ARTIFACT_DIR/setup.sh"
+cp ../main/acp/pi.version "$TRUACP_ARTIFACT_DIR/pi.version"
+cp ../main/acp/pi.integrity "$TRUACP_ARTIFACT_DIR/pi.integrity"
+cp ../main/acp/dist-bin/truacp.cjs "$TRUACP_ARTIFACT_DIR/dist-bin/truacp.cjs"
 mkdir -p "$TRUACP_ARTIFACT_DIR/extensions"
-cp ../acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"
-cp ../acp/extensions/requirements.txt "$TRUACP_ARTIFACT_DIR/extensions/requirements.txt"
+cp ../main/acp/extensions/trustant-runtime.ts "$TRUACP_ARTIFACT_DIR/extensions/trustant-runtime.ts"
+cp ../main/acp/extensions/requirements.txt "$TRUACP_ARTIFACT_DIR/extensions/requirements.txt"
 TRUACP_ARTIFACT_ABS="$PWD/$TRUACP_ARTIFACT_DIR"
 (
-    cd ../acp/pi-acp
+    cd ../main/acp/pi-acp
     npm ci
     npm test
     npm run build
@@ -176,13 +176,13 @@ mv "$1" "$TRUACP_ARTIFACT_DIR/pi-acp-package.tgz"
 TRUACP_HASH="$(find "$TRUACP_ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using staged TruACP artifact hash: $TRUACP_HASH"
 
-if [ ! -f ../react-mcp/package.json ]; then
-    echo "Error: ../react-mcp/package.json is missing." >&2
+if [ ! -f ../main/react-mcp/package.json ]; then
+    echo "Error: ../main/react-mcp/package.json is missing." >&2
     exit 1
 fi
 rm -rf "$REACT_CONTEXT_DIR"
 mkdir -p "$REACT_CONTEXT_DIR"
-tar -C ../react-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$REACT_CONTEXT_DIR"
+tar -C ../main/react-mcp --exclude=node_modules --exclude='*.log' -cf - . | tar -x -C "$REACT_CONTEXT_DIR"
 REACT_HASH="$(find "$REACT_CONTEXT_DIR" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
 echo "Using trustant-react-mcp source hash: $REACT_HASH"
 

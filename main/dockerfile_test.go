@@ -33,7 +33,7 @@ import (
 
 func readBashrcSnippet(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("image/Dockerfile")
+	data, err := os.ReadFile("../image/Dockerfile")
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}

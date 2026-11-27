@@ -56,3 +56,9 @@ data/
 
 .claude
 *.code-workspace
+
+# The only committed LICENSE and NOTICE are at the repo root. build.sh,
+# hotfix.sh and run.sh copy them into main/ because main/legal.go embeds them
+# and go:embed cannot reach ../.
+/main/LICENSE
+/main/NOTICE

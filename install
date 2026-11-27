@@ -182,7 +182,7 @@ fi
 cd "$DEST" || exit 1
 # Lima mounts this folder at the same path in the VM, so host paths work there.
 HERE="$(pwd)"
-cat > .env <<ENV
+cat > main/.env <<ENV
 WORKSPACE_DIR=$HERE/workspace
 WORKBENCH_DIR=$HERE/workbench
 OLLAMA_ENDPOINT=http://localhost:11434
@@ -403,7 +403,7 @@ echo > /dev/null <<"out-null" ###
         'GIT_USER=TrustantUser'
         'GIT_EMAIL=noreply@example.com'
     ) -join "`n"
-    [System.IO.File]::WriteAllText((Join-Path $Dest '.env'), "$EnvText`n")
+    [System.IO.File]::WriteAllText((Join-Path $Dest 'main\.env'), "$EnvText`n")
     New-Item -ItemType Directory -Force -Path (Join-Path $Dest 'workspace'), (Join-Path $Dest 'workbench') | Out-Null
 
     # Download the two big artifacts into dist\, start.sh's cache, with the

@@ -23,7 +23,7 @@ import (
 
 func readScreenshotScript(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("screenshot.sh")
+	data, err := os.ReadFile("../screenshot.sh")
 	if err != nil {
 		t.Fatalf("read screenshot.sh: %s", err)
 	}
@@ -342,7 +342,7 @@ func TestScreenshotScriptAlwaysPublishesAPreview(t *testing.T) {
 
 // The preview copy lands in the repo root and must never be committed.
 func TestScreenshotPreviewCopyIsGitignored(t *testing.T) {
-	data, err := os.ReadFile(".gitignore")
+	data, err := os.ReadFile("../.gitignore")
 	if err != nil {
 		t.Fatalf("read .gitignore: %s", err)
 	}

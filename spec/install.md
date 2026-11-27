@@ -1,5 +1,7 @@
 # Repository-root `install`
 
+> **Paths.** The `.env` that `install` writes is `<target>/trustant/main/.env`; the server reads it from `main/`.
+
 One file that is both a bash and a PowerShell script (a polyglot), so a single
 URL prepares a Trustant checkout on every host: it clones, downloads the big
 artifacts into `trustant/dist`, and stops. Starting is left to the user:

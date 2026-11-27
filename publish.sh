@@ -89,7 +89,7 @@ if $HOTFIX; then
 fi
 
 echo "CI passed. Pushing oplugins-truinst..."
-cd oplugins-truinst
+cd main/oplugins-truinst
 if git diff --quiet && git diff --cached --quiet; then
     echo "No oplugins-truinst changes to commit."
 else

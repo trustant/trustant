@@ -1,6 +1,6 @@
 # Managed .gitignore and shared agent configuration
 
-Implemented by [gitignore.go](../gitignore.go). Called from launch, between
+Implemented by [gitignore.go](../main/gitignore.go). Called from launch, between
 "ensure required folders" and "skills" (see [4-launch.md](4-launch.md)).
 
 # Why
@@ -164,7 +164,7 @@ the commit are scoped to these paths, so work the user staged by hand is left
 for their own Save.
 
 Note the deliberate asymmetry with `gitSaveExcludedFiles` in
-[git.go](../git.go): a user-initiated Save **skips** an `AGENTS.md` holding
+[git.go](../main/git.go): a user-initiated Save **skips** an `AGENTS.md` holding
 only the managed block, treating it as regenerated noise, while this launch
 commit includes it unconditionally. The two rules serve different goals and
 must not be merged — dropping the launch commit would leave revert able to
@@ -173,7 +173,7 @@ delete the file.
 # Interaction with git save and pull
 
 `.gitignore` silences only files Git does not track, so both
-`gitPullGeneratedFiles` and `gitSaveGeneratedFiles` in [git.go](../git.go) must
+`gitPullGeneratedFiles` and `gitSaveGeneratedFiles` in [git.go](../main/git.go) must
 keep listing `.mcp.json` and `.openserverless-contract.md`. A repo created
 before the migration still tracks them, and Git always reports a tracked
 modification; dropping them would make pull refuse forever on those repos.

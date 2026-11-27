@@ -104,11 +104,11 @@ done
 # Three env sources: .env.dist (template), image/env (baked image), and the .env
 # we generate here (image layout but rooted at the guest user's own $HOME).
 echo "--- Checking .env ---"
-[[ -f .env.dist ]] || fail ".env.dist not found"
+[[ -f main/.env.dist ]] || fail "main/.env.dist not found"
 
-if [[ ! -f .env ]]; then
+if [[ ! -f main/.env ]]; then
   warn ".env not found — creating an in-VM .env"
-  cat > .env <<ENV
+  cat > main/.env <<ENV
 WORKSPACE_DIR=$HOME/workspace
 WORKBENCH_DIR=$HOME/workbench
 OPENAI_BASE_URL=http://localhost:11434/v1
@@ -126,16 +126,16 @@ else
     [[ -z "$key" || "$key" =~ ^# ]] && continue
     key=$(echo "$key" | xargs)
     [[ "$key" == GITHUB_TOKEN ]] && continue  # optional: only ghlogin.sh uses it
-    val=$(grep "^${key}=" .env | cut -d'=' -f2- || true)
+    val=$(grep "^${key}=" main/.env | cut -d'=' -f2- || true)
     if [[ -z "$val" || "$val" == "<"*">" ]]; then
       fail "Variable $key is not set in .env (still has placeholder or is empty)"
     fi
-  done < .env.dist
+  done < main/.env.dist
   ok ".env is present and all variables from .env.dist are set"
 fi
 
 set -a
-source ./.env
+source ./main/.env
 set +a
 
 WORKSPACE_DIR_EXPANDED=$(eval echo "${WORKSPACE_DIR}")
@@ -511,9 +511,9 @@ ok "milvus-cli ${MILVUS_CLI_VERSION} available globally in /usr/local/bin"
 # one literal npm install spec per line, `#` comments and blank lines ignored,
 # every entry MUST carry a version.
 echo "--- Installing the pi coding-agent toolchain ---"
-PI_VERSIONS_FILE="acp/pi.version"
+PI_VERSIONS_FILE="main/acp/pi.version"
 [[ -f "$PI_VERSIONS_FILE" ]] || fail "$PI_VERSIONS_FILE not found — it lists the packages to install"
-PI_INTEGRITY_FILE="acp/pi.integrity"
+PI_INTEGRITY_FILE="main/acp/pi.integrity"
 [[ -f "$PI_INTEGRITY_FILE" ]] || fail "$PI_INTEGRITY_FILE not found — it pins the reviewed upstream Pi artifacts"
 
 command -v npm &>/dev/null || fail "npm is required to install the pi toolchain"
@@ -636,9 +636,9 @@ grep -Fq "$MILVUS_MCP_REPO" "$MILVUS_MCP_RECEIPT" &&
 # out sources so Lima/WSL runs exactly what the image build consumes; no guest
 # Git metadata is needed, which also supports host-mounted worktrees.
 command -v npm &>/dev/null || fail "npm is required to install the npm MCP servers"
-[[ -f mcp/package.json ]] || fail "mcp submodule is not initialized (run ./start.sh on the host or: git submodule update --init mcp)"
+[[ -f main/mcp/package.json ]] || fail "mcp submodule is not initialized (run ./start.sh on the host or: git submodule update --init main/mcp)"
 OPENSERVERLESS_MCP_PACK_DIR=$(mktemp -d)
-( cd mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
+( cd main/mcp && npm pack --pack-destination "$OPENSERVERLESS_MCP_PACK_DIR" >/dev/null ) \
   || fail "packing local openserverless-mcp failed"
 OPENSERVERLESS_MCP_PACKAGE=$(find "$OPENSERVERLESS_MCP_PACK_DIR" -maxdepth 1 -name 'openserverless-mcp-*.tgz' -print -quit)
 [[ -n "$OPENSERVERLESS_MCP_PACKAGE" ]] || fail "local openserverless-mcp package was not created"
@@ -651,9 +651,9 @@ grep -qF 'secret-unbind' "$NPM_GLOBAL_PREFIX/lib/node_modules/openserverless-mcp
 # Install the deterministic React analyzer separately from Agentic React. WHY:
 # the latter captures UI selection context and cannot validate router/auth AST
 # invariants required before a frontend change is considered done.
-[[ -f react-mcp/package.json ]] || fail "react-mcp source is missing"
+[[ -f main/react-mcp/package.json ]] || fail "main/react-mcp source is missing"
 REACT_MCP_PACK_DIR=$(mktemp -d)
-( cd react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
+( cd main/react-mcp && npm pack --pack-destination "$REACT_MCP_PACK_DIR" >/dev/null ) \
   || fail "packing trustant-react-mcp failed"
 REACT_MCP_PACKAGE=$(find "$REACT_MCP_PACK_DIR" -maxdepth 1 -name 'trustant-react-mcp-*.tgz' -print -quit)
 [[ -n "$REACT_MCP_PACKAGE" ]] || fail "trustant-react-mcp package was not created"
@@ -715,12 +715,12 @@ ok "MCP servers (browser, react, openserverless, postgres, redis, milvus, mongod
 # root policy; configuring another prefix inside the submodule would duplicate
 # packages and make clean VM behavior differ from the image workflow.
 echo "--- Building truacp ---"
-[[ -f acp/package.json && -f acp/pi.version ]] \
-  || fail "acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init acp)"
-[[ -f acp/pi-acp/package.json ]] \
-  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive acp)"
-[[ -x acp/setup.sh ]] || chmod +x acp/setup.sh
-(cd acp && ./setup.sh) || fail "truacp build/install failed"
+[[ -f main/acp/package.json && -f main/acp/pi.version ]] \
+  || fail "acp submodule is not initialized (run ./start.sh on the host or: git submodule update --init main/acp)"
+[[ -f main/acp/pi-acp/package.json ]] \
+  || fail "nested pi-acp fork is not initialized (run: git submodule update --init --recursive main/acp)"
+[[ -x main/acp/setup.sh ]] || chmod +x main/acp/setup.sh
+(cd main/acp && ./setup.sh) || fail "truacp build/install failed"
 command -v truacp &>/dev/null || fail "truacp not on PATH after install (expected ~/.local/bin/truacp)"
 ok "truacp installed ($(command -v truacp))"
 

@@ -1,7 +1,7 @@
 # Importing variables from the shared pool
 
-Implemented in [bind.go](../bind.go), [web/js/bind.js](../web/js/bind.js), and the
-Import tab of the Share dialog in [web/js/shared.js](../web/js/shared.js).
+Implemented in [bind.go](../main/bind.go), [web/js/bind.js](../main/web/js/bind.js), and the
+Import tab of the Share dialog in [web/js/shared.js](../main/web/js/shared.js).
 
 ## Export and import
 

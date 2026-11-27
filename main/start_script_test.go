@@ -28,7 +28,7 @@ import (
 // to regress in a shell script and hard to notice at runtime — the pod just
 // quietly keeps state again — so guard the entrypoint's content directly.
 func TestStartScriptKeepsWorkbenchEphemeral(t *testing.T) {
-	content, err := os.ReadFile("image/start.sh")
+	content, err := os.ReadFile("../image/start.sh")
 	if err != nil {
 		t.Fatalf("read image/start.sh: %s", err)
 	}
@@ -62,7 +62,7 @@ func TestStartScriptKeepsWorkbenchEphemeral(t *testing.T) {
 // properties are one-line regressions in a shell script and invisible at
 // runtime (the pod just boots slowly again), so guard the entrypoint directly.
 func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
-	content, err := os.ReadFile("image/start.sh")
+	content, err := os.ReadFile("../image/start.sh")
 	if err != nil {
 		t.Fatalf("read image/start.sh: %s", err)
 	}
@@ -135,7 +135,7 @@ func TestStartScriptChownIsNarrowBackgroundedAndTracked(t *testing.T) {
 //     filename needs the numeric "0.4.0". A hardcoded copy in start.sh drifts
 //     silently whenever the tag moves.
 func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
-	content, err := os.ReadFile("start.sh")
+	content, err := os.ReadFile("../start.sh")
 	if err != nil {
 		t.Fatalf("read start.sh: %s", err)
 	}
@@ -220,7 +220,7 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 	// version.txt keeps its own, separate meaning (the app release identity
 	// shared with build.sh/hotfix.sh/run.sh) and must not be conflated with the
 	// package pin above.
-	if !strings.Contains(script, `TRUSTANT_VERSION="$(head -n1 version.txt`) {
+	if !strings.Contains(script, `TRUSTANT_VERSION="$(head -n1 main/version.txt`) {
 		t.Error("start.sh must still derive TRUSTANT_VERSION from version.txt")
 	}
 	if !strings.Contains(script, `TRUSTANT_VERSION="${TRUSTANT_VERSION#v}"`) {
@@ -233,7 +233,7 @@ func TestStartScriptDownloadsPackageFromTrustantPub(t *testing.T) {
 // install copies a preloaded <target>/dist into the checkout's dist/ cache.
 func TestStartScriptsKeepVMInDataAndSeedDist(t *testing.T) {
 	read := func(name string) string {
-		content, err := os.ReadFile(name)
+		content, err := os.ReadFile("../" + name)
 		if err != nil {
 			t.Fatalf("read %s: %s", name, err)
 		}

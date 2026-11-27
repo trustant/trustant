@@ -12,7 +12,7 @@ SSR build doesn't match the managed static runtime and the app never appears.
 
 | Phase | Who | When |
 |---|---|---|
-| 0 detect + inventory | Trustant ([lovable.go](../lovable.go)) | `POST /api/repo` with `source: "lovable"` ([2-repo.md](2-repo.md)) |
+| 0 detect + inventory | Trustant ([lovable.go](../main/lovable.go)) | `POST /api/repo` with `source: "lovable"` ([2-repo.md](2-repo.md)) |
 | 1 build system, 1.2 registry pass | Trustant | same |
 | 2 SPA shell | Trustant | same |
 | 6 deterministic cleanup (deleted files, ignore files, `LOVABLE:BEGIN` blocks) | Trustant | same |
@@ -57,7 +57,7 @@ wiring, `auth_setup`, redeploy), so it cannot be done in Go.
    `.ops/`) and `.prettierignore` (`web/`), and strips `LOVABLE:BEGIN…END`
    blocks from `AGENTS.md`/`CLAUDE.md`/`README.md`.
 9. Writes `template.md` (front matter `name: lovable-conversion` + the embedded
-   [lovable-conversion.md](../lovable-conversion.md)) and `LOVABLE_CONVERSION.md`
+   [lovable-conversion.md](../main/lovable-conversion.md)) and `LOVABLE_CONVERSION.md`
    (the inventory, what was applied, what was flagged, and a placeholder for the
    agent's phases).
 

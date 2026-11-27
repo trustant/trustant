@@ -1,5 +1,7 @@
 # Repository-root `start.sh`
 
+> **Paths.** The release identity is `main/version.txt`, the seeded env file is `main/.env` (from `main/.env.dist`), and the runtime submodules it initialises are `main/mcp` and `main/acp`.
+
 This specification defines the repository-root `start.sh`, which brings up a
 Trustant development environment. It supports two hosts, selected
 automatically by `uname -s`:
@@ -441,7 +443,7 @@ mirrored user); `./start.sh -v` opens VS Code over Remote-SSH instead, and
 
 ## .env seeding (first step)
 
-Before anything else on either host, `start.sh` ensures a repository-root `.env`
+Before anything else on either host, `start.sh` ensures a `main/.env`
 exists, seeding it from `.env.dist` when absent. An existing `.env` is **never**
 overwritten — it holds the user's real credentials. A missing `.env.dist` is a
 hard failure.

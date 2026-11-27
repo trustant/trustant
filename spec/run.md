@@ -1,5 +1,7 @@
 # Repository-root `run.sh`
 
+> **Paths.** `run.sh` stays at the repo root but the server lives in `main/`: it writes `main/_build.txt` from `main/version.txt`, copies the root `LICENSE`/`NOTICE` into `main/` (embedded, gitignored there), sources `main/.env`, and starts `air` from inside `main/` (`pushd main`), where `.air.toml` and `tmp/` live.
+
 This specification defines the repository-root `run.sh`, which invokes the app
 with Air inside the `trudev` VM (see [setup.md](setup.md)). On a native Ubuntu
 or Debian 12+ Linux host there is no VM, so the same dev loop runs directly: step

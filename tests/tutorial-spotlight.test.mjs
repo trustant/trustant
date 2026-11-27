@@ -36,7 +36,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const SOURCE = readFileSync(path.join(ROOT, 'web/js/tutorial.js'), 'utf8');
+const SOURCE = readFileSync(path.join(ROOT, 'main/web/js/tutorial.js'), 'utf8');
 
 const VIEWPORT = { width: 1000, height: 800 };
 

@@ -651,7 +651,7 @@ func TestConfigurePageCanStillClearTheLastVariable(t *testing.T) {
 // palette in a deployed pod is the intended state, not a bug — the user fills it
 // in on the Configure page.
 func TestImageDoesNotShipADefaultEnvPalette(t *testing.T) {
-	dockerfile, err := os.ReadFile("image/Dockerfile")
+	dockerfile, err := os.ReadFile("../image/Dockerfile")
 	if err != nil {
 		t.Fatalf("read image/Dockerfile: %s", err)
 	}
@@ -659,7 +659,7 @@ func TestImageDoesNotShipADefaultEnvPalette(t *testing.T) {
 		t.Errorf("image/Dockerfile copies %s into the image; it is for local testing only",
 			defaultEnvFileName)
 	}
-	if _, err := os.Stat("image/env.default"); err == nil {
+	if _, err := os.Stat("../image/env.default"); err == nil {
 		t.Error("image/env.default exists; a palette seed must not be committed to the build context")
 	}
 }

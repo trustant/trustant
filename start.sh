@@ -108,16 +108,16 @@ TRUSERVERLESS_BASE_URL="https://pub.trustant.ai/truserverless"
 TRUSERVERLESS_VERSION="$(head -n1 truserverless.txt 2>/dev/null | tr -d '[:space:]')"
 [[ -n "$TRUSERVERLESS_VERSION" ]] \
   || fail "truserverless.txt not found or empty — it must pin the Trustant Serverless package version (e.g. 0.1.0+f1553b)"
-# The release identity lives in version.txt (tagged form, e.g. v0.4.0) and is the
+# The release identity lives in main/version.txt (tagged form, e.g. v0.4.0) and is the
 # single source shared with build.sh/hotfix.sh/run.sh. It identifies the Trustant
 # APP release and is unrelated to TRUSERVERLESS_VERSION above, which identifies
 # the cluster package — the two version files are deliberately separate. The
 # numeric form is used, so strip the leading "v".
-TRUSTANT_VERSION="$(head -n1 version.txt 2>/dev/null | tr -d '[:space:]')"
+TRUSTANT_VERSION="$(head -n1 main/version.txt 2>/dev/null | tr -d '[:space:]')"
 TRUSTANT_VERSION="${TRUSTANT_VERSION#v}"
 if [[ -z "$TRUSTANT_VERSION" ]]; then
   TRUSTANT_VERSION="unknown"
-  warn "version.txt not found or empty"
+  warn "main/version.txt not found or empty"
 fi
 DIST_DIR="dist"                              # host-side cache (.deb + ollama tarball)
 
@@ -143,8 +143,8 @@ KUBEFWD_SHA_ARM64="e01ade02d919be2c7e306543f0a65de2e629c254ef16b51ecb45830b0044a
 HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
 MOUNT_DIR="$(pwd)"
-ENV_FILE="$MOUNT_DIR/.env"
-ENV_DIST_FILE="$MOUNT_DIR/.env.dist"
+ENV_FILE="$MOUNT_DIR/main/.env"
+ENV_DIST_FILE="$MOUNT_DIR/main/.env.dist"
 
 # setup.sh runs inside a VM that only mounts this worktree. A worktree's .git
 # file may point outside that mount, so source submodules must be initialized on
@@ -154,19 +154,19 @@ ensure_source_submodules() {
   # WHY: acp may already be populated while its nested pi-acp fork is
   # still empty. Test the leaf explicitly so a reused worktree cannot reach the
   # VM setup with an incomplete runtime source tree.
-  if [[ ! -f "$MOUNT_DIR/mcp/package.json" ||
-        ! -f "$MOUNT_DIR/acp/package.json" ||
-        ! -f "$MOUNT_DIR/acp/pi-acp/package.json" ]]; then
+  if [[ ! -f "$MOUNT_DIR/main/mcp/package.json" ||
+        ! -f "$MOUNT_DIR/main/acp/package.json" ||
+        ! -f "$MOUNT_DIR/main/acp/pi-acp/package.json" ]]; then
     echo "--- Initializing runtime source submodules on the host ---"
     # -c ... is inherited by the clone/checkout git runs per submodule, so a
     # fresh Windows checkout lands as LF instead of needing the repair below.
     git -C "$MOUNT_DIR" -c core.autocrlf=false -c core.eol=lf \
-      submodule update --init --recursive mcp acp \
+      submodule update --init --recursive main/mcp main/acp \
       || fail "failed to initialize mcp/acp submodules"
   fi
-  [[ -f "$MOUNT_DIR/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
-  [[ -f "$MOUNT_DIR/acp/package.json" ]] || fail "acp submodule source is unavailable"
-  [[ -f "$MOUNT_DIR/acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
+  [[ -f "$MOUNT_DIR/main/mcp/package.json" ]] || fail "mcp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/main/acp/package.json" ]] || fail "acp submodule source is unavailable"
+  [[ -f "$MOUNT_DIR/main/acp/pi-acp/package.json" ]] || fail "nested pi-acp fork source is unavailable"
   ok "runtime source submodules are available"
   normalize_submodule_eol
 }

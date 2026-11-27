@@ -239,7 +239,7 @@ environment variables the launched app received. It is a **viewer, not an
 editor**.
 
 Editing lives in the app list's **Env** action
-([appconfig.html](../web/appconfig.html)). The values can come from the
+([appconfig.html](../main/web/appconfig.html)). The values can come from the
 workspace-wide shared pool (see [18-shared.md](18-shared.md)), and a second
 editor here would be a second place to get them wrong; the pool itself is edited
 on the Configure page and through each app's **Share** button, neither of which
@@ -264,7 +264,7 @@ from the app list's Env action." (singular "1 required variable has no value").
 The banner is informational: the fix is made in the app list's editor, not here.
 
 The blocked-launch flow itself does **not** live here — it belongs to the page
-that owns the launch. [applist.html](../web/applist.html) renders the same
+that owns the launch. [applist.html](../main/web/applist.html) renders the same
 editor in place of the launch modal and resumes the launch on Save, in one
 step (see [4-launch.md](4-launch.md)). This modal is the ordinary per-app
 editor, reachable any time from the Config pulldown.
@@ -272,9 +272,9 @@ editor, reachable any time from the Config pulldown.
 ## Shared implementation
 
 The render/edit/save logic lives in
-[web/js/envtable.js](../web/js/envtable.js) and is shared with
-[appconfig.html](../web/appconfig.html) and
-[applist.html](../web/applist.html), so the hosts cannot drift apart. The module
+[web/js/envtable.js](../main/web/js/envtable.js) and is shared with
+[appconfig.html](../main/web/appconfig.html) and
+[applist.html](../main/web/applist.html), so the hosts cannot drift apart. The module
 owns the table; each host page supplies its own element ids and buttons. This
 modal passes `readOnly: true`; the app-list editor adds **Add from shared**, and
 the blocked-launch flow adds the missing-variable banner and resumes the launch

@@ -66,9 +66,9 @@ esac
 # injected into the user's config, and name the fix.
 [[ -t 0 ]] || fail "screenshot.sh needs an interactive terminal — run it in a shell (./ssh.sh, then ./screenshot.sh), not piped or through 'ssh <host> ./screenshot.sh'"
 
-[[ -f .env ]] || fail ".env not found — run ./setup.sh first"
+[[ -f main/.env ]] || fail "main/.env not found — run ./setup.sh first"
 # shellcheck disable=SC1091
-source ./.env
+source ./main/.env
 [[ -n "${WORKBENCH_DIR:-}" ]] || fail "WORKBENCH_DIR is not set in .env"
 WORKBENCH_DIR="$(eval echo "$WORKBENCH_DIR")"
 [[ -d "$WORKBENCH_DIR" ]] || fail "WORKBENCH_DIR does not exist: $WORKBENCH_DIR"

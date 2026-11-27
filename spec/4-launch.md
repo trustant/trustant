@@ -158,7 +158,7 @@ again:
    from where it stopped. No second button, no navigation, no re-press.
 
 The env editor is therefore rendered on
-[applist.html](../web/applist.html) as well, using the shared table module (see
+[applist.html](../main/web/applist.html) as well, using the shared table module (see
 [3-app.md](3-app.md)). It must not hand off to another page and must not offer a
 separate "Launch" button to restart the flow: a Save that resolves the last
 missing variable simply continues.
@@ -422,7 +422,7 @@ Application env values remain owned by the Trustant configuration UI; the
 agent reports a missing variable instead of synthesizing or synchronizing it.
 
 Pi extensions (`pi-mcp-adapter`, `pi-web-access`) are pinned in
-[trustant-acp/pi.version](../trustant-acp/pi.version), one
+[trustant-acp/pi.version](../main/acp/pi.version), one
 `<module>@<version>` npm install spec per line. The `pi` executable/core and
 `pi-acp` are built from separately pinned nested Trustant forks under
 `trustant-acp/pi` and `trustant-acp/pi-acp`; setup must never replace either

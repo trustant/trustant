@@ -36,7 +36,7 @@ import (
 // newlines and -r skips the call entirely when there is nothing to delete.
 // image/image.sh has always used it; this test keeps build.sh from drifting back.
 func TestBuildScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("build.sh")
+	content, err := os.ReadFile("../build.sh")
 	if err != nil {
 		t.Fatalf("read build.sh: %s", err)
 	}
@@ -61,7 +61,7 @@ func TestBuildScriptDeletesEveryExistingTag(t *testing.T) {
 
 // The same invariant on the image build path, which gets the tag right today.
 func TestImageScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("image/image.sh")
+	content, err := os.ReadFile("../image/image.sh")
 	if err != nil {
 		t.Fatalf("read image/image.sh: %s", err)
 	}
@@ -89,7 +89,7 @@ func shellCode(script string) []string {
 // command-substitution spelling fails silently, so it is worth pinning here
 // too rather than trusting the comment in the script.
 func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("hotfix.sh")
+	content, err := os.ReadFile("../hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -121,7 +121,7 @@ func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
 // out the wrong thing. The moment this script writes opsroot, that whole design
 // stops making sense.
 func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
-	content, err := os.ReadFile("hotfix.sh")
+	content, err := os.ReadFile("../hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -144,13 +144,13 @@ func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
 // tell from /api/version whether the hotfix is actually running. Ordering is
 // the entire correctness argument here, so it is pinned rather than commented.
 func TestHotfixScriptWritesBuildTxtBeforeCompiling(t *testing.T) {
-	content, err := os.ReadFile("hotfix.sh")
+	content, err := os.ReadFile("../hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
 	hotfix := string(content)
 
-	if !strings.Contains(hotfix, ">_build.txt") {
+	if !strings.Contains(hotfix, ">main/_build.txt") {
 		t.Fatal("hotfix.sh must write _build.txt with the hotfix tag")
 	}
 
@@ -186,7 +186,7 @@ func TestHotfixScriptWritesBuildTxtBeforeCompiling(t *testing.T) {
 // "simplifies" the two conditioned steps down to one and silently breaks either
 // hotfix tags or normal ones.
 func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
-	content, err := os.ReadFile(".github/workflows/images.yml")
+	content, err := os.ReadFile("../.github/workflows/images.yml")
 	if err != nil {
 		t.Fatalf("read images.yml: %s", err)
 	}
@@ -222,7 +222,7 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 // repository guidelines forbid, so the whole block has to sit behind the
 // not-a-hotfix guard.
 func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
-	content, err := os.ReadFile("publish.sh")
+	content, err := os.ReadFile("../publish.sh")
 	if err != nil {
 		t.Fatalf("read publish.sh: %s", err)
 	}

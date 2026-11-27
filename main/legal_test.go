@@ -110,13 +110,13 @@ func TestLegalNoticeCarriesTrustantNotice(t *testing.T) {
 func TestLegalTextsShipInTheImage(t *testing.T) {
 	read := func(name string) string {
 		t.Helper()
-		data, err := os.ReadFile(name)
+		data, err := os.ReadFile("../" + name)
 		if err != nil {
 			t.Fatalf("read %s: %s", name, err)
 		}
 		return string(data)
 	}
-	const stage = "cp -v LICENSE NOTICE DEPS image/"
+	const stage = "cp -v LICENSE NOTICE main/DEPS image/"
 	const copyLine = "COPY LICENSE NOTICE DEPS /usr/share/doc/trustant/"
 	if n := strings.Count(read("build.sh"), stage); n != 2 {
 		t.Errorf("build.sh stages the legal texts %d times, want 2 (--build and --buildx)", n)

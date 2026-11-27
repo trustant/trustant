@@ -18,6 +18,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# main/ embeds LICENSE and NOTICE (main/legal.go) but go:embed cannot reach the
+# repo root, where the only committed copies live. Stage them before any build;
+# main/LICENSE and main/NOTICE are gitignored.
+cp LICENSE NOTICE main/
+
 # One build path for both hosts. The only difference is how the built image
 # reaches the cluster: on a Mac the cluster lives in the Trustant VM, so the
 # image is shipped over ssh; on the k3s server the build already wrote it into
@@ -36,9 +41,9 @@ if [ -e "$MAC_ID" ] && [ -e "$MAC_IP" ]; then
 fi
 
 KEY=trustant
-VERSION="$(cat version.txt)"
+VERSION="$(cat main/version.txt)"
 IMAGE="${TRUSTANT_IMAGE:-ghcr.io/trustant/trustant}"
-OPSROOT="./oplugins-truinst/opsroot.json"
+OPSROOT="./main/oplugins-truinst/opsroot.json"
 
 host_arch() {
     case "$(uname -m)" in
@@ -84,8 +89,8 @@ make_tag() {
     echo "Stored Tag: $TAG"
     echo "Stored Version: $(jq -r ".config.version.$KEY" <"$OPSROOT")"
 
-    if [[ -f .env ]]; then
-        source ./.env
+    if [[ -f main/.env ]]; then
+        source ./main/.env
         git config user.name "$GIT_USER"
         git config user.email "$GIT_EMAIL"
     fi
@@ -101,7 +106,7 @@ write_build_txt() {
     branch="${branch:-detached}"
     stream="${TRUSTANT_BUILD_STREAM:-$branch}"
     printf "Version: %s\nBuild: %s\nBranch: %s\nStream: %s\n" \
-        "$VERSION" "$tag" "$branch" "$stream" >_build.txt
+        "$VERSION" "$tag" "$branch" "$stream" >main/_build.txt
 }
 
 usage() {
@@ -183,10 +188,10 @@ case "$MODE" in
 
     write_build_txt "$TAG"
     mkdir -p image/bin
-    env GOOS=linux GOARCH=amd64 go build -o image/bin/trustant-amd64
-    env GOOS=linux GOARCH=arm64 go build -o image/bin/trustant-arm64
-    cp -v trustant.json image/trustant.json
-cp -v LICENSE NOTICE DEPS image/
+    (cd main && env GOOS=linux GOARCH=amd64 go build -o "../image/bin/trustant-amd64")
+    (cd main && env GOOS=linux GOARCH=arm64 go build -o "../image/bin/trustant-arm64")
+    cp -v main/trustant.json image/trustant.json
+    cp -v LICENSE NOTICE main/DEPS image/
 
     image/image.sh "$TAG" --push
     exit 0
@@ -214,9 +219,9 @@ make_tag
 ARCH="$(host_arch)"
 mkdir -p image/bin
 # Host arch only: a single-arch local image never uses the other binary.
-env GOOS=linux GOARCH="$ARCH" go build -o "image/bin/trustant-$ARCH"
-cp -v trustant.json image/trustant.json
-cp -v LICENSE NOTICE DEPS image/
+(cd main && env GOOS=linux GOARCH="$ARCH" go build -o "../image/bin/trustant-$ARCH")
+cp -v main/trustant.json image/trustant.json
+cp -v LICENSE NOTICE main/DEPS image/
 
 image/image.sh "$TAG"
 

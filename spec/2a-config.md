@@ -729,7 +729,7 @@ failed UTF-8 decode — rejects the file as binary with a message saying so.
 JPEG would parse into mojibake rows rather than being refused.
 
 The parse rules are deliberately identical to `parseEnvFile` in
-[configure.go](../configure.go), so the two import paths cannot drift: trim the
+[configure.go](../main/configure.go), so the two import paths cannot drift: trim the
 line, skip empty lines and lines starting with `#`, split on the **first** `=`,
 trim both sides. There is no `export ` stripping and no quote unwrapping.
 
