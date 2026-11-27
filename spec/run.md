@@ -53,7 +53,7 @@ to use instead, exiting 1:
   b. another Linux distribution — report that this Linux is not supported and
      point at a Debian 12+ / Ubuntu 24.04+ host or the trudev VM.
   c. macOS — point at `./start.sh`, which boots the VM and runs setup.sh and the
-     dev loop inside it; `./ssh.sh ./run.sh` restarts only the dev loop.
+     dev loop inside it; `./util/ssh.sh ./run.sh` restarts only the dev loop.
   d. Windows — point at `.\start.ps1`, which creates the WSL2 trudev distro and
      starts the dev loop inside it.
 

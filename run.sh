@@ -99,7 +99,7 @@ if ! os_check_msg="$(os_release_check)"; then
         Darwin)
             echo "run.sh runs on Ubuntu or Debian 12+ only — this is macOS." >&2
             echo "Use ./start.sh: it boots the trudev VM, runs setup.sh and starts the dev loop inside it." >&2
-            echo "To restart only the dev loop in a running VM: ./ssh.sh ./run.sh" >&2
+            echo "To restart only the dev loop in a running VM: ./util/ssh.sh ./run.sh" >&2
             ;;
         CYGWIN*|MINGW*|MSYS*|Windows_NT)
             echo "run.sh runs on Ubuntu or Debian 12+ only — this is Windows." >&2

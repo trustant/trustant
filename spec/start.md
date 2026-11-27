@@ -166,18 +166,18 @@ files, the `trustant` user's installation, and the container running inside it.
 
 **Called with no arguments at all, `ssh.sh` prints the help and exits** rather
 than opening a shell — the modes are not interchangeable, so which one you want
-is always stated. `./ssh.sh -d` is the interactive development shell.
+is always stated. `./util/ssh.sh -d` is the interactive development shell.
 
 Extra arguments after the flag are run as a command instead of opening an
 interactive shell — under `-i` they run inside the container. The flag is
 optional and dev is the fallback mode, so the existing flagless command
-invocations (`./ssh.sh ./setup.sh`, `./ssh.sh ./run.sh`, `./ssh.sh
-./screenshot.sh`) keep their previous meaning.
+invocations (`./util/ssh.sh ./setup.sh`, `./util/ssh.sh ./run.sh`, `./util/ssh.sh
+./util/screenshot.sh`) keep their previous meaning.
 
-### start.sh must never call ./ssh.sh
+### start.sh must never call ./util/ssh.sh
 
 `ssh.sh` is the **user-facing** wrapper: with no command it always ends in an
-interactive shell. `start.sh` once probed reachability with `./ssh.sh true` — the
+interactive shell. `start.sh` once probed reachability with `./util/ssh.sh true` — the
 argument was ignored, so the probe opened a shell and blocked the rest of the
 run. `./start.sh -v` therefore never reached the step that opens VS Code, and the
 user was dropped into a VM shell instead, with no error to explain it.

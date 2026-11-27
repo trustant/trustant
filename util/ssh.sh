@@ -14,10 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Always run from the repo root, wherever this is invoked from.
+cd "$(dirname "$0")/.." || exit 1
+
 
 usage() {
   cat <<'USAGE'
-Usage: ./ssh.sh [-p|-d|-i] [command...]
+Usage: ./util/ssh.sh [-p|-d|-i] [command...]
 
   -d   development access — log in as your own user ($USER) into your
        development files, starting in the current directory

@@ -99,7 +99,7 @@ git pull origin main --recurse-submodules
 ./setup.sh
 ```
 
-then you can execute `./run.sh` (inside the VM — from a Mac host use `./ssh.sh ./run.sh`)
+then you can execute `./run.sh` (inside the VM — from a Mac host use `./util/ssh.sh ./run.sh`)
 
 # Trustant Introduction
 
@@ -200,7 +200,7 @@ See the TL;DR at the top for the per-system commands. In short:
   it, and finishes by running `./run.sh` **in the VM** (free ports 8910/5173/4096, `air`
   hot reload, print the UI URL). Press **^C** to stop the dev loop. `run.sh` refuses to
   run on the Mac host itself — to restart just the dev loop in an already-booted VM, use
-  `./ssh.sh ./run.sh`.
+  `./util/ssh.sh ./run.sh`.
 - **Windows** — `.\start.ps1`, which creates the WSL2 distribution and then runs the same
   Linux flow inside it, finishing with `./run.sh`.
 - **Linux (Ubuntu 24.04 only)** — `./start.sh`. It prepares the host, runs `./setup.sh`,
@@ -239,13 +239,13 @@ inside the VM to re-verify the toolchain).
 ```bash
 ./start.sh       # Entrypoint. macOS: boot the trudev VM, run setup.sh + run.sh in it (-v vscode, -s stop, -k destroy)
                  # Linux: prepare this host, run setup.sh, then run.sh (-n to stop before the dev loop)
-./run.sh         # Dev loop, Ubuntu ONLY (VM, WSL2 distro or Ubuntu host); from a Mac host use ./ssh.sh ./run.sh
+./run.sh         # Dev loop, Ubuntu ONLY (VM, WSL2 distro or Ubuntu host); from a Mac host use ./util/ssh.sh ./run.sh
 .\start.ps1      # WINDOWS ONLY (PowerShell): create the WSL2 distro, run start.sh in it, then run.sh
 ./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/TruACP+Pi + MCP)
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
 ./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Push the latest git tag and watch CI; pushes oplugins-truinst only with explicit authorization (never for a hotfix)
-./ssh.sh         # SSH into the running Trustant VM; no args prints help, -d development (your files), -p production (trustant user), -i inside the container
+./util/ssh.sh         # SSH into the running Trustant VM; no args prints help, -d development (your files), -p production (trustant user), -i inside the container
 cd main && go test ./...    # Unit tests (after ./build.sh or ./run.sh has staged LICENSE/NOTICE into main/)
 cd main && go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
 ```

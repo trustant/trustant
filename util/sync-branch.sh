@@ -17,7 +17,7 @@
 me="$(realpath $0)"
 if test -z "$1"
 then
-    cd "$(dirname $0)"
+    cd "$(dirname "$0")/.." # repo root
     git submodule --quiet foreach --recursive "$me \$toplevel/.gitmodules \$name" 
     #>_submodules
     #cat _submodules

@@ -906,7 +906,7 @@ refresh_support_files() {
 # Can we run a command in the VM over plain ssh, with the identity that was just
 # copied into the support dir?
 #
-# This deliberately does NOT go through ./ssh.sh. That script is the user-facing
+# This deliberately does NOT go through ./util/ssh.sh. That script is the user-facing
 # wrapper: it takes no command and always `exec bash`, so calling it here opened
 # an interactive shell and blocked the rest of the start — `./start.sh -v` never
 # reached the step that opens VS Code, and the user was left in a VM shell.
@@ -1070,7 +1070,7 @@ finish() {
   echo -e "${GREEN}=== Trustant VM ready ===${NC}"
   echo "  apihost:      $APIHOST"
   echo "  host-rewrite: http://<label>.$IP.nip.io:8080  ->  <label>.miniops.me"
-  echo "  ssh:          ./ssh.sh   |   ssh $HOST_USER@$IP   |   ssh trudev"
+  echo "  ssh:          ./util/ssh.sh   |   ssh $HOST_USER@$IP   |   ssh trudev"
   echo "  next:         ./run.sh in the VM, started below (./start.sh -n to skip)"
   echo "  vscode:       ./start.sh -v (opens this folder over Remote-SSH instead)"
   echo "  ollama:       http://localhost:11434  (CPU, in-VM)"

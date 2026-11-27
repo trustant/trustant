@@ -16,7 +16,7 @@ setup.sh runs INSIDE the VM, as the mirrored guest user (the macOS user that
 `start.sh` recreated in the VM with the same UID + passwordless sudo). `start.sh`
 invokes it automatically after provisioning (`limactl shell --workdir "$PWD"
 trudev ./setup.sh`), so the normal flow is just `./run.sh` on the host; you can
-also run it manually via `./ssh.sh ./setup.sh` or from a login shell in the VM
+also run it manually via `./util/ssh.sh ./setup.sh` or from a login shell in the VM
 (`limactl shell trudev`). It is idempotent — re-runs just verify. The repo is
 virtiofs-mounted at its host path and is writable by this user.
 

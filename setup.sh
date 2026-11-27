@@ -18,7 +18,7 @@
 # setup.sh — recreate the image/Dockerfile environment INSIDE the trudev VM.
 #
 # Runs as the mirrored guest user inside the Ubuntu VM created by ./start.sh
-# (invoke via `./ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
+# (invoke via `./util/ssh.sh ./setup.sh` or from a login shell: `limactl shell trudev`).
 # Everything is installed for the local user (~/.local/bin, ~/.local/lib),
 # no /opt/uv/*, no sudo except for system packages (the guest has passwordless
 # sudo). See spec/setup.md — that is the source of truth for these steps.

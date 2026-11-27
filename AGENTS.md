@@ -28,14 +28,14 @@ macOS development uses a **running Trustant VM** on the local machine — the ma
 
 Linux server development uses local access to the Trustant k3s cluster with Docker or nerdctl and passwordless `sudo -n k3s`. `build.sh` is the single build entrypoint for both hosts and detects which one it is on.
 
-`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustant-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
+`start.sh` provisions a local dev VM (Lima, named `trudev`), mirrors the host user into it, and installs a **CPU-only ollama** plus a pinned `kubefwd` host binary in the VM. `setup.sh` then runs **inside that VM** (via `./util/ssh.sh ./setup.sh` or a login shell) as the mirrored guest user: it recreates the `image/Dockerfile` environment for the local user — ops, go (via `g`), air, uv, Node, TruACP/Pi, and the MCP servers (openserverless, postgres, redis, milvus, mongodb, s3) into `~/.local/bin` — creates a proper in-VM `.env` if absent, extracts the kubeconfig from the **local** k3s (`sudo cat /etc/rancher/k3s/k3s.yaml`, no IP rewrite — `127.0.0.1` is correct in-VM), and checks `ops admin listuser` works against the apihost. `run.sh` is then run inside the VM and owns one namespace-wide `kubefwd` process excluding `trustant-svc`, so host-namespace CLIs and MCP servers can resolve the Service names written by `ops ide login`.
 
 ## Common commands
 
 ```bash
 ./start.sh       # Provision the dev VM (Lima `trudev`); -s stops it, -k destroys it (macOS host)
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
-./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
+./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./util/ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
 ./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
@@ -64,7 +64,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 ## Repository layout
 
-The Go server lives under [main/](main/): all `*.go` files and tests, `go.mod`, `web/`, embedded files, `trustant.json`, `version.txt`, `.air.toml`, `.env`, `react-mcp/` and every submodule. Scripts, `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/` and the root docs plus `LICENSE`/`NOTICE` stay at the root; `build.sh`/`hotfix.sh`/`run.sh` copy `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. Run Go commands from `main/`.
+The Go server lives under [main/](main/): all `*.go` files and tests, `go.mod`, `web/`, embedded files, `trustant.json`, `version.txt`, `.air.toml`, `.env`, `react-mcp/` and every submodule. Scripts, `util/` (developer helpers `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, each `cd`-ing to the repo root first), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/` and the root docs plus `LICENSE`/`NOTICE` stay at the root; `build.sh`/`hotfix.sh`/`run.sh` copy `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. Run Go commands from `main/`.
 
 ## Architecture
 

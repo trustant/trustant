@@ -393,7 +393,7 @@ func TestStartInitializesRuntimeSourcesOnHost(t *testing.T) {
 }
 
 // WHY: ssh.sh is the user-facing wrapper — it takes no command and always ends
-// in `exec bash`. start.sh once probed reachability with `./ssh.sh true`, whose
+// in `exec bash`. start.sh once probed reachability with `./util/ssh.sh true`, whose
 // argument was ignored, so the probe opened an interactive shell and blocked the
 // rest of the run: `./start.sh -v` never reached the step that opens VS Code and
 // the user was dropped into a VM shell with no error explaining it.
@@ -411,9 +411,9 @@ func TestStartDoesNotShellOutToSSHScript(t *testing.T) {
 	}
 	start := strings.Join(code, "\n")
 
-	// The echoed help line naming ./ssh.sh for the user is fine; invoking it is
+	// The echoed help line naming ./util/ssh.sh for the user is fine; invoking it is
 	// not. Only the call forms are rejected.
-	for _, forbidden := range []string{`./ssh.sh true`, `if ./ssh.sh`, `./ssh.sh >`} {
+	for _, forbidden := range []string{`./util/ssh.sh true`, `if ./util/ssh.sh`, `./util/ssh.sh >`} {
 		if strings.Contains(start, forbidden) {
 			t.Fatalf("start.sh must not invoke ssh.sh (%q): it always execs an interactive shell and would block the start", forbidden)
 		}
@@ -618,8 +618,8 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 // sourced or never invoked directly, and those must stay non-executable.
 func TestDocumentedEntrypointsAreExecutableInGit(t *testing.T) {
 	for _, name := range []string{
-		"run.sh", "screenshot.sh", "start.sh", "setup.sh",
-		"build.sh", "hotfix.sh", "publish.sh", "ssh.sh",
+		"run.sh", "util/screenshot.sh", "start.sh", "setup.sh",
+		"build.sh", "hotfix.sh", "publish.sh", "util/ssh.sh",
 	} {
 		out, err := exec.Command("git", "ls-files", "-s", "--", "../"+name).Output()
 		if err != nil {
