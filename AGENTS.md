@@ -37,8 +37,8 @@ Linux server development uses local access to the Trustant k3s cluster with Dock
 ./setup.sh       # Run INSIDE the VM: recreates the image env (ops/go/air/uv/node/TruACP/Pi + MCP), creates .env, wires local k3s kubeconfig
 ./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu; from a Mac host use ./util/ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
-./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
-./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
+./util/hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
+./util/publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
 cd main && go test ./...    # Unit tests (after ./build.sh or ./run.sh has staged LICENSE/NOTICE into main/) (currently only configure_test.go)
 cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 ```
@@ -47,7 +47,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 `build.sh --build` produces a single image and **always** writes the image tag into `main/oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustant redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
-[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
+[util/hotfix.sh](util/hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
 ## Required environment
 
@@ -64,7 +64,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 ## Repository layout
 
-The Go server lives under [main/](main/): all `*.go` files and tests, `go.mod`, `web/`, embedded files, `trustant.json`, `version.txt`, `.air.toml`, `.env`, `react-mcp/` and every submodule. Scripts, `util/` (developer helpers `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, each `cd`-ing to the repo root first), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/` and the root docs plus `LICENSE`/`NOTICE` stay at the root; `build.sh`/`hotfix.sh`/`run.sh` copy `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. Run Go commands from `main/`.
+The Go server lives under [main/](main/): all `*.go` files and tests, `go.mod`, `web/`, embedded files, `trustant.json`, `version.txt`, `.air.toml`, `.env`, `react-mcp/` and every submodule. Scripts, `util/` (developer helpers `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, `prep.sh`, `publish.sh`, `hotfix.sh`, `hotfix.sh`, each `cd`-ing to the repo root first), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/` and the root docs plus `LICENSE`/`NOTICE` stay at the root; `build.sh`/`hotfix.sh`/`run.sh` copy `LICENSE` and `NOTICE` into `main/` (gitignored there) because the binary embeds them. Run Go commands from `main/`.
 
 ## Architecture
 

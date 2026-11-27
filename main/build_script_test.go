@@ -89,7 +89,7 @@ func shellCode(script string) []string {
 // command-substitution spelling fails silently, so it is worth pinning here
 // too rather than trusting the comment in the script.
 func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
-	content, err := os.ReadFile("../hotfix.sh")
+	content, err := os.ReadFile("../util/hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -121,7 +121,7 @@ func TestHotfixScriptDeletesEveryExistingTag(t *testing.T) {
 // out the wrong thing. The moment this script writes opsroot, that whole design
 // stops making sense.
 func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
-	content, err := os.ReadFile("../hotfix.sh")
+	content, err := os.ReadFile("../util/hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -144,7 +144,7 @@ func TestHotfixScriptDoesNotWriteOpsroot(t *testing.T) {
 // tell from /api/version whether the hotfix is actually running. Ordering is
 // the entire correctness argument here, so it is pinned rather than commented.
 func TestHotfixScriptWritesBuildTxtBeforeCompiling(t *testing.T) {
-	content, err := os.ReadFile("../hotfix.sh")
+	content, err := os.ReadFile("../util/hotfix.sh")
 	if err != nil {
 		t.Fatalf("read hotfix.sh: %s", err)
 	}
@@ -198,7 +198,7 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"bash ./hotfix.sh --buildx",
+		"bash ./util/hotfix.sh --buildx",
 		"bash ./build.sh --buildx",
 	} {
 		if !strings.Contains(workflow, want) {
@@ -222,7 +222,7 @@ func TestWorkflowDelegatesBuildsToScripts(t *testing.T) {
 // repository guidelines forbid, so the whole block has to sit behind the
 // not-a-hotfix guard.
 func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
-	content, err := os.ReadFile("../publish.sh")
+	content, err := os.ReadFile("../util/publish.sh")
 	if err != nil {
 		t.Fatalf("read publish.sh: %s", err)
 	}
@@ -239,7 +239,7 @@ func TestPublishNeverTouchesOpsrootForHotfix(t *testing.T) {
 
 	// Every oplugins-truinst command must live after the hotfix branch has exited.
 	limit := guard + exit
-	for _, forbidden := range []string{"cd oplugins-truinst", "git push origin main"} {
+	for _, forbidden := range []string{"cd main/oplugins-truinst", "git push origin main"} {
 		if at := strings.Index(publish, forbidden); at >= 0 && at < limit {
 			t.Errorf("%q is reachable on the hotfix path", forbidden)
 		}

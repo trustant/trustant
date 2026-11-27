@@ -266,11 +266,14 @@ Publishing environment:
 
 - `TRUSTANT_PUBLISH_BRANCH`: branch ref updated by `publish.sh`, defaulting to
   the current branch. Release branches can publish to `main` with
-  `TRUSTANT_PUBLISH_BRANCH=main ./publish.sh`.
-  After image CI succeeds, `publish.sh` may push `oplugins-truinst`, but any push
-  to `oplugins`, `oplugins-truinst`, or another plugin repo
-  requires explicit user authorization first. If there are no local changes in
-  that subrepo it skips the commit step and only pushes.
+  `TRUSTANT_PUBLISH_BRANCH=main ./util/publish.sh`.
+  After image CI succeeds, `util/publish.sh` shows the `opsroot.json` diff and
+  asks `[y/N]` on the terminal before committing and pushing `oplugins-truinst`
+  (no terminal → it refuses); any push to `oplugins`, `oplugins-truinst`, or
+  another plugin repo requires explicit user authorization first. It commits
+  only `opsroot.json` (other dirty files in the submodule are listed, never
+  included); with no `opsroot.json` change it skips the commit and only pushes.
+  It `cd`s to the repo root first, so it runs from any directory.
 Every build updates `main/oplugins-truinst/opsroot.json`, so the deployment plugin and
 the running cluster always agree on which image was built. Recording the tag is
 local; publishing it is a separate, authorization-gated push of the submodule.
@@ -401,7 +404,7 @@ calls one of the two scripts:
 ```yaml
 - name: Build hotfix image
   if: steps.tag.outputs.hotfix == 'true'
-  run: bash ./hotfix.sh --buildx
+  run: bash ./util/hotfix.sh --buildx
 
 - name: Build full image
   if: steps.tag.outputs.hotfix == 'false'

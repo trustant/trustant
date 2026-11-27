@@ -243,8 +243,8 @@ inside the VM to re-verify the toolchain).
 .\start.ps1      # WINDOWS ONLY (PowerShell): create the WSL2 distro, run start.sh in it, then run.sh
 ./setup.sh       # Run INSIDE the VM: install/verify the toolchain (ops/go/air/uv/node/TruACP+Pi + MCP)
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
-./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
-./publish.sh     # Push the latest git tag and watch CI; pushes oplugins-truinst only with explicit authorization (never for a hotfix)
+./util/hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
+./util/publish.sh     # Push the latest git tag and watch CI; pushes oplugins-truinst only with explicit authorization (never for a hotfix)
 ./util/ssh.sh         # SSH into the running Trustant VM; no args prints help, -d development (your files), -p production (trustant user), -i inside the container
 cd main && go test ./...    # Unit tests (after ./build.sh or ./run.sh has staged LICENSE/NOTICE into main/)
 cd main && go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
@@ -256,7 +256,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP   # Run a single test
 
 `build.sh --build` and `build.sh --tag` **always** write the new image tag into `oplugins-truinst/opsroot.json` via `jq`, on every host; it is `publish.sh` pushing the submodule that actually ships the new version to the deployment plugin. Deployment is always `ops truinst trustant redeploy`, which reads the tag from that file, so the cluster and the plugin never disagree.
 
-[hotfix.sh](hotfix.sh) is the exception: it **never** writes `opsroot.json` and never commits, so it patches the running StatefulSet directly (`kubectl set image` + `rollout status`) rather than going through the plugin, which would resolve the base image and roll out the wrong thing. That patch is **not durable** — the next `ops truinst trustant redeploy` reverts it. A hotfix is a live patch, not a release; promoting one means a normal `./build.sh --build` plus an authorized `oplugins-truinst` push. Its tag is `<base>-<n>`, counted from the remote because `build.sh` deletes every local tag on each build.
+[util/hotfix.sh](util/hotfix.sh) is the exception: it **never** writes `opsroot.json` and never commits, so it patches the running StatefulSet directly (`kubectl set image` + `rollout status`) rather than going through the plugin, which would resolve the base image and roll out the wrong thing. That patch is **not durable** — the next `ops truinst trustant redeploy` reverts it. A hotfix is a live patch, not a release; promoting one means a normal `./build.sh --build` plus an authorized `oplugins-truinst` push. Its tag is `<base>-<n>`, counted from the remote because `build.sh` deletes every local tag on each build.
 
 Both scripts take an optional `--no-deploy` after `--build` to stop once the image is built.
 

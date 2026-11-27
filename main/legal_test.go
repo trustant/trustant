@@ -121,7 +121,7 @@ func TestLegalTextsShipInTheImage(t *testing.T) {
 	if n := strings.Count(read("build.sh"), stage); n != 2 {
 		t.Errorf("build.sh stages the legal texts %d times, want 2 (--build and --buildx)", n)
 	}
-	hotfix := read("hotfix.sh")
+	hotfix := read("util/hotfix.sh")
 	if !strings.Contains(hotfix, stage) || !strings.Contains(hotfix, copyLine) {
 		t.Errorf("hotfix.sh must stage the legal texts and COPY them into its layer")
 	}

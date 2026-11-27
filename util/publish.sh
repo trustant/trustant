@@ -17,6 +17,9 @@
 # Publish: push tag, watch CI build, then push oplugins-truinst
 set -euo pipefail
 
+# Always run from the repo root, wherever this is invoked from.
+cd "$(dirname "$0")/.."
+
 # Ensure gh is authenticated
 if ! gh auth status >/dev/null 2>&1; then
     echo "Error: not logged in to GitHub. Run 'gh auth login' first."
@@ -88,12 +91,33 @@ if $HOTFIX; then
     exit 0
 fi
 
-echo "CI passed. Pushing oplugins-truinst..."
+echo "CI passed."
 cd main/oplugins-truinst
-if git diff --quiet && git diff --cached --quiet; then
-    echo "No oplugins-truinst changes to commit."
+
+# Pushing the plugin repo is what ships the release, so it needs an explicit
+# yes from the operator. Only opsroot.json (the image tag build.sh wrote) is
+# committed; any other dirty file in the submodule is left alone, never swept
+# into a commit named after the release tag.
+OTHER=$(git status --porcelain | grep -v ' opsroot\.json$' || true)
+if [ -n "$OTHER" ]; then
+    echo "Note: other uncommitted changes in oplugins-truinst are NOT included:"
+    echo "$OTHER"
+fi
+git --no-pager diff -- opsroot.json
+if [ ! -t 0 ] && [ ! -r /dev/tty ]; then
+    echo "Error: pushing oplugins-truinst needs confirmation, but there is no terminal."
+    exit 1
+fi
+read -r -p "Commit opsroot.json as $TAG and push oplugins-truinst to origin main? [y/N] " ANSWER </dev/tty
+if [[ ! "$ANSWER" =~ ^[Yy]$ ]]; then
+    echo "Not pushed. The image $TAG is in the registry; oplugins-truinst is unchanged."
+    exit 1
+fi
+
+if git diff --quiet -- opsroot.json && git diff --cached --quiet -- opsroot.json; then
+    echo "No opsroot.json change to commit."
 else
-    git commit -m "$TAG" -a
+    git commit -m "$TAG" -- opsroot.json
 fi
 git push origin main --tags
 

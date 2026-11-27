@@ -84,9 +84,9 @@ Windows development is the Linux flow inside WSL2: `start.ps1` (PowerShell, at t
 ./run.sh         # Run INSIDE the VM ONLY (refuses to start unless /etc/os-release says ubuntu or debian 12+; from a Mac host use ./util/ssh.sh ./run.sh): kills ports 8910/5173/4096, checks local k3s, starts one bounded kubefwd, runs `air`, prints the Trustant URL
 ./util/screenshot.sh  # Run INSIDE the VM: interactive recorder — click the ● at the top right of the launched app to capture, then ENTER here to collect; SPACE refreshes, DEL removes the last frame, q quits; stages (never commits) <app>/screenshot.png (APNG, 1s/frame) so it ships with your own push, and copies it to ./screenshot.png to preview in the editor
 ./build.sh       # No args: help. --build [--no-deploy] full image + deploy, --buildx CI multiarch push, --tag tag only
-./hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
+./util/hotfix.sh      # Same modes; layers a rebuilt binary + start.sh/env/trustant.json on the existing image (minutes, not ~20 min)
 ./legal/deps.sh        # Regenerate DEPS, LICENSE, NOTICE from legal/deps.manual.txt + go.mod/lockfiles/pi.version/requirements.txt/prereq.yml; rerun on any dependency change
-./publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
+./util/publish.sh     # Pushes the latest git tag, watches CI, then may push oplugins-truinst only with explicit user authorization
 cd main && go test ./...    # Unit tests (after ./build.sh or ./run.sh has staged LICENSE/NOTICE into main/) (currently only configure_test.go)
 cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 ```
@@ -97,7 +97,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 `build.sh --build` produces a single image and **always** writes the image tag into `main/oplugins-truinst/opsroot.json` via `jq`, on every host. Deployment is always `ops truinst trustant redeploy`, which reads that file; the StatefulSet is never patched directly. Pushing the `oplugins-truinst` submodule is what actually ships the new version to the deployment plugin and requires explicit user authorization.
 
-[hotfix.sh](hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
+[util/hotfix.sh](util/hotfix.sh) is the one exception to both rules. It layers a rebuilt binary plus `image/start.sh`, `image/env` and `trustant.json` onto the image already in `opsroot.json` (`FROM <that image>`), and it **never writes `opsroot.json` and never commits** — so it patches the StatefulSet directly (`kubectl set image` + `rollout status`), because a redeploy would resolve the base image and roll out the wrong thing. The patch is **not durable**: the next plugin deploy reverts it. `publish.sh` therefore never touches `oplugins-truinst` for a hotfix tag. See [spec/build.md](spec/build.md).
 
 ## Required environment
 
@@ -115,7 +115,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 ## Repository layout
 
-The Go server and everything it builds from live under [main/](main/): every `*.go` file and test, `go.mod`, `web/`, the embedded files (`_build.txt`, `DEPS`, `master_key_pub`, the embedded `*.md`/`*.sh`/`*.tmpl`), `trustant.json`, `version.txt`, `.air.toml`, `.env`/`.env.dist`, `react-mcp/` and all the submodules. The repo root keeps the scripts (`install`, `start.sh`, `setup.sh`, `run.sh`, `build.sh`, `hotfix.sh`, `publish.sh`, …), `util/` (developer helpers: `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh` — each `cd`s to the repo root first, so they run the same from any directory), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/`, and `README.md`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`.
+The Go server and everything it builds from live under [main/](main/): every `*.go` file and test, `go.mod`, `web/`, the embedded files (`_build.txt`, `DEPS`, `master_key_pub`, the embedded `*.md`/`*.sh`/`*.tmpl`), `trustant.json`, `version.txt`, `.air.toml`, `.env`/`.env.dist`, `react-mcp/` and all the submodules. The repo root keeps the scripts (`install`, `start.sh`, `setup.sh`, `run.sh`, `build.sh`, …), `util/` (developer helpers: `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, `prep.sh`, `publish.sh`, `hotfix.sh`, `hotfix.sh` — each `cd`s to the repo root first, so they run the same from any directory), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/`, and `README.md`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`.
 
 `LICENSE` and `NOTICE` are committed **only at the root**, but `main/legal.go` embeds them and `go:embed` cannot reach `../`. So `build.sh`, `hotfix.sh` and `run.sh` copy them into `main/` before compiling (`main/LICENSE`, `main/NOTICE` are gitignored). A bare `go test` in a fresh clone fails to embed until one of those has run once, or `cp LICENSE NOTICE main/`. Go tests run with `main/` as cwd, so tests that read root scripts use `../`.
 

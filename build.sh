@@ -116,7 +116,7 @@ usage() {
 Usage: ./build.sh <mode> [--no-deploy]
 
 Builds the full Trustant image (~20 minutes: submodules, TruACP/pi-acp and the
-MCP stages). For a binary-only change see ./hotfix.sh, which layers onto the
+MCP stages). For a binary-only change see ./util/hotfix.sh, which layers onto the
 existing image in a minute or two.
 
   --build [--no-deploy]   tag, compile the host arch, build the image, ship it

@@ -25,7 +25,7 @@
 # existing image with `FROM <that image>` takes a minute or two instead.
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.." # repo root
 
 # main/ embeds LICENSE and NOTICE (main/legal.go) but go:embed cannot reach the
 # repo root, where the only committed copies live. Stage them before any build;
@@ -100,7 +100,7 @@ resolve_tag() {
     fi
     if ! [[ "$tag" =~ -[0-9]+$ ]]; then
         echo "Not a hotfix tag: '${tag:-<none>}'" >&2
-        echo "Run ./hotfix.sh --tag first." >&2
+        echo "Run ./util/hotfix.sh --tag first." >&2
         exit 1
     fi
     echo "$tag"
@@ -204,7 +204,7 @@ usage() {
     local tag
     tag="$(git tag -l | head -1)"
     cat <<'USAGE'
-Usage: ./hotfix.sh <mode> [--no-deploy]
+Usage: ./util/hotfix.sh <mode> [--no-deploy]
 
 Layers the rebuilt binary, image/start.sh, image/env and trustant.json onto the
 image recorded in oplugins-truinst/opsroot.json -- a minute or two instead of the
@@ -227,9 +227,9 @@ USAGE
         echo "Run 'git push --tags' to build this hotfix in the cloud."
     elif [ -n "$tag" ]; then
         echo "Current tag '$tag' is not a hotfix tag."
-        echo "Run './hotfix.sh --tag' first."
+        echo "Run './util/hotfix.sh --tag' first."
     else
-        echo "No tag yet. Run './hotfix.sh --tag' first."
+        echo "No tag yet. Run './util/hotfix.sh --tag' first."
     fi
 }
 

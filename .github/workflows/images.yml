@@ -1,6 +1,6 @@
 # Builds and pushes the Trustant image on a tag push.
 #
-# Compilation lives in ./build.sh and ./hotfix.sh, not here, so CI and a
+# Compilation lives in ./build.sh and ./util/hotfix.sh, not here, so CI and a
 # developer machine produce the image exactly the same way. This workflow only
 # decides which of the two to call: a tag ending in -<n> is a hotfix (a thin
 # layer on the image recorded in oplugins-truinst/opsroot.json), anything else is a
@@ -87,7 +87,7 @@ jobs:
       # machine produce the image the same way.
       - name: Build hotfix image
         if: steps.tag.outputs.hotfix == 'true'
-        run: bash ./hotfix.sh --buildx
+        run: bash ./util/hotfix.sh --buildx
 
       - name: Build full image
         if: steps.tag.outputs.hotfix == 'false'
