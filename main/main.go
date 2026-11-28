@@ -155,6 +155,7 @@ func main() {
 	// public in the session middleware like /api/v1/token.
 	http.HandleFunc("/mcp", handleMCP)
 	http.HandleFunc("/api/v1/token", handleMCPToken)
+	http.HandleFunc("/api/v1/location", handleUILocation)
 	auth.registerRoutes(http.DefaultServeMux)
 
 	// Static file serving

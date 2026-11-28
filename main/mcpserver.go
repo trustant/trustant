@@ -306,25 +306,6 @@ func currentMCPBase() string {
 	return "http://trustant.127.0.0.1.nip.io:8910"
 }
 
-// appURLs derives the user-facing URLs from the trustant.<domain> base: the
-// dev server is vite.<domain>, the workbench page is trustant.<domain>/app.html.
-func appURLs(base string) map[string]string {
-	u, err := url.Parse(base)
-	if err != nil {
-		return map[string]string{}
-	}
-	host := u.Host
-	rest := host
-	if i := strings.Index(host, "."); i >= 0 {
-		rest = host[i+1:]
-	}
-	return map[string]string{
-		"dev":       u.Scheme + "://vite." + rest + "/",
-		"workbench": u.Scheme + "://" + host + "/app.html",
-		"applist":   u.Scheme + "://" + host + "/applist.html",
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Server definition
 // ---------------------------------------------------------------------------
@@ -335,11 +316,14 @@ Workflow:
 1. apps_list to see the apps; app_create to add one from a GitHub repo (owner/repo).
 2. app_launch to check it out into the workbench and start its dev server. Launch makes the app "current".
 3. Edit the current app with files_list / files_read / files_write / files_delete / files_search.
-   The dev server reloads on save. Look at the result yourself: app_view/app_status give the URLs,
-   open them with your own browser tools to see or screenshot the app.
-4. Use the app's own MCP servers through the proxied tools named <server>__<tool>
+   The dev server reloads on save.
+4. Show the app. Call ui_location to see what the user is looking at (app list or an app, and its
+   route) and get the URLs. Open urls.split in your browser pane: the app on top, the ACP chat below,
+   without the Trustant frame (urls.split_app / urls.split_acp for one pane, urls.app / urls.acp for
+   the bare pages). After app_launch or files_write, reload it and check the result yourself.
+5. Use the app's own MCP servers through the proxied tools named <server>__<tool>
    (openserverless__*, react__*, postgres__*, ...). They appear after a launch.
-5. app_save commits the work; app_push pushes it to GitHub; app_deploy / app_publish deploy it.
+6. app_save commits the work; app_push pushes it to GitHub; app_deploy / app_publish deploy it.
 
 Before writing code read the resources trustant://instructions/openserverless and
 trustant://instructions/contract (or use the build_fullstack_app prompt): they are the rules
@@ -355,6 +339,7 @@ func newTrustantMCPServer() *mcp.Server {
 	registerMCPLifecycleTools(s)
 	registerMCPFileTools(s)
 	registerMCPResources(s)
+	registerMCPLocationTool(s)
 	return s
 }
 
@@ -697,8 +682,8 @@ func registerMCPLifecycleTools(s *mcp.Server) {
 			res := apiToolResult(r)
 			if !res.IsError {
 				mcpProxies.maybeSync()
-				res = mcpText(map[string]any{"result": r.Body, "output": r.Output, "urls": appURLs(currentMCPBase()),
-					"next": "edit with files_*, look at urls.dev with your browser, use <server>__<tool> proxied tools"})
+				res = mcpText(map[string]any{"result": r.Body, "output": r.Output, "urls": currentAppURLs(a.Name),
+					"next": "open urls.split in your browser pane (app on top, ACP below); edit with files_*; use <server>__<tool> proxied tools"})
 			}
 			return res, nil, nil
 		})
@@ -719,20 +704,20 @@ func registerMCPLifecycleTools(s *mcp.Server) {
 			if bad != nil {
 				return bad, nil, nil
 			}
-			status := map[string]any{"current": app, "urls": appURLs(currentMCPBase()), "mcp_servers": mcpProxies.statusSnapshot()}
+			status := map[string]any{"current": app, "urls": currentAppURLs(app), "mcp_servers": mcpProxies.statusSnapshot()}
 			if r, err := callAPI(ctx, req, http.MethodGet, "/api/git/status/"+app, nil, false); err == nil {
 				status["git"] = r.Body
 			}
 			return mcpText(status), nil, nil
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "app_view", Description: "How to see the current app: its URLs plus the HTTP status and title of the dev server's home page. Open the URLs with your own browser tooling to look at or screenshot the app."},
+	mcp.AddTool(s, &mcp.Tool{Name: "app_view", Description: "How to see the current app: its URLs (urls.split = app on top, ACP below, no Trustant frame; urls.app; urls.acp) plus the HTTP status and title of the dev server's home page. Open the URLs in your browser pane to look at or screenshot the app."},
 		func(ctx context.Context, req *mcp.CallToolRequest, _ mcpNoArgs) (*mcp.CallToolResult, any, error) {
 			app, bad := currentAppOrError()
 			if bad != nil {
 				return bad, nil, nil
 			}
-			view := map[string]any{"current": app, "urls": appURLs(currentMCPBase())}
+			view := map[string]any{"current": app, "urls": currentAppURLs(app)}
 			status, title, err := probeDevServer(ctx)
 			if err != nil {
 				view["dev_server"] = "not answering: " + err.Error()

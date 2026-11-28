@@ -149,7 +149,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [gitignore.go](main/gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
 | [lovable.go](main/lovable.go) | [21-lovable.md](spec/21-lovable.md) | "Lovable project repo" Add App source: parses the repo/branch, detects and converts a Lovable (TanStack Start) project deterministically, commits it into the bare repo with `template.md` (embedded `lovable-conversion.md`), which TruACP auto-runs once on first launch |
 | [shared.go](main/shared.go) | [18-shared.md](spec/18-shared.md) | `.env.shared` — apps publish service secrets as pointers into `~/.ops/config.json`; resolved into the workspace pool at launch, and per apihost at publish; pruned from the pool when the producing app is deleted |
-| [mcpserver.go](main/mcpserver.go), [mcpproxy.go](main/mcpproxy.go) | [22-mcpserver.md](spec/22-mcpserver.md) | `/mcp` MCP entry point (bearer token, `PUT/GET /api/v1/token`): app lifecycle tools that drive the `/api` handlers in process, contained file tools for the current app, the app's own MCP servers proxied as `<server>__<tool>`, and the OpenServerless instructions as resources |
+| [mcpserver.go](main/mcpserver.go), [mcpproxy.go](main/mcpproxy.go), [mcplocation.go](main/mcplocation.go) | [22-mcpserver.md](spec/22-mcpserver.md) | `/mcp` MCP entry point (bearer token, `PUT/GET /api/v1/token`): app lifecycle tools that drive the `/api` handlers in process, contained file tools for the current app, the app's own MCP servers proxied as `<server>__<tool>`, the OpenServerless instructions as resources, and `ui_location` (`/api/v1/location`: which page/app the user has open, with the app/ACP/`split.html` URLs) |
 
 The one feature that is a shell script rather than a Go file is the screenshot
 recorder: [util/screenshot.sh](util/screenshot.sh), specced in
@@ -204,6 +204,9 @@ Plain HTML + Tailwind (via [web/tailwind.js](main/web/tailwind.js)) — **no bui
 - [app.html](main/web/app.html) → per-app workbench/editor ([spec/3-app.md](spec/3-app.md))
 - [appconfig.html](main/web/appconfig.html) → env editor
 - [configure.html](main/web/configure.html) → provider/model config
+- [split.html](main/web/split.html) → chrome-free app (top) + ACP (bottom) for an agent's side browser; public, self-contained ([spec/22-mcpserver.md](spec/22-mcpserver.md))
+
+[web/js/location.js](main/web/js/location.js) reports the current page/app/route to `/api/v1/location` for the MCP `ui_location` tool; load it after `trustant-auth.js` on any new page.
 
 Pages talk to the backend only through `/api/*` JSON endpoints.
 

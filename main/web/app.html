@@ -23,6 +23,7 @@
     <title>Trustant App</title>
     <script src="tailwind.js"></script>
     <script src="trustant-auth.js"></script>
+    <script src="js/location.js"></script>
     <script src="js/envtable.js"></script>
     <script src="js/marked.min.js"></script>
     <script src="js/xterm.min.js"></script>
@@ -956,6 +957,7 @@
                 rf.removeAttribute('srcdoc');   // see reloadRightIframe()
                 rf.src = rightURL + newRoute + q + '#' + newRoute;
             }
+            if (window.trustantReportLocation) window.trustantReportLocation();
             hideRouteModal();
         }
 

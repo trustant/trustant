@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2025-2026 Nuvolaris Inc
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published
+  by the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+<!--
+  split.html — the running app on top, the ACP chat below, nothing else
+  (spec/22-mcpserver.md). Made for an agent's side browser pane: the MCP
+  tools hand out its URL as urls.split. It is self-contained (no Tailwind,
+  no trustant-auth.js) and public in the session middleware, because it only
+  frames vite.<domain> and truacp.<domain>, which bypass that middleware, and
+  the agent's browser has no Trustant cookies. For the same reason it reads
+  the route from the URL, not from the ROUTE cookie, and it does not report
+  its location: it is the agent's view, not where the user is.
+
+  Query: view=app|acp (one pane full screen), ratio=0.1..0.9 (app height),
+  route=/path and query=a=b (the app route, as in app.html).
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trustant · app + ACP</title>
+    <style>
+        html, body { margin: 0; height: 100%; overflow: hidden; background: #1f1f1f; }
+        #split { display: flex; flex-direction: column; height: 100vh; }
+        iframe { display: block; width: 100%; border: 0; min-height: 0; background: #fff; }
+        #appFrame { flex: 0 0 60%; }
+        #acpFrame { flex: 1 1 auto; }
+        #divider { flex: 0 0 6px; cursor: row-resize; background: #3a3a3a; touch-action: none; }
+        #divider:hover, body.dragging #divider { background: #6366f1; }
+        body.dragging iframe { pointer-events: none; }
+        .hidden { display: none !important; }
+        body.single #appFrame, body.single #acpFrame { flex: 1 1 auto; }
+    </style>
+</head>
+<body>
+    <div id="split">
+        <iframe id="appFrame" title="Application"></iframe>
+        <div id="divider" role="separator" aria-orientation="horizontal" aria-label="Resize app and ACP"></div>
+        <iframe id="acpFrame" title="ACP"></iframe>
+    </div>
+    <script>
+        (function () {
+            'use strict';
+            const params = new URLSearchParams(window.location.search);
+            const RATIO_KEY = 'trustant.split.ratio';
+
+            function cookie(name) {
+                const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+                return m ? decodeURIComponent(m[1]) : '';
+            }
+
+            // Same derivation as applist.html: trustant.<domain>[:port] ->
+            // vite.<domain>[:port] and truacp.<domain>[:port].
+            const host = window.location.host;
+            const dot = host.indexOf('.');
+            const rest = dot >= 0 ? host.slice(dot + 1) : host;
+            const proto = window.location.protocol;
+
+            let route = params.get('route') || cookie('ROUTE') || '/';
+            if (!route.startsWith('/') || route.startsWith('//')) route = '/';
+            route = route.split('#')[0];
+            const query = (params.get('query') || (params.has('route') ? '' : cookie('QUERY')) || '').replace(/^\?/, '');
+
+            const app = document.getElementById('appFrame');
+            const acp = document.getElementById('acpFrame');
+            const divider = document.getElementById('divider');
+
+            app.src = `${proto}//vite.${rest}${route}${query ? '?' + query : ''}#${route}`;
+            acp.src = `${proto}//truacp.${rest}/`;
+
+            const view = params.get('view');
+            if (view === 'app' || view === 'acp') {
+                document.body.classList.add('single');
+                divider.classList.add('hidden');
+                (view === 'app' ? acp : app).classList.add('hidden');
+                return;
+            }
+
+            function setRatio(r) {
+                r = Math.min(0.9, Math.max(0.1, r));
+                app.style.flexBasis = (r * 100) + '%';
+                return r;
+            }
+            let ratio = parseFloat(params.get('ratio') || localStorage.getItem(RATIO_KEY) || '0.6');
+            if (!isFinite(ratio)) ratio = 0.6;
+            ratio = setRatio(ratio);
+
+            divider.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                divider.setPointerCapture(e.pointerId);
+                document.body.classList.add('dragging');
+            });
+            divider.addEventListener('pointermove', (e) => {
+                if (!document.body.classList.contains('dragging')) return;
+                ratio = setRatio(e.clientY / window.innerHeight);
+            });
+            const stop = (e) => {
+                if (!document.body.classList.contains('dragging')) return;
+                document.body.classList.remove('dragging');
+                try { divider.releasePointerCapture(e.pointerId); } catch (_) {}
+                localStorage.setItem(RATIO_KEY, String(ratio));
+            };
+            divider.addEventListener('pointerup', stop);
+            divider.addEventListener('pointercancel', stop);
+        })();
+    </script>
+</body>
+</html>

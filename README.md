@@ -297,7 +297,7 @@ Trustant is also an MCP server at `/mcp`: Claude Code, Claude Desktop or Codex c
 .\util\mcp.ps1 add       # Windows
 ```
 
-The token is generated on your machine (`~/Library/Application Support/Trustant/token.mcp`), pushed to Trustant, and written into each agent's config. Pass `--claude`, `--claude-desktop` or `--codex` to pick agents, `--url` for a non-default Trustant. See [spec/22-mcpserver.md](spec/22-mcpserver.md).
+The token is generated on your machine (`~/Library/Application Support/Trustant/token.mcp`), pushed to Trustant, and written into each agent's config. To watch the agent work, use the Claude desktop app and ask, for example, *"launch myapp with trustant and show it in your browser"*: Claude calls `ui_location` and opens a chrome-free page in its side browser with the app on top and the ACP chat below (`split.html`). Pass `--claude`, `--claude-desktop` or `--codex` to pick agents, `--url` for a non-default Trustant. See [spec/22-mcpserver.md](spec/22-mcpserver.md).
 
 ### Publishing authorization
 

@@ -250,7 +250,9 @@ func publicAuthPath(path string) bool {
 	case "/login.html", "/trustant-ui.css", "/tailwind.js", "/trustant-logo.svg", "/favicon.ico",
 		"/api/auth/login", "/api/version", "/api/status",
 		// Bearer-authenticated by mcpserver.go, not by a browser session.
-		"/mcp", "/api/v1/token":
+		"/mcp", "/api/v1/token",
+		// Only iframes onto vite./truacp. (which bypass this middleware); no data of its own.
+		"/split.html":
 		return true
 	default:
 		return false

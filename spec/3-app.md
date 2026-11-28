@@ -5,6 +5,10 @@ This file describe the code for the application page, put the code in `app.html`
 This page shows the current application
 reading it the cookie LEFT, RIGHT, NAME and DEVICE
 
+It loads `js/location.js`, which reports `page: "app"` with the app name and
+route to `/api/v1/location` (also after the Route dialog changes them), so MCP
+agents can find and show the same view ([22-mcpserver.md](22-mcpserver.md)).
+
 It shows a full page, with a top bar with 10% high.
 
 In the bar, aligned to the left:

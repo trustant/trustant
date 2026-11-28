@@ -60,8 +60,9 @@ valid CSRF header, or `Authorization: Bearer <current token>` (that is how
 
 The `initialize` result carries `instructions`: what Trustant is, the
 workflow (apps_list → app_create → app_launch → files_* → app_save →
-app_push/app_deploy/app_publish), that the agent looks at the app with its own
-browser, and which resources to read first.
+app_push/app_deploy/app_publish), that the agent calls `ui_location` and opens
+`urls.split` (app on top, ACP below) in its browser pane and reloads it after
+changes, and which resources to read first.
 
 ## Tools
 
@@ -78,6 +79,7 @@ licensed:` pass through verbatim).
 
 | Tool | Does | API |
 |---|---|---|
+| `ui_location` | where the user is (page, app, route), whether a tab is open, and all URLs | in-memory state |
 | `apps_list` | apps + the current one | `GET /api/repo` |
 | `app_create` `{name, repo, templates?, source?}` | new app from GitHub `owner/repo` (`source: "lovable"` converts a Lovable repo) | `POST /api/repo` |
 | `app_launch` `{name}` | launch; app becomes current; returns result, output, URLs | `GET /api/launch/<name>` (SSE) |
@@ -93,10 +95,61 @@ licensed:` pass through verbatim).
 `name` defaults to the current app where optional.
 
 **Seeing the app.** The server takes no screenshots and adds no browser
-runtime (setup.sh forbids browser runtimes). `app_view`/`app_status`/
-`app_launch` return `urls.dev` (`<scheme>://vite.<domain>/`), `urls.workbench`
-(`trustant.<domain>/app.html`) and `urls.applist`; the agent opens them with its
-own browser tooling to look at or screenshot the app.
+runtime (setup.sh forbids browser runtimes). `ui_location`, `app_view`,
+`app_status` and `app_launch` return `urls` (below); the agent opens them in its
+own browser pane (e.g. the Claude desktop app's side browser) to look at or
+screenshot the app, and reloads after `app_launch` / `files_write`.
+
+## Where the user is: `ui_location`
+
+`main/web/js/location.js` (loaded after `trustant-auth.js` by `applist.html`,
+`app.html`, `configure.html`, `index.html`) POSTs `/api/v1/location`
+`{page, app?, route?, query?}` on load, when the tab becomes visible, every
+15 s while visible, and from `app.html`'s `confirmRoute` after the `ROUTE` and
+`QUERY` cookies change. `page` is `applist`, `app`, `configure`, `index` or
+`other`; on `app` the `app`/`route`/`query` come from the `NAME`/`ROUTE`/`QUERY`
+cookies. Best effort: errors are ignored.
+
+The server (`mcplocation.go`) keeps the latest report in memory (latest tab
+wins). `POST /api/v1/location` validates `page` and `app` (400 otherwise),
+strips a `#fragment`, and replaces a route that does not start with a single
+`/` (e.g. `//host`) with `/`. `GET /api/v1/location` and the MCP tool
+**`ui_location`** return `{active, seen_seconds_ago, page, app, route,
+launched, urls}`; `active` is false when no report arrived in the last 45 s (no
+Trustant tab open). Both are ordinary UI APIs (behind the session when local
+login is on); the tool reads the state directly.
+
+`urls` is built from the `trustant.<domain>` base and, for the app the UI has
+open (else the launched app), the route the workbench shows (else `/`):
+
+| Key | URL |
+|---|---|
+| `app` | `<scheme>://vite.<domain><route>[?<query>]#<route>` — exactly `app.html`'s right iframe |
+| `dev` | `<scheme>://vite.<domain>/` |
+| `acp` | `<scheme>://truacp.<domain>/` — `app.html`'s left iframe |
+| `split` | `<scheme>://trustant.<domain>/split.html[?route=..&query=..]` |
+| `split_app` / `split_acp` | `split` plus `view=app` / `view=acp` |
+| `workbench` / `applist` | `trustant.<domain>/app.html`, `/applist.html` |
+
+## `split.html`: app on top, ACP below
+
+`main/web/split.html` stacks two full-width iframes, the **app on top** and the
+**ACP below**, with a 6 px draggable divider (default 60/40, clamped
+10–90 %, ratio kept in `localStorage`) and nothing else: no Trustant header,
+toolbar or chrome. Query: `view=app|acp` (one pane full screen), `ratio=`,
+`route=`, `query=`. The URLs are derived from `location.host` like
+`applist.html` does (`vite.<domain>`, `truacp.<domain>`).
+
+It is made for an agent's side browser, which has no Trustant cookies or
+session, so:
+
+- it is **self-contained** (inline CSS, no Tailwind, no `trustant-auth.js`);
+- it is **public** in the session middleware (`publicAuthPath`): it only frames
+  `vite.`/`truacp.`, which the session middleware never sees, and holds no data;
+- the route comes from `?route=`/`?query=` (the MCP URLs carry them), falling
+  back to the `ROUTE`/`QUERY` cookies, then `/`;
+- it does **not** report its location: it is the agent's view, and reporting
+  would overwrite where the user actually is.
 
 ### File tools (current app only)
 

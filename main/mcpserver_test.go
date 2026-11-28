@@ -330,13 +330,6 @@ func TestMCPEventRecorderParsesSSE(t *testing.T) {
 	}
 }
 
-func TestAppURLs(t *testing.T) {
-	u := appURLs("http://trustant.192.168.5.15.nip.io:8910")
-	if u["dev"] != "http://vite.192.168.5.15.nip.io:8910/" || u["workbench"] != "http://trustant.192.168.5.15.nip.io:8910/app.html" {
-		t.Fatalf("appURLs: %v", u)
-	}
-}
-
 func TestMCPProxyReexposesAppServer(t *testing.T) {
 	app, _ := mcpTestEnv(t)
 	cfg := filepath.Join(t.TempDir(), "mcp.json")
