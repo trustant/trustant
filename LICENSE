@@ -830,9 +830,10 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 ===============================================================================
 License: BSD-3-Clause
 ===============================================================================
-Used by 30 components (see DEPS), including: 7zz (7-Zip), click, cloudpickle,
-diff, fast-uri, Go standard library and runtime, httpcore, httpcore2, httpx,
-httpx2, idna, iputils-ping, ...
+Used by 35 components (see DEPS), including: 7zz (7-Zip), click, cloudpickle,
+diff, fast-uri, github.com/yosida95/uritemplate/v3, Go standard library and
+runtime, golang.org/x/oauth2, golang.org/x/sync, golang.org/x/sys,
+golang.org/x/time, httpcore, ...
 -------------------------------------------------------------------------------
 
 Copyright (c) <year> <owner>. 
@@ -2549,7 +2550,7 @@ The license for original unRAR code has the following restriction:
 ===============================================================================
 License: MIT
 ===============================================================================
-Used by 264 components (see DEPS), including: @codemirror/state,
+Used by 268 components (see DEPS), including: @codemirror/state,
 @codemirror/view, @earendil-works/pi-agent-core, @earendil-works/pi-ai,
 @earendil-works/pi-coding-agent, @earendil-works/pi-storage-sqlite-node,
 @earendil-works/pi-tui, @hono/node-server, @marijn/find-cluster-break,

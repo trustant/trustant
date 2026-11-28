@@ -115,7 +115,7 @@ cd main && go test -run TestGenerateProjectAssetsForTruACP  # Single test
 
 ## Repository layout
 
-The Go server and everything it builds from live under [main/](main/): every `*.go` file and test, `go.mod`, `web/`, the embedded files (`_build.txt`, `DEPS`, `master_key_pub`, the embedded `*.md`/`*.sh`/`*.tmpl`), `trustant.json`, `version.txt`, `.air.toml`, `.env`/`.env.dist`, `react-mcp/` and all the submodules. The repo root keeps the scripts (`install`, `start.sh`, `setup.sh`, `run.sh`, …), `util/` (developer helpers: `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, `prep.sh`, `publish.sh`, `hotfix.sh`, `build.sh`, `ghlogin.sh` (local, gitignored), `hotfix.sh` — each `cd`s to the repo root first, so they run the same from any directory), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/`, and `README.md`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`.
+The Go server and everything it builds from live under [main/](main/): every `*.go` file and test, `go.mod`, `web/`, the embedded files (`_build.txt`, `DEPS`, `master_key_pub`, the embedded `*.md`/`*.sh`/`*.tmpl`), `trustant.json`, `version.txt`, `.air.toml`, `.env`/`.env.dist`, `react-mcp/` and all the submodules. The repo root keeps the scripts (`install`, `start.sh`, `setup.sh`, `run.sh`, …), `util/` (developer helpers: `ssh.sh`, `screenshot.sh`, `vscode.sh`, `update-tree.sh`, `sync-branch.sh`, `switch.sh`, `proxy.sh`, `prep.sh`, `publish.sh`, `hotfix.sh`, `build.sh`, `mcp.sh`/`mcp.ps1` (connect Claude Code, Claude Desktop, Codex to `/mcp`), `ghlogin.sh` (local, gitignored), `hotfix.sh` — each `cd`s to the repo root first, so they run the same from any directory), `image/`, `legal/` (incl. `deps.sh`), `spec/`, `tests/`, and `README.md`, `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`.
 
 `LICENSE` and `NOTICE` are committed **only at the root**, but `main/legal.go` embeds them and `go:embed` cannot reach `../`. So `build.sh`, `hotfix.sh` and `run.sh` copy them into `main/` before compiling (`main/LICENSE`, `main/NOTICE` are gitignored). A bare `go test` in a fresh clone fails to embed until one of those has run once, or `cp LICENSE NOTICE main/`. Go tests run with `main/` as cwd, so tests that read root scripts use `../`.
 
@@ -125,7 +125,7 @@ The Go server and everything it builds from live under [main/](main/): every `*.
 
 Everything is `package main`. Each `*.go` file owns a feature surface that maps 1:1 with a spec doc under [spec/](spec/):
 
-`go.mod` is no longer dependency-free: the terminal adds `github.com/creack/pty` and `github.com/coder/websocket`. Both are pure Go, so `build.sh --buildx` keeps cross-compiling `linux/amd64` and `linux/arm64` with `CGO_ENABLED=0` (`--build` compiles the host arch only).
+`go.mod` is no longer dependency-free: the terminal adds `github.com/creack/pty` and `github.com/coder/websocket`, and the MCP entry point adds `github.com/modelcontextprotocol/go-sdk` (with its small pure-Go deps). All are pure Go, so `build.sh --buildx` keeps cross-compiling `linux/amd64` and `linux/arm64` with `CGO_ENABLED=0` (`--build` compiles the host arch only).
 
 | File | Spec | Responsibility |
 |---|---|---|
@@ -149,6 +149,7 @@ Everything is `package main`. Each `*.go` file owns a feature surface that maps 
 | [gitignore.go](main/gitignore.go) | [13-gitignore.md](spec/13-gitignore.md) | Managed workbench `.gitignore`, untracking of pre-migration generated files, and the `CLAUDE.md`→`AGENTS.md` / `.claude`→`.agents` links |
 | [lovable.go](main/lovable.go) | [21-lovable.md](spec/21-lovable.md) | "Lovable project repo" Add App source: parses the repo/branch, detects and converts a Lovable (TanStack Start) project deterministically, commits it into the bare repo with `template.md` (embedded `lovable-conversion.md`), which TruACP auto-runs once on first launch |
 | [shared.go](main/shared.go) | [18-shared.md](spec/18-shared.md) | `.env.shared` — apps publish service secrets as pointers into `~/.ops/config.json`; resolved into the workspace pool at launch, and per apihost at publish; pruned from the pool when the producing app is deleted |
+| [mcpserver.go](main/mcpserver.go), [mcpproxy.go](main/mcpproxy.go) | [22-mcpserver.md](spec/22-mcpserver.md) | `/mcp` MCP entry point (bearer token, `PUT/GET /api/v1/token`): app lifecycle tools that drive the `/api` handlers in process, contained file tools for the current app, the app's own MCP servers proxied as `<server>__<tool>`, and the OpenServerless instructions as resources |
 
 The one feature that is a shell script rather than a Go file is the screenshot
 recorder: [util/screenshot.sh](util/screenshot.sh), specced in
@@ -220,6 +221,10 @@ Config is loaded by merging two `trustant.json` files (see [spec/2a-config.md](s
 2. **Workspace** (`$WORKSPACE_DIR/trustant.json`) — user overrides + `apps` + `provider`
 
 Maps merge key-by-key. The workspace file uses `omitempty` so it stays small. `provider`, `apps`, and chosen models live only in the workspace layer. There is no global `env` block — per-app env vars live under `apps.<name>.development` / `apps.<name>.production`.
+
+### MCP entry point
+
+`/mcp` on `trustant.<domain>` is an MCP server (Streamable HTTP, bearer token) that lets an external agent create, launch, edit, save, push and publish apps and use the current app's MCP servers. The **client owns the token**: `util/mcp.sh add` generates it in `~/Library/Application Support/Trustant/token.mcp` (per-OS equivalents), `PUT`s it to `/api/v1/token` (stored in `$WORKSPACE_DIR/token.mcp`), then configures the agents. There is no `.env` variable for it. `/mcp` and `/api/v1/token` are public in the session middleware because they carry their own auth. Lifecycle tools call the existing `/api` handlers in process (`callAPI`), so keep API changes compatible with them. See [spec/22-mcpserver.md](spec/22-mcpserver.md).
 
 ### Publishing authorization (server-side, license-based)
 

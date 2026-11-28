@@ -284,6 +284,20 @@ All endpoints are JSON under `/api/*`, registered in [main.go](main/main.go):
 | `/api/credits`, `/api/topup` | credits.go | Credits & top-up (ai-proxy) |
 | `/api/sshkey` | — | SSH key handling |
 | `/api/redeploy`, `/api/activations/poll` | — | Deploy & activation polling |
+| `/mcp`, `GET/PUT /api/v1/token` | mcpserver.go | MCP entry point for external agents (bearer token) |
+
+### Connect an agent (MCP)
+
+Trustant is also an MCP server at `/mcp`: Claude Code, Claude Desktop or Codex can create, launch, edit, save, push and publish apps, use the app's own MCP servers (`openserverless__*`, `postgres__*`, ...) and read the OpenServerless build instructions. With Trustant running, from the repo root on your machine:
+
+```bash
+./util/mcp.sh add        # macOS / Linux: token + Claude Code, Claude Desktop, Codex
+./util/mcp.sh show       # what is configured
+./util/mcp.sh refresh    # rotate the token
+.\util\mcp.ps1 add       # Windows
+```
+
+The token is generated on your machine (`~/Library/Application Support/Trustant/token.mcp`), pushed to Trustant, and written into each agent's config. Pass `--claude`, `--claude-desktop` or `--codex` to pick agents, `--url` for a non-default Trustant. See [spec/22-mcpserver.md](spec/22-mcpserver.md).
 
 ### Publishing authorization
 

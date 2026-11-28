@@ -319,6 +319,25 @@
         <!-- Full `ops -info`, parsed server-side into key/value rows. Hidden when
              ops is missing or the probe failed. The app list footer carries only
              the short task hash; this is where the full detail lives. -->
+        <!-- MCP entry point (spec/22-mcpserver.md). The token itself is never
+             shown: util/mcp.sh owns it and PUTs it to /api/v1/token. -->
+        <div id="mcpCard" class="nu-card p-5 mb-4 hidden">
+            <h2 class="text-lg font-medium mb-1">MCP Server</h2>
+            <p class="text-sm text-[color:var(--nu-muted)] mb-4">
+                Let Claude Code, Claude Desktop or Codex drive Trustant: create, launch,
+                edit and publish apps. Run on your machine, from the Trustant folder:
+            </p>
+            <div class="text-sm space-y-2">
+                <div><span class="text-[color:var(--nu-muted)]">URL</span>
+                    <span id="mcpUrl" class="nu-mono text-xs break-all"></span></div>
+                <div><span class="text-[color:var(--nu-muted)]">Token fingerprint</span>
+                    <span id="mcpFingerprint" class="nu-mono text-xs"></span></div>
+                <pre class="nu-mono text-xs bg-[color:var(--nu-rule)] rounded p-2 overflow-x-auto">./util/mcp.sh add            # macOS / Linux
+.\util\mcp.ps1 add           # Windows
+./util/mcp.sh refresh        # rotate the token</pre>
+            </div>
+        </div>
+
         <div id="opsInfoCard" class="nu-card p-5 mb-4 hidden">
             <h2 class="text-lg font-medium mb-1">TruServerless CLI</h2>
             <p class="text-sm text-[color:var(--nu-muted)] mb-4">
@@ -484,6 +503,19 @@
                     <div class="nu-mono text-xs break-all">${entry.value ? escapeHtml(entry.value) : '\u2014'}</div>
                 </div>`).join('');
             card.classList.remove('hidden');
+        }
+
+        async function loadMCPInfo() {
+            try {
+                const resp = await fetch('/api/v1/token');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                document.getElementById('mcpUrl').textContent = data.url || '';
+                document.getElementById('mcpFingerprint').textContent = data.fingerprint || '';
+                document.getElementById('mcpCard').classList.remove('hidden');
+            } catch (e) {
+                console.error('Failed to load MCP info:', e);
+            }
         }
 
         async function loadLicenseStatus() {
@@ -1714,7 +1746,7 @@
             } catch (e) {
                 console.error('Failed to check version:', e);
             }
-            await Promise.all([loadConfig(), loadGitHubAccount(), loadPredefinedEnv()]);
+            await Promise.all([loadConfig(), loadGitHubAccount(), loadPredefinedEnv(), loadMCPInfo()]);
 
             // setup=1 is provider-independent: every provider must make the
             // new Pi selection explicitly because legacy opencode settings are

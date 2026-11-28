@@ -248,7 +248,9 @@ func (a *authManager) middleware(next http.Handler) http.Handler {
 func publicAuthPath(path string) bool {
 	switch path {
 	case "/login.html", "/trustant-ui.css", "/tailwind.js", "/trustant-logo.svg", "/favicon.ico",
-		"/api/auth/login", "/api/version", "/api/status":
+		"/api/auth/login", "/api/version", "/api/status",
+		// Bearer-authenticated by mcpserver.go, not by a browser session.
+		"/mcp", "/api/v1/token":
 		return true
 	default:
 		return false

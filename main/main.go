@@ -70,6 +70,7 @@ func noStoreHTML(next http.Handler) http.Handler {
 
 func main() {
 	auth, err := newAuthManagerFromEnv()
+	appAuth = auth
 	if err != nil {
 		log.Fatalf("Authentication configuration failed: %s", err)
 	}
@@ -150,6 +151,10 @@ func main() {
 	http.HandleFunc("/api/legal/", handleLegal)
 	http.HandleFunc("/api/credits", handleCredits)
 	http.HandleFunc("/api/topup", handleTopUp)
+	// MCP entry point (spec/22-mcpserver.md): bearer-authenticated, so it is
+	// public in the session middleware like /api/v1/token.
+	http.HandleFunc("/mcp", handleMCP)
+	http.HandleFunc("/api/v1/token", handleMCPToken)
 	auth.registerRoutes(http.DefaultServeMux)
 
 	// Static file serving

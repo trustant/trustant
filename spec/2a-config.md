@@ -1098,3 +1098,11 @@ behavior while restyling.
   adding missing keys as custom variables with empty Development values.
   Read-only Development values are never overwritten. The import changes only
   the in-memory table until the user saves.
+
+## MCP Server card
+
+The Configure page shows an "MCP Server" card filled from `GET /api/v1/token`:
+the MCP URL, the token fingerprint, and the `util/mcp.sh add` /
+`.\util\mcp.ps1 add` / `util/mcp.sh refresh` commands. It never shows the token
+and has no regenerate button: the token is owned by `util/mcp.sh`. See
+[22-mcpserver.md](22-mcpserver.md).
