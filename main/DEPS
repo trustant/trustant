@@ -22,11 +22,20 @@ oplugins/prereq.yml. Do not edit by hand: edit those inputs and rerun.
 
 Compiled into the single trustant executable.
 
-NAME                             VERSION  LICENSE       HOMEPAGE
-----                             -------  -------       --------
-github.com/coder/websocket       1.8.15   ISC           https://github.com/coder/websocket
-github.com/creack/pty            1.1.24   MIT           https://github.com/creack/pty
-Go standard library and runtime  1.25.5   BSD-3-Clause  https://go.dev
+NAME                                    VERSION  LICENSE       HOMEPAGE
+----                                    -------  -------       --------
+github.com/coder/websocket              1.8.15   ISC           https://github.com/coder/websocket
+github.com/creack/pty                   1.1.24   MIT           https://github.com/creack/pty
+github.com/google/jsonschema-go         0.4.3    MIT           https://github.com/google/jsonschema-go
+github.com/modelcontextprotocol/go-sdk  1.8.0    MIT           https://github.com/modelcontextprotocol/go-sdk
+github.com/segmentio/asm                1.1.3    MIT           https://github.com/segmentio/asm
+github.com/segmentio/encoding           0.5.4    MIT           https://github.com/segmentio/encoding
+github.com/yosida95/uritemplate/v3      3.0.2    BSD-3-Clause  https://github.com/yosida95/uritemplate/v3
+Go standard library and runtime         1.25.5   BSD-3-Clause  https://go.dev
+golang.org/x/oauth2                     0.35.0   BSD-3-Clause  https://golang.org/x/oauth2
+golang.org/x/sync                       0.20.0   BSD-3-Clause  https://golang.org/x/sync
+golang.org/x/sys                        0.41.0   BSD-3-Clause  https://golang.org/x/sys
+golang.org/x/time                       0.15.0   BSD-3-Clause  https://golang.org/x/time
 
 
 2. FRONTEND ASSETS VENDORED IN web/

@@ -619,7 +619,7 @@ func TestRunOwnsOneNamespaceWideKubefwd(t *testing.T) {
 func TestDocumentedEntrypointsAreExecutableInGit(t *testing.T) {
 	for _, name := range []string{
 		"run.sh", "util/screenshot.sh", "start.sh", "setup.sh",
-		"util/build.sh", "util/hotfix.sh", "util/publish.sh", "util/ssh.sh",
+		"util/build.sh", "util/hotfix.sh", "util/publish.sh", "util/ssh.sh", "util/mcp.sh",
 	} {
 		out, err := exec.Command("git", "ls-files", "-s", "--", "../"+name).Output()
 		if err != nil {
